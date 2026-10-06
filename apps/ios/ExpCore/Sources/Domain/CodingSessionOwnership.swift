@@ -39,11 +39,9 @@ public enum CodingSessionOwnership {
         sessions.filter { isOwn($0, userId: userId, teamId: teamId) }
     }
 
-    /// EXP-1075: the flip side of that scoping — with the lists team-scoped, a
-    /// live run of the caller's in ANOTHER team goes silent everywhere (the
-    /// Agents tab dot is active-team-only by the rule above). This is the one
-    /// signal that says "your runs are over there": the caller's own live
-    /// sessions counted per team.
+    /// EXP-1075: the caller's own live sessions counted per team — the
+    /// board switcher SHEET's per-team dots (EXP-1210: the switcher pill
+    /// itself carries no dot on phones).
     public struct TeamLiveRuns: Equatable {
         public var count: Int
         public var needsInput: Bool
@@ -75,20 +73,5 @@ public enum CodingSessionOwnership {
             byTeam[session.teamId] = entry
         }
         return byTeam
-    }
-
-    /// The board switcher's dot: is there live own work OUTSIDE the active
-    /// team, and does any of it want the user? The active team is excluded —
-    /// its runs already light the Agents tab.
-    public static func otherTeamsLive(
-        _ byTeam: [String: TeamLiveRuns], activeTeamId: String?
-    ) -> (any: Bool, needsInput: Bool) {
-        var anyLive = false
-        var needsInput = false
-        for (teamId, runs) in byTeam where teamId != activeTeamId && runs.count > 0 {
-            anyLive = true
-            if runs.needsInput { needsInput = true }
-        }
-        return (anyLive, needsInput)
     }
 }

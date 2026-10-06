@@ -189,38 +189,4 @@ final class CodingSessionOwnershipTests: XCTestCase {
         let byTeam = CodingSessionOwnership.liveByTeam(sessions, userId: "me", now: soon)
         XCTAssertEqual(byTeam["team-2"], CodingSessionOwnership.TeamLiveRuns(count: 1, needsInput: true))
     }
-
-    func testOtherTeamsLiveExcludesTheActiveTeam() {
-        let byTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [
-            "team-1": .init(count: 2, needsInput: true)
-        ]
-        let active = CodingSessionOwnership.otherTeamsLive(byTeam, activeTeamId: "team-1")
-        XCTAssertFalse(active.any)
-        XCTAssertFalse(active.needsInput)
-
-        let elsewhere = CodingSessionOwnership.otherTeamsLive(byTeam, activeTeamId: "team-9")
-        XCTAssertTrue(elsewhere.any)
-        XCTAssertTrue(elsewhere.needsInput)
-    }
-
-    func testOtherTeamsLiveAmberOnlyWhenAnotherTeamAsks() {
-        let byTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [
-            "team-1": .init(count: 1, needsInput: true),
-            "team-2": .init(count: 1, needsInput: false),
-        ]
-        // The asking team IS the active one: the other team still shows a dot,
-        // but a green one.
-        let result = CodingSessionOwnership.otherTeamsLive(byTeam, activeTeamId: "team-1")
-        XCTAssertTrue(result.any)
-        XCTAssertFalse(result.needsInput)
-    }
-
-    func testOtherTeamsLiveIsQuietWithNothingLive() {
-        XCTAssertFalse(CodingSessionOwnership.otherTeamsLive([:], activeTeamId: "team-1").any)
-        XCTAssertFalse(
-            CodingSessionOwnership.otherTeamsLive(
-                ["team-2": .init(count: 0, needsInput: false)], activeTeamId: "team-1"
-            ).any
-        )
-    }
 }
