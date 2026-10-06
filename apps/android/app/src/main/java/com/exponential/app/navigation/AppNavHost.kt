@@ -1,8 +1,11 @@
 package com.exponential.app.navigation
 
 import android.net.Uri
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -106,8 +110,10 @@ import dagger.hilt.android.EntryPointAccessors
  * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
  * pill (Issues · Inbox · Devices · Reviews · Actions + the Chat | New issue
  * capsule) overlaid on the top-level routes; the app lands on the Agent page,
- * which the Chat arm selects like a tab. Replaces the inline graph + `MainScaffold` drawer
- * shell that used to live in MainActivity.
+ * which the Chat arm selects like a tab. EXP-1210: the tabs are ROOT siblings
+ * ([MainTabs], [selectTab]) — no back button, no slide between them. Replaces
+ * the inline graph + `MainScaffold` drawer shell that used to live in
+ * MainActivity.
  */
 @Composable
 fun AppNavHost() {
@@ -126,6 +132,8 @@ fun AppNavHost() {
     val guarded: (() -> Unit) -> Unit = { navigation ->
         leaveGuard.navigate(beforeHeld = { navController.popBackStack() }, navigation = navigation)
     }
+    // EXP-1210: the tab switch in flight, drawn with no transition.
+    val tabSwitch = remember { TabSwitchMarker() }
 
     val startDestination = when {
         state.instanceUrl == null -> "instance"
@@ -156,10 +164,7 @@ fun AppNavHost() {
             // segment the screen opens on unless the user last left it on
             // My Issues.
             DeepLinkBus.Target.Inbox -> guarded {
-                navController.navigate("personal") {
-                    launchSingleTop = true
-                    popUpTo(AGENT_TAB_ROUTE)
-                }
+                navController.selectTab(MainTabs.INBOX, tabSwitch, restore = false)
             }
             // EXP-980: a blocked run's push tap lands on the run itself. Same
             // snapshot hazard as the issue route — the session screen reads
@@ -169,7 +174,9 @@ fun AppNavHost() {
             }
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
             // which IS the Agent tab.
-            DeepLinkBus.Target.Agent -> guarded { navController.openAgentTab() }
+            DeepLinkBus.Target.Agent -> guarded {
+                navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+            }
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -287,6 +294,7 @@ fun AppNavHost() {
                 navController = navController,
                 leaveGuard = leaveGuard,
                 guarded = guarded,
+                tabSwitch = tabSwitch,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
                 gatedOtherServers = gatedOtherServers,
@@ -344,6 +352,7 @@ private fun AuthenticatedNav(
     navController: NavHostController,
     leaveGuard: LeaveGuard,
     guarded: (() -> Unit) -> Unit,
+    tabSwitch: TabSwitchMarker,
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
     gatedOtherServers: List<String>,
@@ -381,10 +390,13 @@ private fun AuthenticatedNav(
     // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
+    // still lights that tab.
+    val currentTab = remember(backStackEntry) {
+        MainTabs.current(navController.currentBackStack.value.map { it.destination.route })
+    }
     val barVisible = !needsOnboarding &&
-        currentRoute in setOf(
-            AGENT_TAB_ROUTE, "home", "actions", "agents", "personal", "reviews", "board/{boardId}",
-        )
+        (currentRoute in MainTabs.routes || currentRoute == "board/{boardId}")
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
     // provided to the whole NavHost; the chrome below reads it directly.
@@ -394,9 +406,9 @@ private fun AuthenticatedNav(
     // EXP-1105: yolo mode hides the Reviews tab unless a PR is open (in yolo
     // mode an open PR = a failed auto-merge, which must still surface).
     // EXP-1186: both flags span every member team (`yoloMode` = ALL yolo). If it
-    // flips off while the Reviews surface is up, drop it from the stack
-    // instead of stranding a tab-less screen — and pop ONLY on a true→false
-    // TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
+    // flips off while the Reviews tab is up, switch to Issues instead of
+    // stranding a tab-less screen, and drop its saved stack — ONLY on a
+    // true→false TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
     // the flag recomputes through a fresh Room flow that can never emit
     // synchronously, so a guard re-run on the route change alone would read
     // the PREVIOUS team's stale value and bounce a tap straight back to Issues.
@@ -405,13 +417,12 @@ private fun AuthenticatedNav(
     LaunchedEffect(showsReviews) {
         val flippedOff = hadReviews && !showsReviews
         hadReviews = showsReviews
-        // Every tab sits on the Agent root, so the pop alone would reveal the
-        // Agent page: switch to Issues like the tab does (iOS parity).
-        if (flippedOff && navController.popBackStack("reviews", inclusive = true)) {
-            navController.navigate("home") {
-                launchSingleTop = true
-                popUpTo(AGENT_TAB_ROUTE)
-            }
+        if (flippedOff) {
+            val onReviews = MainTabs.current(
+                navController.currentBackStack.value.map { it.destination.route },
+            ) == MainTabs.REVIEWS
+            if (onReviews) navController.selectTab(MainTabs.ISSUES, tabSwitch)
+            navController.clearBackStack(MainTabs.REVIEWS)
         }
     }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
@@ -424,20 +435,22 @@ private fun AuthenticatedNav(
     val openAgent: (AgentComposerSeed) -> Unit = { seed ->
         val route = agentRoute(seed)
         if (route == AGENT_ROUTE) {
-            navController.openAgentTab()
+            navController.selectTab(MainTabs.AGENT, tabSwitch)
         } else {
             navController.navigateDeepLink(route)
         }
     }
     // EXP-1121: the "Ready to code?" fixes. Team settings shows the SELECTED
     // team, so the issue's team is selected first (a no-op when it already
-    // is); both are PUSHED over the issue, so Back returns to Start coding.
+    // is); it is PUSHED over the issue, so Back returns to Start coding.
+    // Devices is a tab (EXP-1210): a switch; an issue opened inside a
+    // non-Agent tab comes back with that tab's restored stack.
     val openReadinessTeamSettings: (String) -> Unit = { teamId ->
         if (teamSelection.selectedId.value != teamId) teamSelection.select(teamId)
         navController.navigate("team-settings") { launchSingleTop = true }
     }
     val openReadinessDevices: () -> Unit = {
-        navController.navigate("agents") { launchSingleTop = true }
+        navController.selectTab(MainTabs.DEVICES, tabSwitch)
     }
 
     // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
@@ -458,7 +471,7 @@ private fun AuthenticatedNav(
     // EXP-920: the ONE navigator an entity-preview sheet's Open rides — every
     // kind's detail surface behind one local, so the transcript never threads
     // a lambda per kind.
-    val entityNavigator = remember(navController) {
+    val entityNavigator = remember(navController, tabSwitch) {
         EntityNavigator { target -> guarded {
             when (target) {
                 is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
@@ -466,19 +479,11 @@ private fun AuthenticatedNav(
                 is EntityTarget.Session -> navController.navigate("steer/${target.id}")
                 // SLOP-2: an `action` ref opens that action's page.
                 is EntityTarget.Action -> navController.navigate("action/${target.id}")
-                EntityTarget.Actions -> navController.navigate("actions") {
-                    launchSingleTop = true
-                    popUpTo(AGENT_TAB_ROUTE)
-                }
-                EntityTarget.Devices -> navController.navigate("agents") {
-                    launchSingleTop = true
-                    popUpTo(AGENT_TAB_ROUTE)
-                }
+                // EXP-1210: a tab is never pushed — its ref switches to it.
+                EntityTarget.Actions -> navController.selectTab(MainTabs.ACTIONS, tabSwitch)
+                EntityTarget.Devices -> navController.selectTab(MainTabs.DEVICES, tabSwitch)
                 EntityTarget.TeamSettings -> navController.navigate("team-settings")
-                EntityTarget.Inbox -> navController.navigate("personal") {
-                    launchSingleTop = true
-                    popUpTo(AGENT_TAB_ROUTE)
-                }
+                EntityTarget.Inbox -> navController.selectTab(MainTabs.INBOX, tabSwitch)
             }
         } }
     }
@@ -494,11 +499,25 @@ private fun AuthenticatedNav(
         // The Agent tab is the stack ROOT (where the app lands); every other
         // tab is one entry above it, so Back from a tab returns to Agent.
         startDestination = if (needsOnboarding) "onboarding" else AGENT_TAB_ROUTE,
-        // iOS-style horizontal push/pop transitions.
-        enterTransition = { slideIntoContainer(SlideDirection.Start, pushSpec) },
-        exitTransition = { slideOutOfContainer(SlideDirection.Start, pushSpec) },
-        popEnterTransition = { slideIntoContainer(SlideDirection.End, pushSpec) },
-        popExitTransition = { slideOutOfContainer(SlideDirection.End, pushSpec) },
+        // iOS-style horizontal push/pop transitions — except a tab switch
+        // (EXP-1210): tab roots are siblings, so moving between them (and
+        // Back from a tab root to the Agent root) swaps with no transition.
+        enterTransition = {
+            if (isTabSwap(tabSwitch)) EnterTransition.None
+            else slideIntoContainer(SlideDirection.Start, pushSpec)
+        },
+        exitTransition = {
+            if (isTabSwap(tabSwitch)) ExitTransition.None
+            else slideOutOfContainer(SlideDirection.Start, pushSpec)
+        },
+        popEnterTransition = {
+            if (isTabSwap(tabSwitch)) EnterTransition.None
+            else slideIntoContainer(SlideDirection.End, pushSpec)
+        },
+        popExitTransition = {
+            if (isTabSwap(tabSwitch)) ExitTransition.None
+            else slideOutOfContainer(SlideDirection.End, pushSpec)
+        },
     ) {
         composable("onboarding") {
             OnboardingScreen(
@@ -537,18 +556,8 @@ private fun AuthenticatedNav(
                 // states — each step's own surface, plus the compose form the
                 // hidden FAB would have opened.
                 onOpenTeamSettings = { navController.navigate("team-settings") },
-                onOpenDevices = {
-                    navController.navigate("agents") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                },
-                onOpenActions = {
-                    navController.navigate("actions") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                },
+                onOpenDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
+                onOpenActions = { navController.selectTab(MainTabs.ACTIONS, tabSwitch) },
                 onNewIssue = {
                     currentBoardId?.let { navController.openIssueDraft(it) }
                 },
@@ -873,12 +882,12 @@ private fun AuthenticatedNav(
         modifier = Modifier.align(Alignment.BottomCenter),
     ) {
         BottomNavBar(
-            agentActive = currentRoute == AGENT_TAB_ROUTE,
-            issuesActive = currentRoute == "home",
-            devicesActive = currentRoute == "agents",
-            actionsActive = currentRoute == "actions",
-            personalActive = currentRoute == "personal",
-            reviewsActive = currentRoute == "reviews",
+            agentActive = currentTab == MainTabs.AGENT,
+            issuesActive = currentTab == MainTabs.ISSUES,
+            devicesActive = currentTab == MainTabs.DEVICES,
+            actionsActive = currentTab == MainTabs.ACTIONS,
+            personalActive = currentTab == MainTabs.INBOX,
+            reviewsActive = currentTab == MainTabs.REVIEWS,
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
@@ -891,53 +900,15 @@ private fun AuthenticatedNav(
             // tab (it is the start destination, never a push) and reads
             // selected while it is up.
             composeEnabled = composeBoardId != null,
-            onChat = {
-                if (currentRoute != AGENT_TAB_ROUTE) navController.openAgentTab()
-            },
-            // Back to the Issues root (keeping its state) when it is on the
-            // stack under a pushed board, else the tab like the others.
-            onIssues = {
-                if (!navController.popBackStack("home", inclusive = false)) {
-                    navController.navigate("home") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                }
-            },
-            onDevices = {
-                if (currentRoute != "agents") {
-                    navController.navigate("agents") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                }
-            },
-            // EXP-1187: Actions is a top-level tab (the More menu is gone;
-            // Settings = the Issues header's gear).
-            onActions = {
-                if (currentRoute != "actions") {
-                    navController.navigate("actions") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                }
-            },
-            onPersonal = {
-                if (currentRoute != "personal") {
-                    navController.navigate("personal") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                }
-            },
-            onReviews = {
-                if (currentRoute != "reviews") {
-                    navController.navigate("reviews") {
-                        launchSingleTop = true
-                        popUpTo(AGENT_TAB_ROUTE)
-                    }
-                }
-            },
+            // EXP-1210: every entry SWITCHES to a sibling root (a re-tap pops
+            // back to it); EXP-1187: Actions is a top-level tab (Settings = the
+            // Issues header's gear).
+            onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
+            onIssues = { navController.selectTab(MainTabs.ISSUES, tabSwitch) },
+            onDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
+            onActions = { navController.selectTab(MainTabs.ACTIONS, tabSwitch) },
+            onPersonal = { navController.selectTab(MainTabs.INBOX, tabSwitch) },
+            onReviews = { navController.selectTab(MainTabs.REVIEWS, tabSwitch) },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
@@ -951,15 +922,14 @@ private fun AuthenticatedNav(
  * seeded `agent?…` page (AGENT_ROUTE_PATTERN), so tab pops never land on a
  * seeded entry.
  */
-private const val AGENT_TAB_ROUTE = "agent-tab"
+private const val AGENT_TAB_ROUTE = MainTabs.AGENT
 
-/** Switch to the Agent tab: pop everything above the root. */
-private fun NavHostController.openAgentTab() {
-    navigate(AGENT_TAB_ROUTE) {
-        launchSingleTop = true
-        popUpTo(AGENT_TAB_ROUTE)
-    }
-}
+/** EXP-1210: a move the NavHost draws with no transition (see [MainTabs]). */
+private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
+    tabSwitch: TabSwitchMarker,
+): Boolean =
+    MainTabs.isRootSwap(initialState.destination.route, targetState.destination.route) ||
+        tabSwitch.matches(initialState, targetState)
 
 /** EXP-1170: the New issue page — `drafts/{draftId}?board=&status=&parent=`. */
 private const val ISSUE_DRAFT_ROUTE = "drafts/{draftId}?board={board}&status={status}&parent={parent}"
