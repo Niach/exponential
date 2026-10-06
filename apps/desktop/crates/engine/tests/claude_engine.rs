@@ -393,3 +393,46 @@ fn an_image_seed_publishes_exactly_one_user_row() {
     assert_eq!(local.len(), 1, "exactly ONE initial message in the local feed: {local:?}");
     assert_eq!(local[0]["text"], serde_json::json!(seed));
 }
+
+/// The settled `tool_update` the ONE mapper published for `id`.
+fn settle_of(sink: &RecordingSink, id: &str) -> Option<serde_json::Value> {
+    events_of(sink, "tool_update")
+        .into_iter()
+        .find(|event| event["id"] == serde_json::json!(id) && event.get("status").is_some())
+}
+
+/// EXP-1202 / EXP-1220: a CLAUDE run publishes an Exponential tool's preview
+/// like a codex one does. The CLI hands an MCP answer over as a `tool_result`
+/// whose content is the server's `[{type:"text",text:"<json>"}]` envelope; the
+/// adapter forwards it as the settle's `raw_output`, so `sessions_show`
+/// settles with `preview.id` = the attachment every client renders inline.
+/// A FAILED call settles with no preview, even when its text parses as a row.
+///
+/// The side finding: a `Bash` settle's wire `output` is what the command
+/// printed, never the call's description or the transcript's console fence.
+#[test]
+fn a_claude_exponential_call_publishes_its_preview() {
+    let _session = one_session_at_a_time();
+    let harness = start("exp-tool-preview", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+    harness
+        .session
+        .send_prompt("Show the screenshot, look up EXP-404, then print the marker.".to_string());
+    until("the turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the bash settle", || settle_of(&harness.sink, "toolu_thebashcall").is_some());
+
+    let shown = settle_of(&harness.sink, "toolu_theshowcall").expect("the show call settled");
+    assert_eq!(shown["status"], serde_json::json!("completed"), "{shown}");
+    assert_eq!(
+        shown["preview"]["id"],
+        serde_json::json!("7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99"),
+        "the settle carries the shown attachment: {shown}"
+    );
+
+    let failed = settle_of(&harness.sink, "toolu_thefailedcall").expect("the failed call settled");
+    assert_eq!(failed["status"], serde_json::json!("failed"), "{failed}");
+    assert!(failed.get("preview").is_none(), "a failed call has no preview: {failed}");
+
+    let bash = settle_of(&harness.sink, "toolu_thebashcall").expect("the bash call settled");
+    assert_eq!(bash["output"], serde_json::json!("fg-done"), "{bash}");
+}
