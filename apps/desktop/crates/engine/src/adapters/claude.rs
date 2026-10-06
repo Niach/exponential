@@ -952,6 +952,33 @@ fn lane_steps(
     steps
 }
 
+/// EXP-1225: the workflow itself ended. A lane its progress never finished
+/// (a stopped or killed workflow freezes its agents mid-run) closes with it,
+/// or every client keeps that agent's tab spinning for the rest of the run.
+fn close_lanes(run: &mut WorkflowRun) -> Vec<LaneStep> {
+    let status = match run.status {
+        steer::WorkflowStatus::Completed => "completed",
+        _ => "failed",
+    };
+    let mut steps = Vec::new();
+    for (index, lane) in run.lanes.iter_mut() {
+        if !lane.started || lane.finished {
+            continue;
+        }
+        let Some(agent) = run.agents.get(index) else { continue };
+        let Some(id) = agent.agent_id.clone() else { continue };
+        lane.finished = true;
+        steps.push(LaneStep::Finished {
+            title: if agent.label.trim().is_empty() { id.clone() } else { agent.label.clone() },
+            id,
+            workflow_id: run.id.clone(),
+            status,
+            tool_calls: agent.tool_calls,
+        });
+    }
+    steps
+}
+
 /// EXP-1225: the tool input a workflow agent's `lastToolName` +
 /// `lastToolSummary` stand for, so [`tool_info`] titles and kinds the
 /// synthesized row exactly as it would the agent's real call. The summary
@@ -3090,11 +3117,13 @@ impl ClaudeSession {
                         .and_then(Value::as_str)
                         .map(str::to_string)
                         .filter(|summary| !summary.trim().is_empty());
+                    let mut closed = Vec::new();
                     {
                         let mut state = self.lock();
                         if let Some(run) = state.workflows.iter_mut().find(|run| run.id == *id) {
                             if terminal {
                                 run.status = steer::WorkflowStatus::from_task_status(&status);
+                                closed = close_lanes(run);
                             }
                             if let Some(summary) = summary {
                                 run.summary = Some(summary);
@@ -3102,6 +3131,9 @@ impl ClaudeSession {
                         }
                     }
                     self.publish_workflow(cx, id, true);
+                    for step in closed {
+                        self.publish_lane_step(cx, step);
+                    }
                 }
                 let mut state = self.lock();
                 // `task_notification` and `task_updated` share this arm and
@@ -6146,6 +6178,116 @@ mod tests {
         assert!(!state.workflow_of_task.contains_key("task-0"));
         assert!(!state.task_tool_ids.contains_key("task-0"));
         assert_eq!(state.workflow_of_task.get("task-4").map(String::as_str), Some("toolu_4"));
+    }
+
+    fn lane_agent(state: steer::WorkflowAgentState) -> steer::WorkflowAgent {
+        steer::WorkflowAgent {
+            index: 1,
+            label: "alpha:one".to_string(),
+            agent_id: Some("a37045b3fb76c076a".to_string()),
+            state,
+            ..steer::WorkflowAgent::default()
+        }
+    }
+
+    fn step_names(steps: &[LaneStep]) -> Vec<String> {
+        steps
+            .iter()
+            .map(|step| match step {
+                LaneStep::Started { .. } => "started".to_string(),
+                LaneStep::Tool { name, summary, .. } => format!("tool:{name}:{summary}"),
+                LaneStep::Narration { text, .. } => format!("say:{text}"),
+                LaneStep::Finished { status, .. } => format!("end:{status}"),
+            })
+            .collect()
+    }
+
+    /// EXP-1225: a workflow agent's lane, step by step off its progress
+    /// entries — nothing while queued, the edge once it runs, ONE row per
+    /// distinct last tool, the preview and the end once done, and nothing
+    /// after that.
+    #[test]
+    fn a_workflow_agents_lane_follows_its_progress_entries() {
+        let mut lane = AgentLane::default();
+        let mut queued = lane_agent(steer::WorkflowAgentState::Queued);
+        queued.agent_id = None;
+        assert!(lane_steps("wf", &queued, &mut lane).is_empty());
+
+        let running = lane_agent(steer::WorkflowAgentState::Running);
+        assert_eq!(step_names(&lane_steps("wf", &running, &mut lane)), vec!["started"]);
+        // The same entry again says nothing.
+        assert!(lane_steps("wf", &running, &mut lane).is_empty());
+
+        let mut on_bash = running.clone();
+        on_bash.last_tool = Some("Bash".to_string());
+        on_bash.last_tool_summary = Some("echo one".to_string());
+        assert_eq!(
+            step_names(&lane_steps("wf", &on_bash, &mut lane)),
+            vec!["tool:Bash:echo one"]
+        );
+        assert!(lane_steps("wf", &on_bash, &mut lane).is_empty(), "one row per distinct call");
+
+        let mut done = on_bash.clone();
+        done.state = steer::WorkflowAgentState::Done;
+        done.result_preview = Some("ok".to_string());
+        done.tool_calls = Some(1);
+        let steps = lane_steps("wf", &done, &mut lane);
+        assert_eq!(step_names(&steps), vec!["say:ok", "end:completed"]);
+        assert!(matches!(
+            steps.last(),
+            Some(LaneStep::Finished { tool_calls: Some(1), title, workflow_id, .. })
+                if title == "alpha:one" && workflow_id == "wf"
+        ));
+        assert!(lane_steps("wf", &done, &mut lane).is_empty(), "a finished lane is closed");
+
+        // Straight from queued to error, in one frame: the whole life.
+        let mut lane = AgentLane::default();
+        let mut failed = lane_agent(steer::WorkflowAgentState::Error);
+        failed.error = Some("panicked".to_string());
+        assert_eq!(
+            step_names(&lane_steps("wf", &failed, &mut lane)),
+            vec!["started", "say:panicked", "end:failed"]
+        );
+    }
+
+    /// EXP-1225: the synthesized row reads as the call it stands for.
+    #[test]
+    fn a_lane_row_is_titled_like_the_tool_it_names() {
+        let cwd = PathBuf::from("/work/tree");
+        let bash = tool_info("Bash", &lane_tool_input("Bash", "echo one"), &cwd);
+        assert_eq!(bash.kind, ToolKind::Execute);
+        assert_eq!(bash.title, "echo one");
+        let read = tool_info("Read", &lane_tool_input("Read", "/work/tree/src/lib.rs"), &cwd);
+        assert_eq!(read.kind, ToolKind::Read);
+        assert_eq!(read.locations.len(), 1);
+        let other = tool_info("Frobnicate", &lane_tool_input("Frobnicate", "it"), &cwd);
+        assert_eq!(other.kind, ToolKind::Other);
+        assert_eq!(other.title, "Frobnicate");
+    }
+
+    /// EXP-1225: a workflow that ends with lanes still open (stopped, killed)
+    /// closes them, so no agent tab spins for the rest of the run.
+    #[test]
+    fn a_stopped_workflow_closes_its_open_lanes() {
+        let mut run = WorkflowRun {
+            id: "wf".to_string(),
+            name: "wire-probe".to_string(),
+            description: None,
+            status: steer::WorkflowStatus::Stopped,
+            phases: BTreeMap::new(),
+            agents: BTreeMap::new(),
+            summary: None,
+            published_at: None,
+            lanes: BTreeMap::new(),
+        };
+        let running = lane_agent(steer::WorkflowAgentState::Running);
+        let mut lane = AgentLane::default();
+        lane_steps("wf", &running, &mut lane);
+        run.agents.insert(1, running);
+        run.lanes.insert(1, lane);
+        let steps = close_lanes(&mut run);
+        assert_eq!(step_names(&steps), vec!["end:failed"]);
+        assert!(close_lanes(&mut run).is_empty(), "closed once");
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on
