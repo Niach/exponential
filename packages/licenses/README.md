@@ -36,8 +36,10 @@ is what lets `apps/web/src/lib/licenses.test.ts` re-run it in the pure-bun `web`
 CI job and byte-compare the outputs on every PR.
 
 The inventories cannot be regenerated there, so the same test proves them
-against the lockfiles they came from instead — in both directions, so a removed
-dependency cannot leave a stale notice behind.
+against the lockfiles they came from instead: for npm it recomputes each
+scope's production closure from `bun.lock` (`src/bun-lock.ts`, shared with the
+collector) and demands `name@version` equality in both directions, so neither
+a new transitive package nor a removed one can slip past.
 
 ## Commands
 
@@ -71,6 +73,19 @@ After changing a dependency in any client, re-run that client's collector and
   policy, text normalisation, the renderer.
 
 ## Things that will bite you
+
+**A CLI under `dependencies` is attributed.** The npm closure follows
+`dependencies` edges through our own workspace packages, so what a workspace
+package declares is what every app that imports it attributes. EXP-1205:
+`shadcn` (the generator behind `bunx shadcn add`, imported by nothing) sat
+under `dependencies` of `@exp/ui` and dragged ~200 packages — msw, ts-morph,
+inquirer, ora, a second Babel — into both npm closures. Tooling a workspace
+package only *runs* belongs in `devDependencies`; the gate now pins `shadcn`
+there and recomputes each scope's whole closure from `bun.lock`
+(`src/bun-lock.ts`), so a dependency added anywhere in the graph fails CI
+until the inventory is re-collected. (The web image's filtered `bun install`
+installs the selected workspaces' `devDependencies` too — `vite`, `drizzle-kit`
+— so `devDependencies` keeps a tool out of the NOTICE, not out of the image.)
 
 **`Cargo.lock` is not the shipped graph.** It has ~90 more packages than we
 ship. `libfuzzer-sys` is `(MIT OR Apache-2.0) AND NCSA` — NCSA is not on
