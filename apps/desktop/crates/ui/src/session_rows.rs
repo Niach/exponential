@@ -63,9 +63,9 @@ fn row_is_pending(row: &FeedRowSpec, items: &[FeedItem]) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Drop the subagent rows whose agent belongs to a WORKFLOW the feed HOLDS a
-/// card for (§3: "agents of a workflow are never subagent tabs", §4: their
-/// edges nest under the card). The card itself renders them, so leaving the
-/// row in would print each agent twice.
+/// card for (§4: their edges nest under the card). The card summarises them
+/// (and, EXP-1225, their rows live in their own tabs), so leaving the row in
+/// would print each agent twice.
 ///
 /// `held` is `feed.workflow_ids()`. Hiding on the edge's `workflowId` alone
 /// would swallow the agent entirely when the card is gone (evicted past the
@@ -112,20 +112,6 @@ pub(crate) fn orphan_workflow_ids(
     held.iter()
         .filter(|id| !rendered.contains(*id))
         .map(|id| (*id).to_string())
-        .collect()
-}
-
-/// Every feed item tagged with `subagent_id`, by index — what a workflow
-/// agent row unfolds into (§3: "a workflow agent row expands to a collapsible
-/// preview of nested events when any exist"). The lifecycle markers stay out;
-/// only what the agent produced is a preview.
-pub(crate) fn nested_agent_items(items: &[FeedItem], subagent_id: &str) -> Vec<usize> {
-    items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| item.subagent_id() == Some(subagent_id))
-        .filter(|(_, item)| !matches!(item.kind, FeedKind::Subagent { .. }))
-        .map(|(ix, _)| ix)
         .collect()
 }
 
@@ -658,19 +644,6 @@ mod tests {
         assert!(duplicate_warnings(&[narration(1), subagent(2, "a-1", None)]).is_empty());
     }
 
-    /// §3: an agent's nested events are its prose and calls, never its own
-    /// lifecycle markers.
-    #[test]
-    fn nested_agent_items_are_the_agents_own_output() {
-        let mut prose = narration(3);
-        if let FeedKind::Narration { subagent_id, .. } = &mut prose.kind {
-            *subagent_id = Some("a-1".to_string());
-        }
-        let items = vec![narration(1), subagent(2, "a-1", Some("wf")), prose];
-        assert_eq!(nested_agent_items(&items, "a-1"), vec![2usize]);
-        assert!(nested_agent_items(&items, "a-2").is_empty());
-    }
-
     /// §5: the caption, in all four shapes.
     #[test]
     fn the_working_caption_names_the_verb_the_clock_and_the_tokens() {
@@ -1040,8 +1013,9 @@ mod tests {
             orphan_workflow_ids(&rows, feed.items(), &feed.workflow_ids()),
             vec!["toolu_017Lh63mYhRJ3MrA4A1PXytt".to_string()]
         );
-        // A workflow agent is never a steerable TAB either.
-        assert!(steer::feed::visible_subagent_tabs(&feed.subagents(), None).is_empty());
+        // EXP-1225: but it IS a tab, like any running subagent — its rows
+        // live there, the card only summarises it.
+        assert_eq!(steer::feed::visible_subagent_tabs(&feed.subagents(), None).len(), 1);
     }
 
     /// EXP-884/EXP-916: the memo parses each CARD once, re-reads it only
