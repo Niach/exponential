@@ -53,6 +53,7 @@ use steer::activity::{
 use steer::frames::CompactionPhase;
 use steer::{ActivityEvent, QuestionOption, ToolKind as WireToolKind, ToolUpdateStatus};
 
+use crate::command_head::command_head;
 use crate::local::{
     EnginePhase, LocalFeedEvent, PlanEntryPriorityView, PlanEntryStatusView, PlanEntryView,
     SubagentEdge, SubagentEdgeStatus, ToolCardKind, ToolCardStatus,
@@ -2070,16 +2071,16 @@ impl Mapper {
         }
         let Some(input) = raw_input.and_then(Value::as_object) else {
             // No structured input (codex's commandExecution card): an Execute
-            // title IS the command, and its first token is the detail.
+            // title IS the command, and its head is the detail.
             return (kind == ToolKind::Execute)
                 .then(|| command_head(title))
                 .filter(|head| !head.is_empty())
-                .map(|head| self.clean(head, TOOL_DETAIL_MAX));
+                .map(|head| self.clean(&head, TOOL_DETAIL_MAX));
         };
         let string = |key: &str| input.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
         if kind == ToolKind::Execute {
             // The PTY path publishes the model's own description of a command
-            // (never the command); the first token is the fallback below.
+            // (never the command); the command's head is the fallback below.
             if let Some(description) = string("description") {
                 return Some(self.clean(description, TOOL_DETAIL_MAX));
             }
@@ -2101,13 +2102,13 @@ impl Mapper {
         }
         if kind == ToolKind::Execute {
             if let Some(command) = string("command") {
-                // The FIRST TOKEN only: `rm -rf …` reads as `rm`, and no
-                // argument (a URL with a token in it, a heredoc) reaches the
-                // relay. codex wraps a command as `/bin/zsh -lc <command>`,
-                // which names the shell, not the command.
+                // EXP-1206: the HEAD only (`cd x && git status` reads as
+                // `git status`, `rm -rf …` as `rm`): no argument (a URL with a
+                // token in it, a heredoc) reaches the relay. codex wraps a
+                // command as `/bin/zsh -lc <command>`, which names the shell.
                 let head = command_head(command);
                 if !head.is_empty() {
-                    return Some(self.clean(head, TOOL_DETAIL_MAX));
+                    return Some(self.clean(&head, TOOL_DETAIL_MAX));
                 }
             }
         }
@@ -3237,22 +3238,6 @@ fn subagent_id_from_meta(meta: &BTreeMapLike) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The first token of a command line, past a `<shell> -lc`/`-c` wrapper
-/// (`/bin/zsh -lc "bun test"` reads as `bun`).
-fn command_head(command: &str) -> &str {
-    let mut tokens = command.split_whitespace();
-    let first = tokens.next().unwrap_or_default();
-    let is_shell = first.rsplit('/').next().is_some_and(|name| name.ends_with("sh"));
-    if is_shell {
-        if let Some(flag) = tokens.next() {
-            if matches!(flag, "-lc" | "-c" | "-ic" | "-lic") {
-                return tokens.next().unwrap_or_default().trim_matches(|c| c == '"' || c == '\'');
-            }
-        }
-    }
-    first
-}
-
 /// The `_meta` of the update a notification carries, for the variants an
 /// adapter may stamp instead of the notification itself.
 fn update_meta(update: &SessionUpdate) -> Option<&BTreeMapLike> {
@@ -3740,16 +3725,45 @@ mod tests {
             ActivityEvent::Tool { name, detail, .. } => {
                 // The PTY vocabulary for this agent, never the title/command.
                 assert_eq!(name, "Bash");
-                assert_eq!(detail.as_deref(), Some("npm"));
+                assert_eq!(detail.as_deref(), Some("npm test"));
             }
             other => panic!("expected a tool event, got {other:?}"),
         }
     }
 
-    /// The PTY path publishes the model's description of a command, never
-    /// the command; the first token is only the fallback.
+    /// EXP-1206: an undescribed command reads as its human head, past `cd`
+    /// chains, assignments and flags, never its first raw token.
     #[test]
-    fn a_command_description_is_the_detail_before_the_first_token() {
+    fn an_undescribed_command_reads_as_its_head() {
+        let cases = [
+            ("cd apps/web && bun run typecheck", "bun run typecheck"),
+            ("export PATH=\"/opt/node/bin:$PATH\" && cargo test -p engine", "cargo test"),
+            ("DATABASE_URL=postgres://x bun run test", "bun run test"),
+            ("GW=$(cat x) && curl -s -H \"Authorization: $GW\" https://h/api", "curl"),
+            ("git -C x status", "git status"),
+            ("cat Cargo.toml", "cat"),
+        ];
+        for (index, (command, head)) in cases.into_iter().enumerate() {
+            let mut mapper = mapper();
+            let mut out = MapOut::default();
+            let call = ToolCall::new(ToolCallId::new(format!("tc-head-{index}")), command)
+                .kind(ToolKind::Execute)
+                .raw_input(json!({ "command": command }));
+            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+            match &out.wire[0] {
+                ActivityEvent::Tool { name, detail, .. } => {
+                    assert_eq!(name, "Bash");
+                    assert_eq!(detail.as_deref(), Some(head), "{command}");
+                }
+                other => panic!("expected a tool event, got {other:?}"),
+            }
+        }
+    }
+
+    /// The PTY path publishes the model's description of a command, never
+    /// the command; the command's head is only the fallback.
+    #[test]
+    fn a_command_description_is_the_detail_before_the_head() {
         let mut mapper = mapper();
         let mut out = MapOut::default();
         let call = ToolCall::new(ToolCallId::new("tc-3"), "printf 'smoke %s' one two")
@@ -3783,7 +3797,7 @@ mod tests {
             other => panic!("expected a tool event, got {other:?}"),
         }
         // codex wraps the command in a login shell: the detail is the
-        // command's own first token, never the shell.
+        // command's own head, never the shell.
         let mut out = MapOut::default();
         let call = ToolCall::new(ToolCallId::new("tc-7"), "printf 'smoke %s' one two")
             .kind(ToolKind::Execute)
@@ -3794,7 +3808,7 @@ mod tests {
             other => panic!("expected a tool event, got {other:?}"),
         }
         // codex's command card carries no raw input: the title IS the
-        // command and its first token is the detail.
+        // command and its head is the detail.
         let mut out = MapOut::default();
         let call = ToolCall::new(ToolCallId::new("tc-6"), "printf 'smoke %s' one two").kind(ToolKind::Execute);
         mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);

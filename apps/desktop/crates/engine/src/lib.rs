@@ -32,6 +32,9 @@
 //! in its doc comment: E1 core, E2 claude, E3 codex, S1 spike.
 
 pub mod adapters;
+// EXP-1206: the human-readable head of a command line (`git status`), the
+// detail a Bash row wears when the agent described nothing. Pure.
+pub mod command_head;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
 pub mod compaction;
