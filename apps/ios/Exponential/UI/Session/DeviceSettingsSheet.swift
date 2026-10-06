@@ -184,13 +184,11 @@ struct DeviceSettingsSheet: View {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .alert("Remove device", isPresented: $confirmingRemove) {
-                    Button("Cancel", role: .cancel) { confirmingRemove = false }
-                    Button("Remove", role: .destructive) { removeDevice() }
-                } message: {
-                    // The pinned sentence ×4 — unchanged from the row menu
-                    // this moved out of (EXP-909).
-                    Text("Remove “\(deviceName(device))” from your devices? A device with the daemon still running will re-register itself on its next heartbeat.")
+                .glassAlert(isPresented: $confirmingRemove) {
+                    GlassAlert(
+                        prompt: Prompts.RemoveDevice.copy(name: deviceName(device)),
+                        handlers: ["remove": { removeDevice() }]
+                    )
                 }
         )
     }

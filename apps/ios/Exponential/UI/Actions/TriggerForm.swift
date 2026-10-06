@@ -19,8 +19,6 @@ enum TriggerCopy {
     static let requiredInputsHint = "This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it."
     /// No machine can run triggers.
     static let noTriggerDevice = "No device can run triggers. Run the desktop app or the exponential daemon and it will appear here."
-    static let deleteTitle = "Delete trigger?"
-    static let deleteBody = "It stops firing. Past runs stay in Runs."
 }
 
 /// The trigger being edited, in picker-shaped fields.

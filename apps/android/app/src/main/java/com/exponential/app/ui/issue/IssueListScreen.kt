@@ -29,7 +29,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,7 +37,6 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -131,6 +129,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 /**
  * How the issue list is mounted:
@@ -539,22 +539,16 @@ fun IssueListScreen(
 
     if (confirmBulkDelete) {
         val count = selectedIds.size
-        AlertDialog(
-            onDismissRequest = { confirmBulkDelete = false },
-            title = { Text(if (count == 1) "Delete 1 issue" else "Delete $count issues") },
-            text = { Text("This action cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
+        PromptAlert(
+            prompt = Prompts.DeleteIssues.prompt(count),
+            onDismiss = { confirmBulkDelete = false },
+            handlers = mapOf(
+                "delete" to {
                     confirmBulkDelete = false
                     viewModel.bulkDelete(selectedIds)
                     selectedIds = emptySet()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmBulkDelete = false }) { Text("Cancel") }
-            },
+                },
+            ),
         )
     }
 

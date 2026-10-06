@@ -1,20 +1,14 @@
 import { useState } from "react"
+import { deleteTeamPrompt, promptActions } from "@/lib/prompts"
 import { createFileRoute } from "@tanstack/react-router"
 import { TeamGeneralSection } from "@/components/team/general-section"
 import {
   Button,
   GlassRow,
   GlassSectionHeader,
-  Dialog,
-  DialogBody,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Input,
   Label,
+  Prompt,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -62,6 +56,8 @@ function SettingsGeneral() {
     }
   }
 
+  const deleteCopy = deleteTeamPrompt(team?.name ?? ``)
+
   return (
     <SettingsSectionGuard
       resolved={resolved}
@@ -92,7 +88,7 @@ function SettingsGeneral() {
               </GlassRow>
             </div>
 
-            <Dialog
+            <Prompt
               open={showDeleteTeam}
               onOpenChange={(open) => {
                 if (!open) {
@@ -101,55 +97,36 @@ function SettingsGeneral() {
                   setDeleteError(``)
                 }
               }}
+              busy={deletingTeam}
+              title={deleteCopy.title}
+              body={deleteCopy.body}
+              actions={promptActions(deleteCopy, {
+                delete: {
+                  busy: deletingTeam,
+                  disabled: deleteConfirmation !== team.name,
+                  onSelect: handleDeleteTeam,
+                },
+              })}
             >
-              <DialogContent mobile="alert">
-                <DialogHeader>
-                  <DialogTitle>Delete team</DialogTitle>
-                  <DialogDescription>
-                    This will permanently delete{` `}
-                    <span className="font-semibold text-foreground">
-                      {team.name}
-                    </span>
-                    {` `}
-                    and all its boards, issues, and data. This cannot be undone.
-                  </DialogDescription>
-                </DialogHeader>
-                <DialogBody className="space-y-2">
-                  <Label htmlFor="delete-confirm">
-                    Type{` `}
-                    <span className="font-semibold">{team.name}</span>
-                    {` `}to confirm
-                  </Label>
-                  <Input
-                    id="delete-confirm"
-                    value={deleteConfirmation}
-                    onChange={(e) => setDeleteConfirmation(e.target.value)}
-                    placeholder={team.name}
-                  />
-                  {deleteError && (
-                    <p className="text-sm text-destructive">{deleteError}</p>
-                  )}
-                </DialogBody>
-                <DialogFooter>
-                  <DialogCancel
-                    variant="outline"
-                    onClick={() => {
-                      setShowDeleteTeam(false)
-                      setDeleteConfirmation(``)
-                      setDeleteError(``)
-                    }}
-                    disabled={deletingTeam}
-                  />
-                  <Button
-                    variant="destructive"
-                    onClick={handleDeleteTeam}
-                    disabled={deleteConfirmation !== team.name || deletingTeam}
-                  >
-                    {deletingTeam ? `Deleting...` : `Delete team`}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+              <div className="space-y-2">
+                <Label htmlFor="delete-confirm">
+                  <span>
+                    Type <span className="font-semibold">{team.name}</span> to
+                    confirm
+                  </span>
+                </Label>
+                <Input
+                  id="delete-confirm"
+                  data-prompt-autofocus
+                  value={deleteConfirmation}
+                  onChange={(e) => setDeleteConfirmation(e.target.value)}
+                  placeholder={team.name}
+                />
+                {deleteError && (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                )}
+              </div>
+            </Prompt>
           </>
         )}
       </div>

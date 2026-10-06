@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +37,8 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.icons.ExpIcons
 import kotlinx.coroutines.launch
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 /**
  * The issue's file attachments (EXP-297) — everything that is not one of the
@@ -181,26 +182,15 @@ fun FilesSection(
     }
 
     confirmDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete file") },
-            text = {
-                Text(
-                    "Delete \"${target.filename}\"? This cannot be undone. " +
-                        "Anywhere it is referenced in text, a placeholder is left behind.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        PromptAlert(
+            prompt = Prompts.DeleteFile.prompt(target.filename),
+            onDismiss = { confirmDelete = null },
+            handlers = mapOf(
+                "delete" to {
                     confirmDelete = null
                     onDelete(target.id)
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel") }
-            },
+                },
+            ),
         )
     }
 }

@@ -164,6 +164,7 @@ import {
 } from "@exp/ui"
 
 import { tokenSlug } from "./component-styles.ts"
+import { PromptSpecimen, promptSpecimenCopy } from "./entries/dialog-shared.tsx"
 import {
   escapeHtml,
   svgBell,
@@ -3133,32 +3134,99 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `dialog`,
     title: `Dialog`,
     kind: `Surfaces`,
-    blurb: `The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm, so a confirm never opens in the middle of a thumb's reach. Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).`,
+    blurb: `The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm. A confirm or a choice is never this shell: it is the Prompt (EXP-1215). Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).`,
     status: {
       web: ok(
         `Dialog / DialogContent`,
         `packages/ui/src/dialog.tsx`,
-        `alert-dialog.tsx is the trapping arm: it has no dismiss and its action is destructive`
+        `a confirm or a choice is the Prompt entry (EXP-1215), never this shell`
       ),
       desktop: ok(
         `native_dialog::DialogShell`,
         `apps/desktop/crates/ui/src/native_dialog.rs`,
         `EXP-284: every IDE dialog is a real OS window, not an in-window overlay`
       ),
-      ios: na(`no shared shell: a confirm is SwiftUI's stock .alert, a content dialog is the sheet (GlassSheetChrome)`),
-      android: na(`same — M3 AlertDialog is called directly, and a content dialog is GlassSheet`),
+      ios: na(`no shared shell: a confirm is GlassAlert (the Prompt entry), a content dialog is the sheet`),
+      android: na(`same: a confirm is GlassAlert (the Prompt entry), a content dialog is GlassSheet`),
     },
     render: () =>
       [
         `<div class="cmp-dialog">`,
-        `<div class="title">Delete board</div>`,
-        `<div class="text">“Mobile app” and its 42 issues move to trash for 48 hours.</div>`,
+        `<div class="title">Rename board</div>`,
+        `<div class="text">The identifier prefix stays; only the name changes.</div>`,
         `<div class="footer">`,
         `<button class="cmp-pill borderless" type="button" data-size="md" data-mode="action"><span class="label">Cancel</span></button>`,
-        pill(`Delete board`, { size: `md`, primary: true }),
+        pill(`Save`, { size: `md`, primary: true }),
         `</div>`,
         `</div>`,
       ].join(``),
+  },
+  {
+    id: `prompt`,
+    title: `Prompt`,
+    kind: `Surfaces`,
+    blurb: `THE confirm and choice prompt (EXP-1215): every "Delete X?", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture \`prompts.json\` (web mirror \`apps/web/src/lib/prompts.ts\`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people), never a restatement of the buttons; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px \`md\` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS \`GlassAlertLayout.stacked\`); never a two-row hybrid. Roles: \`cancel\` = the plain pill that only dismisses; \`primary\` = the safe/expected answer, the accent pill at the trailing edge; \`default\` = a plain pill that does something; \`destructive\` = the answer of a plain "Delete X?" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); \`quietDestructive\` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE keeps native alert windows.`,
+    status: {
+      web: ok(`Prompt / PromptLayout`, `packages/ui/src/prompt.tsx`),
+      desktop: na(`out of scope: the IDE asks through native alert windows (AlertSpec)`),
+      ios: ok(`GlassAlert`, `apps/ios/ExpUI/Sources/GlassAlert.swift`),
+      android: ok(`GlassAlert`, `apps/android/app/src/main/java/com/exponential/app/ui/components/GlassAlert.kt`),
+    },
+    // The wording is the contract's (`prompts.json`), as in the app.
+    island: () => (
+      <div className="grid gap-6">
+        <PromptSpecimen
+          caption="A plain destructive confirm: Cancel takes focus, no primary"
+          {...promptSpecimenCopy(`stop-run`)}
+        />
+        <PromptSpecimen
+          caption="With a body: a fact the title cannot carry"
+          {...promptSpecimenCopy(`delete-issue`, { identifier: `EXP-42` })}
+        />
+        <PromptSpecimen
+          caption="A safe primary"
+          {...promptSpecimenCopy(`move-issue`, {
+            identifier: `EXP-42`,
+            board: `Mobile app`,
+          })}
+        />
+        <PromptSpecimen
+          caption="A busy answer: the pill's spinner, the label unchanged, the row locked"
+          disabled
+          {...promptSpecimenCopy(`merge-issue-pr`, { number: 812 }, {
+            busy: `merge`,
+          })}
+        />
+        <PromptSpecimen
+          caption="A safe primary and a quiet destructive answer"
+          title="Save this issue as a draft?"
+          actions={[
+            { label: `Discard`, role: `quietDestructive` },
+            { label: `Create issue` },
+            { label: `Save draft`, role: `primary` },
+          ]}
+        />
+        <PromptSpecimen
+          caption="On a phone the row cannot fit, so it stacks: natural-width pills, trailing-aligned, the default first, Cancel last, a quiet destructive answer last of all"
+          className="max-w-[342px]"
+          stacked
+          title="Save this issue as a draft?"
+          actions={[
+            { label: `Discard`, role: `quietDestructive` },
+            { label: `Create issue` },
+            { label: `Save draft`, role: `primary` },
+          ]}
+        />
+        <PromptSpecimen
+          caption="With a content slot: the field takes focus, Delete stays disabled until the name matches"
+          {...promptSpecimenCopy(`delete-team`, { name: `Mobile app` }, {
+            disabled: `delete`,
+          })}
+        >
+          <Input placeholder="Mobile app" />
+        </PromptSpecimen>
+      </div>
+    ),
   },
   {
     id: `tokens-palette`,

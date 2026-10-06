@@ -4,11 +4,8 @@ import {
   Button,
   CollapsedTitle,
   conceptIcon,
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogTitle,
   Pill,
+  Prompt,
   toast,
   Tooltip,
   TooltipContent,
@@ -71,19 +68,8 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 // Create, a confirmed Discard) bypass it; closing the browser tab does not
 // ask (the autosave keeps the draft).
 
-// EXP-1212: the two prompts are ONE structure (`Dialog` + `mobile="alert"`,
-// no ✕, no body) on phone AND desktop widths: a tight centred card (20px
-// padding, the panel's 16px gap between the one-line question and the row)
-// and ONE row of the app's 32px `Pill` capsules — the same capsules iOS and
-// Android draw (`GlassAlert`). `flex-wrap` stacks only what cannot fit;
-// `DialogFooter`'s phone stacking targets `data-slot=button`, never a pill.
-const DRAFT_PROMPT_CARD = `p-5 sm:max-w-md sm:p-5`
-const DRAFT_PROMPT_ROW = `flex-row flex-wrap items-center justify-end`
-/** The confirm's Discard: the plain pill, destructive label + tinted border. */
-const DRAFT_PROMPT_DESTRUCTIVE_PILL = `border-destructive/40 text-destructive hover:text-destructive`
-/** The leave prompt's leading Discard: pill-sized destructive TEXT, no
- * chrome; `-ml-3` (the pill's `px-3`) lines the word up with the question. */
-const DRAFT_PROMPT_QUIET_DISCARD = `-ml-3 mr-auto border-transparent bg-transparent text-destructive hover:bg-transparent hover:text-destructive`
+// EXP-1212/EXP-1215: the two prompts are the shared `Prompt` (one question,
+// no ✕, no body, one row of the 32px `Pill` capsules) on phone AND desktop.
 
 export interface IssueDraftPageProps {
   draftId: string
@@ -254,10 +240,7 @@ export function IssueDraftPage({
   const leaveDiscard = () => resolveLeave(() => editor.discard())
   // R5: the dialog opens on its default "Create issue" (or "Save draft"
   // while Create is disabled, no title), never on the destructive Discard
-  // (Radix would focus the first button, and Enter would delete).
-  const leaveCreateRef = useRef<HTMLButtonElement | null>(null)
-  const leaveKeepRef = useRef<HTMLButtonElement | null>(null)
-  const discardCancelRef = useRef<HTMLButtonElement | null>(null)
+  // (`Prompt` never focuses a destructive answer).
 
   // Cmd/Ctrl+Enter anywhere on the page files it. Capture phase, so the
   // description editor never sees it as its own hard break. Only for keys
@@ -505,47 +488,22 @@ export function IssueDraftPage({
   // EXP-1212: the destructive confirm the `×` raises on a draft with content.
   // ONE line (the question) over ONE trailing row: Cancel (initial focus, so
   // Discard is never the default) and Discard, the plain pill in the
-  // destructive colour, no solid red block. An alert dialog by role.
+  // destructive colour, no solid red block.
   const discardConfirm = (
-    <Dialog
+    <Prompt
       open={discardConfirmOpen}
-      onOpenChange={(open) => {
-        if (!open) setDiscardConfirmOpen(false)
-      }}
-    >
-      <DialogContent
-        mobile="alert"
-        role="alertdialog"
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className={DRAFT_PROMPT_CARD}
-        data-testid="issue-draft-discard-confirm"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault()
-          discardCancelRef.current?.focus()
-        }}
-      >
-        <DialogTitle>{ISSUE_DRAFT_COPY.discardConfirm.title}</DialogTitle>
-        <DialogFooter className={DRAFT_PROMPT_ROW}>
-          <Pill
-            ref={discardCancelRef}
-            size="md"
-            mode="action"
-            onClick={() => setDiscardConfirmOpen(false)}
-          >
-            Cancel
-          </Pill>
-          <Pill
-            size="md"
-            mode="action"
-            className={DRAFT_PROMPT_DESTRUCTIVE_PILL}
-            onClick={() => void handleDiscard()}
-          >
-            {ISSUE_DRAFT_COPY.discardConfirm.confirm}
-          </Pill>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      onOpenChange={setDiscardConfirmOpen}
+      data-testid="issue-draft-discard-confirm"
+      title={ISSUE_DRAFT_COPY.discardConfirm.title}
+      actions={[
+        { label: `Cancel` },
+        {
+          label: ISSUE_DRAFT_COPY.discardConfirm.confirm,
+          role: `destructive`,
+          onSelect: () => void handleDiscard(),
+        },
+      ]}
+    />
   )
 
   // EXP-1212: the held navigation's three answers, Thunderbird's save
@@ -555,56 +513,32 @@ export function IssueDraftPage({
   // title, then Save draft takes the focus). No ✕: dismissing (Esc, scrim)
   // stays on the page.
   const leaveDialog = (
-    <Dialog
+    <Prompt
       open={blocker.status === `blocked`}
-      onOpenChange={(open) => {
-        if (!open && !leaveBusy) blocker.reset?.()
-      }}
-    >
-      <DialogContent
-        mobile="alert"
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className={DRAFT_PROMPT_CARD}
-        data-testid="issue-draft-leave-dialog"
-        onOpenAutoFocus={(event) => {
-          event.preventDefault()
-          ;(editor.canCreate ? leaveCreateRef : leaveKeepRef).current?.focus()
-        }}
-      >
-        <DialogTitle>{ISSUE_DRAFT_COPY.leave.title}</DialogTitle>
-        <DialogFooter className={DRAFT_PROMPT_ROW}>
-          <Pill
-            size="md"
-            mode="action"
-            className={DRAFT_PROMPT_QUIET_DISCARD}
-            disabled={leaveBusy}
-            onClick={() => void leaveDiscard()}
-          >
-            {ISSUE_DRAFT_COPY.leave.discard}
-          </Pill>
-          <Pill
-            ref={leaveKeepRef}
-            size="md"
-            mode="action"
-            disabled={leaveBusy}
-            onClick={() => void leaveKeep()}
-          >
-            {ISSUE_DRAFT_COPY.leave.keep}
-          </Pill>
-          <Pill
-            ref={leaveCreateRef}
-            size="md"
-            mode="action"
-            primary
-            disabled={leaveBusy || !editor.canCreate}
-            onClick={() => void leaveCreate()}
-          >
-            {ISSUE_DRAFT_COPY.leave.create}
-          </Pill>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      onOpenChange={() => {}}
+      onDismiss={() => blocker.reset?.()}
+      busy={leaveBusy}
+      data-testid="issue-draft-leave-dialog"
+      title={ISSUE_DRAFT_COPY.leave.title}
+      actions={[
+        {
+          label: ISSUE_DRAFT_COPY.leave.discard,
+          role: `quietDestructive`,
+          onSelect: () => void leaveDiscard(),
+        },
+        {
+          label: ISSUE_DRAFT_COPY.leave.keep,
+          autoFocus: !editor.canCreate,
+          onSelect: () => void leaveKeep(),
+        },
+        {
+          label: ISSUE_DRAFT_COPY.leave.create,
+          role: `primary`,
+          disabled: !editor.canCreate,
+          onSelect: () => void leaveCreate(),
+        },
+      ]}
+    />
   )
 
   if (isMobile) {

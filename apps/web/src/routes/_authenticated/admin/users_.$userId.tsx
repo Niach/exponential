@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -12,13 +13,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   UserAvatar,
 } from "@exp/ui"
 import {
@@ -86,6 +81,8 @@ function AdminUserDetail() {
       setBusy(false)
     }
   }
+
+  const deleteCopy = WEB_PROMPTS.adminDeleteUser(user.email)
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
@@ -450,28 +447,16 @@ function AdminUserDetail() {
         </CardContent>
       </Card>
 
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Delete user?</DialogTitle>
-            <DialogDescription>
-              This permanently removes <strong>{user.email}</strong>. Their
-              sessions, accounts, team memberships, and any issues or
-              comments they authored will be deleted. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setConfirmDelete(false)}
-              disabled={busy}
-            />
-            <Button variant="destructive" onClick={handleDelete} disabled={busy}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Prompt
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        busy={busy}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy: busy, onSelect: () => handleDelete() },
+        })}
+      />
     </div>
   )
 }

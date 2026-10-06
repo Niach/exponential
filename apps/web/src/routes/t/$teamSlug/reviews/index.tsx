@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  mergeIssuePrPrompt,
+  mergeRunPrPrompt,
+  promptActions,
+  WEB_PROMPTS,
+} from "@/lib/prompts"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import {
   conceptIcon,
   EmptyState,
   Pill,
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   ListRow,
   GlassSectionHeader,
   BoardGlyph,
@@ -398,6 +397,19 @@ function ReviewsPage() {
     return <div className="text-muted-foreground text-sm p-6">Loading…</div>
   }
 
+  const mergeCopy = mergeIssuePrPrompt({
+    number: mergeTarget?.issue.prNumber,
+    count: mergeTarget?.issues.length ?? 1,
+  })
+  const sessionMergeCopy = mergeRunPrPrompt(
+    sessionMergeTarget?.session.prNumber
+  )
+  const externalMergeCopy = WEB_PROMPTS.mergeExternalPr(
+    externalMergeTarget?.fullName ?? ``,
+    externalMergeTarget?.pull.number ?? 0,
+    externalMergeTarget?.pull.baseBranch ?? ``
+  )
+
   return (
     // EXP-771: the SCROLLER is full width, the reading column lives inside it
     // — so the scrollbar rides the panel's right edge instead of appearing
@@ -735,34 +747,17 @@ function ReviewsPage() {
         )}
       </div>
 
-      <Dialog
+      <Prompt
         open={mergeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setMergeTarget(null)
         }}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>
-              {mergeTarget && mergeTarget.issues.length > 1
-                ? `Merge PR #${mergeTarget.issue.prNumber}?`
-                : `Merge ${mergeTarget?.issue.identifier}?`}
-            </DialogTitle>
-            <DialogDescription>
-              {`Squash-merges pull request #${mergeTarget?.issue.prNumber} (${mergeTarget?.issue.branch}) into the repository's default branch via the GitHub App. Any live coding session for it closes.`}
-              {mergeTarget && mergeTarget.issues.length > 1
-                ? ` Completes all ${mergeTarget.issues.length} linked issues: ${mergeTarget.issues
-                    .map((linked) => linked.identifier)
-                    .join(`, `)}.`
-                : ``}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setMergeTarget(null)} />
-            <Button onClick={confirmMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={mergeCopy.title}
+        body={mergeCopy.body}
+        actions={promptActions(mergeCopy, {
+          merge: { onSelect: confirmMerge },
+        })}
+      />
 
       <StackMergeChoiceDialog
         choice={stackTarget?.choice ?? null}
@@ -771,45 +766,29 @@ function ReviewsPage() {
         onMerge={(input) => confirmStackMerge(input)}
       />
 
-      <Dialog
+      <Prompt
         open={sessionMergeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setSessionMergeTarget(null)
         }}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>{`Merge PR #${sessionMergeTarget?.session.prNumber}?`}</DialogTitle>
-            <DialogDescription>
-              {`Squash-merges pull request #${sessionMergeTarget?.session.prNumber} (${sessionMergeTarget?.session.branch}) into the repository's default branch via the GitHub App. This pull request is not linked to an issue. The run's coding session closes unless the team keeps sessions on merge.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setSessionMergeTarget(null)} />
-            <Button onClick={confirmSessionMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={sessionMergeCopy.title}
+        body={sessionMergeCopy.body}
+        actions={promptActions(sessionMergeCopy, {
+          merge: { onSelect: confirmSessionMerge },
+        })}
+      />
 
-      <Dialog
+      <Prompt
         open={externalMergeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setExternalMergeTarget(null)
         }}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>{`Merge ${externalMergeTarget?.fullName}#${externalMergeTarget?.pull.number}?`}</DialogTitle>
-            <DialogDescription>
-              {`Squash-merges "${externalMergeTarget?.pull.title}" (${externalMergeTarget?.pull.branch} → ${externalMergeTarget?.pull.baseBranch}) via the GitHub App. This pull request is not linked to an issue.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel onClick={() => setExternalMergeTarget(null)} />
-            <Button onClick={confirmExternalMerge}>Merge pull request</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={externalMergeCopy.title}
+        body={externalMergeCopy.body}
+        actions={promptActions(externalMergeCopy, {
+          merge: { onSelect: confirmExternalMerge },
+        })}
+      />
     </div>
   )
 }

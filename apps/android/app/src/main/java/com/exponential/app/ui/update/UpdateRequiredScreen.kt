@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -42,6 +41,8 @@ import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 private const val IMMEDIATE_UPDATE_REQUEST_CODE = 5104
 
@@ -68,24 +69,16 @@ fun UpdateRequiredScreen(
     var confirmSignOut by remember { mutableStateOf(false) }
 
     if (confirmSignOut) {
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text("Sign out of this server?") },
-            text = {
-                Text(
-                    "This removes ${serverLabel ?: "this server"} and its offline copy " +
-                        "from this device. Your other servers stay signed in.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        // EXP-1215: signing out of a gated server REMOVES it (`remove-server`).
+        PromptAlert(
+            prompt = Prompts.RemoveServer.prompt(serverLabel ?: "this server"),
+            onDismiss = { confirmSignOut = false },
+            handlers = mapOf(
+                "remove" to {
                     confirmSignOut = false
                     onSignOutOfServer()
-                }) { Text("Sign out") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") }
-            },
+                },
+            ),
         )
     }
 

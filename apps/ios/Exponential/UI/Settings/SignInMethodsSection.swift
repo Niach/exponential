@@ -82,20 +82,12 @@ struct SignInMethodsSection: View {
                 Task { await load() }
             }
         }
-        .alert(
-            confirmTitle,
-            isPresented: Binding(
-                get: { confirm != nil },
-                set: { if !$0 { confirm = nil } }
-            ),
-            presenting: confirm
-        ) { target in
-            Button("Cancel", role: .cancel) { confirm = nil }
-            Button(confirmButton(target), role: .destructive) {
-                Task { await perform(target) }
-            }
-        } message: { target in
-            Text(confirmMessage(target))
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $confirm) { target in
+            let copy = prompt(target)
+            // The ONE answer that is not Cancel (Unlink, Remove) performs it.
+            let answer = copy.actions.first { $0.role != .cancel }?.id ?? ""
+            return GlassAlert(prompt: copy, handlers: [answer: { Task { await perform(target) } }])
         }
     }
 
@@ -263,34 +255,16 @@ struct SignInMethodsSection: View {
         date.formatted(date: .abbreviated, time: .omitted)
     }
 
-    // MARK: - Confirm copy (web parity)
+    // MARK: - Confirm copy (EXP-1215: the contract `prompts.json`)
 
-    private var confirmTitle: String {
-        switch confirm {
-        case let .unlink(provider):
-            provider.isPassword ? "Remove your password?" : "Unlink \(provider.name)?"
-        case .removePasskey:
-            "Remove this passkey?"
-        case nil:
-            ""
-        }
-    }
-
-    private func confirmButton(_ target: Confirm) -> String {
-        switch target {
-        case let .unlink(provider): provider.isPassword ? "Remove" : "Unlink"
-        case .removePasskey: "Remove"
-        }
-    }
-
-    private func confirmMessage(_ target: Confirm) -> String {
+    private func prompt(_ target: Confirm) -> PromptCopy {
         switch target {
         case let .unlink(provider):
             provider.isPassword
-                ? "You will no longer be able to sign in with a password. Your other sign-in methods keep working."
-                : "\(provider.name) will no longer sign you in. You can link it again any time; your other sign-in methods keep working."
+                ? Prompts.RemovePassword.copy()
+                : Prompts.UnlinkSignInMethod.copy(provider: provider.name)
         case let .removePasskey(passkey):
-            "\"\(passkey.displayName)\" will no longer sign you in. The copy on your device stays until you delete it there."
+            Prompts.RemovePasskey.copy(name: passkey.displayName)
         }
     }
 

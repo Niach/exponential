@@ -20,13 +20,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -83,6 +81,8 @@ import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 // One confirm target per destructive/consequential settings action. Each tab
 // holds a nullable [SettingsConfirm] and renders a single [SettingsConfirmDialog]
@@ -103,13 +103,6 @@ private sealed interface SettingsConfirm {
 private fun installationLabel(inst: GithubInstallation) =
     GithubCopy.installationLabel(inst.accountLogin, inst.installationId)
 
-private data class ConfirmCopy(
-    val title: String,
-    val message: String,
-    val button: String,
-    val destructive: Boolean = true,
-)
-
 @Composable
 private fun SettingsConfirmDialog(
     confirm: SettingsConfirm,
@@ -117,87 +110,51 @@ private fun SettingsConfirmDialog(
     viewModel: TeamSettingsViewModel,
     onDismiss: () -> Unit,
 ) {
-    val copy = when (confirm) {
-        is SettingsConfirm.DeleteBoard -> ConfirmCopy(
-            title = "Delete board?",
-            message = "Move \"${confirm.board.name}\" and all its issues, comments and " +
-                "attachments to trash? You can restore it from team settings for 48 " +
-                "hours; after that it is permanently deleted.",
-            button = "Delete",
-        )
-        is SettingsConfirm.DeleteLabel -> ConfirmCopy(
-            title = "Delete label?",
-            message = "\"${confirm.label.name}\" will be removed from all issues. This cannot be undone.",
-            button = "Delete",
-        )
+    // EXP-1215: the copy is `prompts.json`'s ([Prompts]); the GitHub
+    // disconnect keeps its own locked strings ([GithubCopy]).
+    val prompt = when (confirm) {
+        is SettingsConfirm.DeleteBoard -> Prompts.TrashBoard.prompt(confirm.board.name)
+        is SettingsConfirm.DeleteLabel -> Prompts.DeleteLabel.prompt(confirm.label.name)
         is SettingsConfirm.RemoveMember -> if (confirm.isSelf) {
-            ConfirmCopy(
-                title = "Leave team?",
-                message = "You will lose access to \"${state.team?.name ?: "this team"}\". " +
-                    "An owner must invite you back.",
-                button = "Leave",
-            )
+            Prompts.LeaveTeam.prompt(state.team?.name ?: "Team")
         } else {
-            val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
-            ConfirmCopy(
-                title = "Remove member?",
-                message = "Remove $name from this team? They immediately lose access.",
-                button = "Remove",
-            )
+            Prompts.RemoveMember.prompt(userDisplayName(confirm.row.user, confirm.row.member.userId))
         }
-        is SettingsConfirm.RemoveRepo -> ConfirmCopy(
-            title = "Remove repository",
-            message = "This disconnects ${confirm.repo.fullName} from the team.",
-            button = "Remove",
-        )
-        is SettingsConfirm.DisconnectGithub -> ConfirmCopy(
+        is SettingsConfirm.RemoveRepo -> Prompts.RemoveRepository.prompt(confirm.repo.fullName)
+        is SettingsConfirm.DisconnectGithub -> Prompts.Prompt(
             title = GithubCopy.DISCONNECT_TITLE,
-            message = GithubCopy.DISCONNECT_BODY,
-            button = GithubCopy.DISCONNECT,
+            body = GithubCopy.DISCONNECT_BODY,
+            actions = listOf(
+                Prompts.Action("cancel", "Cancel", Prompts.Role.Cancel),
+                Prompts.Action("disconnect", GithubCopy.DISCONNECT, Prompts.Role.Destructive),
+            ),
+            focus = "cancel",
         )
         is SettingsConfirm.ChangeRole -> {
             val name = userDisplayName(confirm.row.user, confirm.row.member.userId)
             if (confirm.newRole == DomainContract.teamRoleOwner) {
-                ConfirmCopy(
-                    title = "Make $name an owner?",
-                    message = "Owners can delete boards, manage members and billing, and delete the team.",
-                    button = "Change role",
-                    destructive = false,
-                )
+                Prompts.MakeOwner.prompt(name)
             } else {
-                ConfirmCopy(
-                    title = "Change $name to member?",
-                    message = "They will no longer be able to manage members or delete boards.",
-                    button = "Change role",
-                    destructive = false,
-                )
+                Prompts.MakeMember.prompt(name)
             }
         }
     }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(copy.title) },
-        text = { Text(copy.message) },
-        confirmButton = {
-            TextButton(onClick = {
-                when (confirm) {
-                    is SettingsConfirm.DeleteBoard -> viewModel.deleteBoard(confirm.board.id)
-                    is SettingsConfirm.DeleteLabel -> viewModel.deleteLabel(confirm.label.id)
-                    is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
-                    is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
-                    is SettingsConfirm.RemoveRepo -> viewModel.removeRepo(confirm.repo.id)
-                    is SettingsConfirm.DisconnectGithub -> viewModel.disconnectGithub()
-                }
-                onDismiss()
-            }) {
-                if (copy.destructive) {
-                    Text(copy.button, color = MaterialTheme.colorScheme.error)
-                } else {
-                    Text(copy.button)
-                }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    val answer = {
+        when (confirm) {
+            is SettingsConfirm.DeleteBoard -> viewModel.deleteBoard(confirm.board.id)
+            is SettingsConfirm.DeleteLabel -> viewModel.deleteLabel(confirm.label.id)
+            is SettingsConfirm.RemoveMember -> viewModel.removeMember(confirm.row.member.id)
+            is SettingsConfirm.ChangeRole -> viewModel.updateRole(confirm.row.member.id, confirm.newRole)
+            is SettingsConfirm.RemoveRepo -> viewModel.removeRepo(confirm.repo.id)
+            is SettingsConfirm.DisconnectGithub -> viewModel.disconnectGithub()
+        }
+        onDismiss()
+    }
+    PromptAlert(
+        prompt = prompt,
+        onDismiss = onDismiss,
+        // Every prompt here has ONE answer beside Cancel.
+        handlers = prompt.actions.filter { it.role != Prompts.Role.Cancel }.associate { it.id to answer },
     )
 }
 
@@ -421,19 +378,15 @@ private fun DangerZone(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete team?") },
-            text = { Text("This permanently deletes the team and all its issues. This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
+        PromptAlert(
+            prompt = Prompts.DeleteTeam.prompt(state.team?.name ?: "Team"),
+            onDismiss = { confirmDelete = false },
+            handlers = mapOf(
+                "delete" to {
                     confirmDelete = false
                     viewModel.deleteTeam()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+                },
+            ),
         )
     }
 }

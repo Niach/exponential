@@ -24,11 +24,17 @@ const mockState = vi.hoisted(() => ({
   // EXP-1145: what the synced rows say about the PR's stack; the hook itself
   // is plumbing over live queries, tested in `use-stack-merge-choice.test.tsx`.
   stackChoice: vi.fn(),
+  linkedCount: vi.fn(() => 1),
 }))
 
 vi.mock(`@/hooks/use-stack-merge-choice`, () => ({
   useStackMergeChoice: (issueId: string | undefined, enabled: boolean) =>
     mockState.stackChoice(issueId, enabled),
+}))
+
+// EXP-1215: the confirm's body names how many issues the PR links.
+vi.mock(`@/hooks/use-linked-issue-count`, () => ({
+  useLinkedIssueCount: () => mockState.linkedCount(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -118,7 +124,7 @@ describe(`SessionMergeButton`, () => {
     )
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     expect(mockState.mergeMutate).not.toHaveBeenCalled()
-    expect(screen.getByText(/Merge PR #7 into the default branch/)).toBeTruthy()
+    expect(screen.getByText(`Merge PR #7?`)).toBeTruthy()
 
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await waitFor(() =>
@@ -260,7 +266,7 @@ describe(`SessionMergeButton`, () => {
     mockState.mergeMutate.mockReset()
     mockState.mergeMutate.mockResolvedValue({ merged: true })
     fireEvent.click(screen.getByRole(`button`, { name: `Retry merge` }))
-    expect(screen.getByText(/Merge PR #7 into the default branch/)).toBeTruthy()
+    expect(screen.getByText(`Merge PR #7?`)).toBeTruthy()
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await waitFor(() =>
       expect(mockState.mergeMutate).toHaveBeenCalledWith(
@@ -330,7 +336,7 @@ describe(`SessionMergeButton`, () => {
 
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     expect(
-      screen.getByText(/The run's coding session closes unless the team/)
+      screen.getByText(`It is squash-merged. No issue is linked to it.`)
     ).toBeTruthy()
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
 
@@ -480,7 +486,7 @@ describe(`SessionMergeButton on a stack member`, () => {
     )
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     await screen.findByText(`This pull request is part of a stack`)
-    expect(screen.queryByText(/Merge PR #7 into the default branch/)).toBeNull()
+    expect(screen.queryByText(`Merge PR #7?`)).toBeNull()
     expect(
       screen.getByText(/EXP-1105 → EXP-1144 \(this one\) → EXP-1150/)
     ).toBeTruthy()
@@ -559,6 +565,6 @@ describe(`SessionMergeButton on a stack member`, () => {
     )
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     expect(mockState.stackChoice).not.toHaveBeenCalledWith(expect.anything(), true)
-    expect(screen.getByText(/Merge PR #7 into the default branch/)).toBeTruthy()
+    expect(screen.getByText(`Merge PR #7?`)).toBeTruthy()
   })
 })

@@ -801,7 +801,7 @@ export function AgentSessionView({
     canKill: ownsLiveRow,
     requestKill,
     dialog: killDialog,
-  } = useKillSession(session, currentUserId, device.label, paused)
+  } = useKillSession(session, currentUserId, paused)
   const canKill = live && ownsLiveRow
   /** EXP-877: Resume in the run header (issue-less runs) — an issue-bound
    *  run's tray decides for itself (`issue-coding-action.tsx`). */

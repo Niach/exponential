@@ -18,6 +18,7 @@
 // "Remove device" is a plain row of the shell rather than a section of its
 // own.
 import { useEffect, useMemo, useRef, useState } from "react"
+import { promptActions, removeDevicePrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
@@ -26,14 +27,6 @@ import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -47,6 +40,7 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   Pill,
+  Prompt,
   SubShellHost,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -659,6 +653,10 @@ export function DeviceSettingsDialog({
     }
   }
 
+  const promptName = label || deviceId || `this device`
+  const updateCopy = WEB_PROMPTS.updateDevice(promptName)
+  const removeCopy = removeDevicePrompt(promptName)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* EXP-686: no description — the machine's name is already the row you
@@ -999,69 +997,27 @@ export function DeviceSettingsDialog({
         {/* FEED-36: Update now — the daemon ends every live session on the
             machine and restarts on the queued version; confirmed, since it
             interrupts work (repo-backed runs resume from their session page). */}
-        <AlertDialog
+        <Prompt
           open={updateNowOpen}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen && !deviceBusy) setUpdateNowOpen(false)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {`Update ${label || deviceId || `this device`} now?`}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                Ends every live session on this device (repo-backed runs can
-                be resumed from their session page) and restarts it on the new
-                version.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deviceBusy}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={deviceBusy}
-                onClick={(event) => {
-                  event.preventDefault()
-                  void updateNow()
-                }}
-              >
-                {deviceBusy && <LoaderCircle className="animate-spin" />}
-                Update now
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          onOpenChange={setUpdateNowOpen}
+          busy={deviceBusy}
+          title={updateCopy.title}
+          body={updateCopy.body}
+          actions={promptActions(updateCopy, {
+            update: { busy: deviceBusy, onSelect: () => updateNow() },
+          })}
+        />
 
-        <AlertDialog
+        <Prompt
           open={removeOpen}
-          onOpenChange={(nextOpen) => {
-            if (!nextOpen && !deviceBusy) setRemoveOpen(false)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Remove device</AlertDialogTitle>
-              <AlertDialogDescription>
-                Remove “{label || deviceId}” from your devices? A device with
-                the daemon still running will re-register itself on its next
-                heartbeat.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deviceBusy}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={deviceBusy}
-                onClick={(event) => {
-                  event.preventDefault()
-                  void removeDevice()
-                }}
-              >
-                {deviceBusy && <LoaderCircle className="animate-spin" />}
-                Remove
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          onOpenChange={setRemoveOpen}
+          busy={deviceBusy}
+          title={removeCopy.title}
+          body={removeCopy.body}
+          actions={promptActions(removeCopy, {
+            remove: { busy: deviceBusy, onSelect: () => removeDevice() },
+          })}
+        />
       </DialogContent>
     </Dialog>
   )

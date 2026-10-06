@@ -1,22 +1,16 @@
 import { useMemo, useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import type { SyncedAction, Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
 import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 import { parseActionTriggers, triggerBadges } from "@/lib/action-triggers"
-import { LoaderCircle, Ellipsis, Pencil, Trash2 } from "lucide-react"
+import { Ellipsis, Pencil, Trash2 } from "lucide-react"
 import {
   conceptIcon,
   Button,
   Pill,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -24,6 +18,7 @@ import {
   EmptyCta,
   GlassSectionHeader,
   ListRow,
+  Prompt,
   Tabs,
   TabsContent,
   TabsList,
@@ -244,33 +239,21 @@ export function DeleteActionDialog({
       setDeleting(false)
     }
   }
+  const deleteCopy = WEB_PROMPTS.deleteAction(action?.name ?? `this action`)
+
   return (
-    <Dialog
+    <Prompt
       open={action !== null}
       onOpenChange={(next) => {
-        if (!next && !deleting) onClose()
+        if (!next) onClose()
       }}
-    >
-      <DialogContent mobile="alert" className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Delete action</DialogTitle>
-          <DialogDescription>
-            {`Delete "${action?.name ?? ``}"? Its triggers go with it. Live runs keep going and keep their label; this cannot be undone.`}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogCancel onClick={onClose} disabled={deleting} />
-          <Button
-            variant="destructive"
-            onClick={() => void confirmDelete()}
-            disabled={deleting}
-          >
-            {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-            Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      busy={deleting}
+      title={deleteCopy.title}
+      body={deleteCopy.body}
+      actions={promptActions(deleteCopy, {
+        delete: { busy: deleting, onSelect: confirmDelete },
+      })}
+    />
   )
 }
 

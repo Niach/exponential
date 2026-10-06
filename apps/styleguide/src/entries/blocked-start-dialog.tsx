@@ -1,14 +1,6 @@
 import blockedStart from "@exp/domain-contract/fixtures/blocked-start.json"
 import issueGraphGeometry from "@exp/domain-contract/fixtures/issue-graph-geometry.json"
 import {
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPresentationContext,
-  DialogTitle,
   IssueChip,
   WaveGraph,
   waveGraphSize,
@@ -17,7 +9,7 @@ import {
   type WaveGraphNode,
 } from "@exp/ui"
 
-import { DialogSpecimen } from "./dialog-shared.tsx"
+import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-980/SLOP-3: the blocked-start dialog, Cancel · Start anyway · Stacked PR.
@@ -163,38 +155,36 @@ function BlockedStartSpecimen({
   const suffix = stackable ? copy.bodySuffixStackable : copy.bodySuffix
   const [, suffixGlue = ``, suffixRest = ``] = /^(\S*)(.*)$/s.exec(suffix) ?? []
   return (
-    // The Radix root gives the title, the description and Cancel their
-    // context; the alert arm is the one the app's dialog opens in.
-    <Dialog open>
-      <DialogPresentationContext.Provider value="alert">
-        <DialogSpecimen caption={caption} showClose>
-          <DialogHeader>
-            <DialogTitle>{copy.title}</DialogTitle>
-            {/* The chip flows INLINE in the sentence, glued to the
-                suffix's leading "." so a wrap never starts a line with it. */}
-            <DialogDescription asChild>
-              <div className="leading-6">
-                {copy.bodyPrefix}
-                <span className="whitespace-nowrap">
-                  {chip(blocker)}
-                  {suffixGlue}
-                </span>
-                {suffixRest}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <BlockGraph rows={rows} />
-          {note !== null && (
-            <div className="text-xs text-muted-foreground">{note}</div>
-          )}
-          <DialogFooter>
-            <DialogCancel />
-            <Button variant="outline">{copy.startAnyway}</Button>
-            <Button disabled={!stackable}>{copy.stackedPr}</Button>
-          </DialogFooter>
-        </DialogSpecimen>
-      </DialogPresentationContext.Provider>
-    </Dialog>
+    // The shared prompt card (EXP-1215): the sentence is the body, the graph
+    // and its note sit in the content slot, the answers in ONE pill row.
+    <PromptSpecimen
+      caption={caption}
+      title={copy.title}
+      body={
+        // The chip flows INLINE in the sentence, glued to the suffix's
+        // leading "." so a wrap never starts a line with it.
+        <div className="leading-6">
+          {copy.bodyPrefix}
+          <span className="whitespace-nowrap">
+            {chip(blocker)}
+            {suffixGlue}
+          </span>
+          {suffixRest}
+        </div>
+      }
+      actions={[
+        { label: `Cancel` },
+        { label: copy.startAnyway },
+        { label: copy.stackedPr, role: `primary`, disabled: !stackable },
+      ]}
+    >
+      <div className="flex flex-col gap-2">
+        <BlockGraph rows={rows} />
+        {note !== null && (
+          <div className="text-xs text-muted-foreground">{note}</div>
+        )}
+      </div>
+    </PromptSpecimen>
   )
 }
 
@@ -208,7 +198,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-980`,
   title: `Blocked-start dialog`,
-  blurb: `What starting a BLOCKED issue asks first (EXP-980, reworked by SLOP-3). The sentence names the direct open blockers as issue chips flowing INLINE in its text, the last one glued to the suffix's "." so a wrap never opens a line with it (EXP-1167; desktop and iOS print one text run, Android stacks the prefix, the chip row and the suffix without its "." in a column); under it THE blocks mini-graph draws the whole transitive chain, top = the first blockers, bottom = the subject in the accent ring. Three answers, in this order: Cancel, "${copy.startAnyway}" (outline), "${copy.stackedPr}" (primary). "${copy.stackedPr}" builds the dependency LINE bottom-up and is never hidden: over a line of two or more issues the plan note under the graph says which one starts first; while it cannot stack (a batch, a cycle, a fork, another repository, more than ${blockedStart.maxRun} issues, a member still running) the button is DISABLED and the reason's note takes the plan note's place, and the sentence drops its stacked half. A batch asks with its own title and one line of body ("${copy.batchTitle}"). The copy, the reasons and their order are the contract's (\`blocked-start.json\`, byte-locked ×4). Phones keep the three answers; iOS hosts the graph in a fitted sheet instead of an alert.`,
+  blurb: `What starting a BLOCKED issue asks first (EXP-980, reworked by SLOP-3). The sentence names the direct open blockers as issue chips flowing INLINE in its text, the last one glued to the suffix's "." so a wrap never opens a line with it (EXP-1167; desktop and iOS print one text run, Android stacks the prefix, the chip row and the suffix without its "." in a column); under it THE blocks mini-graph draws the whole transitive chain, top = the first blockers, bottom = the subject in the accent ring. It is the shared prompt card (EXP-1215): the sentence is its body, the graph its content slot. Three answers in ONE row of 32px pills, in this order: Cancel, "${copy.startAnyway}" (a plain pill), "${copy.stackedPr}" (the primary pill). "${copy.stackedPr}" builds the dependency LINE bottom-up and is never hidden: over a line of two or more issues the plan note under the graph says which one starts first; while it cannot stack (a batch, a cycle, a fork, another repository, more than ${blockedStart.maxRun} issues, a member still running) the button is DISABLED and the reason's note takes the plan note's place, and the sentence drops its stacked half. A batch asks with its own title and one line of body ("${copy.batchTitle}"). The copy, the reasons and their order are the contract's (\`blocked-start.json\`, byte-locked ×4). Phones keep the three answers; iOS hosts the graph in a fitted sheet instead of an alert.`,
   status: {
     web: {
       state: `ok`,

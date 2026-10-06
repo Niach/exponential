@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { promptActions, trashBoardPrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { useNavigate } from "@tanstack/react-router"
 import { Archive, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -10,13 +11,7 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   GlassSectionHeader,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   BoardGlyph,
 } from "@exp/ui"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
@@ -185,6 +180,9 @@ export function BoardSettingsPage({
     }
   }
 
+  const trashCopy = trashBoardPrompt(board.name)
+  const archiveCopy = WEB_PROMPTS.archiveBoard(board.name)
+
   return (
     <div className="space-y-4">
       <GlassGroup>
@@ -241,64 +239,27 @@ export function BoardSettingsPage({
         </Button>
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Move board to trash</DialogTitle>
-            <DialogDescription>
-              Move{` `}
-              <span className="font-semibold text-foreground">
-                {board.name}
-              </span>
-              {` `}
-              to the trash? It is kept for 48 hours (owners can restore it from
-              Archived boards), then permanently deleted with all its issues.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setDeleteOpen(false)}
-              disabled={deleting}
-            />
-            <Button
-              variant="destructive"
-              onClick={() => void handleDelete()}
-              disabled={deleting}
-            >
-              {deleting ? `Moving…` : `Move to trash`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Prompt
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        busy={deleting}
+        title={trashCopy.title}
+        body={trashCopy.body}
+        actions={promptActions(trashCopy, {
+          trash: { busy: deleting, onSelect: handleDelete },
+        })}
+      />
 
-      <Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Archive board</DialogTitle>
-            <DialogDescription>
-              Archive{` `}
-              <span className="font-semibold text-foreground">
-                {board.name}
-              </span>
-              ? It disappears for the whole team — from the sidebar, search,
-              pickers and every issue list — along with all of its issues.
-              Nothing is deleted, and owners can bring it back from Archived
-              boards at any time.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setArchiveOpen(false)}
-              disabled={archiving}
-            />
-            <Button onClick={() => void handleArchive()} disabled={archiving}>
-              {archiving ? `Archiving…` : `Archive board`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Prompt
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        busy={archiving}
+        title={archiveCopy.title}
+        body={archiveCopy.body}
+        actions={promptActions(archiveCopy, {
+          archive: { busy: archiving, onSelect: handleArchive },
+        })}
+      />
     </div>
   )
 }

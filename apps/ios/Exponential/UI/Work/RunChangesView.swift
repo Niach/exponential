@@ -54,6 +54,7 @@ struct RunChangesView: View {
                             // No recovery run: Fix conflicts takes an
                             // issue-linked PR.
                             steerEnabled: false,
+                            runPrNumber: session?.prNumber,
                             state: $mergeState
                         )
                     }

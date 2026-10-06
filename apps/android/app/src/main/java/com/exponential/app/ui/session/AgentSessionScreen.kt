@@ -55,7 +55,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -106,6 +105,8 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.domain.DetailChrome
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.components.FadeEdge
 import com.exponential.app.ui.components.EdgeFade
@@ -1697,24 +1698,22 @@ private fun RunFaceContent(
     // confirm shape as the kill dialog, with the copy pinned ×4.
     val confirmCommand = slashConfirm
     if (confirmCommand != null) {
-        AlertDialog(
-            onDismissRequest = { slashConfirm = null },
-            title = { Text(SlashCommands.confirmTitle(confirmCommand.name)) },
-            text = { Text(SlashCommands.CONFIRM_BODY) },
-            confirmButton = {
-                TextButton(onClick = {
-                    slashConfirm = null
-                    viewModel.sendDraft()
-                }) {
-                    Text(
-                        SlashCommands.confirmButton(confirmCommand.name),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { slashConfirm = null }) { Text("Cancel") }
-            },
+        GlassAlert(
+            title = SlashCommands.confirmTitle(confirmCommand.name),
+            body = SlashCommands.CONFIRM_BODY,
+            onDismiss = { slashConfirm = null },
+            trailing = listOf(
+                GlassAlertAction("Cancel", onClick = { slashConfirm = null }),
+                GlassAlertAction(
+                    SlashCommands.confirmButton(confirmCommand.name),
+                    destructive = true,
+                    onClick = {
+                        slashConfirm = null
+                        viewModel.sendDraft()
+                    },
+                ),
+            ),
+            defaultAction = 0,
         )
     }
 }

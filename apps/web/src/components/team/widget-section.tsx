@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import {
   Check,
@@ -31,6 +32,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Prompt,
   Switch,
   conceptIcon,
 } from "@exp/ui"
@@ -101,17 +103,14 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     }
   }
 
+  // Delete confirms first: sites using the key stop working at once.
+  const [deleteTarget, setDeleteTarget] = useState<WidgetListItem | null>(null)
+
   const deleteWidget = async (widget: WidgetListItem) => {
-    if (
-      !window.confirm(
-        `Delete the "${widget.name}" widget? Sites using its key stop working immediately. The issues it filed are kept.`
-      )
-    ) {
-      return
-    }
     setBusyId(widget.id)
     try {
       await trpc.widgets.delete.mutate({ widgetConfigId: widget.id })
+      setDeleteTarget(null)
       await refresh()
     } finally {
       setBusyId(null)
@@ -123,6 +122,8 @@ export function TeamWidgetSection({ team }: { team: Team }) {
     setCopiedId(widget.id)
     window.setTimeout(() => setCopiedId(null), 1_500)
   }
+
+  const deleteCopy = WEB_PROMPTS.deleteWidget(deleteTarget?.name ?? ``)
 
   return (
     <div className="space-y-6">
@@ -227,7 +228,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       variant="ghost"
                       size="icon-sm"
                       className="text-destructive"
-                      onClick={() => deleteWidget(widget)}
+                      onClick={() => setDeleteTarget(widget)}
                       disabled={busyId === widget.id}
                       aria-label={`Delete ${widget.name}`}
                     >
@@ -278,6 +279,21 @@ export function TeamWidgetSection({ team }: { team: Team }) {
             if (created) setSnippetTarget(created)
             await refresh()
           }}
+        />
+
+        <Prompt
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null)
+          }}
+          title={deleteCopy.title}
+          body={deleteCopy.body}
+          actions={promptActions(deleteCopy, {
+            delete: {
+              onSelect: () =>
+                deleteTarget ? deleteWidget(deleteTarget) : undefined,
+            },
+          })}
         />
 
         <Dialog

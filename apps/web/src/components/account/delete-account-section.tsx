@@ -1,27 +1,23 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { deleteAccountPrompt, promptActions } from "@/lib/prompts"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
 import {
   Button,
   GlassRow,
   GlassSectionHeader,
-  Dialog,
-  DialogBody,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Input,
   Label,
+  Prompt,
 } from "@exp/ui"
 
 // Self-service account deletion (store policy: users must be able to delete
 // their account without emailing support; the native apps expose the same
 // users.deleteAccount mutation). Type-your-email confirm mirrors the
 // team-delete danger zone.
+const deleteCopy = deleteAccountPrompt()
+
 export function DeleteAccountSection() {
   const { data: session } = useSession()
   const email = session?.user?.email ?? ``
@@ -75,72 +71,65 @@ export function DeleteAccountSection() {
         </GlassRow>
       </div>
 
-      <Dialog
+      <Prompt
         open={showDialog}
         onOpenChange={(open) => {
           if (!open) closeDialog()
         }}
+        busy={deleting}
+        className="sm:max-w-lg"
+        // The consequences list below stands IN PLACE of the contract body
+        // (the entry's web `slot`): it adds the subscription facts.
+        title={deleteCopy.title}
+        actions={promptActions(deleteCopy, {
+          delete: {
+            busy: deleting,
+            disabled: confirmation !== email,
+            onSelect: () => handleDelete(),
+          },
+        })}
       >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Delete your account</DialogTitle>
-            <DialogDescription>
-              This permanently deletes your account and cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {/* Accurate per-team consequences (REV2-55/REV2-36): a solo team is
-              destroyed WITH its paid plan, while a shared team — and the
-              subscription funding it — survives, because a subscription
-              belongs to the team and not to whoever paid for it. */}
-          <DialogBody className="space-y-4">
-            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              <li>
-                Teams where you are the only member are deleted with all their
-                boards, issues and files. If one of them has a paid plan, that
-                subscription is cancelled immediately, with no refund for the
-                rest of the period.
-              </li>
-              <li>
-                Teams you share with others stay exactly as they are, including
-                their paid plan. A subscription belongs to the team, so it keeps
-                running and the remaining owners keep managing it.
-              </li>
-              <li>
-                In shared teams, the issues you created and the images you
-                uploaded stay (they are part of the team&apos;s work); your
-                comments are deleted and mentions of your email address are
-                anonymized.
-              </li>
-            </ul>
-            <div className="space-y-2">
-              <Label htmlFor="delete-account-confirm">
+        {/* Accurate per-team consequences (REV2-55/REV2-36): a solo team is
+            destroyed WITH its paid plan, while a shared team — and the
+            subscription funding it — survives, because a subscription
+            belongs to the team and not to whoever paid for it. */}
+        <div className="space-y-4">
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>
+              Teams where you are the only member are deleted with all their
+              boards, issues and files. If one of them has a paid plan, that
+              subscription is cancelled immediately, with no refund for the
+              rest of the period.
+            </li>
+            <li>
+              Teams you share with others stay exactly as they are, including
+              their paid plan. A subscription belongs to the team, so it keeps
+              running and the remaining owners keep managing it.
+            </li>
+            <li>
+              In shared teams, the issues you created and the images you
+              uploaded stay (they are part of the team&apos;s work); your
+              comments are deleted and mentions of your email address are
+              anonymized.
+            </li>
+          </ul>
+          <div className="space-y-2">
+            <Label htmlFor="delete-account-confirm">
+              <span>
                 Type <span className="font-semibold">{email}</span> to confirm
-              </Label>
-              <Input
-                id="delete-account-confirm"
-                value={confirmation}
-                onChange={(e) => setConfirmation(e.target.value)}
-                placeholder={email}
-              />
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </div>
-          </DialogBody>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={closeDialog}
-              disabled={deleting}
+              </span>
+            </Label>
+            <Input
+              id="delete-account-confirm"
+              data-prompt-autofocus
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              placeholder={email}
             />
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={confirmation !== email || deleting}
-            >
-              {deleting ? `Deleting...` : `Delete account`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+          </div>
+        </div>
+      </Prompt>
     </>
   )
 }

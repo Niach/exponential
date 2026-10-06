@@ -137,33 +137,32 @@ struct TeamRepositoriesSection: View {
                 }
             }
         }
-        .alert("Remove repository", isPresented: Binding(
-            get: { removeTarget != nil },
-            set: { if !$0 { removeTarget = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { removeTarget = nil }
-            Button("Remove", role: .destructive) {
-                if let repo = removeTarget {
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $removeTarget) { repo in
+            GlassAlert(prompt: Prompts.RemoveRepository.copy(fullName: repo.fullName), handlers: [
+                "remove": {
                     Task { await mutate { try await repositoriesApi.remove(accountId: accountId, repositoryId: repo.id) } }
-                }
-            }
-        } message: {
-            Text("This disconnects \(removeTarget?.fullName ?? "this repository") from the team.")
+                },
+            ])
         }
         // Confirm-first disconnect of the viewer's GitHub account (web
         // `GH_DISCONNECT_CONFIRM_TITLE`): repositories already added keep
         // working, their tokens mint off the App installation.
-        .alert(GithubCopy.disconnectTitle, isPresented: $disconnectConfirm) {
-            Button(GithubCopy.cancel, role: .cancel) { disconnectConfirm = false }
-            Button(GithubCopy.disconnect, role: .destructive) {
-                Task {
-                    await mutate {
-                        try await integrationsApi.githubDisconnect(accountId: accountId)
-                    }
-                }
-            }
-        } message: {
-            Text(GithubCopy.disconnectBody)
+        .glassAlert(isPresented: $disconnectConfirm) {
+            GlassAlert(
+                title: GithubCopy.disconnectTitle,
+                message: GithubCopy.disconnectBody,
+                actions: [
+                    GlassAlertAction(GithubCopy.cancel, role: .outline, id: "cancel") {},
+                    GlassAlertAction(GithubCopy.disconnect, role: .destructive, id: "disconnect") {
+                        Task {
+                            await mutate {
+                                try await integrationsApi.githubDisconnect(accountId: accountId)
+                            }
+                        }
+                    },
+                ]
+            )
         }
     }
 

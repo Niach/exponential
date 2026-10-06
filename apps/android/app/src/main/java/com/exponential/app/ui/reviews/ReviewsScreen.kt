@@ -21,12 +21,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +65,8 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 /**
  * "Reviews" (EXP-131): the open pull requests across every member team
@@ -221,27 +221,15 @@ private fun ReviewsListContent(
 
     mergeRunTarget?.let { entry ->
         // EXP-734: no issue is linked, so nothing is completed — say so.
-        val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
-        AlertDialog(
-            onDismissRequest = { mergeRunTarget = null },
-            title = { Text("Merge pull request?") },
-            text = {
-                Text(
-                    "Squash-merges $prLabel via the GitHub App. " +
-                        "Any live run for it ends.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.mergeRun(entry)
-                        mergeRunTarget = null
-                    },
-                ) { Text("Merge") }
-            },
-            dismissButton = {
-                TextButton(onClick = { mergeRunTarget = null }) { Text("Cancel") }
-            },
+        PromptAlert(
+            prompt = Prompts.MergeRunPr.prompt(entry.prNumber),
+            onDismiss = { mergeRunTarget = null },
+            handlers = mapOf(
+                "merge" to {
+                    viewModel.mergeRun(entry)
+                    mergeRunTarget = null
+                },
+            ),
         )
     }
 
@@ -570,19 +558,13 @@ private fun MergeConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
-    val message = buildString {
-        append("Squash-merges $prLabel via the GitHub App. Any live run for it ends.")
-        if (entry.isBatch) append(" Completes all ${entry.issues.size} linked issues.")
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Merge pull request?") },
-        text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Merge") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    PromptAlert(
+        prompt = Prompts.MergeIssuePr.prompt(entry.prNumber, if (entry.isBatch) entry.issues.size else 1),
+        onDismiss = onDismiss,
+        handlers = mapOf("merge" to onConfirm),
     )
 }
+
 
 /** EXP-818: the Reviews scroller's row spacing. */
 private val REVIEW_ROW_GAP = 6.dp

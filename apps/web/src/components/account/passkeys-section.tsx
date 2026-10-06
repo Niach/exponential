@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
+import { promptActions, removePasskeyPrompt } from "@/lib/prompts"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import {
   Button,
@@ -17,6 +18,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Prompt,
 } from "@exp/ui"
 
 // The plugin's list endpoint returns the whole row; only these are rendered.
@@ -154,6 +156,8 @@ export function PasskeysSection({
     }
   }
 
+  const removeCopy = removePasskeyPrompt(removeTarget?.name || `Passkey`)
+
   return (
     <div>
       <GlassSectionHeader
@@ -246,35 +250,22 @@ export function PasskeysSection({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setRemoveTarget(null)
         }}
+        busy={removing}
+        title={removeCopy.title}
+        body={removeCopy.body}
+        actions={promptActions(removeCopy, {
+          remove: { busy: removing, onSelect: () => handleRemove() },
+        })}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove this passkey?</DialogTitle>
-            <DialogDescription>
-              {`"${removeTarget?.name || `Passkey`}" will no longer sign you in. The
-              copy on your device stays until you delete it there.`}
-            </DialogDescription>
-          </DialogHeader>
-          {removeError && (
-            <p className="px-6 text-sm text-destructive">{removeError}</p>
-          )}
-          <DialogFooter>
-            <DialogCancel variant="outline" onClick={() => setRemoveTarget(null)} />
-            <Button
-              variant="destructive"
-              onClick={() => void handleRemove()}
-              disabled={removing}
-            >
-              {removing ? `Removing…` : `Remove`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {removeError ? (
+          <p className="text-sm text-destructive">{removeError}</p>
+        ) : null}
+      </Prompt>
     </div>
   )
 }

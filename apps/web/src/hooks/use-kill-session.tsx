@@ -1,17 +1,7 @@
 import { useState } from "react"
+import { promptActions, stopRunPrompt } from "@/lib/prompts"
 import type { CodingSession } from "@/db/schema"
-import {
-  conceptIcon,
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  toast,
-} from "@exp/ui"
+import { Prompt, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 
@@ -27,13 +17,11 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 // EXP-312: live implies ownership (the ticket mint refuses everyone else), so
 // `canKill` is simply "the synced row is still going AND it is mine".
 
-const LoadingIcon = conceptIcon(`ui-loading`)
+const STOP_RUN = stopRunPrompt()
 
 export function useKillSession(
   session: Pick<CodingSession, `id` | `userId` | `status`>,
   currentUserId: string,
-  /** The host machine's renamed label, named in the confirmation copy. */
-  deviceLabel: string | null,
   /** EXP-550: the host stopped heartbeating — the run is parked, not live.
    * Killing it would end a run that resumes on its own when the machine
    * wakes, so a paused row is never killable from here. */
@@ -71,33 +59,15 @@ export function useKillSession(
     canKill,
     requestKill: () => setConfirmOpen(true),
     dialog: (
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Stop this coding session?</DialogTitle>
-            <DialogDescription>
-              This stops the agent
-              {deviceLabel ? ` on ${deviceLabel}` : ``} and ends the session.
-              Uncommitted work in the worktree is kept, but the agent stops
-              immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => setConfirmOpen(false)}
-              disabled={killing}
-            />
-            <Button
-              variant="destructive"
-              onClick={() => void kill()}
-              disabled={killing}
-            >
-              {killing && <LoadingIcon className="animate-spin" />}
-              Stop session
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Prompt
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        busy={killing}
+        title={STOP_RUN.title}
+        actions={promptActions(STOP_RUN, {
+          stop: { busy: killing, onSelect: kill },
+        })}
+      />
     ),
   }
 }

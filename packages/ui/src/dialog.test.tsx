@@ -1,11 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogTitle,
-} from "./alert-dialog"
-import {
   Dialog,
   DialogCancel,
   DialogContent,
@@ -127,24 +122,6 @@ describe(`DialogContent mobile arms`, () => {
     expect(panel(`dialog-footer`).className).toContain(
       `max-sm:[&>[data-slot=button]]:w-full`
     )
-  })
-})
-
-describe(`AlertDialogContent`, () => {
-  it(`is the compact centered alert, never a full-screen page`, () => {
-    render(
-      <AlertDialog open>
-        <AlertDialogContent>
-          <AlertDialogTitle>Move issue</AlertDialogTitle>
-        </AlertDialogContent>
-      </AlertDialog>
-    )
-    const content = panel(`alert-dialog-content`)
-    expect(content.className).toContain(`max-sm:max-w-sm`)
-    expect(content.className).toContain(`max-sm:bg-glass-bottom`)
-    // The old arm was `fixed inset-0 ... bg-background` — a whole screen for a
-    // yes/no question.
-    expect(content.className).not.toContain(`inset-0`)
   })
 })
 

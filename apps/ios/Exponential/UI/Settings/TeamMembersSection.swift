@@ -20,6 +20,8 @@ struct TeamMembersSection: View {
     // never surface purchase copy in an App Store build (3.1.1). Emailed
     // invites stay web-only.
     var isOwner: Bool = false
+    /// The team's name, for the Leave prompt's title.
+    var teamName: String?
 
     @State private var confirm: MemberConfirm?
     @Environment(\.toaster) private var toaster
@@ -59,16 +61,13 @@ struct TeamMembersSection: View {
                 InviteLinkCreator(accountId: accountId, teamId: teamId)
             }
         }
-        .alert(confirmTitle, isPresented: Binding(
-            get: { confirm != nil },
-            set: { if !$0 { confirm = nil } }
-        ), presenting: confirm) { target in
-            Button("Cancel", role: .cancel) { confirm = nil }
-            Button(confirmButtonLabel(target), role: isDestructive(target) ? .destructive : nil) {
-                Task { await perform(target) }
-            }
-        } message: { target in
-            Text(confirmMessage(target))
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $confirm) { target in
+            let copy = prompt(target)
+            // The ONE answer that is not Cancel (Remove, Leave, Make owner,
+            // Make member) performs the confirmed change.
+            let answer = copy.actions.first { $0.role != .cancel }?.id ?? ""
+            return GlassAlert(prompt: copy, handlers: [answer: { Task { await perform(target) } }])
         }
     }
 
@@ -171,43 +170,22 @@ struct TeamMembersSection: View {
 
     // MARK: - Confirmation copy
 
-    private var confirmTitle: String {
-        guard let confirm else { return "" }
-        switch confirm {
-        case let .remove(_, isSelf): return isSelf ? "Leave Team" : "Remove Member"
-        case let .changeRole(_, role): return role == DomainContract.teamRoleOwner ? "Make Owner" : "Make Member"
-        }
-    }
-
-    private func confirmMessage(_ c: MemberConfirm) -> String {
+    /// EXP-1215: the contract prompt for a confirm (`prompts.json`).
+    private func prompt(_ c: MemberConfirm) -> PromptCopy {
         switch c {
         case let .remove(member, isSelf):
-            if isSelf {
-                return "You will lose access to this team. An owner must invite you back."
-            }
-            let name = memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
-            return "Remove \(name) from this team? They immediately lose access."
+            if isSelf { return Prompts.LeaveTeam.copy(name: teamName ?? "this team") }
+            return Prompts.RemoveMember.copy(name: name(of: member))
         case let .changeRole(member, role):
-            let name = memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
             if role == DomainContract.teamRoleOwner {
-                return "Make \(name) an owner? Owners can delete boards, manage members, and delete the team."
+                return Prompts.MakeOwner.copy(name: name(of: member))
             }
-            return "Change \(name) to member? They will no longer be able to manage members or delete boards."
+            return Prompts.MakeMember.copy(name: name(of: member))
         }
     }
 
-    private func confirmButtonLabel(_ c: MemberConfirm) -> String {
-        switch c {
-        case let .remove(_, isSelf): return isSelf ? "Leave" : "Remove"
-        case .changeRole: return "Change Role"
-        }
-    }
-
-    private func isDestructive(_ c: MemberConfirm) -> Bool {
-        switch c {
-        case .remove: return true
-        case .changeRole: return false
-        }
+    private func name(of member: TeamMemberEntity) -> String {
+        memberDisplayName(users.first { $0.id == member.userId }, id: member.userId)
     }
 
     // MARK: - Actions

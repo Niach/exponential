@@ -705,8 +705,10 @@ final class AgentComposerModel {
     /// lowest unstarted issue (`StackPlan.run[0]`, not necessarily the picked
     /// one), its `prompt` = `BlockedStart.stackedStartPrompt` around the typed
     /// draft. Prompt text only: no new start input.
-    func startStacked() {
-        guard let prompt = blockedPrompt, let plan = prompt.stack.plan,
+    /// `prompt` = the one the alert was built from: the alert clears
+    /// `blockedPrompt` before its answer runs.
+    func startStacked(_ prompt: BlockedStartPrompt? = nil) {
+        guard let prompt = prompt ?? blockedPrompt, let plan = prompt.stack.plan,
               let startIssueId = prompt.stackStartIssueId else { return }
         blockedPrompt = nil
         send(stacked: (plan: plan, issueId: startIssueId))
@@ -902,8 +904,8 @@ final class AgentComposerModel {
 
 /// EXP-897/EXP-980: what the blocked-start prompt shows — the work it is
 /// about, the identifiers of the blockers outside it, and the transitive chain
-/// the sheet draws under the sentence (`IssueGraphView`). A real sheet, not an
-/// OS alert: an alert cannot host a graph.
+/// the alert card draws under the sentence (`IssueGraphView`, EXP-1215: the
+/// `GlassAlert` content slot).
 struct BlockedStartPrompt: Identifiable {
     /// The picked issues, in pick order.
     let issueIds: [String]

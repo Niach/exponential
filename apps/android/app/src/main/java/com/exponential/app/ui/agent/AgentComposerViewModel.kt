@@ -245,7 +245,11 @@ class AgentComposerViewModel @Inject constructor(
         allIssues,
     ) { ids, relations, issues ->
         if (ids.isEmpty()) emptyList() else IssueGraph.openBlockersOfSet(ids, relations, issues)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        // EAGER (EXP-1215): nothing on screen collects this, and [submit] reads
+        // `.value`; a WhileSubscribed flow stayed at its empty seed, so a
+        // blocked start never asked. Eager keeps it (and the issue/relation
+        // rows it reads) live for the composer's lifetime.
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
      * What the blocked-start dialog is asking about (EXP-980) — the picked
