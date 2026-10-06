@@ -156,6 +156,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_sessions_kill: [`session`],
   exponential_sessions_list: [`list`, `session`],
   exponential_sessions_message: [`session`],
+  exponential_sessions_messages: [`session`],
   exponential_sessions_results: [],
   exponential_sessions_show: [],
   exponential_sessions_start: [`session`, `issue`, `issue`, `issue`],
