@@ -27,6 +27,7 @@ import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
+  DeviceReadiness,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -67,6 +68,7 @@ import {
   CLI_DEFAULT_EFFORT,
 } from "@/components/launch-dialog/launch-options-pane"
 import { agentLabel } from "@exp/ui"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
@@ -177,6 +179,8 @@ export function DeviceSettingsDialog({
     contract.codingAgent.values[0]
   )
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
+  // EXP-1196: the device-level switch; absent on the row = off.
+  const [computerUse, setComputerUse] = useState(false)
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -225,6 +229,7 @@ export function DeviceSettingsDialog({
       )
     }
     setDrafts(seeded)
+    setComputerUse(source.launchDefaults?.computerUse ?? false)
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -364,6 +369,7 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
+    computerUse,
     namePending,
     defaultsPending,
   })
@@ -372,6 +378,7 @@ export function DeviceSettingsDialog({
     label,
     nameDraft,
     drafts,
+    computerUse,
     namePending,
     defaultsPending,
   }
@@ -452,7 +459,7 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         // EXP-1158: no `defaultAgent` — the device writes the last used
         // agent and the server carries it forward past this save.
-        launchDefaults: { agents },
+        launchDefaults: { computerUse: snapshot.computerUse, agents },
       })
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
@@ -614,7 +621,16 @@ export function DeviceSettingsDialog({
     const account = row?.agentAccounts?.[agent]
     return account ? [{ agent, version: account.version ?? null }] : []
   })
-  const showUpdateSection = kind === `server` || agentUpdateRows.length > 0
+  // EXP-1196: with a doctor report the agent CLIs update from the readiness
+  // block's Update pill; the per-agent rows remain for older builds only.
+  const legacyAgentUpdateRows = row?.doctor ? [] : agentUpdateRows
+  const showUpdateSection =
+    kind === `server` || legacyAgentUpdateRows.length > 0
+
+  const toggleComputerUse = (checked: boolean) => {
+    setComputerUse(checked)
+    scheduleDefaults()
+  }
 
   const requestUpdate = async () => {
     if (!deviceId || requestingUpdate) return
@@ -807,6 +823,55 @@ export function DeviceSettingsDialog({
                 )}
               </div>
             )}
+            {/* ── Readiness (EXP-1196/1218): THE block, device-doctor.json.
+                The computer-use switch lives in its Computer use group and
+                rides the same debounced launch-defaults save; Update queues
+                `agent_update`, Sign in opens the shared remote login. An
+                older build (no doctor) keeps the bare switch. */}
+            {row?.doctor ? (
+              <DeviceReadiness
+                doctor={row.doctor}
+                remote
+                busy={tracked.some((command) => isAgentUpdateKey(command.key))}
+                computerUse={{ checked: computerUse, onCheckedChange: toggleComputerUse }}
+                onAction={(itemKey, action) => {
+                  if (action === `update`) {
+                    void queueCommand(agentUpdateKey(itemKey), {
+                      kind: `agent_update`,
+                      agent: itemKey,
+                    })
+                  } else if (action === `sign_in` && device) {
+                    requestAgentLogin({ device, agent: itemKey })
+                  }
+                }}
+              />
+            ) : (
+              <GlassGroup>
+                <GlassToggleRow
+                  id="device-settings-computer-use"
+                  label="Computer use"
+                  checked={computerUse}
+                  onCheckedChange={toggleComputerUse}
+                />
+              </GlassGroup>
+            )}
+            {row?.doctor &&
+              agentUpdateRows.map(({ agent }) => {
+                const key = agentUpdateKey(agent)
+                const text = sectionErrors[key] || sectionNotes[key]
+                return text ? (
+                  <p
+                    key={key}
+                    className={
+                      sectionErrors[key]
+                        ? `px-1 text-xs text-destructive`
+                        : `px-1 text-xs text-muted-foreground`
+                    }
+                  >
+                    {text}
+                  </p>
+                ) : null
+              })}
             <AgentOptionsFields
               idPrefix="device-settings"
               agent={agentTab}
@@ -908,7 +973,7 @@ export function DeviceSettingsDialog({
                       </div>
                     </div>
                   )}
-                  {agentUpdateRows.map(({ agent, version: agentVersion }) => {
+                  {legacyAgentUpdateRows.map(({ agent, version: agentVersion }) => {
                     const key = agentUpdateKey(agent)
                     const updating = pendingKey(key)
                     return (

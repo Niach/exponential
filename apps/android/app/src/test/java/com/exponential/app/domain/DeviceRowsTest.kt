@@ -171,6 +171,20 @@ class DeviceRowsTest {
         assertNull(agents.getValue("codex").autoRotateAccounts)
     }
 
+    // EXP-1196: the device-level computerUse flag decodes off the synced row;
+    // a row without it reads null (= off).
+    @Test
+    fun `stored launch defaults carry computerUse or leave it null`() {
+        val on = entity {
+            copy(launchDefaults = """{"computerUse":true,"agents":{"claude":{"model":"opus"}}}""")
+        }.toSteerDevice(nowMs, currentUserId = "me")
+        assertEquals(true, on.launchDefaults?.computerUse)
+        val unset = entity {
+            copy(launchDefaults = """{"agents":{"claude":{"model":"opus"}}}""")
+        }.toSteerDevice(nowMs, currentUserId = "me")
+        assertNull(unset.launchDefaults?.computerUse)
+    }
+
     // ── resumeWorktreeFor ────────────────────────────────────────────────────
 
     private fun worktree(over: DeviceWorktreeEntity.() -> DeviceWorktreeEntity = { this }) =

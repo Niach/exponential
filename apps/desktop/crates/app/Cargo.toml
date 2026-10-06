@@ -31,6 +31,8 @@ api = { path = "../api" }
 terminal = { path = "../terminal" }
 steer = { path = "../steer" }
 coding = { path = "../coding" }
+# EXP-1196: the IDE links the cua driver on every OS (see crates/computer).
+computer = { path = "../computer", features = ["cua"] }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true

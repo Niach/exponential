@@ -1,0 +1,105 @@
+{
+  "_": "EXP-1196/1218/1219: THE device readiness block, one spec x5 (web, desktop, iOS, Android, CLI). A device builds `doctor` (coding::device_doctor) and sends it on register + heartbeat; the server stores it in devices.doctor (synced). Every client renders the SAME block from it: groups as filled bands, one flat row per item (state glyph, label, detail, at most one action). No subtitles, no footers with sentences. The device writes `detail`; clients never compose it.",
+  "groups": [
+    { "key": "required", "label": "Required", "tag": null },
+    { "key": "agents", "label": "Coding agents", "tag": "optional" },
+    { "key": "computer_use", "label": "Computer use", "tag": "optional" }
+  ],
+  "labels": {
+    "git": "Git",
+    "claude": "Claude Code",
+    "codex": "Codex",
+    "computer_use": "Computer use",
+    "screen_recording": "Screen Recording",
+    "accessibility": "Accessibility"
+  },
+  "states": {
+    "ok": { "glyph": "check", "tone": "success" },
+    "action": { "glyph": "alert", "tone": "warning" },
+    "missing": { "glyph": "dash", "tone": "muted" },
+    "off": { "glyph": "dash", "tone": "muted" },
+    "error": { "glyph": "x", "tone": "destructive" }
+  },
+  "actions": {
+    "install": { "label": "Install", "remote": false },
+    "update": { "label": "Update", "remote": true },
+    "sign_in": { "label": "Sign in", "remote": true },
+    "grant": { "label": "Open System Settings", "remote": false }
+  },
+  "copy": {
+    "localTitle": "Set up this device",
+    "skip": "Skip for now",
+    "continue": "Continue",
+    "recheck": "Check again",
+    "notInstalled": "Not installed",
+    "signedOut": "Signed out",
+    "needsRelogin": "Needs re-login",
+    "granted": "Granted",
+    "notGranted": "Not granted",
+    "unavailable": "Not available here",
+    "notResponding": "Not responding",
+    "needsVersion": "{version} · needs {min}"
+  },
+  "rules": [
+    "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
+    "Items with `parent` (the OS permission rows) render indented under their parent and only while the parent is not off.",
+    "An action renders as ONE trailing pill. On the device itself every action is offered. For ANOTHER device only actions with remote=true are offered (update -> device command agent_update {agent}; sign_in -> the existing remote agent_login flow); a non-remote action renders no pill.",
+    "The primary (filled) pill is the action of the first `action`/`error` row whose action is OFFERED in that context (on another device a non-remote action is skipped); all others are plain pills.",
+    "Nothing is runnable while a `required` item is not ok; otherwise the runnable agents are the `agents` items in state ok.",
+    "A group's `tag` renders verbatim (lowercase `optional`) as the band's trailing muted text.",
+    "Rows that need attention = state `action` or `error`; `missing` and `off` never count as a problem.",
+    "A missing optional agent is `missing` (grey dash), never red. `error` (red) is only for a missing REQUIRED item.",
+    "The composer shows, for the picked device + agent when that agent cannot run there, ONLY that agent's row (same row, same action) under the composer; when Git is the failure, the Git row.",
+    "The first-run footer shows `continue` (filled) instead of `skip` when Git is ok and at least one agent is runnable; `recheck` always.",
+    "A device row with doctor = null (an older build) renders no block; device settings then still shows the bare Computer use switch row (no description) so the switch stays reachable."
+  ],
+  "cases": [
+    {
+      "name": "ready: git + claude, codex missing, computer use off",
+      "doctor": {
+        "checkedAt": "2026-10-05T19:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Not installed", "action": "install" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": {}
+    },
+    {
+      "name": "claude too old, computer use on with one macOS permission missing",
+      "doctor": {
+        "checkedAt": "2026-10-05T19:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "action", "detail": "2.1.222 · needs 2.1.263", "action": "update" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Not installed", "action": "install" },
+          { "key": "computer_use", "group": "computer_use", "state": "action" },
+          { "key": "screen_recording", "group": "computer_use", "parent": "computer_use", "state": "ok", "detail": "Granted" },
+          { "key": "accessibility", "group": "computer_use", "parent": "computer_use", "state": "action", "detail": "Not granted", "action": "grant" }
+        ]
+      },
+      "runnable": [],
+      "localPrimary": "claude",
+      "remotePills": { "claude": "update" }
+    },
+    {
+      "name": "git missing, claude signed out, codex ok, computer use on (no OS permissions here)",
+      "doctor": {
+        "checkedAt": "2026-10-05T19:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "error", "detail": "Not installed", "action": "install" },
+          { "key": "claude", "group": "agents", "state": "action", "detail": "Signed out", "action": "sign_in" },
+          { "key": "codex", "group": "agents", "state": "ok", "detail": "0.156.1" },
+          { "key": "computer_use", "group": "computer_use", "state": "ok" }
+        ]
+      },
+      "runnable": [],
+      "localPrimary": "git",
+      "remotePills": { "claude": "sign_in" }
+    }
+  ]
+}

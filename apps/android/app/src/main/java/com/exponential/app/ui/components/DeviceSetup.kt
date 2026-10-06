@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.AppConstants
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.icons.ExpIcons
@@ -339,7 +340,15 @@ private fun ServerCard(
 @Composable
 private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
     val online = device.online
-    val blockedCaption = LaunchDeviceRules.blockedCaption(device)
+    // EXP-1196: a machine that reports a doctor speaks for itself — its rows
+    // that need attention (glyph, label, detail; the action lives in the
+    // settings sheet this row opens) replace the "{agents} not signed in"
+    // caption. No doctor (an older build), or nothing flagged: the caption.
+    val doctorRows = device.doctor
+        ?.takeIf { online }
+        ?.let { DeviceReadiness.attentionRows(it) }
+        .orEmpty()
+    val blockedCaption = if (doctorRows.isEmpty()) LaunchDeviceRules.blockedCaption(device) else null
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,7 +362,7 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (online && blockedCaption == null) {
+                alpha = if (online && blockedCaption == null && doctorRows.isEmpty()) {
                     TextEmphasis.Secondary
                 } else {
                     TextEmphasis.Tertiary
@@ -369,7 +378,17 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
+            doctorRows.forEach { row ->
+                DeviceReadinessRow(
+                    row = row,
+                    onAction = {},
+                    showAction = false,
+                    horizontalPadding = 0.dp,
+                    verticalPadding = 2.dp,
+                    labelStyle = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (doctorRows.isEmpty()) Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {

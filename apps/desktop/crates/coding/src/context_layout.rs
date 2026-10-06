@@ -79,11 +79,24 @@ pub struct CarriedBase {
 /// keeps a degenerate composition (a future shape this build mis-reads) out
 /// of the picture instead of reporting a zero-byte layer.
 pub fn team_bytes(system_append: &str) -> Option<usize> {
-    if system_append == crate::skill::RUN_SKILL {
+    let fixed = playbook_bytes(system_append);
+    if system_append.len() == fixed {
         return None;
     }
-    let playbook = crate::skill::RUN_SKILL.trim_end().len();
-    Some(system_append.len().saturating_sub(playbook)).filter(|bytes| *bytes > 0)
+    let fixed = system_append[..fixed].trim_end().len();
+    Some(system_append.len().saturating_sub(fixed)).filter(|bytes| *bytes > 0)
+}
+
+/// The FIXED text at the head of a composed `system_append`, in bytes: the
+/// playbook, plus the EXP-1196 computer-use section when the launch carried
+/// it (so that section counts as playbook, never as the owners' prompt).
+pub fn playbook_bytes(system_append: &str) -> usize {
+    let with_computer = crate::skill::fixed_append(true);
+    if system_append.starts_with(with_computer.trim_end()) {
+        with_computer.len().min(system_append.len())
+    } else {
+        crate::skill::RUN_SKILL.len().min(system_append.len())
+    }
 }
 
 /// The memory files `agent` will load for a run whose cwd is `cwd`, in LOAD
@@ -236,6 +249,21 @@ mod tests {
     fn team_bytes_is_none_without_a_team_prompt() {
         assert_eq!(team_bytes(&crate::skill::system_append(None)), None);
         assert_eq!(team_bytes(&crate::skill::system_append(Some("  "))), None);
+    }
+
+    /// EXP-1196: the computer-use section is fixed text, so it counts as
+    /// playbook; the team layer stays exactly the team block.
+    #[test]
+    fn the_computer_use_section_counts_as_playbook_not_team() {
+        let alone = crate::skill::system_append_with(None, true);
+        assert_eq!(team_bytes(&alone), None);
+        assert_eq!(playbook_bytes(&alone), alone.len());
+        let prompt = "## Rules";
+        let with = crate::skill::system_append_with(Some(prompt), true);
+        let without = crate::skill::system_append_with(Some(prompt), false);
+        assert_eq!(team_bytes(&with), team_bytes(&without));
+        assert_eq!(playbook_bytes(&with), alone.len());
+        assert_eq!(playbook_bytes(&without), crate::skill::RUN_SKILL.len());
     }
 
     /// Everything the append carries beyond the playbook — heading, framing

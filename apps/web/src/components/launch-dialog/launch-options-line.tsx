@@ -14,8 +14,10 @@ import {
   PICKER_INLINE_WORD,
   Switch,
   conceptIcon,
+  deviceReadinessBlocker,
   getDeviceIcon,
 } from "@exp/ui"
+import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
 import {
   CLI_DEFAULT_EFFORT,
   CLI_DEFAULT_MODEL,
@@ -313,13 +315,16 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             </div>
           </MobilePopoverContent>
         </MobilePopover>
-        {launch.agentNotReady && device && (
-          /* EXP-773: with the PTY path gone this combination cannot start at
-             all — the submit is disabled on the same predicate. */
-          <span>
-            {`Not ready on ${device.deviceLabel || device.deviceId}. Run the doctor there.`}
-          </span>
-        )}
+        {/* EXP-773: a not-ready combination cannot start at all — the
+            submit is disabled on the same predicate. EXP-1196: with a doctor
+            report the failing ROW renders under the line instead. */}
+        {launch.agentNotReady &&
+          device &&
+          !deviceReadinessBlocker(device.doctor, agent) && (
+            <span>
+              {`Not ready on ${device.deviceLabel || device.deviceId}. Run the doctor there.`}
+            </span>
+          )}
         {/* EXP-836: a play button named a machine this composer cannot start
             on — say which and why, instead of quietly using the default. */}
         {model.deviceRequestNote && (
@@ -329,6 +334,16 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             flips to the live view the moment it syncs. */}
         {model.sentTo && <span>{`Waiting for ${model.sentTo}…`}</span>}
       </div>
+      {/* EXP-1196: the picked device's failing doctor row (Git, else the
+          agent's own) with its one action, instead of a sentence. */}
+      {device && deviceReadinessBlocker(device.doctor, agent) && (
+        <DeviceReadinessNotice
+          device={device}
+          agent={agent}
+          notReady={launch.agentNotReady}
+          className="rounded-md bg-glass-row"
+        />
+      )}
       {model.overCap && (
         <p className="text-destructive">
           {`At most ${MAX_ISSUES_PER_RUN} issues per run. Split the batch.`}

@@ -18,6 +18,9 @@ domain = { path = "../domain" }
 # `app`/`ui` depend on `terminal` with defaults directly, which is what keeps
 # `terminal/gpui` on for the desktop.
 terminal = { path = "../terminal", default-features = false }
+# EXP-1196: the device's computer-use MCP server (gpui-free, tokio-free). The
+# launcher mints a run's grant and wires the entry beside the team servers.
+computer = { path = "../computer" }
 
 serde = { workspace = true }
 # EXP-530: automations schedule math (latest/next occurrence in the device's

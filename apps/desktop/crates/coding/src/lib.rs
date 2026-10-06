@@ -57,6 +57,7 @@ pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
 pub mod context_layout;
+pub mod device_doctor;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;
@@ -90,6 +91,10 @@ pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod usage_cache;
 pub mod worktree_agents;
+
+/// EXP-1196: the device's computer-use server, re-exported so the hosts
+/// (engine, ui, cli) reach it through the launcher crate they already link.
+pub use computer;
 
 pub use agent::{claude_model_alias, CodingAgent};
 pub use argv::{

@@ -1,94 +1,36 @@
-//! The shared "Tooling doctor" panel (EXP-367) — rendered by Settings →
-//! Tools AND the first-run onboarding tools step, so the two can never
-//! drift.
+//! THIS device's readiness block (EXP-1196) — rendered by Settings → Tools
+//! AND the first-run devices step, so the two can never drift.
 //!
-//! One row per tool (the three agent CLIs, then git), colored by
-//! [`row_severity`] — git failing is always red (required); a failing agent
-//! is muted INFORMATION while another agent is green, and only goes red when
-//! NO agent is installed (coding is disabled then). Every failing row grows
-//! actionable guidance: an install hint + link, and (for the agents) an
-//! inline absolute-path input saved straight through
-//! [`CodingHub::save_settings`].
+//! It is [`crate::device_readiness`] fed live from the hub's doctor run
+//! (`CodingHub::doctor.device`, rebuilt on every run): Required / Coding
+//! agents / Computer use bands, one row per item, every action offered (this
+//! IS the device). The one host-only extra: an agent's install row carries a
+//! "Custom path" pill that reveals the CLI path field + Save path (closed by
+//! default), saved straight through [`CodingHub::save_settings`], which
+//! re-runs the doctor — the "did my path fix it?" loop.
 //!
-//! Saving a path here overlays ONLY that one field onto the hub's LIVE
-//! settings (the merge-preserving save re-runs the doctor). For the Agents
-//! pane this is an external owned-field change — its `resync` rewrites its
-//! inputs from the hub, at worst refreshing away unsaved sibling edits
-//! there, the same as any external save today.
+//! Saving a path overlays ONLY that one field onto the hub's LIVE settings.
+//! For the Agents pane this is an external owned-field change — its `resync`
+//! rewrites its inputs from the hub, at worst refreshing away unsaved sibling
+//! edits there, the same as any external save today.
+
+use std::collections::HashSet;
 
 use gpui::{
-    div, App, AppContext as _, Entity, Hsla, IntoElement, ParentElement, Render, SharedString,
-    Styled, Subscription, Window,
+    App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{
-    button::Button,
-    h_flex,
-    input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
+use gpui_component::{h_flex, input::InputState, v_flex, Disableable as _};
 
-use coding::{CodingAgent, DoctorReport, Tool, ToolCheck};
+use coding::device_doctor::{DoctorAction, DoctorState};
+use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
-use crate::icons::registry;
+use crate::device_readiness::{self, RowExtras};
+use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
 
 use super::section;
-
-// ---------------------------------------------------------------------------
-// Row severity (the EXP-367 red/white fix)
-// ---------------------------------------------------------------------------
-
-/// How a doctor row renders. The old rows colored by "is this the DEFAULT
-/// agent", which read as random red/white; severity now follows what the
-/// failure MEANS.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RowSeverity {
-    Ok,
-    /// Failing but optional — another agent covers coding.
-    Muted,
-    /// Failing and blocking — git, or an agent when NO agent is installed.
-    Danger,
-}
-
-/// Pure severity rule: git failing is always danger (required for
-/// everything); agent rows are muted information while at least one agent is
-/// green, and ALL go danger when none is (coding is disabled then).
-pub(crate) fn row_severity(check: &ToolCheck, report: &DoctorReport) -> RowSeverity {
-    if check.ok {
-        RowSeverity::Ok
-    } else if check.tool == Tool::Git || !report.any_agent_ok() {
-        RowSeverity::Danger
-    } else {
-        RowSeverity::Muted
-    }
-}
-
-/// Per-tool install guidance: a one-line hint (with the copy-pasteable
-/// command where one exists) + the canonical download page.
-pub(crate) fn install_hint(tool: Tool) -> (&'static str, &'static str) {
-    match tool {
-        Tool::Git => (
-            "Install Git (on Windows: winget install --id Git.Git). Just installed it? \
-             Click Check tools again.",
-            "https://git-scm.com/downloads",
-        ),
-        Tool::Claude => (
-            // EXP-419: link the CLI install docs, not the product page — a
-            // fresh machine needs the claude CLI, not the desktop app.
-            "Install Claude Code: npm install -g @anthropic-ai/claude-code",
-            "https://code.claude.com/docs/en/quickstart#step-1-install-claude-code",
-        ),
-        Tool::Codex => (
-            "Install the Codex CLI: npm install -g @openai/codex",
-            "https://developers.openai.com/codex/cli",
-        ),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Panel
-// ---------------------------------------------------------------------------
 
 pub struct DoctorPanel {
     claude_input: Entity<InputState>,
@@ -96,6 +38,11 @@ pub struct DoctorPanel {
     /// The hub paths the inputs were last synced from — external-change
     /// detection only (each input saves itself; there is no pane-wide Save).
     synced_paths: Option<(String, String)>,
+    /// The agents whose Custom path field is open (closed by default).
+    path_open: HashSet<CodingAgent>,
+    /// Draw the block's own "Check again" pill (the first-run step pins it
+    /// in its footer instead).
+    recheck: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -108,26 +55,27 @@ impl DoctorPanel {
 
         // Creating the hub also kicks the FIRST doctor run (§7.7 onboarding).
         let hub = CodingHub::global(cx);
-        let mut subscriptions = vec![cx.observe_in(&hub, window, |this, _, window, cx| {
+        let subscriptions = vec![cx.observe_in(&hub, window, |this, _, window, cx| {
             this.resync(window, cx);
             cx.notify();
         })];
-        for input in [&claude_input, &codex_input] {
-            subscriptions.push(cx.subscribe(input, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify(); // live dirty tracking on the Save-path button
-                }
-            }));
-        }
 
         let mut this = Self {
             claude_input,
             codex_input,
             synced_paths: None,
+            path_open: HashSet::new(),
+            recheck: true,
             _subscriptions: subscriptions,
         };
         this.resync(window, cx);
         this
+    }
+
+    /// The first-run step's spelling: no own "Check again" (its footer has it).
+    pub fn without_recheck(mut self) -> Self {
+        self.recheck = false;
+        self
     }
 
     fn input_for(&self, agent: CodingAgent) -> &Entity<InputState> {
@@ -142,10 +90,7 @@ impl DoctorPanel {
     fn resync(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let hub = CodingHub::global(cx);
         let settings = hub.read(cx).settings.clone();
-        let paths = (
-            settings.claude_path.clone(),
-            settings.codex_path.clone(),
-        );
+        let paths = (settings.claude_path.clone(), settings.codex_path.clone());
         if self.synced_paths.as_ref() == Some(&paths) {
             return;
         }
@@ -161,7 +106,7 @@ impl DoctorPanel {
     /// Persist ONE agent's path (blank degrades to the default program name,
     /// mirroring `Settings::load`) — overlaid onto the hub's LIVE settings so
     /// this can never roll back a sibling pane's save. The save re-runs the
-    /// doctor, which is exactly the "did my path fix it?" feedback loop.
+    /// doctor.
     fn save_path(&mut self, agent: CodingAgent, cx: &mut gpui::Context<Self>) {
         let raw = self.input_for(agent).read(cx).value().trim().to_string();
         let value = if raw.is_empty() {
@@ -183,371 +128,101 @@ impl DoctorPanel {
         cx.notify();
     }
 
-    /// The severity glyph + its colour — shared by [`Self::tool_row`] and
-    /// [`Self::signed_out_row`] so a row never disagrees with itself.
-    fn severity_glyph(severity: RowSeverity, cx: &App) -> (crate::icons::ExpIcon, Hsla) {
-        match severity {
-            RowSeverity::Ok => (registry::UI_SUCCESS, theme::tokens::GREEN.to_hsla()),
-            RowSeverity::Muted => (registry::UI_ERROR, cx.theme().muted_foreground),
-            RowSeverity::Danger => (registry::UI_ERROR, cx.theme().danger),
-        }
-    }
-
-    /// The tool's name in the row's fixed leading column.
-    fn tool_name(check: &ToolCheck) -> impl IntoElement {
-        div()
-            .w_16()
-            .flex_shrink_0()
-            .text_sm()
-            .font_family(theme::terminal::FONT_FAMILY)
-            .child(SharedString::from(check.tool.label()))
-    }
-
-    /// EXP-862 — a SIGNED-OUT agent is one line: the severity glyph, the tool
-    /// name and the Login button. No sentence explains what "signed out"
-    /// means, and no install hint or path field muddies a row whose binary is
-    /// fine (×4: the chip badge is the only signed-out notice).
-    fn signed_out_row(
-        check: &ToolCheck,
-        severity: RowSeverity,
-        cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let (icon, color) = Self::severity_glyph(severity, cx);
-        // EXP-1076: the doctor's tools are an entity LIST, so its rows ride
-        // the ladder's rhythm (`list_row` + `flat_row`, the web
-        // `SETTINGS_LIST_CLASS` twin) instead of floating bare in the
-        // section.
-        let mut row = crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(Self::tool_name(check))
-            .child(div().flex_1());
-        if let Some(agent) = check.tool.agent() {
-            row = row.child(
-                crate::surface::glass_pill_button(
-                    SharedString::from(format!("doctor-login-{}", agent.id())),
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
-                .icon(registry::UI_SIGN_IN)
-                .label("Login")
-                .on_click(cx.listener(move |_, _, _, cx| {
-                    crate::agent_login::open_login_tab(agent, false, cx);
-                })),
-            );
-        }
-        row
-    }
-
-    /// One tool row: status icon + monospace tool name + detail, icon AND
-    /// detail sharing the severity color (the tool name stays foreground in
-    /// every state — the old mixed red-icon/white-text rows read as noise).
-    fn tool_row(check: &ToolCheck, severity: RowSeverity, cx: &App) -> impl IntoElement {
-        let (icon, color): (crate::icons::ExpIcon, Hsla) = Self::severity_glyph(severity, cx);
-        let detail: SharedString = if check.ok {
-            check.version.clone().unwrap_or_default().into()
-        } else {
-            check
-                .error
-                .clone()
-                .unwrap_or_else(|| format!("{} is not installed", check.tool))
-                .into()
-        };
-        let detail_color = match severity {
-            RowSeverity::Ok | RowSeverity::Muted => cx.theme().muted_foreground,
-            RowSeverity::Danger => cx.theme().danger,
-        };
-        // EXP-1076: one rung of the doctor's hairline ladder.
-        crate::surface::flat_row()
-            .flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .items_center()
-            .child(Icon::new(icon).small().text_color(color))
-            .child(Self::tool_name(check))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .text_color(detail_color)
-                    .child(detail),
-            )
-    }
-
-    /// The guidance block under a failing row: install hint + link, plus the
-    /// inline path input for agent tools (git has no path setting — it must
-    /// be on PATH). An installed-but-signed-out agent never gets here —
-    /// EXP-862 renders it as [`Self::signed_out_row`] instead.
-    fn guidance(
+    /// The install row's extras: the Custom path pill, and (open) the path
+    /// field + Save path under the row.
+    fn path_extras(
         &self,
-        check: &ToolCheck,
-        window: &Window,
+        agent: CodingAgent,
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        let tool = check.tool;
-        let muted = cx.theme().muted_foreground;
-        let (hint, url) = install_hint(tool);
-        let mut block = v_flex()
-            .pl_7()
-            .gap_1p5()
-            .child(div().text_xs().text_color(muted.opacity(0.9)).child(hint))
-            .child(
-                h_flex().child(
-                    crate::surface::glass_pill_button(
-                        SharedString::from(format!("doctor-install-{}", tool.label())),
-                        crate::surface::PillSize::Sm,
+    ) -> RowExtras {
+        let open = self.path_open.contains(&agent);
+        let toggle = glass_pill(
+            SharedString::from(format!("doctor-custom-path-{}", agent.id())),
+            PillSize::Sm,
+            PillMode::Select { selected: open },
+            cx,
+        )
+        .child(device_readiness::CUSTOM_PATH)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if !this.path_open.remove(&agent) {
+                this.path_open.insert(agent);
+            }
+            cx.notify();
+        }));
+        let below = open.then(|| {
+            h_flex()
+                .w_full()
+                .gap_2()
+                .items_center()
+                .child(
+                    gpui::div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(glass_input(self.input_for(agent), window, cx).web_input_sm()),
+                )
+                .child(
+                    glass_pill_button(
+                        SharedString::from(format!("doctor-save-path-{}", agent.id())),
+                        PillSize::Sm,
                         cx,
                     )
-                        .label("Install page")
-                        .icon(registry::UI_EXTERNAL_LINK)
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            super::open_url(cx, url.to_string());
-                        })),
-                ),
-            );
-        if let Some(agent) = tool.agent() {
-            block = block.child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().flex_1().min_w_0().child(
-                        glass_input(self.input_for(agent), window, cx).web_input_sm(),
-                    ))
-                    .child(
-                        crate::surface::glass_pill_button(
-                            SharedString::from(format!("doctor-save-path-{}", agent.id())),
-                            crate::surface::PillSize::Sm,
-                            cx,
-                        )
-                        .label("Save path")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.save_path(agent, cx);
-                        })),
-                    ),
-            );
+                    .label(device_readiness::SAVE_PATH)
+                    .on_click(cx.listener(move |this, _, _, cx| this.save_path(agent, cx))),
+                )
+                .into_any_element()
+        });
+        RowExtras {
+            trailing: Some(toggle.into_any_element()),
+            below,
         }
-        block
     }
+}
+
+/// "Check again": re-run the doctor (the block re-renders when it lands).
+pub(crate) fn recheck_button(id: &'static str, running: bool, cx: &App) -> impl IntoElement {
+    glass_pill_button(id, PillSize::Sm, cx)
+        .label(device_readiness::RECHECK)
+        .loading(running)
+        .disabled(running)
+        .on_click(|_, _, cx| {
+            let hub = CodingHub::global(cx);
+            CodingHub::refresh_doctor(&hub, cx);
+        })
 }
 
 impl Render for DoctorPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let hub = CodingHub::global(cx);
-        let (report, running) = {
+        let (doctor, running) = {
             let hub = hub.read(cx);
-            (hub.doctor.report.clone(), hub.doctor.running)
+            (hub.doctor.device.clone(), hub.doctor.running)
         };
-
-        let mut body =
-            section(cx).child(crate::surface::glass_section_header("Tooling doctor", None, cx));
-        match &report {
-            None => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_64())
-                        .child(crate::controls::skeleton().h_4().w_56()),
-                );
-            }
-            Some(report) => {
-                // EXP-1076: ONE gapless ladder under the band. A failing
-                // tool's guidance rides INSIDE its own rung, so the hairline
-                // always falls between two tools and never between a row and
-                // the hint that belongs to it.
-                let mut rungs: Vec<gpui::AnyElement> = Vec::new();
-                for agent in CodingAgent::ALL {
-                    let check = report.check_for(agent).clone();
-                    let severity = row_severity(&check, report);
-                    // EXP-862: signed out is ONE line (glyph + name + Login).
-                    if check.signed_out() {
-                        rungs.push(Self::signed_out_row(&check, severity, cx).into_any_element());
+        let block = match &doctor {
+            None => device_readiness::render_loading(),
+            Some(doctor) => {
+                let mut props = device_readiness::local_props("doctor", cx);
+                for item in &doctor.items {
+                    let Some(agent) = device_readiness::agent_for(&item.key) else {
                         continue;
+                    };
+                    if item.state != DoctorState::Ok && item.action == Some(DoctorAction::Install) {
+                        let extras = self.path_extras(agent, window, cx);
+                        props.extras.insert(item.key.clone(), extras);
                     }
-                    let mut rung = v_flex()
-                        .w_full()
-                        .min_w_0()
-                        .child(Self::tool_row(&check, severity, cx));
-                    if severity != RowSeverity::Ok {
-                        rung = rung.child(
-                            // The row's own `px_3` does not reach the
-                            // guidance, so the block carries it here; its
-                            // `pl_7` then indents under the row's detail.
-                            div()
-                                .w_full()
-                                .px_3()
-                                .pb_2()
-                                .child(self.guidance(&check, window, cx)),
-                        );
-                    }
-                    rungs.push(rung.into_any_element());
                 }
-                let git = report.git.clone();
-                let severity = row_severity(&git, report);
-                let mut rung = v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .child(Self::tool_row(&git, severity, cx));
-                if severity != RowSeverity::Ok {
-                    rung = rung.child(
-                        div()
-                            .w_full()
-                            .px_3()
-                            .pb_2()
-                            .child(self.guidance(&git, window, cx)),
-                    );
-                }
-                rungs.push(rung.into_any_element());
-                body = body.child(
-                    v_flex().w_full().min_w_0().children(
-                        rungs
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, rung)| crate::surface::list_row(rung, index)),
-                    ),
-                );
+                device_readiness::render_sections(
+                    &device_readiness::sections(doctor, true, None),
+                    props,
+                    cx,
+                )
             }
+        };
+        let body = section(cx).child(v_flex().w_full().min_w_0().child(block));
+        if self.recheck {
+            body.child(h_flex().child(recheck_button("doctor-check", running, cx)))
+        } else {
+            body
         }
-        body.child(
-            h_flex().child(
-                Button::new("doctor-check")
-                    .outline().cursor_pointer()
-                    .web_sm()
-                    .label("Check tools")
-                    .loading(running)
-                    .disabled(running)
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        let hub = CodingHub::global(cx);
-                        CodingHub::refresh_doctor(&hub, cx);
-                    })),
-            ),
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn green(tool: Tool) -> ToolCheck {
-        ToolCheck {
-            tool,
-            ok: true,
-            version: Some("1.0.0".to_string()),
-            error: None,
-            authed: None,
-            account: None,
-            usage_eligible: false,
-            signed_in_profile: None,
-            // EXP-746: ACP readiness is non-fatal and never touches these
-            // severity rules.
-            acp: None,
-            acp_note: None,
-        }
-    }
-
-    fn red(tool: Tool) -> ToolCheck {
-        ToolCheck {
-            tool,
-            ok: false,
-            version: None,
-            error: Some(format!("{} not found on PATH", tool.label())),
-            authed: None,
-            account: None,
-            usage_eligible: false,
-            signed_in_profile: None,
-            // EXP-746: ACP readiness is non-fatal and never touches these
-            // severity rules.
-            acp: None,
-            acp_note: None,
-        }
-    }
-
-    /// EXP-367: severity follows what a failure MEANS — git is always
-    /// required; agents are optional while a sibling covers coding.
-    #[test]
-    fn severity_matrix() {
-        // One agent green → the others' failures are muted information.
-        let one_ok = DoctorReport {
-            claude: green(Tool::Claude),
-            codex: red(Tool::Codex),
-            git: green(Tool::Git),
-        };
-        assert_eq!(row_severity(&one_ok.claude, &one_ok), RowSeverity::Ok);
-        assert_eq!(row_severity(&one_ok.codex, &one_ok), RowSeverity::Muted);
-
-        // NO agent installed → every agent row is danger (coding disabled).
-        let none_ok = DoctorReport {
-            claude: red(Tool::Claude),
-            codex: red(Tool::Codex),
-            git: red(Tool::Git),
-        };
-        assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
-        assert_eq!(row_severity(&none_ok.codex, &none_ok), RowSeverity::Danger);
-
-        // git failing is danger REGARDLESS of the agents' state.
-        assert_eq!(row_severity(&none_ok.git, &none_ok), RowSeverity::Danger);
-        let git_only_broken = DoctorReport {
-            git: red(Tool::Git),
-            ..one_ok
-        };
-        assert_eq!(
-            row_severity(&git_only_broken.git, &git_only_broken),
-            RowSeverity::Danger
-        );
-    }
-
-    /// Every failing tool gets an install link (guidance is never blank).
-    #[test]
-    fn every_tool_has_an_install_hint() {
-        for tool in [Tool::Claude, Tool::Codex, Tool::Git] {
-            let (hint, url) = install_hint(tool);
-            assert!(!hint.is_empty());
-            assert!(url.starts_with("https://"), "{url}");
-        }
-    }
-
-    /// EXP-409: a signed-out agent follows the same severity rules as a
-    /// missing one — muted while a sibling covers coding, danger when none
-    /// does. EXP-862: the row itself is glyph + name + Login, so there is no
-    /// hint sentence left to assert.
-    #[test]
-    fn signed_out_rows_share_the_severity_rules() {
-        let signed_out = |tool: Tool| ToolCheck {
-            authed: Some(false),
-            ok: false,
-            version: Some("1.0.0".to_string()),
-            error: Some("signed out".to_string()),
-            tool,
-            account: None,
-            usage_eligible: false,
-            signed_in_profile: None,
-            acp: None,
-            acp_note: None,
-        };
-        let one_ok = DoctorReport {
-            claude: green(Tool::Claude),
-            codex: signed_out(Tool::Codex),
-            git: green(Tool::Git),
-        };
-        assert_eq!(row_severity(&one_ok.codex, &one_ok), RowSeverity::Muted);
-        let none_ok = DoctorReport {
-            claude: signed_out(Tool::Claude),
-            codex: signed_out(Tool::Codex),
-            git: green(Tool::Git),
-        };
-        assert_eq!(row_severity(&none_ok.claude, &none_ok), RowSeverity::Danger);
-        // The signed-out branch is a row, not a guidance block: `signed_out`
-        // is what routes it there.
-        assert!(none_ok.claude.signed_out());
     }
 }

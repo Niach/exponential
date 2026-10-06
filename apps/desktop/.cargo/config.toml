@@ -22,3 +22,13 @@
 # single target dirs). On our pinned 1.96.0 the key is still nightly-gated
 # (cargo warns "ignoring ... without -Zfeature-unification" on EVERY command),
 # so it must stay off; add it the moment a toolchain bump stabilizes it.
+
+# EXP-1196: the linked cua driver's ScreenCaptureKit bridge is Swift and
+# resolves the Swift runtime through @rpath. A transitive crate's link args
+# never reach a final binary, so every TEST binary of a crate above
+# `computer` (coding, engine, ui, cli, app) gets the rpath here; the shipped
+# `exp-desktop` and `exponential` binaries bake it in their own build.rs,
+# which also covers a CI build from the repo root (this file is read from
+# the cwd). An rpath on the host-side proc-macro dylibs is harmless.
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-rpath,/usr/lib/swift"]

@@ -411,7 +411,8 @@ struct OnboardingView: View {
 /// also renders outside the wizard (the join surfaces, EXP-1169).
 struct OnboardingStepHeader: View {
     let title: String
-    let subtitle: String
+    /// Nil = the title alone (the devices step: no subtitle, EXP-1196).
+    var subtitle: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -420,12 +421,14 @@ struct OnboardingStepHeader: View {
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
 
-            Spacer().frame(height: 8)
+            if let subtitle {
+                Spacer().frame(height: 8)
 
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .multilineTextAlignment(.center)
+            }
 
             Spacer().frame(height: 24)
         }

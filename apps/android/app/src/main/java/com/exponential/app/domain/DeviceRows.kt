@@ -197,6 +197,7 @@ fun DeviceEntity.toSteerDevice(
     agentUsage = parseAgentUsage(agentUsage),
     agentUsageAt = agentUsageAt,
     rowId = id,
+    doctor = parseDeviceDoctor(doctor),
 )
 
 /**

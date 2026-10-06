@@ -44,3 +44,10 @@ uuid = { workspace = true }
 # registry's pid liveness probe (kill(pid, 0)) — already in the tree.
 libc = { workspace = true }
 log = "0.4"
+
+# EXP-1196: the daemon links the cua driver where the OS carries its runtime
+# libraries itself (macOS and Windows); on Linux that would make the binary
+# need libX11/libxkbcommon/libpipewire at load time, which the servers this
+# daemon runs on do not have, so the Linux daemon answers "not available".
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+computer = { path = "../computer", features = ["cua"] }

@@ -1,5 +1,6 @@
 package com.exponential.app.data.api
 
+import com.exponential.app.domain.DeviceDoctor
 import com.exponential.app.domain.DomainContract
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -87,6 +88,13 @@ data class DeviceLaunchDefaults(
      */
     @SerialName("defaultAgent") val defaultAgent: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
+    /**
+     * EXP-1196: the DEVICE-level "Computer use" switch (agents may see the
+     * screen, click and type), off by default. Null = never set, which reads
+     * as OFF and stays ABSENT on the wire (`explicitNulls = false`) so the
+     * server carries the stored value forward; an explicit true/false wins.
+     */
+    @SerialName("computerUse") val computerUse: Boolean? = null,
 )
 
 /**
@@ -278,6 +286,12 @@ data class SteerDevice(
      * carry it); only the DeviceEntity → SteerDevice mapping stamps it.
      */
     @SerialName("rowId") val rowId: String? = null,
+    /**
+     * EXP-1196/1218/1219: the synced readiness report (`devices.doctor`).
+     * Only the DeviceEntity → SteerDevice mapping stamps it — never decoded
+     * off a relay / tRPC payload. Null = an older build: no readiness block.
+     */
+    @kotlinx.serialization.Transient val doctor: DeviceDoctor? = null,
 ) {
     /** A headless `exponential` daemon rather than the desktop IDE. */
     val isServer: Boolean get() = kind == KIND_SERVER
@@ -315,7 +329,12 @@ data class SteerDevice(
      * ACP set, and there is no PTY path left. Nothing is FILTERED on it: the
      * agent stays pickable, the caption says why the start is blocked.
      */
-    fun agentNotReady(agent: String): Boolean = agent !in acpAgentIds
+    fun agentNotReady(agent: String): Boolean =
+        // EXP-1196: a device that reports its readiness is judged by it (Git
+        // ok and the agent's own row ok), like the web composer; an older
+        // build keeps the ACP rule.
+        doctor?.let { agent !in com.exponential.app.domain.DeviceReadiness.runnableAgents(it) }
+            ?: (agent !in acpAgentIds)
 
     /** EXP-409: agents installed but signed out — displayed, never offered. */
     val unauthedAgentIds: List<String>

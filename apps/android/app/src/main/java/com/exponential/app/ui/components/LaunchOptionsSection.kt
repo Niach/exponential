@@ -288,11 +288,13 @@ internal fun LaunchOptionsSection(
     // with the PTY path gone it cannot start there. A caption, never a filter
     // — the agent stays pickable and the sheet disables its start button on
     // the same predicate. Absent for the Device variant, which has no run.
+    // EXP-1196: with a reported doctor it is the failing readiness ROW (same
+    // row, same action); the sentence stays the fallback for older builds.
     if (device != null && agent.isNotEmpty() && device.agentNotReady(agent)) {
-        Text(
-            "Not ready on ${device.deviceLabel.ifBlank { device.deviceId }}. Run the doctor there.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        DeviceNotReadyRow(
+            device = device,
+            agent = agent,
+            fallback = "Not ready on ${device.deviceLabel.ifBlank { device.deviceId }}. Run the doctor there.",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
     }

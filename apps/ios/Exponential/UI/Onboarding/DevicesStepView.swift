@@ -17,10 +17,7 @@ struct DevicesStepView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OnboardingStepHeader(
-                title: OnboardingCopy.devicesTitle,
-                subtitle: OnboardingCopy.devicesSubtitle
-            )
+            OnboardingStepHeader(title: OnboardingCopy.devicesTitle)
 
             DeviceSetup(
                 accountId: accountId,

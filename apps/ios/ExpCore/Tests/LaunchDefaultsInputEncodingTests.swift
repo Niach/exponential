@@ -53,4 +53,51 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         )
         XCTAssertNil(bare.autoRotateAccounts)
     }
+
+    /// EXP-1196: the device-level `computerUse` switch is a TOP-LEVEL key
+    /// beside `agents`: encoded when set (false included), absent when nil,
+    /// and decoded leniently (absent, null or a non-boolean = nil = off).
+    func testComputerUseRoundTripsAsATopLevelKey() throws {
+        let on = try json(DeviceLaunchDefaultsInput(
+            agents: ["claude": AgentLaunchDefaultsInput(model: "opus")],
+            computerUse: true
+        ))
+        XCTAssertEqual(on["computerUse"] as? Bool, true)
+        XCTAssertEqual(Set(on.keys), ["agents", "computerUse"])
+        let off = try json(DeviceLaunchDefaultsInput(agents: [:], computerUse: false))
+        XCTAssertEqual(off["computerUse"] as? Bool, false)
+        let unset = try json(DeviceLaunchDefaultsInput(agents: [:]))
+        XCTAssertNil(unset.index(forKey: "computerUse"))
+
+        let decode = { (raw: String) throws -> DeviceLaunchDefaults in
+            try JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(raw.utf8))
+        }
+        let row = try decode(#"{"defaultAgent":"claude","computerUse":true,"agents":{"claude":{"model":"opus"}}}"#)
+        XCTAssertEqual(row.computerUse, true)
+        XCTAssertEqual(row.defaultAgent, "claude")
+        XCTAssertEqual(row.agents?["claude"]?.model, "opus")
+        XCTAssertEqual(try decode(#"{"computerUse":false}"#).computerUse, false)
+        XCTAssertNil(try decode(#"{"defaultAgent":"codex"}"#).computerUse)
+        XCTAssertNil(try decode(#"{"computerUse":null}"#).computerUse)
+        // A shape this build does not expect degrades the key, not the row.
+        let odd = try decode(#"{"defaultAgent":"codex","computerUse":"yes"}"#)
+        XCTAssertNil(odd.computerUse)
+        XCTAssertEqual(odd.defaultAgent, "codex")
+    }
+
+    /// The synced devices row (stringified jsonb) keeps the key through the
+    /// retired-agent filter that rebuilds the decoded defaults.
+    func testSyncedDeviceRowKeepsComputerUse() throws {
+        let row = DeviceEntity(
+            id: "row-1",
+            userId: "me",
+            deviceId: "box",
+            label: "Box",
+            launchDefaults: #"{"defaultAgent":"claude","computerUse":true}"#,
+            lastSeenAt: "2026-10-05T11:59:00.000Z"
+        )
+        let device = SteerDevice(entity: row, currentUserId: "me")
+        XCTAssertEqual(device.launchDefaults?.computerUse, true)
+        XCTAssertEqual(device.launchDefaults?.defaultAgent, "claude")
+    }
 }

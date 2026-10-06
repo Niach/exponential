@@ -33,9 +33,10 @@ class DatabaseHolder @Inject constructor(
                 "exponential-$accountId-v2.db",
             )
                 // SLOP-3: 78 → 79 and SLOP-4: 79 → 80 migrate in place (rows
-                // and every shape's offset survive). Any OLDER schema still
+                // and every shape's offset survive), as does EXP-1196's 80 → 81
+                // (one added column). Any OLDER schema still
                 // wipes and lets Electric resync.
-                .addMigrations(MIGRATION_78_79, MIGRATION_79_80)
+                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db

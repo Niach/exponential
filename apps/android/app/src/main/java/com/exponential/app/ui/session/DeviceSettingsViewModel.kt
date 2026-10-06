@@ -8,6 +8,7 @@ import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
+import com.exponential.app.data.api.agentUpdateCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -95,6 +96,9 @@ fun agentLoginCodeCommandKey(
     profileId: String?,
     newProfileLabel: String? = null,
 ): String = LOGIN_CODE_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId, newProfileLabel)
+
+/** One `agent_update` command's key in [DeviceSettingsViewModel.commandStates] (EXP-1196). */
+fun agentUpdateCommandKey(deviceId: String, agent: String): String = "update:$deviceId:$agent"
 
 /** The prefix [agentLoginCommandKey] builds. */
 private const val LOGIN_KEY_PREFIX = "login:"
@@ -339,6 +343,20 @@ class DeviceSettingsViewModel @Inject constructor(
         issueCommand(
             key = agentLoginCodeCommandKey(deviceId, agent, profileId, newProfileLabel),
             command = agentLoginCodeCommand(deviceId, agent, code),
+            deviceOnline = deviceOnline,
+        )
+    }
+
+    /**
+     * EXP-1196/1218: the readiness block's `update` action — the machine runs
+     * [agent]'s own self-updater (`agent_update`). Keyed per device × agent
+     * ([agentUpdateCommandKey]); the doctor re-reports the new version on the
+     * next heartbeat, so a Done needs no caption of its own.
+     */
+    fun agentUpdate(deviceId: String, agent: String, deviceOnline: Boolean) {
+        issueCommand(
+            key = agentUpdateCommandKey(deviceId, agent),
+            command = agentUpdateCommand(deviceId, agent),
             deviceOnline = deviceOnline,
         )
     }

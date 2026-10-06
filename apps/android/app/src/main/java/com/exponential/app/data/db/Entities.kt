@@ -649,6 +649,10 @@ data class DeviceEntity(
     // NEVER a sync-nudge trigger — only a display fallback ("as of ...").
     @ColumnInfo(name = "agent_usage_at") @SerialName("agent_usage_at") @JsonNames("agentUsageAt")
     val agentUsageAt: String? = null,
+    // EXP-1196/1218/1219: the machine's readiness report (`{ checkedAt,
+    // items[] }`), shipped on register/heartbeat — raw JSON text, parsed at
+    // the consumer (`parseDeviceDoctor`). NULL = an older build: no block.
+    @Serializable(with = JsonAsStringSerializer::class) val doctor: String? = null,
     @ColumnInfo(name = "active_sessions") @SerialName("active_sessions") @JsonNames("activeSessions")
     val activeSessions: Int = 0,
     @ColumnInfo(name = "last_seen_at") @SerialName("last_seen_at") @JsonNames("lastSeenAt")

@@ -485,6 +485,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // would call an unchanged map "changed" on every single beat.
     let mut sent_accounts: Option<String> = None;
     let mut sent_usage: Option<String> = None;
+    // EXP-1196: the readiness block's items as last ACCEPTED by a beat
+    // (`device_doctor::items_key`, `checkedAt` excluded).
+    let mut sent_doctor: Option<String> = None;
     // EXP-1099: warn-level failure logging + the optional-payload back-off
     // (a 4xx on a beat carrying accounts/usage → the next goes out bare).
     let mut heartbeat_health = coding::logging::HeartbeatHealth::new();
@@ -765,7 +768,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let send_accounts =
                 include_optional && accounts_key.is_some() && accounts_key != sent_accounts;
             let send_usage = include_optional && usage_text.is_some() && usage_text != sent_usage;
-            let carried_optional = send_accounts || send_usage;
+            // EXP-1196: the readiness block rides only when its items moved.
+            let device_doctor = {
+                let settings =
+                    coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+                coding::device_doctor::current(&settings, &ctx.data_dir, &doctor)
+            };
+            let doctor_key = coding::device_doctor::items_key(&device_doctor);
+            let send_doctor = include_optional && sent_doctor.as_ref() != Some(&doctor_key);
+            let doctor_json = send_doctor
+                .then(|| serde_json::to_value(&device_doctor).ok())
+                .flatten();
+            let carried_optional = send_accounts || send_usage || doctor_json.is_some();
             match api::devices::heartbeat(
                 &ctx.trpc,
                 &api::devices::HeartbeatInput {
@@ -774,6 +788,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     defaults_synced_at: synced_at.as_deref(),
                     agent_accounts: send_accounts.then_some(accounts_json.as_ref()).flatten(),
                     agent_usage: send_usage.then_some(usage_json.as_ref()).flatten(),
+                    doctor: doctor_json.as_ref(),
                 },
             ) {
                 Ok(result) => {
@@ -785,6 +800,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     if send_usage {
                         sent_usage = usage_text.clone();
+                    }
+                    if doctor_json.is_some() {
+                        sent_doctor = Some(doctor_key.clone());
                     }
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
@@ -1174,6 +1192,8 @@ fn register_device(
     let agent_accounts = (!accounts.is_empty())
         .then(|| serde_json::to_value(&accounts).ok())
         .flatten();
+    let device_doctor =
+        serde_json::to_value(coding::device_doctor::current(&settings, &ctx.data_dir, doctor)).ok();
     let result = api::devices::register(
         &ctx.trpc,
         &api::devices::RegisterDevice {
@@ -1194,6 +1214,8 @@ fn register_device(
             // just-registered machine should already say "signed in as …".
             agent_accounts: agent_accounts.as_ref(),
             version: Some(crate::cli_version()),
+            // EXP-1196: the readiness block, always on register.
+            doctor: device_doctor.as_ref(),
         },
     );
     match result {
@@ -2499,6 +2521,7 @@ fn apply_server_defaults(
         }
     };
     let mut settings = coding::Settings::load(&settings_path);
+    let was_on = settings.computer_use;
     let changed = coding::apply_defaults_patch(&mut settings, &patch);
     if changed {
         if let Err(err) = settings.save(&settings_path) {
@@ -2506,6 +2529,14 @@ fn apply_server_defaults(
             return;
         }
         log::info!("launch defaults: applied the server copy");
+        // EXP-1196: the switch flipped from another client: on = ask this
+        // machine's permissions and start the cua worker now, not in the
+        // middle of a run; off = stop it (its agent cursor goes with it).
+        if settings.computer_use && !was_on {
+            coding::computer::prepare_in_background();
+        } else if !settings.computer_use && was_on {
+            std::thread::spawn(coding::computer::shutdown);
+        }
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);
     // recording the stamp stops a re-apply loop either way.

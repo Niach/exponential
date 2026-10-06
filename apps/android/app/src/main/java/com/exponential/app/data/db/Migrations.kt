@@ -73,6 +73,23 @@ val MIGRATION_79_80: Migration = object : Migration(79, 80) {
     }
 }
 
+/**
+ * EXP-1196/1218/1219: `devices.doctor` arrives — the machine's readiness
+ * report, a nullable jsonb kept as raw text. A plain additive column (Room
+ * reads a NULL-default TEXT column as the entity's nullable String). Every row
+ * survives; the devices shape is marked for the atomic refetch so rows synced
+ * before the column existed come back carrying it.
+ */
+val MIGRATION_80_81: Migration = object : Migration(80, 81) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `devices` ADD COLUMN `doctor` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'devices'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

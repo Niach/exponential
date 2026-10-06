@@ -30,6 +30,12 @@ mod x11_window_icon;
 mod windows_integration;
 
 fn main() {
+    // EXP-1196: the computer-use host re-runs this executable as cua's
+    // private worker (`exp-desktop __private-worker --generation <id>`);
+    // that process is the driver and nothing else, before any other setup.
+    if let Some(generation) = coding::computer::worker::requested_generation() {
+        coding::computer::worker::run_and_exit(generation);
+    }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
     // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
     // this the app installed none, so every `log::` line (a failing

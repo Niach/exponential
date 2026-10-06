@@ -43,6 +43,7 @@
 //! a failure renders its device-reported message inline.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
@@ -57,10 +58,12 @@ use gpui_component::{
 };
 use sync::Store;
 
+use coding::device_doctor::DoctorAction;
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
+use crate::device_readiness;
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
 };
@@ -327,6 +330,9 @@ pub struct DeviceSettingsView {
     claude_plan_mode: bool,
     /// EXP-1005: `Settings.auto_rotate_accounts` (claude-only).
     claude_auto_rotate: bool,
+    /// EXP-1196: `Settings.computer_use` — the DEVICE's switch (no agent
+    /// tab owns it), saved with the launch defaults it syncs in.
+    computer_use: bool,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -413,6 +419,7 @@ impl DeviceSettingsView {
                 agent_accounts: None,
                 agent_usage: None,
                 agent_usage_at: None,
+                doctor: None,
                 active_sessions: None,
                 last_seen_at: None,
                 shared_team_ids: Vec::new(),
@@ -532,6 +539,7 @@ impl DeviceSettingsView {
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             claude_auto_rotate: seeded.auto_rotate_accounts,
+            computer_use: seeded.computer_use,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -694,6 +702,7 @@ impl DeviceSettingsView {
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
         self.claude_auto_rotate = baseline.auto_rotate_accounts;
+        self.computer_use = baseline.computer_use;
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
@@ -715,6 +724,7 @@ impl DeviceSettingsView {
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
+        drafted.computer_use = self.computer_use;
         drafted
     }
 
@@ -1374,39 +1384,6 @@ impl DeviceSettingsView {
         )
     }
 
-    /// The logins THIS dialog's machine reports: the live local probe for our
-    /// own row, the synced `agent_accounts`/`agent_usage` columns for anyone
-    /// else's.
-    fn reported_agent_status(
-        &self,
-        cx: &mut App,
-    ) -> (
-        coding::agent_accounts::AgentAccounts,
-        coding::agent_usage::AgentUsageMap,
-    ) {
-        if self.own {
-            if let Some(demo) = dev_agent_status() {
-                return (demo.accounts, demo.usage);
-            }
-            let hub = CodingHub::global(cx);
-            let status = hub.read(cx).agent_status.clone();
-            if let Some(status) = status {
-                return (status.accounts, status.usage);
-            }
-        }
-        let Some(store) = sync::Store::try_global(cx) else {
-            return Default::default();
-        };
-        let devices = store.collections().devices.read(cx);
-        let Some(row) = devices.iter().find(|row| row.id == self.device_row_id) else {
-            return Default::default();
-        };
-        (
-            parse_agent_map::<coding::agent_accounts::AgentAccount>(row.agent_accounts.as_ref()),
-            parse_agent_map::<coding::agent_usage::AgentUsage>(row.agent_usage.as_ref()),
-        )
-    }
-
     /// The per-agent defaults as the SHARED grouped picker
     /// ([`AgentDefaultsGroup`], the same component the Start-coding cluster
     /// and Settings → Agents render): the embedded agent tabs row, Model, the
@@ -1598,74 +1575,11 @@ impl DeviceSettingsView {
         server: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
-        // The agent CLI rows: one per agent the machine reports an install
-        // for, its version off the heartbeat's account row and an "Update"
-        // that queues `agent_update` (the CLI's own self-updater, run there).
-        // No cap: every build at the version floors runs it.
-        let (accounts, _) = self.reported_agent_status(cx);
-        let mut agent_rows: Vec<Div> = Vec::new();
-        for agent in CodingAgent::ALL {
-            let Some(account) = accounts.get(agent.id()) else {
-                continue;
-            };
-            let key = format!("update {}", agent.id());
-            let updating = self.tracked.iter().any(|command| command.key == key);
-            let version = account.version.clone();
-            let agent_row = surface::glass_row_shell().min_w_0().gap_2().child(
-                v_flex().flex_1().min_w_0().gap_0p5().child(
-                    div().w_full().min_w_0().truncate().text_sm().child(SharedString::from(
-                        match version.as_deref() {
-                            Some(version) => format!("{} v{version}", agent.label()),
-                            None => agent.label().to_string(),
-                        },
-                    )),
-                ),
-            )
-            .child(
-                gpui_component::button::Button::new(("device-agent-update", agent as usize))
-                    .ghost()
-                    .web_sm()
-                    .icon(Icon::new(registry::UI_UPDATE))
-                    .label(if updating { "Updating…" } else { "Update" })
-                    .loading(updating)
-                    .disabled(updating)
-                    .tooltip(if online {
-                        format!("Run `{} update` on this machine.", agent.id())
-                    } else {
-                        format!(
-                            "Run `{} update` on this machine (queued until it comes online).",
-                            agent.id()
-                        )
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.queue_agent_update(agent, cx);
-                    })),
-            );
-            // The line sits UNDER the label (like a note), never beside it: a
-            // sentence-long trailing slot truncated the agent's name on the
-            // web twin at its narrower column.
-            let under = self.error_line(&key, cx).or_else(|| self.note_line(&key, cx));
-            match under {
-                Some(line) => agent_rows.push(
-                    v_flex()
-                        .w_full()
-                        .child(agent_row)
-                        .child(div().px_4().pb_3().child(line)),
-                ),
-                None => agent_rows.push(agent_row),
-            }
-        }
+        // EXP-1196: the agent CLI updates moved into the readiness block (a
+        // row's Update action); this section is the DAEMON's alone — and a
+        // desktop updates itself.
         if !server {
-            // Desktops update themselves (EXP-420/FEED-36): the section is
-            // the agent rows alone, and only while there is one to show.
-            if agent_rows.is_empty() {
-                return div();
-            }
-            return v_flex()
-                .w_full()
-                .gap_2()
-                .child(surface::glass_section_header("Update", None, cx))
-                .child(surface::glass_group_rows(agent_rows));
+            return div();
         }
         self.ensure_latest_loaded(cx);
         let muted = cx.theme().muted_foreground;
@@ -1751,12 +1665,11 @@ impl DeviceSettingsView {
             );
         }
 
-        let mut rows = vec![surface::glass_row_shell()
+        let rows = vec![surface::glass_row_shell()
             .min_w_0()
             .gap_2()
             .child(version_line)
             .child(controls)];
-        rows.extend(agent_rows);
         let mut body = v_flex()
             .w_full()
             .gap_2()
@@ -1771,6 +1684,102 @@ impl DeviceSettingsView {
             );
         }
         body.children(self.error_line("update", cx))
+    }
+
+    /// EXP-1196: the readiness block for this dialog's machine — `None`
+    /// when there is none to draw (another machine on an older build, or
+    /// this one before its first doctor run lands).
+    fn render_readiness(
+        &mut self,
+        row: Option<&domain::rows::DeviceRow>,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<Div> {
+        let local = self.own;
+        let doctor = if local {
+            CodingHub::global(cx).read(cx).doctor.device.clone()?
+        } else {
+            match device_readiness::parse(row.and_then(|row| row.doctor.as_ref())) {
+                Some(doctor) => doctor,
+                // An older build (no doctor): no block, but the bare
+                // Computer use switch row stays reachable.
+                None => {
+                    let view = cx.entity().downgrade();
+                    let props = device_readiness::BlockProps {
+                        id: "device-readiness".into(),
+                        on_toggle: Some(Rc::new(move |on, _window, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.computer_use = on;
+                                this.save_defaults(cx);
+                                cx.notify();
+                            });
+                        })),
+                        ..device_readiness::BlockProps::default()
+                    };
+                    let row = device_readiness::bare_switch_row(self.computer_use);
+                    return Some(device_readiness::render_single(&row, props, cx));
+                }
+            }
+        };
+        let view = cx.entity().downgrade();
+        let toggle_view = view.clone();
+        let mut props = if local {
+            device_readiness::local_props("device-readiness", cx)
+        } else {
+            let device_id = self.device_id.clone();
+            let label: SharedString = row
+                .and_then(|row| row.label.clone())
+                .filter(|label| !label.trim().is_empty())
+                .unwrap_or_else(|| self.device_id.clone())
+                .into();
+            device_readiness::BlockProps {
+                id: "device-readiness".into(),
+                on_action: Some(Rc::new(move |key, action, window, cx| match action {
+                    // Tracked here so the outcome lands under the row.
+                    DoctorAction::Update => {
+                        if let Some(agent) = device_readiness::agent_for(key) {
+                            let _ = view.update(cx, |this, cx| this.queue_agent_update(agent, cx));
+                        }
+                    }
+                    _ => device_readiness::run_remote_action(
+                        device_id.clone(),
+                        label.clone(),
+                        key,
+                        action,
+                        window,
+                        cx,
+                    ),
+                })),
+                busy: self
+                    .tracked
+                    .iter()
+                    .filter_map(|command| command.key.strip_prefix("update ").map(str::to_string))
+                    .collect(),
+                ..device_readiness::BlockProps::default()
+            }
+        };
+        // The switch writes `Settings.computer_use` through the dialog's
+        // launch-defaults save (own: the hub + the row; remote: the row).
+        props.on_toggle = Some(Rc::new(move |on, _window, cx| {
+            let _ = toggle_view.update(cx, |this, cx| {
+                this.computer_use = on;
+                this.save_defaults(cx);
+                cx.notify();
+            });
+        }));
+        for agent in CodingAgent::ALL {
+            let key = format!("update {}", agent.id());
+            if let Some(line) = self.error_line(&key, cx).or_else(|| self.note_line(&key, cx)) {
+                props.extras.insert(
+                    agent.id().to_string(),
+                    device_readiness::RowExtras {
+                        trailing: None,
+                        below: Some(line.into_any_element()),
+                    },
+                );
+            }
+        }
+        let sections = device_readiness::sections(&doctor, local, Some(self.computer_use));
+        Some(device_readiness::render_sections(&sections, props, cx))
     }
 
     /// EXP-909: the Remove section — the row's old "Remove…" entry, confirm
@@ -1909,6 +1918,16 @@ impl Render for DeviceSettingsView {
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look).
+        // EXP-1196: the device readiness block for THIS row's machine (the
+        // live local doctor for our own row, the synced `doctor` for any
+        // other; an older build's NULL draws only the bare Computer use
+        // switch row). Its Computer use band
+        // carries the device's switch, saved with the launch defaults it
+        // syncs in; its rows carry the agent Update / Sign in actions.
+        let body = match self.render_readiness(row.as_ref(), cx) {
+            Some(block) => body.child(block),
+            None => body,
+        };
         let mut body = body.child(self.render_defaults_section(online, cx));
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so

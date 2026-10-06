@@ -1,0 +1,50 @@
+[package]
+name = "computer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# EXP-1196: computer use for coding runs = the cua driver (trycua/cua, MIT),
+# LINKED, not ported. The host (IDE or `exponential` daemon) serves ONE
+# loopback MCP endpoint whose tools are cua's own; the platform runtime runs
+# in a private worker = this same executable re-run as `__private-worker`
+# (`worker.rs`), the topology cua prescribes for a GUI host: the worker owns
+# the agent-cursor overlay's main thread and inherits the host's OS
+# permissions through the responsibility chain, and nothing has to locate a
+# helper binary. gpui-free; tokio is the SDK's own runtime.
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+uuid = { workspace = true }
+# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
+tiny_http = { version = "0.12", default-features = false }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+
+# The cua driver SDK and its sibling crates, one pinned revision of the cua
+# monorepo (crates are `publish = false`). `cursor-overlay` = the agent
+# cursor's config record the worker hands the runtime. Linux turns on the
+# portal input (libei) and per-window capture (pipewire) features; the
+# build images carry libpipewire/libxkbcommon/libX11 headers for them.
+cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", optional = true }
+cursor-overlay = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cursor-overlay", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", features = ["portal-libei"], optional = true }
+
+# The worker's main thread on macOS: the AppKit run loop of the agent cursor.
+[target.'cfg(target_os = "macos")'.dependencies]
+platform-macos = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "platform-macos", optional = true }
+
+[features]
+# The FINAL binary decides: the IDE links cua on every OS, the `exponential`
+# daemon everywhere but Linux, where cua's backend makes the binary need
+# libX11, libxkbcommon and libpipewire at load time and a headless server
+# has none of them (the daemon is what servers run). Without it the crate
+# is the same API answering "not available here".
+cua = ["dep:cua-driver-sdk", "dep:cursor-overlay", "dep:platform-macos", "dep:tokio"]
+
+[[example]]
+name = "serve"
+required-features = ["cua"]

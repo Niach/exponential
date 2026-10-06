@@ -148,7 +148,7 @@ export const DATA: CuratedEntry[] = [
 // Vendored source
 // ---------------------------------------------------------------------------
 //
-// Neither of these is a package in any dependency graph. gpui-markdown-editor
+// None of these is a package in any dependency graph. gpui-markdown-editor
 // in particular is `publish = false`, so no cargo tool will ever emit it — this
 // entry is the only route by which Velotype / manyougz gets attributed at all.
 
@@ -368,6 +368,8 @@ export const MPL_SOURCE_URLS: Record<string, string> = {
   [`dtoa-short`]: `https://github.com/upsuper/dtoa-short`,
   [`option-ext`]: `https://github.com/soc/option-ext`,
   dwrote: `https://github.com/servo/dwrote-rs`,
+  // EXP-1196: the cua driver SDK's binding layer (uniffi, uniffi_* crates).
+  [`uniffi*`]: `https://github.com/mozilla/uniffi-rs`,
   // npm (web)
   [`lightningcss*`]: `https://github.com/parcel-bundler/lightningcss`,
   // npm (marketing)

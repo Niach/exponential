@@ -14,7 +14,9 @@ export function StepCard({
 }: {
   icon: LucideIcon
   title: string
-  subtitle: string
+  /** EXP-1196: optional — a step whose body speaks for itself (devices)
+   *  wears no explanatory line. */
+  subtitle?: string
   children: React.ReactNode
 }) {
   return (
@@ -22,7 +24,7 @@ export function StepCard({
       <div className="flex flex-col gap-1.5 p-6 text-center">
         <IconDisc icon={Icon} className="mx-auto" />
         <h2 className="text-xl font-semibold">{title}</h2>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
+        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {children}
     </GlassGroup>

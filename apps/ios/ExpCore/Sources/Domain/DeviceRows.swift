@@ -132,6 +132,9 @@ public extension SteerDevice {
             agentUsage: Self.decodeAgentUsage(entity.agentUsage),
             agentUsageAt: entity.agentUsageAt,
             launchDefaults: Self.decodeLaunchDefaults(entity.launchDefaults),
+            // EXP-1196: NULL (an older build) and undecodable JSON both read
+            // as "no report" — the readiness block simply doesn't render.
+            doctor: DeviceDoctor.decode(json: entity.doctor),
             rowId: entity.id
         )
     }
@@ -158,7 +161,8 @@ public extension SteerDevice {
         }
         return DeviceLaunchDefaults(
             defaultAgent: defaultAgent,
-            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) }
+            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
+            computerUse: decoded.computerUse
         )
     }
 

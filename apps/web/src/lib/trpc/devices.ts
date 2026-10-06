@@ -38,6 +38,7 @@ import {
   deviceAgentHealthValues,
   deviceAgentUsageSchema,
   deviceCommands,
+  deviceDoctorSchema,
   deviceLaunchDefaultsSchema,
   devices,
   deviceWorktrees,
@@ -45,6 +46,7 @@ import {
   teamMembers,
   users,
   type DeviceAgentAccount,
+  type DeviceDoctor,
   type DeviceAgentAccounts,
   type DeviceAgentHealth,
   type DeviceAgentLaunchDefaults,
@@ -101,7 +103,8 @@ const COMMANDS_PER_HEARTBEAT = 32
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
 // client at the floors sends every key it knows, compat round 26) — except
-// `defaultAgent`, which `setLaunchDefaults` carries forward (EXP-1158).
+// `defaultAgent` and `computerUse`, which `setLaunchDefaults` carries forward
+// (EXP-1158, EXP-1196).
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
@@ -109,6 +112,10 @@ function clampLaunchDefaults(
   const out: DeviceLaunchDefaults = {}
   if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
     out.defaultAgent = input.defaultAgent
+  }
+  // EXP-1196: a boolean passes, null (= off) is dropped like every toggle.
+  if (typeof input.computerUse === `boolean`) {
+    out.computerUse = input.computerUse
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -191,6 +198,25 @@ function isoStampOrNull(value: unknown): string | null {
   if (typeof value !== `string` || value.length === 0) return null
   const at = new Date(value)
   return Number.isNaN(at.getTime()) ? null : at.toISOString()
+}
+
+// EXP-1196: the stored readiness report is null-free. Vocabulary stays
+// lenient (unknown keys/states survive as strings; clients skip what they
+// cannot name) — only the shape is normalised.
+export function clampDoctor(
+  input: z.infer<typeof deviceDoctorSchema>
+): DeviceDoctor {
+  return {
+    checkedAt: isoStampOrNull(input.checkedAt) ?? input.checkedAt,
+    items: input.items.map((item) => ({
+      key: item.key,
+      group: item.group,
+      ...(item.parent ? { parent: item.parent } : {}),
+      state: item.state,
+      ...(item.detail ? { detail: item.detail } : {}),
+      ...(item.action ? { action: item.action } : {}),
+    })),
+  }
 }
 
 // EXP-484: same contract as clampLaunchDefaults — ALWAYS clamp, never reject.
@@ -559,6 +585,9 @@ export const devicesRouter = router({
         // good answer on one flaky pass.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
+        // EXP-1196: the device's readiness report (devices.doctor). Present
+        // = overwrite; absent keeps the stored one (an older build).
+        doctor: deviceDoctorSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -583,6 +612,7 @@ export const devicesRouter = router({
             ? clampAgentAccounts(input.agentAccounts)
             : null,
           version: input.version ?? null,
+          doctor: input.doctor ? clampDoctor(input.doctor) : null,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
@@ -607,6 +637,7 @@ export const devicesRouter = router({
             ...(input.agentAccounts
               ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
               : {}),
+            ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
@@ -659,6 +690,9 @@ export const devicesRouter = router({
         // deliberately not a convergence trigger for anything.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         agentUsage: deviceAgentUsageSchema.optional(),
+        // EXP-1196: the readiness report, sent when it changed; absent =
+        // unchanged.
+        doctor: deviceDoctorSchema.nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -678,6 +712,7 @@ export const devicesRouter = router({
                 agentUsageAt: now,
               }
             : {}),
+          ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
         })
         .where(
           and(
@@ -837,6 +872,16 @@ export const devicesRouter = router({
         (contract.codingAgent.values as readonly string[]).includes(storedAgent)
       ) {
         clamped.defaultAgent = storedAgent
+      }
+      // EXP-1196: older clients never send `computerUse`, so a save that
+      // OMITS the key keeps the stored switch; an explicit true/false/null
+      // from a client that knows it wins.
+      const storedComputerUse = row.launchDefaults?.computerUse
+      if (
+        input.launchDefaults.computerUse === undefined &&
+        typeof storedComputerUse === `boolean`
+      ) {
+        clamped.computerUse = storedComputerUse
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

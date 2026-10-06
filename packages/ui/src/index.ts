@@ -95,6 +95,8 @@ export * from "./progress-ring"
 // SLOP-7: the "Ready to code?" checklist chrome and the repository picker
 // body, shared by the web app and the styleguide specimens.
 export * from "./readiness-checklist"
+// EXP-1196: THE device readiness block (device-doctor.json).
+export * from "./device-readiness"
 export * from "./repository-picker"
 // EXP-1170: THE phone properties sheet row.
 export * from "./property-row"

@@ -1822,6 +1822,11 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     /// When the server last stored `agentUsage`. Moves every few minutes, so
     /// it must never be a re-sync nudge trigger.
     public let agentUsageAt: String?
+    /// EXP-1196: the machine's readiness report (`{checkedAt, items[]}`,
+    /// contract fixture `device-doctor.json`), stored as stringified JSON and
+    /// decoded by `DeviceDoctor`. NULL = a build that reports none, which
+    /// renders no readiness block. READ-ONLY here: the device is the writer.
+    public let doctor: String?
     public let activeSessions: Int
     public let lastSeenAt: String?
     /// FEED-33: the teams this machine is shared with (`uuid[]`, sorted +
@@ -1854,6 +1859,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         agentAccounts: String? = nil,
         agentUsage: String? = nil,
         agentUsageAt: String? = nil,
+        doctor: String? = nil,
         activeSessions: Int = 0,
         lastSeenAt: String? = nil,
         sharedTeamIds: [String] = [],
@@ -1879,6 +1885,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.agentAccounts = agentAccounts
         self.agentUsage = agentUsage
         self.agentUsageAt = agentUsageAt
+        self.doctor = doctor
         self.activeSessions = activeSessions
         self.lastSeenAt = lastSeenAt
         self.sharedTeamIds = sharedTeamIds
@@ -1889,7 +1896,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, label, kind, icon, platform, version, agents, caps
+        case id, label, kind, icon, platform, version, agents, caps, doctor
         case userId = "user_id"
         case deviceId = "device_id"
         case unauthedAgents = "unauthed_agents"
@@ -1941,6 +1948,8 @@ extension DeviceEntity: Codable {
         agentAccounts = c.decodeWireJsonString(forKey: .agentAccounts)
         agentUsage = c.decodeWireJsonString(forKey: .agentUsage)
         agentUsageAt = try c.decodeIfPresent(String.self, forKey: .agentUsageAt)
+        // EXP-1196: jsonb like agent_accounts; absent on an older server.
+        doctor = c.decodeWireJsonString(forKey: .doctor)
         // SE-0230 flattens the try?-of-optional; unparseable text degrades to
         // 0 rather than dropping the row (activeSessions only gates a badge).
         activeSessions = (try? c.decodeWireInt(forKey: .activeSessions)) ?? 0

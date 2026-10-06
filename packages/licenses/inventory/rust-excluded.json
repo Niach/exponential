@@ -16,7 +16,15 @@
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
+      "package": "apple-native-keyring-store@1.0.2",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
       "package": "arbitrary@1.4.2",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "atomic-polyfill@1.0.3",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -29,6 +37,10 @@
     },
     {
       "package": "coding@0.14.62",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
+      "package": "computer@0.14.61",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
     {
@@ -45,6 +57,10 @@
     },
     {
       "package": "core-graphics@0.23.2",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "critical-section@1.2.0",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -160,6 +176,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "objc2-ui-kit@0.3.2",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
       "package": "objc_id@0.1.1",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
@@ -189,6 +209,10 @@
     },
     {
       "package": "redox_syscall@0.5.18",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "redox_users@0.4.6",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -312,11 +336,19 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
-      "package": "windows-strings@0.3.1",
+      "package": "windows-sys@0.48.0",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "windows-targets@0.48.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
       "package": "windows-version@0.1.7",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "windows_aarch64_gnullvm@0.48.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -328,11 +360,19 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "windows_aarch64_msvc@0.48.5",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
       "package": "windows_aarch64_msvc@0.52.6",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
       "package": "windows_aarch64_msvc@0.53.1",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "windows_i686_gnu@0.48.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -352,11 +392,19 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "windows_i686_msvc@0.48.5",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
       "package": "windows_i686_msvc@0.52.6",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
       "package": "windows_i686_msvc@0.53.1",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "windows_x86_64_gnu@0.48.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
@@ -368,11 +416,19 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "windows_x86_64_gnullvm@0.48.5",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
       "package": "windows_x86_64_gnullvm@0.52.6",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
       "package": "windows_x86_64_gnullvm@0.53.1",
+      "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
+    },
+    {
+      "package": "windows_x86_64_msvc@0.48.5",
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {

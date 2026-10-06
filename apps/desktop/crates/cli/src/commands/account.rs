@@ -65,31 +65,13 @@ pub fn status(args: &[String]) -> CommandResult {
     };
     println!("Updates   {} {auto_update}", crate::cli_version());
 
-    let report = coding::run_doctor(&ctx.settings, &ctx.data_dir);
-    let agents = report.installed_agents();
-    let unauthed = report.unauthed_agents();
-    if agents.is_empty() && unauthed.is_empty() {
-        println!("Agents    none installed — install claude or codex (see `exponential doctor`)");
-    } else {
-        let mut parts: Vec<String> = agents.iter().map(|agent| agent.id().to_string()).collect();
-        // EXP-409: an installed-but-signed-out agent is unusable — name it
-        // with the fix instead of listing it as available.
-        parts.extend(
-            unauthed
-                .iter()
-                .map(|agent| format!("{} (installed, NOT signed in)", agent.id())),
-        );
-        println!("Agents    {}", parts.join(", "));
-        if !unauthed.is_empty() {
-            println!("          sign in to use them — see `exponential doctor`");
-        }
+    // EXP-1196: the device readiness block, the same rows `doctor` prints
+    // (the plain pass: no codex handshake here).
+    println!();
+    let doctor = super::doctor::local_doctor(&ctx.settings, &ctx.data_dir, false);
+    for line in super::doctor::render_block(&doctor, None) {
+        println!("{line}");
     }
-    // EXP-746: which installed agents run on the session screen. EXP-773
-    // left no fallback, so anything missing here simply cannot start — the
-    // doctor is the surface that says why, hence no ✗ vocabulary.
-    println!("ACP       {}", acp_summary(&report));
-    let git = if report.git.ok { "ok" } else { "MISSING" };
-    println!("Git       {git}");
     Ok(ExitCode::SUCCESS)
 }
 
@@ -135,50 +117,9 @@ the daemon runs (`exponential daemon install`)"
     lines
 }
 
-/// The one-line ACP readiness summary for `status`: which installed agents
-/// can actually run a coding session on this machine (EXP-773 — an agent
-/// that fails the check cannot start one at all).
-fn acp_summary(report: &coding::DoctorReport) -> String {
-    let ready: Vec<&str> = report
-        .installed_agents()
-        .into_iter()
-        .filter(|agent| report.check_for(*agent).acp == Some(true))
-        .map(|agent| agent.id())
-        .collect();
-    if ready.is_empty() {
-        return "none — no installed agent can run a session".to_string();
-    }
-    ready.join(", ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use coding::doctor::{Tool, ToolCheck};
-    use coding::DoctorReport;
-
-    fn check(tool: Tool, ok: bool, acp: Option<bool>) -> ToolCheck {
-        ToolCheck {
-            tool,
-            ok,
-            version: ok.then(|| "1.0.0".to_string()),
-            error: None,
-            authed: None,
-            account: None,
-            usage_eligible: false,
-            signed_in_profile: None,
-            acp,
-            acp_note: None,
-        }
-    }
-
-    fn report(claude: Option<bool>, codex: Option<bool>) -> DoctorReport {
-        DoctorReport {
-            claude: check(Tool::Claude, true, claude),
-            codex: check(Tool::Codex, true, codex),
-            git: check(Tool::Git, true, None),
-        }
-    }
 
     /// EXP-1110: with no daemon, `status` says in so many words that this
     /// machine cannot be remote-started — and why.
@@ -208,19 +149,6 @@ mod tests {
                 "Device    build box — online (cli-1)".to_string(),
                 "Daemon    running (pid 42)".to_string(),
             ]
-        );
-    }
-
-    /// EXP-746/EXP-773: `status` says which agents can run a session. Only
-    /// INSTALLED agents count.
-    #[test]
-    fn the_acp_line_names_the_ready_agents() {
-        let both = report(Some(true), Some(true));
-        assert_eq!(acp_summary(&both), "claude, codex");
-        assert_eq!(acp_summary(&report(Some(true), None)), "claude");
-        assert_eq!(
-            acp_summary(&report(Some(false), Some(false))),
-            "none — no installed agent can run a session"
         );
     }
 }

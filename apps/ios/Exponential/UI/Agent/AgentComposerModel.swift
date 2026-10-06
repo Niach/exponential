@@ -501,6 +501,17 @@ final class AgentComposerModel {
         device?.agentNotReady(launch.agent) == true
     }
 
+    /// EXP-1196/1219: when the picked agent cannot start on the picked
+    /// machine, that machine's failing doctor ROW (Git when Git is the
+    /// failure, else the agent's own row) — rendered under the composer with
+    /// its action instead of the `notReadyNote` sentence. Nil when the
+    /// machine reports no doctor (an older build: the sentence stays) or the
+    /// report names no failure.
+    var notReadyRow: DeviceReadiness.Row? {
+        guard agentNotReady, let device, let doctor = device.doctor else { return nil }
+        return DeviceReadiness.failingRow(doctor, agent: launch.agent, remote: true)
+    }
+
     /// The "nothing to start on" hint — byte-matching the web launch page,
     /// with the signed-out-agents case (EXP-409) taking precedence because it
     /// names an actionable fix.

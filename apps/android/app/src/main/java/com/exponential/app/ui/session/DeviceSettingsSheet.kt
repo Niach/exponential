@@ -32,10 +32,12 @@ import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
+import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.DeviceReadinessBlock
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
@@ -114,6 +116,7 @@ fun DeviceSettingsSheet(
     val latestVersions by agentsViewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by agentsViewModel.deviceBusy.collectAsStateWithLifecycle()
     val iconError by agentsViewModel.deviceIconError.collectAsStateWithLifecycle()
+    val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
 
     // A rename/remove/update on THIS machine is in flight: its controls stay
     // put but disable until the change lands.
@@ -137,9 +140,14 @@ fun DeviceSettingsSheet(
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
     }
+    // EXP-1196: the device-level Computer use switch. Null = never set (OFF),
+    // echoed as absent so the server keeps whatever is stored.
+    var computerUse by remember { mutableStateOf(device.launchDefaults?.computerUse) }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
+    // The readiness block's `sign_in`: the ONE remote sign-in sheet.
+    var loginTarget by remember { mutableStateOf<AgentLoginTarget?>(null) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -157,6 +165,7 @@ fun DeviceSettingsSheet(
             editableAgents = editableAgents(device)
             lastUsedAgent = seededDefaultAgent(device, editableAgents)
             drafts = editableAgents.associateWith { agentDraft(device, it) }
+            computerUse = device.launchDefaults?.computerUse
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -168,8 +177,14 @@ fun DeviceSettingsSheet(
     }
 
     /** Queue the WHOLE edited struct — `setLaunchDefaults` replaces the stored object. */
-    fun queueDefaults(next: Map<String, AgentDraft> = drafts) {
-        viewModel.queueDefaults(device.deviceId, buildDefaults(editableAgents, next))
+    fun queueDefaults(
+        next: Map<String, AgentDraft> = drafts,
+        nextComputerUse: Boolean? = computerUse,
+    ) {
+        viewModel.queueDefaults(
+            device.deviceId,
+            buildDefaults(editableAgents, next, computerUse = nextComputerUse),
+        )
     }
 
     fun editDraft(agent: String, edit: (AgentDraft) -> AgentDraft) {
@@ -315,6 +330,60 @@ fun DeviceSettingsSheet(
                     Spacer(Modifier.height(8.dp))
                 }
 
+                // ── Readiness (EXP-1196/1218/1219) ──────────────────────
+                // THE device readiness block, off the synced doctor — a phone
+                // is always ANOTHER device, so only `update` and `sign_in`
+                // carry a pill. The Computer use switch is the block's own
+                // row and rides the same whole-object defaults save. An older
+                // build (doctor = null) renders no block, just the switch.
+                val doctor = device.doctor
+                if (doctor != null) {
+                    val busyKeys = doctor.items.mapNotNull { item ->
+                        item.key.takeIf {
+                            commandStates[agentUpdateCommandKey(device.deviceId, it)].let { state ->
+                                state is DeviceCommandUiState.Sending ||
+                                    state is DeviceCommandUiState.Running
+                            }
+                        }
+                    }.toSet()
+                    DeviceReadinessBlock(
+                        groups = DeviceReadiness.groups(
+                            doctor,
+                            remote = true,
+                            computerUseOn = computerUse,
+                        ),
+                        onAction = { row ->
+                            when (row.action) {
+                                DeviceReadiness.ACTION_UPDATE ->
+                                    viewModel.agentUpdate(device.deviceId, row.key, device.online)
+                                DeviceReadiness.ACTION_SIGN_IN ->
+                                    loginTarget = AgentLoginTarget(device = device, agent = row.key)
+                            }
+                        },
+                        onComputerUseChange = { next ->
+                            computerUse = next
+                            queueDefaults(nextComputerUse = next)
+                        },
+                        busyKeys = busyKeys,
+                    )
+                    doctor.items.firstNotNullOfOrNull { item ->
+                        commandStates[agentUpdateCommandKey(device.deviceId, item.key)]
+                            as? DeviceCommandUiState.Failed
+                    }?.let { ErrorCaption(it.message) }
+                } else {
+                    OptionGroup {
+                        SwitchRow(
+                            title = "Computer use",
+                            checked = computerUse == true,
+                            onCheckedChange = { next ->
+                                computerUse = next
+                                queueDefaults(nextComputerUse = next)
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
                 // ── Agent defaults (server-authoritative, EXP-481) ───────
                 if (!device.online) {
                     Text(
@@ -457,6 +526,14 @@ fun DeviceSettingsSheet(
         }
     }
 
+    loginTarget?.let { target ->
+        AgentLoginSheet(
+            target = target,
+            onDismiss = { loginTarget = null },
+            liveDevice = device,
+        )
+    }
+
     // Removing drops the registry row only — say so, or an owner who removes a
     // machine that is still running the daemon reads its return as a bug.
     if (confirmRemove) {
@@ -592,7 +669,10 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
 internal fun buildDefaults(
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
+    // EXP-1196: the device-level switch; null (never set) stays absent.
+    computerUse: Boolean? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
+    computerUse = computerUse,
     // EXP-1158: no `defaultAgent` — the last used agent is the device's to
     // write, and the request never carries it (`setLaunchDefaultsInput`).
     agents = agents.associateWith { agent ->

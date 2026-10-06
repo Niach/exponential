@@ -4514,7 +4514,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence.`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = older build).`,
       // EXP-1183: the MCP Apps devices view (lib/mcp/apps.ts).
       _meta: appMeta(`devices`),
       inputSchema: strictInput({
@@ -4569,6 +4569,8 @@ export function registerExponentialTools(
             agentAccounts: device.agentAccounts ?? null,
             agentUsage: device.agentUsage ?? null,
             agentUsageAt: device.agentUsageAt ?? null,
+            // EXP-1196: the readiness report (device-doctor.json).
+            doctor: device.doctor ?? null,
             ...(device.owner ? { owner: device.owner } : {}),
           }))
         )

@@ -55,12 +55,56 @@ every run of the team and outranks the requester's additional instructions.";
 /// a launcher that silently cut a prompt would hand the agent rules the
 /// owner never wrote.
 pub fn system_append(team_prompt: Option<&str>) -> String {
+    system_append_with(team_prompt, false)
+}
+
+/// EXP-1196 — what a run is told when THIS device's Computer use switch is
+/// on and the launcher wired the `computer` MCP server: the ladder (pixels
+/// last), how positions work, and the limits the server enforces anyway.
+/// Outside `skill.md` on purpose: the playbook has no bytes to spare, and
+/// most runs never get the server.
+pub const COMPUTER_USE_SECTION: &str = "# Computer use
+
+This device lets you see and drive its desktop through the `computer` MCP server (the cua \
+driver): `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, \
+`hotkey`, `scroll`, `drag`, `invoke_menu`, `verify_state`, `get_desktop_state` and more; read the \
+tool schemas. It is the person's own screen, pointer and keyboard.
+
+- Pixels come last. Prefer the Exponential tools, the team's MCP servers, your shell, a CLI or \
+an API; use the screen only when the task needs a desktop app or the person's logged-in browser.
+- One exact target per action: `list_windows`, then `get_window_state({pid, window_id})` for \
+its accessibility tree and screenshot, then act with `target: {kind: \"window\", pid, window_id}` \
+and `delivery_mode: \"background\"`, through a fresh `element_token` or pixels of THAT window. \
+Verify with `verify_state` or a fresh snapshot; an unverifiable effect is not success.
+- Background keeps the person's pointer, focus and keyboard theirs. Only a `background_unavailable` \
+refusal justifies `delivery_mode: \"foreground\"` or a desktop target (`get_desktop_state`, \
+`{kind: \"desktop\", display_id: \"primary\"}`): say so in your reply first, because that takes \
+over their pointer and keyboard.
+- Show the person a frame that matters: `screenshot_out_file` on a state tool, then \
+`exponential_sessions_show` with that `file`.
+";
+
+/// The fixed text every run of a device gets before the team prompt: the
+/// playbook, plus [`COMPUTER_USE_SECTION`] when `computer_use`.
+pub fn fixed_append(computer_use: bool) -> String {
+    if computer_use {
+        format!("{}\n\n{COMPUTER_USE_SECTION}", RUN_SKILL.trim_end())
+    } else {
+        RUN_SKILL.to_string()
+    }
+}
+
+/// [`system_append`] for a run that may have the `computer` MCP server: the
+/// playbook, the computer-use section, then the team prompt LAST (it
+/// outranks both).
+pub fn system_append_with(team_prompt: Option<&str>, computer_use: bool) -> String {
+    let fixed = fixed_append(computer_use);
     match team_prompt.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => format!(
             "{}\n\n{TEAM_PROMPT_HEADING}\n\n{TEAM_PROMPT_LEAD}\n\n{text}\n",
-            RUN_SKILL.trim_end()
+            fixed.trim_end()
         ),
-        None => RUN_SKILL.to_string(),
+        None => fixed,
     }
 }
 
@@ -99,6 +143,24 @@ mod tests {
             "skill.md is {} bytes, cap {RUN_SKILL_MAX_BYTES}",
             RUN_SKILL.len()
         );
+    }
+
+    /// EXP-1196: the computer-use section sits between the playbook and the
+    /// team prompt, only when asked for, and names no em dash either.
+    #[test]
+    fn the_computer_use_section_rides_between_the_playbook_and_the_team_prompt() {
+        assert_eq!(system_append_with(None, false), RUN_SKILL);
+        assert_eq!(system_append_with(Some("Rules"), false), system_append(Some("Rules")));
+        let alone = system_append_with(None, true);
+        assert!(alone.starts_with(RUN_SKILL.trim_end()));
+        assert!(alone.ends_with(COMPUTER_USE_SECTION));
+        let both = system_append_with(Some("Rules"), true);
+        let section = both.find("# Computer use").unwrap();
+        let team = both.find(TEAM_PROMPT_HEADING).unwrap();
+        assert!(RUN_SKILL.trim_end().len() < section && section < team);
+        assert!(both.ends_with("\n\nRules\n"));
+        assert!(!COMPUTER_USE_SECTION.contains('\u{2014}'));
+        assert!(COMPUTER_USE_SECTION.len() < 1536, "{} bytes", COMPUTER_USE_SECTION.len());
     }
 
     /// EXP-1025: no team prompt = the playbook, byte for byte.

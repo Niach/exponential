@@ -32,8 +32,6 @@ object OnboardingCopy {
     const val INVITE_COPIED = "Copied"
 
     const val DEVICES_TITLE = "Set up your devices"
-    const val DEVICES_SUBTITLE =
-        "Runs happen on the desktop app or on a server with the Exponential CLI. Install one and sign your agents in. You can also do this later."
     const val DEVICES_YOURS = "Your devices"
     const val DEVICES_NONE =
         "No devices yet. Sign in on the desktop app or a server and it shows up here."

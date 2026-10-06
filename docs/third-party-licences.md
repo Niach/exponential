@@ -294,6 +294,18 @@ SVG under `brand/`, a row in `icons.json` `brand` (with `owner`), a row in
 `contract.json` `mcpCatalog`, a `TRADEMARKS` row in
 `packages/licenses/curated/supplement.ts`, then the three generators.
 
+### The cua driver in computer use (2026-10-06)
+
+`apps/desktop/crates/computer` (EXP-1196) LINKS the cua driver (trycua/cua,
+MIT, Cua AI, Inc.) as ordinary git dependencies pinned to one revision
+(`cua-driver-sdk`, `cursor-overlay`, `platform-macos` and what they pull);
+nothing of it is copied into this repository. They are `publish = false`,
+so `collect:rust` reads them off `cargo metadata` like every other crate, the
+desktop notice attributes them from the inventory, and `uniffi` (their
+binding layer, MPL-2.0, unmodified) gets its source URL through
+`MPL_SOURCE_URLS`. Bumping the pin = the same four rev strings in the
+crate's `Cargo.toml`, then `collect:rust` + `generate`.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

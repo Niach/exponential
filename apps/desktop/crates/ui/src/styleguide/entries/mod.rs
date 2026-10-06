@@ -29,6 +29,7 @@ pub(crate) mod blocked_start_dialog;
 pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod draft_leave_dialog;
 pub(crate) mod readiness_checklist;
+pub(crate) mod device_readiness;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
 
@@ -80,6 +81,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
     Entry { id: draft_leave_dialog::ID, owner: draft_leave_dialog::OWNER, render: draft_leave_dialog::render },
     Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
+    Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
 ];

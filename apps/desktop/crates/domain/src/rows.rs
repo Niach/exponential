@@ -933,6 +933,12 @@ pub struct DeviceRow {
     /// NOT a sync nudge trigger anywhere: it moves every few minutes.
     #[serde(default)]
     pub agent_usage_at: Option<String>,
+    /// EXP-1196 jsonb `{checkedAt, items: [..]}` — the device readiness
+    /// block that machine built (`coding::device_doctor::DeviceDoctor`).
+    /// READ-ONLY; NULL (an older build) renders no block. Kept raw here:
+    /// the ui parses it leniently.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub doctor: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub active_sessions: Option<i64>,
     #[serde(default)]
