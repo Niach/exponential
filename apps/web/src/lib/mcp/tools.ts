@@ -177,6 +177,8 @@ import {
 } from "@/lib/sessions/merged-own-pr"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
+import { readRunTranscript, TranscriptReadError } from "@/lib/steer-transcript"
+import { projectTranscript } from "@/lib/steer-transcript-project"
 import {
   formatChildQuestion,
   formatParentAnswer,
@@ -438,6 +440,11 @@ const sessionColumns = {
   // EXP-804: the agent's usage wall. Non-null on a row that still reads
   // `running` — the ONE state a polling orchestrator cannot infer.
   blocked: codingSessions.blocked,
+  // EXP-1216: the question the run parked (ask_parent to a person or to an
+  // MCP starter) and the run's own title — what a starter polling the row
+  // needs to answer it without opening the app.
+  pendingQuestion: codingSessions.pendingQuestion,
+  agentTitle: codingSessions.agentTitle,
   ackedAt: codingSessions.ackedAt,
   startedAt: codingSessions.startedAt,
   endedAt: codingSessions.endedAt,
@@ -501,6 +508,30 @@ export function batchStartRowMatch(
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+// EXP-1216: sessions_get({waitForIdle}) re-reads the row this often, for at
+// most SESSION_WAIT_MAX_S (well inside Bun.serve's 255s idleTimeout,
+// server-bun.ts).
+const SESSION_WAIT_POLL_MS = 2_000
+const SESSION_WAIT_DEFAULT_S = 60
+const SESSION_WAIT_MAX_S = 120
+
+/** EXP-1216: the run needs nobody's patience any more — its turn ended
+ *  (`agentBusy` false, the ONE working signal), it asked, it hit a wall, or
+ *  it ended. */
+function sessionSettled(row: {
+  status?: string | null
+  agentBusy?: boolean | null
+  needsInput?: boolean | null
+  blocked?: unknown
+}): boolean {
+  return (
+    row.status === `ended` ||
+    !row.agentBusy ||
+    row.needsInput === true ||
+    (row.blocked !== null && row.blocked !== undefined)
+  )
 }
 
 /** FEED-63: the device's reported launch failure for this start, as the
@@ -3459,7 +3490,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run that started this one) or 'user' (the person who owns this run; parks yours as needing input and notifies them). Non-blocking: on success STOP and end your turn; the answer arrives as a user message. If delivery fails, finish anyway and note the open question in your summary.`,
+        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run or MCP client that started this; no live starter run = parked here) or 'user' (the run's owner; parks yours as needing input and notifies them). Non-blocking: on success STOP and end your turn; the answer arrives as a user message. If it fails, finish; note the question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
@@ -3485,13 +3516,14 @@ export function registerExponentialTools(
             return err(new Error(`This run has no live starter to ask.`))
           }
 
-          // EXP-897: ask the PERSON. The run parks as needing input (every
-          // client surfaces that, and the caption IS the question), the
-          // question itself lands on the row (`pending_question`), and the
-          // run's owner gets the existing agent_message inbox row + push.
+          // EXP-897: park the question. The run parks as needing input
+          // (every client surfaces that, and the caption IS the question),
+          // the question itself lands on the row (`pending_question`), and
+          // the run's owner gets the existing agent_message inbox row + push.
           // The answer comes back as a normal user message in THIS run's own
-          // composer.
-          if (to === `user`) {
+          // composer (a person) or via exponential_sessions_message (an MCP
+          // starter, which reads it off sessions_get / sessions_messages).
+          const parkQuestion = async (): Promise<Error | null> => {
             const caption = question.slice(0, 160)
             const askedAt = new Date()
             await db
@@ -3512,7 +3544,7 @@ export function registerExponentialTools(
               .where(eq(codingSessions.id, sessionId))
               .limit(1)
             if (!row?.teamId) {
-              return err(new Error(`This run has no team to notify in.`))
+              return new Error(`This run has no team to notify in.`)
             }
             await sendAgentMessage({
               teamId: row.teamId,
@@ -3523,6 +3555,12 @@ export function registerExponentialTools(
               title: `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`,
               body: question,
             })
+            return null
+          }
+
+          if (to === `user`) {
+            const failed = await parkQuestion()
+            if (failed) return err(failed)
             return ok({
               delivered: true,
               to: `user`,
@@ -3530,8 +3568,23 @@ export function registerExponentialTools(
             })
           }
 
+          // EXP-1216: no live parent RUN — an MCP client started this one
+          // (no linkage), or the parent chain ended. The starter still exists
+          // somewhere, so the question parks on the row exactly like
+          // `to: 'user'` instead of failing; whoever started the run reads
+          // it and answers through exponential_sessions_message.
+          const parkForStarter = async () => {
+            const failed = await parkQuestion()
+            if (failed) return err(failed)
+            return ok({
+              delivered: false,
+              parked: true,
+              to: `starter`,
+              note: `No live starter run to relay to, so the question is parked on this run and its owner is notified: your starter reads it with exponential_sessions_get (pendingQuestion) or exponential_sessions_messages and answers with exponential_sessions_message. Stop working NOW and end your turn; the answer arrives as a user message.`,
+            })
+          }
           if (child.startedReason !== `agent` || !child.parentSessionId) {
-            return err(new Error(`This run has no live starter to ask.`))
+            return await parkForStarter()
           }
           // EXP-906: a parent that resumed (account switch) under a new id is
           // still listening there — its live successor takes the question.
@@ -3539,11 +3592,7 @@ export function registerExponentialTools(
             db,
             child
           ).catch(() => null)
-          if (!targetSessionId) {
-            return err(
-              new Error(`Your starter's session has ended. ${fallback}`)
-            )
-          }
+          if (!targetSessionId) return await parkForStarter()
           const config = getSteerRelayConfig()
           if (!config) {
             return err(
@@ -4084,32 +4133,46 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn.`,
-      inputSchema: strictInput({ id: uuidString }),
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 60, max 120); answers waited + timedOut. What it said: exponential_sessions_messages.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        waitForIdle: z.boolean().optional(),
+        timeoutS: z
+          .number()
+          .int()
+          .min(1)
+          .max(SESSION_WAIT_MAX_S)
+          .default(SESSION_WAIT_DEFAULT_S),
+      }),
       _meta: appMeta(`run`),
     },
-    async ({ id }) => {
+    async ({ id, waitForIdle, timeoutS }) => {
       try {
         // `hostUserId` is read for the grant predicate only — it is a
         // server-only column and never reaches the response.
-        const [row] = await db
-          .select({
-            ...sessionColumns,
-            hostUserId: codingSessions.hostUserId,
-            // EXP-879: the pictures THIS run published. Read here only — the
-            // list tool would ship every run's whole array on every page.
-            results: codingSessions.results,
-          })
-          .from(codingSessions)
-          .leftJoin(issues, eq(issues.id, codingSessions.issueId))
-          .where(
-            and(
-              eq(codingSessions.id, id),
-              isNull(codingSessions.boardDeletedAt),
-              isNull(codingSessions.boardArchivedAt)
+        const loadRow = async () => {
+          const [found] = await db
+            .select({
+              ...sessionColumns,
+              hostUserId: codingSessions.hostUserId,
+              // EXP-879: the pictures THIS run published. Read here only —
+              // the list tool would ship every run's whole array on every
+              // page.
+              results: codingSessions.results,
+            })
+            .from(codingSessions)
+            .leftJoin(issues, eq(issues.id, codingSessions.issueId))
+            .where(
+              and(
+                eq(codingSessions.id, id),
+                isNull(codingSessions.boardDeletedAt),
+                isNull(codingSessions.boardArchivedAt)
+              )
             )
-          )
-          .limit(1)
+            .limit(1)
+          return found
+        }
+        let row = await loadRow()
         if (!row) throw new Error(`Session not found`)
         // EXP-639: the grant confines every read — a connection consented to
         // one board must not read the run its teammate (or it, from another
@@ -4119,7 +4182,6 @@ export function registerExponentialTools(
         if (!isRowGranted(access, row, user.id)) {
           throw new Error(`Session not found`)
         }
-        const { hostUserId: _hostUserId, results, ...session } = row
         // Published pictures come back as readable URLs, never as the raw
         // attachment ids the column stores.
         const resultsOrigin = process.env.BETTER_AUTH_URL
@@ -4129,6 +4191,29 @@ export function registerExponentialTools(
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
         }
+        // EXP-1216: a starter that just messaged the run waits HERE for the
+        // reply instead of polling: the row is re-read every 2s until it
+        // settles or the timeout passes. Access was decided on the first
+        // read; the id never changes.
+        let waited = false
+        let timedOut = false
+        if (waitForIdle) {
+          const deadline =
+            Date.now() + (timeoutS ?? SESSION_WAIT_DEFAULT_S) * 1000
+          while (!sessionSettled(row)) {
+            const left = deadline - Date.now()
+            if (left <= 0) {
+              timedOut = true
+              break
+            }
+            await sleep(Math.min(SESSION_WAIT_POLL_MS, left))
+            waited = true
+            const next = await loadRow()
+            if (!next) throw new Error(`Session not found`)
+            row = next
+          }
+        }
+        const { hostUserId: _hostUserId, results, ...session } = row
         // EXP-1183: the run's page in the app (the MCP Apps view's "Open").
         const [team] = row.teamId
           ? await db
@@ -4139,6 +4224,7 @@ export function registerExponentialTools(
           : []
         return ok({
           ...session,
+          ...(waitForIdle ? { waited, timedOut } : {}),
           url: team
             ? `${resultsOrigin}/t/${encodeURIComponent(team.slug)}/sessions/${row.id}`
             : null,
@@ -4163,6 +4249,112 @@ export function registerExponentialTools(
                   url: `${resultsOrigin}/api/attachments/${result.attachmentId}`,
                 }
           ),
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // EXP-1216: what a run SAID. Transcripts never reach the database (they
+  // live on the run's device), so the read joins the run's relay room as a
+  // viewer (lib/steer-transcript.ts) and projects the top-level transcript
+  // (lib/steer-transcript-project.ts). Owner or host only, like the steer
+  // ticket it mints (EXP-312): a teammate sees the status, never the words.
+  server.registerTool(
+    `exponential_sessions_messages`,
+    {
+      annotations: READ_ONLY,
+      description: `Read what a coding session you own or host said: its top-level transcript (user, assistant, tool, question; subagents left out), ascending seq. since = the nextSince you got last time (only newer messages come back; growing prose comes back whole), limit = the newest N after it (default 50). truncated = older messages were cut. live = the run has not ended. Streams off the run's device via the relay: errors when remote steer is off, or the device is offline or has no history. Wait for a reply with exponential_sessions_get waitForIdle.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        since: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+    },
+    async ({ id, since, limit }) => {
+      try {
+        const [row] = await db
+          .select({
+            id: codingSessions.id,
+            teamId: codingSessions.teamId,
+            boardId: codingSessions.boardId,
+            userId: codingSessions.userId,
+            hostUserId: codingSessions.hostUserId,
+            status: codingSessions.status,
+            deviceId: codingSessions.deviceId,
+          })
+          .from(codingSessions)
+          .where(
+            and(
+              eq(codingSessions.id, id),
+              isNull(codingSessions.boardDeletedAt),
+              isNull(codingSessions.boardArchivedAt)
+            )
+          )
+          .limit(1)
+        if (!row) throw new Error(`Session not found`)
+        // Same grant predicate as sessions_get (EXP-639): out of grant reads
+        // as not found.
+        if (!isRowGranted(access, row, user.id)) {
+          throw new Error(`Session not found`)
+        }
+        if (row.userId !== user.id && row.hostUserId !== user.id) {
+          throw new Error(
+            `Only the session owner or host can read its transcript`
+          )
+        }
+        // steer.mintTicket's rule: a requester on someone else's shared
+        // device must still be a member of the run's team.
+        if (
+          row.userId === user.id &&
+          row.hostUserId !== null &&
+          row.hostUserId !== user.id
+        ) {
+          await assertTeamMember(user.id, row.teamId)
+        }
+        const config = getSteerRelayConfig()
+        if (!config) {
+          throw new Error(
+            `Remote steer is off on this instance (no steer relay), so run transcripts cannot be read. Use exponential_sessions_get.`
+          )
+        }
+        const ended = row.status === `ended`
+        let read
+        try {
+          read = await readRunTranscript(config, {
+            sessionId: row.id,
+            teamId: row.teamId ?? ``,
+            ownerUserId: user.id,
+            // Ended only (steer.mintTicket, EXP-773): the relay asks THIS
+            // device to republish its journal.
+            ...(ended && row.deviceId
+              ? {
+                  deviceId: row.deviceId,
+                  deviceOwnerId: row.hostUserId ?? row.userId,
+                }
+              : {}),
+          })
+        } catch (e) {
+          if (e instanceof TranscriptReadError) throw new Error(e.message)
+          throw e
+        }
+        const all = projectTranscript(read.events)
+        const newer =
+          since === undefined ? all : all.filter((m) => m.seq > since)
+        const messages = newer.slice(-limit)
+        const newest =
+          all.length > 0 ? Math.max(...all.map((m) => m.seq)) : null
+        return ok({
+          id: row.id,
+          live: !ended,
+          messages,
+          lastSeq: read.lastSeq,
+          nextSince: newest ?? since ?? null,
+          // The relay keeps a tail; older pages exist only on the device.
+          truncated:
+            newer.length > messages.length ||
+            (read.truncated && (since === undefined || since < read.firstSeq)),
         })
       } catch (e) {
         return err(e)

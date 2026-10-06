@@ -323,6 +323,12 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   })
   expect(noRun).not.toContain(`exponential_sessions_results`)
   expect(noRun).not.toContain(`exponential_sessions_end`)
+  // EXP-1216: the caller with no run of its own is the starter nothing
+  // pushes to — it is told how to read and wait on the runs it starts.
+  expect(noRun).toContain(`exponential_sessions_messages`)
+  expect(noRun).toContain(`exponential_sessions_get waitForIdle`)
+  expect(noRun.length).toBeLessThan(2_000)
+  expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`exponential_sessions_messages`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_results`)
   // EXP-933: the notify rule rides the same run-only paragraph.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_notifications_send`)

@@ -70,6 +70,15 @@ export function mcpServerInstructions(gates: {
       `A question only the person who owns this run can answer: exponential_sessions_ask_parent with to 'user' notifies them and parks this run as needing input; stop and wait, the answer arrives as a user message.`
     )
   }
+  // EXP-1216: a caller with no run of its own (a person's MCP client) is
+  // the starter nothing pushes to — a child run reports into its parent's
+  // channel, an MCP client has to read. Same per-caller rule as the
+  // close-out, which also keeps it out of the full-surface budget.
+  if (!gates.sessionResults) {
+    paragraphs.push(
+      `Runs you start (exponential_sessions_start): read what one says with exponential_sessions_messages, wait for its reply with exponential_sessions_get waitForIdle, and answer its parked question (pendingQuestion) with exponential_sessions_message.`
+    )
+  }
   // EXP-879: LAST, so it is the thing a truncating client keeps least — but
   // present, because a run that is never asked for a picture never takes one.
   // EXP-933: the same tool files the run's REPORT (the close-out lives on the
