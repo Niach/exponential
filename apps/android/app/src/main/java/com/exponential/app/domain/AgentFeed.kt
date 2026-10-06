@@ -1013,11 +1013,11 @@ fun transcriptGap(prev: AgentRowClass?, cur: AgentRowClass): TranscriptGap = whe
 
 /** EXP-895 — the ONE tool row that is still RUNNING, or null.
  *
- *  The transcript runs inside the flow: exactly one row is ever expanded (its
- *  live output, its edit diff open) and every other row is the compact headline
- *  plus its evidence. That row is the LAST feed item and only while it is an
- *  UNSETTLED tool call — the moment its `tool_update` settles, or the agent says
- *  anything after it, the transcript has moved on and the row folds.
+ *  That row is the LAST feed item and only while it is an UNSETTLED tool call —
+ *  the moment its `tool_update` settles, or the agent says anything after it,
+ *  the transcript has moved on. EXP-1206: the running row is its headline ALONE
+ *  (no output streams under it, so the transcript never jumps); a settled row
+ *  folds its output until the reader opens it.
  *
  *  A pure projection over the FLAT feed (never the rows), mirrored ×4 (web
  *  `liveToolRowId`, desktop `steer::feed::live_tool_row_id`, ExpCore
@@ -1026,33 +1026,6 @@ fun transcriptGap(prev: AgentRowClass?, cur: AgentRowClass): TranscriptGap = whe
 fun liveToolRowId(feed: List<AgentFeedItem>): Long? {
     val last = feed.lastOrNull()
     return if (last is AgentFeedItem.Tool && !last.settled) last.id else null
-}
-
-/** EXP-910: how many lines of a STILL-RUNNING call's output the live row shows.
- *  The contract's number, so the tail is the same length ×4. */
-const val LIVE_TOOL_OUTPUT_TAIL_LINES = DomainContract.steerFeedLiveToolOutputTailLines
-
-/** EXP-910 — the tail of a RUNNING tool call's output: its last [n] lines, the
- *  way a terminal shows a running command's last words. The live row is the one
- *  row that opens itself ([liveToolRowId]), so without this a chatty `bun test`
- *  pushes the conversation off screen for as long as it runs. A SETTLED row is
- *  untouched — folded until the reader opens it, then the publisher's full
- *  `toolOutputMaxLines` cut.
- *
- *  One trailing empty line is dropped first (a command's output ends in a
- *  newline, and a blank last row would spend one of the three on nothing). When
- *  earlier lines were dropped the result OPENS with a lone `…` line — the same
- *  shape the wire's `\ N more lines truncated` marker has, and it reads as part
- *  of the log rather than as chrome.
- *
- *  Pure, mirrored ×4 (web `liveToolOutputTail`, desktop
- *  `steer::feed::live_tool_output_tail`, ExpCore `AgentFeed.liveToolOutputTail`). */
-fun liveToolOutputTail(text: String, n: Int): String {
-    if (n <= 0) return ""
-    val body = if (text.endsWith("\n")) text.dropLast(1) else text
-    val lines = body.split("\n")
-    if (lines.size <= n) return body
-    return (listOf("…") + lines.takeLast(n)).joinToString("\n")
 }
 
 /** Render-time projection of the flat feed — a pure function: the feed itself

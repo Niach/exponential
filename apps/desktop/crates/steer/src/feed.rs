@@ -1911,12 +1911,11 @@ impl FeedItem {
 
 /// EXP-895 — the ONE tool row that is still RUNNING, or `None`.
 ///
-/// The transcript runs inside the flow: exactly one row is ever expanded (its
-/// live bash tail, its edit diff open) and every other row is the compact
-/// headline plus its `exit N` / `+a −b` chip. That row is the LAST feed item
-/// and only while it is an UNSETTLED tool call — the moment its
-/// [`ActivityEvent::ToolUpdate`] settles, or the agent says anything after it,
-/// the transcript has moved on and the row folds.
+/// That row is the LAST feed item and only while it is an UNSETTLED tool call
+/// — the moment its [`ActivityEvent::ToolUpdate`] settles, or the agent says
+/// anything after it, the transcript has moved on. EXP-1206: the running row
+/// is its headline ALONE (no output streams under it, so the transcript never
+/// jumps); a settled row folds its output until the reader opens it.
 ///
 /// A pure projection over the flat feed, mirrored ×4 (web `liveToolRowId`,
 /// ExpCore `AgentFeed.liveToolRowId`, Android `liveToolRowId`). Callers that
@@ -1928,43 +1927,6 @@ pub fn live_tool_row_id(items: &[FeedItem]) -> Option<FeedItemId> {
         FeedKind::Tool { settled: false, .. } => Some(last.id),
         _ => None,
     }
-}
-
-/// EXP-910: how many lines of a STILL-RUNNING call's output the live row shows.
-/// The contract's number, so the tail is the same length ×4.
-pub const LIVE_TOOL_OUTPUT_TAIL_LINES: usize =
-    domain::contract::STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES;
-
-/// EXP-910 — the tail of a RUNNING tool call's output: its last `n` lines, the
-/// way a terminal shows a running command's last words. The live row is the one
-/// row that opens itself ([`live_tool_row_id`]), so without this a chatty
-/// `bun test` pushes the conversation off screen for as long as it runs. A
-/// SETTLED row is untouched — folded until the reader's Show more, and then the
-/// publisher's full `toolOutputMaxLines` cut.
-///
-/// One trailing empty line is dropped first (a command's output ends in a
-/// newline, and a blank last row would spend one of the three on nothing). When
-/// earlier lines were dropped the result OPENS with a lone `…` line — the same
-/// shape the wire's `\ N more lines truncated` marker has, and it reads as part
-/// of the log rather than as chrome.
-///
-/// Pure, mirrored ×4 (web `liveToolOutputTail`, ExpCore
-/// `AgentFeed.liveToolOutputTail`, Android `liveToolOutputTail`).
-pub fn live_tool_output_tail(text: &str, n: usize) -> String {
-    if n == 0 {
-        return String::new();
-    }
-    let body = text.strip_suffix('\n').unwrap_or(text);
-    let lines: Vec<&str> = body.split('\n').collect();
-    if lines.len() <= n {
-        return body.to_string();
-    }
-    let mut out = String::from("…");
-    for line in &lines[lines.len() - n..] {
-        out.push('\n');
-        out.push_str(line);
-    }
-    out
 }
 
 /// Group the flat feed into render rows — a PURE projection: the feed (and
@@ -3117,41 +3079,6 @@ mod tests {
         // Anything the agent says after a call moves the transcript on.
         feed.apply(ActivityEvent::narration("All green."));
         assert_eq!(live_tool_row_id(feed.items()), None);
-    }
-
-    /// EXP-910: the RUNNING row's output is a TAIL, so a chatty command cannot
-    /// own the screen while it works.
-    #[test]
-    fn live_tool_output_tail_keeps_a_short_output_whole() {
-        assert_eq!(live_tool_output_tail("one\ntwo", 3), "one\ntwo");
-        assert_eq!(live_tool_output_tail("one\ntwo\nthree", 3), "one\ntwo\nthree");
-        assert_eq!(live_tool_output_tail("", 3), "");
-    }
-
-    #[test]
-    fn live_tool_output_tail_tails_a_long_output_and_marks_the_elision() {
-        assert_eq!(live_tool_output_tail("a\nb\nc\nd\ne", 3), "…\nc\nd\ne");
-        // The marker costs a line but is not one of the n: three log lines stay.
-        assert_eq!(live_tool_output_tail("a\nb\nc\nd\ne", 3).lines().count(), 4);
-    }
-
-    #[test]
-    fn live_tool_output_tail_drops_the_trailing_empty_line() {
-        // A command's output ends in a newline; a blank last row would spend
-        // one of the three on nothing.
-        assert_eq!(live_tool_output_tail("a\nb\nc\nd\n", 3), "…\nb\nc\nd");
-        assert_eq!(live_tool_output_tail("a\nb\n", 3), "a\nb");
-        // Only ONE — a command that really printed a blank line keeps it.
-        assert_eq!(live_tool_output_tail("a\nb\n\n", 3), "a\nb\n");
-    }
-
-    #[test]
-    fn live_tool_output_tail_reads_the_tail_length_off_the_contract() {
-        assert_eq!(
-            LIVE_TOOL_OUTPUT_TAIL_LINES,
-            domain::contract::STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES
-        );
-        assert!(LIVE_TOOL_OUTPUT_TAIL_LINES > 0);
     }
 
     // ── EXP-848: the turn slot ─────────────────────────────────────────────

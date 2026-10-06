@@ -120,7 +120,6 @@ public enum DomainContract {
     public static let steerFeedToolDiffMaxBytes: Int = 16384
     public static let steerFeedToolOutputMaxLines: Int = 200
     public static let steerFeedToolOutputMaxBytes: Int = 16384
-    public static let steerFeedLiveToolOutputTailLines: Int = 3
     public static let diffUiFilterPlaceholder: String = "Filter files"
     public static let diffUiChangedFilesTitle: String = "Changed files"
     public static let diffUiEditedFilesOne: String = "1 file edited"

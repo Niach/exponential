@@ -60,7 +60,6 @@ interface Contract {
     toolDiffMaxBytes: number
     toolOutputMaxLines: number
     toolOutputMaxBytes: number
-    liveToolOutputTailLines: number
   }
   composerUi: {
     runHeadline: string
@@ -545,7 +544,6 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
     public static let steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
     public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
-    public static let steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${swiftDiffUi}
 ${swiftComposerUi}
 
@@ -687,7 +685,6 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerFeedToolDiffMaxBytes: Int = ${steerFeed.toolDiffMaxBytes}
     const val steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
     const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
-    const val steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
 ${kotlinDiffUi}
 ${kotlinComposerUi}
 
@@ -834,7 +831,6 @@ pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = ${steerFeed.toolDiffMaxLines};
 pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = ${steerFeed.toolDiffMaxBytes};
 pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLines};
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
-pub const STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES: usize = ${steerFeed.liveToolOutputTailLines};
 ${rustDiffUi}
 ${rustComposerUi}
 

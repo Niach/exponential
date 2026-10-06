@@ -158,8 +158,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.domain.LIVE_TOOL_OUTPUT_TAIL_LINES
-import com.exponential.app.domain.liveToolOutputTail
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentHealthRules
@@ -4365,16 +4363,14 @@ private fun ToolRow(
      *  EXP-916: a PATCH never lands here — an edit call is a member of the
      *  edited-files card ([EditedFilesCard]), which owns its own disclosure. */
     output: String? = null,
-    /** EXP-895: the ONE running call — open, where every other row is compact. */
+    /** EXP-895: the ONE running call. EXP-1206: its headline ALONE — nothing
+     *  streams under it, so the transcript never jumps while a command prints. */
     live: Boolean = false,
 ) {
-    // ONE disclosure for one row, and only an `execute` has one. It STARTS on
-    // whatever the flow says, and the live -> settled edge takes the reader's
-    // tap back, so a row folds away by itself once the transcript has moved
-    // past it.
-    val hasDetail = output != null
-    var detailOpen by remember(output) { mutableStateOf(live) }
-    LaunchedEffect(live) { detailOpen = live }
+    // ONE disclosure for one row, and only a SETTLED `execute` has one: it
+    // opens on the reader's tap alone.
+    val hasDetail = output != null && !live
+    var detailOpen by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -4431,7 +4427,7 @@ private fun ToolRow(
                 )
             }
         }
-        if (detailOpen && output != null) ToolOutput(output, live)
+        if (hasDetail && detailOpen && output != null) ToolOutput(output)
     }
 }
 
@@ -4446,18 +4442,11 @@ private fun ToolRow(
  * is on the wire at all.
  */
 @Composable
-private fun ToolOutput(output: String, live: Boolean = false) {
-    // EXP-910: the call is still RUNNING — show its TAIL, not the whole log. A
-    // command that prints while it works owns the one open row, and an
-    // unbounded one owns the screen. The settled row (and the reader's own tap
-    // on it) still gets everything.
-    val shown = remember(output, live) {
-        if (live) liveToolOutputTail(output, LIVE_TOOL_OUTPUT_TAIL_LINES) else output
-    }
+private fun ToolOutput(output: String) {
     val scroll = rememberScrollState()
-    LaunchedEffect(shown) { scroll.scrollTo(scroll.maxValue) }
+    LaunchedEffect(output) { scroll.scrollTo(scroll.maxValue) }
     Text(
-        shown,
+        output,
         style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         modifier = Modifier
@@ -4768,8 +4757,8 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         }
         when {
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                // EXP-895: inside the group too, only the RUNNING call is
-                // expanded — the same rule the top-level rows follow.
+                // EXP-1206: inside the group too, the RUNNING call is its
+                // headline alone — the same rule the top-level rows follow.
                 items.forEach {
                     ToolRow(it, nested = true, live = liveTail && it.id == items.last().id)
                 }

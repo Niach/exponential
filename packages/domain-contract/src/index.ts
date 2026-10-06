@@ -124,14 +124,6 @@ export interface DomainContract {
      */
     toolOutputMaxLines: number
     toolOutputMaxBytes: number
-    /**
-     * EXP-910: how many lines of a STILL-RUNNING call's output the live row
-     * shows — a tail, the way a terminal shows a running command's last
-     * words, so a chatty `bun test` cannot push the conversation off screen
-     * while it runs. The settled row is unchanged: folded until the reader
-     * opens it, and then the full `toolOutputMaxLines` cut.
-     */
-    liveToolOutputTailLines: number
   }
   /**
    * EXP-916: the diff UI's shared copy + numbers — session edit cards, the

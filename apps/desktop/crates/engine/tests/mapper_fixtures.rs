@@ -188,7 +188,7 @@ fn a_command_never_reaches_the_wire_and_a_secret_never_reaches_a_detail() {
     assert_eq!(
         wire,
         vec![
-            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-9", "toolKind": "execute"}),
+            json!({"kind": "tool", "name": "Bash", "detail": "bun run test", "id": "tc-9", "toolKind": "execute"}),
             // EXP-895: the settle carries what the command PRINTED — never
             // the command itself, which is where the secret is.
             json!({"kind": "tool_update", "id": "tc-9", "status": "completed", "output": "12 passed"}),
@@ -310,7 +310,7 @@ fn settles_and_edit_diffs_ride_the_wire_as_tool_updates() {
     assert_eq!(wire[1], json!({"kind": "tool_update", "id": "tc-ok", "status": "completed"}));
     assert_eq!(
         wire[2],
-        json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-bad", "toolKind": "execute"})
+        json!({"kind": "tool", "name": "Bash", "detail": "bun run test", "id": "tc-bad", "toolKind": "execute"})
     );
     // EXP-895: a FAILED execute call still reports what it printed — that is
     // exactly the output a reader wants.
@@ -490,7 +490,7 @@ fn a_terminal_tool_call_binds_locally_and_never_reaches_the_wire() {
     assert_eq!(
         wire,
         vec![
-            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-7", "toolKind": "execute"}),
+            json!({"kind": "tool", "name": "Bash", "detail": "bun run test", "id": "tc-7", "toolKind": "execute"}),
             json!({"kind": "tool_update", "id": "tc-7", "status": "completed"}),
         ]
     );
@@ -1048,7 +1048,7 @@ fn subagent_edges_and_their_tool_rows_carry_the_parent_id() {
             json!({"kind": "subagent", "id": "tc-parent", "agentType": "explore", "status": "started"}),
             // What the subagent ran, attributed to the card, never a top-level
             // row of its own; its settle folds into that row by id.
-            json!({"kind": "tool", "name": "Bash", "detail": "bun", "id": "tc-child", "toolKind": "execute", "subagentId": "tc-parent"}),
+            json!({"kind": "tool", "name": "Bash", "detail": "bun run test", "id": "tc-child", "toolKind": "execute", "subagentId": "tc-parent"}),
             json!({"kind": "tool_update", "id": "tc-child", "status": "completed", "output": "12 passed"}),
             // EXP-748: the completed edge carries the tool-call count — the
             // mapper's own count of attributed calls, or the adapter's
