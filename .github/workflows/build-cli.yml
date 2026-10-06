@@ -27,12 +27,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux stays on 22.04 on purpose: the daemon never links cua on
+          # Linux (crates/cli/Cargo.toml), so nothing here needs newer
+          # PipeWire headers, and glibc 2.35 stays the binary's floor for
+          # the servers it runs on.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
+          # macOS links cua (EXP-1196): screencapturekit → apple-metal 0.8.8,
+          # whose Swift bridge compiles `#available(macOS 26.0, *)` Metal API
+          # and so needs an Xcode 26.x SDK; macos-14 (Xcode 15.4) and
+          # macos-15 (Xcode 16.4) both fail on MTLLogState/MTLResidencySet/
+          # MTLSamplerReductionMode. Same image as build-ios.yml.
           - target: aarch64-apple-darwin
-            os: macos-14
+            os: macos-26
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
