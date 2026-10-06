@@ -107,12 +107,16 @@ impl WorkflowAgentState {
 
     /// The CLI's own `workflow_agent.state` plus whether it carries a
     /// `startedAt`: `start` without one is still QUEUED (the workflow named
-    /// the agent before it had a process), `start` with one is running.
+    /// the agent before it had a process); any other non-terminal state is
+    /// running. EXP-1225: claude 2.1.286 says `progress` for an agent mid-run
+    /// (measured: `start` → `progress` → `done`), which this used to fold onto
+    /// QUEUED, so agents 100k tokens deep all read "queued".
     pub fn from_cli(state: &str, started: bool) -> WorkflowAgentState {
         match state {
             "done" => WorkflowAgentState::Done,
             "error" => WorkflowAgentState::Error,
-            "start" | "running" if started => WorkflowAgentState::Running,
+            "progress" | "running" => WorkflowAgentState::Running,
+            _ if started => WorkflowAgentState::Running,
             _ => WorkflowAgentState::Queued,
         }
     }
@@ -357,6 +361,31 @@ mod tests {
         );
         assert_eq!(WorkflowAgentState::from_cli("done", false), WorkflowAgentState::Done);
         assert_eq!(WorkflowAgentState::from_cli("error", true), WorkflowAgentState::Error);
+    }
+
+    /// EXP-1225: the CLI's mid-run word is `progress` (claude 2.1.286,
+    /// `wire-captures/workflow-agents-2.1.286.jsonl`) — a running agent,
+    /// stamped or not.
+    #[test]
+    fn a_progress_agent_is_running() {
+        assert_eq!(
+            WorkflowAgentState::from_cli("progress", true),
+            WorkflowAgentState::Running
+        );
+        assert_eq!(
+            WorkflowAgentState::from_cli("progress", false),
+            WorkflowAgentState::Running
+        );
+        assert_eq!(
+            WorkflowAgentState::from_cli("running", false),
+            WorkflowAgentState::Running
+        );
+        // Any other non-terminal word with a `startedAt` is running too.
+        assert_eq!(
+            WorkflowAgentState::from_cli("thinking", true),
+            WorkflowAgentState::Running
+        );
+        assert_eq!(WorkflowAgentState::from_cli("", false), WorkflowAgentState::Queued);
     }
 
     #[test]
