@@ -499,3 +499,70 @@ fn a_continuation_the_cli_starts_on_its_own_keeps_the_turn_open() {
     );
     until("the run to read idle", || !harness.session.agent_busy());
 }
+
+/// EXP-1224 review: the background task's notification lands MID-turn —
+/// `wire-captures/workflow-agents-2.1.286.jsonl` verbatim (a `@@SLEEP 0.5`,
+/// the CLI's latency, before each continuation's `init`): the workflow's
+/// terminal frames arrive while the prompt's turn still streams, its
+/// `result` follows, and the CLI re-announces `init` and continues. Nothing
+/// was between turns when the notification came, so nothing anticipated the
+/// continuation there; the prompt's `result` must, or the prompt settles,
+/// the slot reads ended, and the continuation's `init` re-opens it — every
+/// client flipped busy false→true. The capture's first continuation repeats
+/// the shape (its background agent completes before ITS `result`), so the
+/// slot is held across both continuations and ends only at the last
+/// `result`.
+#[test]
+fn a_notification_that_lands_mid_turn_keeps_the_turn_open_into_the_continuation() {
+    let _session = one_session_at_a_time();
+    let harness = start("workflow-continuation", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+
+    harness.session.send_prompt(
+        "Run the two-agent workflow, then launch one background agent and wait for it."
+            .to_string(),
+    );
+    let said_done = |sink: &RecordingSink| {
+        events_of(sink, "narration").iter().any(|event| event["text"] == "done")
+    };
+    until("the last continuation's text", || said_done(&harness.sink));
+    until("the turn to end", || ended_turns(&harness.sink) >= 1);
+    std::thread::sleep(Duration::from_millis(300));
+
+    let wire: Vec<serde_json::Value> = harness
+        .sink
+        .snapshot()
+        .iter()
+        .filter_map(|event| serde_json::to_value(event).ok())
+        .collect();
+    let mut edges: Vec<(usize, String)> = Vec::new();
+    for (at, event) in wire.iter().enumerate() {
+        if event["kind"] != "turn" {
+            continue;
+        }
+        let state = event["state"].as_str().unwrap_or_default().to_string();
+        if edges.last().map(|(_, last)| last) != Some(&state) {
+            edges.push((at, state));
+        }
+    }
+    let states: Vec<&str> = edges.iter().map(|(_, state)| state.as_str()).collect();
+    assert_eq!(states, vec!["ended", "started", "ended"], "{edges:?}");
+
+    let narration_at = |prefix: &str| {
+        wire.iter()
+            .position(|event| {
+                event["kind"] == "narration"
+                    && event["text"].as_str().is_some_and(|text| text.starts_with(prefix))
+            })
+            .unwrap_or_else(|| panic!("narration {prefix:?}"))
+    };
+    let first_continuation = narration_at("Workflow completed.");
+    let done_at = narration_at("done");
+    let (ended_at, _) = edges.last().expect("the closing edge");
+    assert!(
+        first_continuation < done_at && *ended_at > done_at,
+        "the turn ends at the last continuation's `result`, never at the prompt's \
+         (ended at {ended_at}, first continuation at {first_continuation}, \"done\" at {done_at})"
+    );
+    until("the run to read idle", || !harness.session.agent_busy());
+}

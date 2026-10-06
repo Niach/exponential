@@ -5877,6 +5877,63 @@ mod exp1224_tests {
         assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
     }
 
+    /// EXP-1224 review: a turn the mapper re-opened off output (C) that a
+    /// prompt is then sent into closes at the adapter's `ended` once the
+    /// prompt is done — whichever of the two reaches the mapper first. And
+    /// that `ended` never ends a prompt that is still running.
+    #[test]
+    fn a_prompt_sent_into_a_reopened_turn_ends_with_the_adapters_ended() {
+        let reopened_with_a_prompt = || {
+            let mut mapper = after_a_prompt();
+            let mut out = MapOut::default();
+            mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
+            assert_eq!(turns(&out), vec![steer::TurnState::Started]);
+            mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+            mapper
+        };
+
+        // The prompt's answer first: the reopened slot outlives it…
+        let mut mapper = reopened_with_a_prompt();
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert!(turns(&done).is_empty(), "{:?}", done.wire);
+        // …until the adapter's `ended`.
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+
+        // The adapter's `ended` first: the live prompt keeps the slot, and
+        // its own answer closes it.
+        let mut mapper = reopened_with_a_prompt();
+        let mut early = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut early);
+        assert!(turns(&early).is_empty(), "never ends a live prompt: {:?}", early.wire);
+        assert_eq!(early.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
+    }
+
+    /// The agent's `ended` with nothing of its own open is a no-op, prompt
+    /// running or not: the adapter publishes one after every settled prompt.
+    #[test]
+    fn an_agent_ended_with_no_continuation_open_is_a_no_op() {
+        let mut mapper = live();
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        let mut out = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_eq!(out.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
+        let mut after = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut after);
+        assert!(turns(&after).is_empty(), "{:?}", after.wire);
+        assert_eq!(after.idle, None);
+    }
+
     /// A Stop ends the continuation with the prompt: the interrupt kills
     /// both.
     #[test]

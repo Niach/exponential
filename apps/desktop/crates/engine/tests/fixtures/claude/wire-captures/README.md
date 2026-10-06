@@ -50,3 +50,8 @@ completion frames moved past the turn's `result` (the order the reporting
 run's journal measured: the agent outlived the turn) and a `@@SLEEP 0.5` line
 — the fake's stand-in for the CLI's latency — between that notification and
 the continuation's `init`.
+`../workflow-continuation/` (EXP-1224 review, `tests/claude_engine.rs`) is
+`workflow-agents-2.1.286.jsonl` WHOLE and verbatim, plus a `@@SLEEP 0.5`
+before each continuation's `init`: both of its notifications land MID-turn
+(before that turn's `result`), the shape where nothing is between turns when
+the notification comes.

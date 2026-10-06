@@ -545,6 +545,14 @@ struct State {
     /// Bumped by every continuation start, so a backstop timer armed for one
     /// never closes a later one.
     continuation_seq: u64,
+    /// EXP-1224 review: a background task's terminal frame that WAKES the
+    /// model landed since the running turn's last `result` (mid-turn: the
+    /// model did not stop for it). The CLI then continues on its own right
+    /// after that `result`, so the result opens the continuation ahead of
+    /// its `init` instead of letting the slot read ended in between. Cleared
+    /// by any turn start (prompt, `init`, continuation) and by a
+    /// continuation's end.
+    notification_pending: bool,
     /// Claude's OWN session uuid: minted here for a fresh run (the
     /// `--session-id` pin), the recorded handle for a resume, and re-read
     /// from every `system/init` (a `/clear` changes it, EXP-784).
@@ -718,10 +726,7 @@ struct DeferredSettle {
 /// and leave every later turn settling the channel in front of it (EXP-746).
 /// A CLI that reports no count folds nothing in: each turn waits.
 fn settle_turns(state: &mut State, settle: DeferredSettle) {
-    // A settled turn's dead tasks can never matter again: drop them, or a
-    // long run's `tasks` map grows for the life of the process.
-    let turn_seq = state.turn_seq;
-    state.tasks.retain(|_, task| task.live || task.turn_seq == turn_seq);
+    prune_settled_tasks(state);
     if let Some(turn) = state.turns.pop_front() {
         let _ = turn.send(settle.outcome);
     }
@@ -733,6 +738,27 @@ fn settle_turns(state: &mut State, settle: DeferredSettle) {
             }
             None => break,
         }
+    }
+}
+
+/// A settled turn's dead tasks can never matter again: drop them, or a long
+/// run's `tasks` map grows for the life of the process. The CURRENT turn's
+/// dead tasks stay — they are the duplicate-edge memo for the terminal frame
+/// pair (`task_updated` + `task_notification`) the CLI may still be sending.
+fn prune_settled_tasks(state: &mut State) {
+    let turn_seq = state.turn_seq;
+    state.tasks.retain(|_, task| task.live || task.turn_seq == turn_seq);
+}
+
+/// EXP-1224 review: a turn the CLI ran on its own is over. It prunes like a
+/// settled prompt, and — with no prompt in flight or deferred, whose tasks
+/// the seq must keep pointing at — it closes the task generation too, as a
+/// prompt's send opens one: a run that lives on continuations would
+/// otherwise keep every task since its last host prompt "current" forever.
+fn retire_continuation_tasks(state: &mut State) {
+    prune_settled_tasks(state);
+    if state.turns.is_empty() && state.deferred.is_none() {
+        state.turn_seq = state.turn_seq.wrapping_add(1);
     }
 }
 
@@ -858,10 +884,12 @@ struct WorkflowRun {
     /// When the card was last published — the §3 throttle's clock.
     published_at: Option<Instant>,
     /// EXP-1225: what each agent's synthesized lane has published so far,
-    /// keyed like `agents`. Kept HERE, never in `State::tasks`: a workflow
-    /// agent is not a task of the run (the workflow is), so it never holds
-    /// back a settle.
-    lanes: BTreeMap<u32, AgentLane>,
+    /// keyed by the agent's `agentId` — never its progress `index`: a
+    /// workflow may reuse an index for a different agent (a retried phase, a
+    /// re-queued slot), and that agent needs a lane of its own. Kept HERE,
+    /// never in `State::tasks`: a workflow agent is not a task of the run
+    /// (the workflow is), so it never holds back a settle.
+    lanes: BTreeMap<String, AgentLane>,
 }
 
 /// EXP-1225: a workflow agent's subagent lane, synthesized from its progress
@@ -879,6 +907,11 @@ struct AgentLane {
     rows: u32,
     /// The terminal edge went out.
     finished: bool,
+    /// The lane's title and tool-call count as last seen, so
+    /// [`close_lanes`] can still close it once its index carries another
+    /// agent.
+    title: String,
+    tool_calls: Option<u32>,
 }
 
 /// EXP-1225: one step of a workflow agent's synthesized lane, collected under
@@ -911,6 +944,8 @@ fn lane_steps(
         return steps;
     }
     let title = if agent.label.trim().is_empty() { id.clone() } else { agent.label.clone() };
+    lane.title = title.clone();
+    lane.tool_calls = agent.tool_calls;
     if !lane.started {
         lane.started = true;
         steps.push(LaneStep::Started {
@@ -961,19 +996,17 @@ fn close_lanes(run: &mut WorkflowRun) -> Vec<LaneStep> {
         _ => "failed",
     };
     let mut steps = Vec::new();
-    for (index, lane) in run.lanes.iter_mut() {
+    for (id, lane) in run.lanes.iter_mut() {
         if !lane.started || lane.finished {
             continue;
         }
-        let Some(agent) = run.agents.get(index) else { continue };
-        let Some(id) = agent.agent_id.clone() else { continue };
         lane.finished = true;
         steps.push(LaneStep::Finished {
-            title: if agent.label.trim().is_empty() { id.clone() } else { agent.label.clone() },
-            id,
+            id: id.clone(),
+            title: lane.title.clone(),
             workflow_id: run.id.clone(),
             status,
-            tool_calls: agent.tool_calls,
+            tool_calls: lane.tool_calls,
         });
     }
     steps
@@ -998,6 +1031,25 @@ fn lane_tool_input(name: &str, summary: &str) -> Value {
 }
 
 impl WorkflowRun {
+    /// One `workflow_agent` progress entry: the card's agent (latest per
+    /// index) and the agent's own lane (EXP-1225), keyed by its `agentId` —
+    /// an index a workflow reuses for a different agent (a retried phase, a
+    /// re-queued slot) opens a new lane instead of inheriting the old one's
+    /// flags. A queued agent has no id yet, so no lane. Returns whether the
+    /// agent's state moved (§3: such a change publishes at once).
+    fn fold_agent(&mut self, agent: steer::WorkflowAgent, steps: &mut Vec<LaneStep>) -> bool {
+        let moved = self
+            .agents
+            .get(&agent.index)
+            .is_none_or(|held| held.state != agent.state);
+        if let Some(agent_id) = agent.agent_id.clone() {
+            let lane = self.lanes.entry(agent_id).or_default();
+            steps.extend(lane_steps(&self.id, &agent, lane));
+        }
+        self.agents.insert(agent.index, agent);
+        moved
+    }
+
     /// The wire payload: the WHOLE state, every time (§3 is latest-wins).
     fn state(&self) -> steer::WorkflowState {
         steer::WorkflowState {
@@ -1546,6 +1598,9 @@ impl ClaudeSession {
             // EXP-850 §5: the working caption counts THIS turn's output.
             state.turn_thinking_tokens = 0;
             state.turn_message_tokens.clear();
+            // EXP-1224 review: this prompt is the next turn; a notification
+            // that landed before it is answered in it.
+            state.notification_pending = false;
             state.turns.push_back(tx);
         }
         self.send(claude_user_message(&request.prompt, &text))?;
@@ -1607,10 +1662,27 @@ impl ClaudeSession {
         }
         if let Some(settle) = state.deferred.take() {
             settle_turns(state, settle);
+            self.close_reopened_turn(cx, state);
         }
         // EXP-1224: a continuation whose `result` waited on the same tasks.
         if state.continuation_end_pending {
             self.end_continuation(cx, state);
+        }
+    }
+
+    /// EXP-1224 review: the last prompt in flight just settled and no turn
+    /// of the CLI's own runs — so any turn the MAPPER re-opened off output
+    /// alone (fallback C) that a prompt was then sent into is over too. The
+    /// mapper's agent-turn `ended` only closes a slot the agent holds and no
+    /// prompt does, so this can never end a live prompt; the CLI's `idle`
+    /// stays the second backstop.
+    fn close_reopened_turn(&self, cx: &ConnectionTo<Client>, state: &State) {
+        if state.turns.is_empty()
+            && state.deferred.is_none()
+            && !state.continuation_running
+            && !state.continuation_end_pending
+        {
+            self.publish_turn(cx, steer::TurnState::Ended);
         }
     }
 
@@ -1624,43 +1696,57 @@ impl ClaudeSession {
         state: &mut State,
         anticipated: bool,
     ) {
+        // Whatever woke the model is being answered now.
+        state.notification_pending = false;
         if state.continuation_running {
             if !anticipated {
                 state.continuation_anticipated = false;
             }
             return;
         }
+        // EXP-850 §5: a NEW turn counts its own output — but only when the
+        // slot actually closed before it. A prompt still in flight or
+        // deferred, or a continuation still waiting on its tasks, kept the
+        // mapper's slot open: the same working stretch to everyone watching,
+        // and a count reset under an unmoved slot would stall the caption.
+        let slot_closed = state.turns.is_empty()
+            && state.deferred.is_none()
+            && !state.continuation_end_pending;
         state.continuation_running = true;
         // A continuation that starts while the previous one waits on its
         // tasks supersedes that end: the agent is working again.
         state.continuation_end_pending = false;
         state.continuation_anticipated = anticipated;
         state.continuation_seq = state.continuation_seq.wrapping_add(1);
-        // EXP-850 §5: a NEW turn counts its own output. Kept while the
-        // prompt's settle is still deferred: the mapper's slot never closed,
-        // so this is the same working stretch to everyone watching.
-        if state.deferred.is_none() {
+        if slot_closed {
             state.turn_thinking_tokens = 0;
             state.turn_message_tokens.clear();
         }
         self.publish_turn(cx, steer::TurnState::Started);
         if anticipated {
-            let seq = state.continuation_seq;
-            let session = self.clone();
-            let out = cx.clone();
-            let _ = cx.spawn(async move {
-                tokio::time::sleep(ANTICIPATED_CONTINUATION_GRACE).await;
-                let mut state = session.lock();
-                if state.continuation_running
-                    && state.continuation_anticipated
-                    && state.continuation_seq == seq
-                {
-                    log::debug!("engine: claude never continued after its notification");
-                    session.end_continuation(&out, &mut state);
-                }
-                Ok(())
-            });
+            self.arm_continuation_backstop(cx, state);
         }
+    }
+
+    /// EXP-1224: an anticipated continuation the CLI never starts (and never
+    /// says `idle` about either) closes after
+    /// [`ANTICIPATED_CONTINUATION_GRACE`].
+    fn arm_continuation_backstop(self: &Arc<Self>, cx: &ConnectionTo<Client>, state: &State) {
+        let seq = state.continuation_seq;
+        let session = self.clone();
+        let out = cx.clone();
+        let _ = cx.spawn(async move {
+            tokio::time::sleep(ANTICIPATED_CONTINUATION_GRACE).await;
+            let mut state = session.lock();
+            if state.continuation_running
+                && state.continuation_anticipated
+                && state.continuation_seq == seq
+            {
+                log::debug!("engine: claude never continued after its notification");
+                session.end_continuation(&out, &mut state);
+            }
+            Ok(())
+        });
     }
 
     /// EXP-1224: the CLI's own turn is over — the agent's `ended` edge.
@@ -1668,6 +1754,8 @@ impl ClaudeSession {
         state.continuation_running = false;
         state.continuation_end_pending = false;
         state.continuation_anticipated = false;
+        state.notification_pending = false;
+        retire_continuation_tasks(state);
         self.publish_turn(cx, steer::TurnState::Ended);
     }
 
@@ -2466,6 +2554,7 @@ impl ClaudeSession {
             state.continuation_running = false;
             state.continuation_end_pending = false;
             state.continuation_anticipated = false;
+            state.notification_pending = false;
             while let Some(turn) = state.turns.pop_front() {
                 let _ = turn.send(outcome);
             }
@@ -2636,6 +2725,9 @@ impl ClaudeSession {
                 if continuing {
                     self.begin_continuation(cx, &mut state, false);
                 }
+                // EXP-1224 review: every re-announce starts a turn, and a
+                // notification pending before it is answered in that turn.
+                state.notification_pending = false;
                 drop(state);
                 if let Some(native) = republish {
                     self.publish_native_id(cx, &native);
@@ -3041,15 +3133,7 @@ impl ClaudeSession {
                             Some("workflow_agent") => {
                                 let Some(index) = progress_index(entry) else { continue };
                                 let agent = workflow_agent(index, entry);
-                                let moved = run
-                                    .agents
-                                    .get(&index)
-                                    .is_none_or(|held| held.state != agent.state);
-                                changed |= moved;
-                                // EXP-1225: the agent's own lane.
-                                let lane = run.lanes.entry(index).or_default();
-                                steps.extend(lane_steps(&run.id, &agent, lane));
-                                run.agents.insert(index, agent);
+                                changed |= run.fold_agent(agent, &mut steps);
                             }
                             _ => {}
                         }
@@ -3200,8 +3284,14 @@ impl ClaudeSession {
                     let between_turns = state.deferred.is_some()
                         || state.continuation_end_pending
                         || (state.turns.is_empty() && !state.continuation_running);
-                    if wakes_model && between_turns && !state.replaying_history {
-                        self.begin_continuation(cx, &mut state, true);
+                    if wakes_model && !state.replaying_history {
+                        // EXP-1224 review: MID-turn (the model did not stop
+                        // for it) the continuation still follows — right
+                        // after this turn's `result`, which opens it then.
+                        state.notification_pending = true;
+                        if between_turns {
+                            self.begin_continuation(cx, &mut state, true);
+                        }
                     }
                     self.settle_deferred(cx, &mut state);
                 }
@@ -3891,8 +3981,16 @@ impl ClaudeSession {
         // steers. The continuation then ends — unless background tasks of the
         // run are still live, in which case it ends when they are gone, by
         // the rule a prompted turn's settle follows.
+        // EXP-1224 review: a background task's notification landed during
+        // the turn this `result` ends (mid-turn, so nothing anticipated it
+        // then) — the CLI continues on its own right after this, re-announcing
+        // `init` within milliseconds. The turn must not read ended in that
+        // gap (every client flipped busy false→true).
+        let continues = state.notification_pending
+            && !state.replaying_history
+            && !matches!(outcome, TurnOutcome::Cancelled | TurnOutcome::AuthRequired);
         if state.continuation_running || (state.turns.is_empty() && state.deferred.is_none()) {
-            state.continuation_running = false;
+            let was_running = state.continuation_running;
             state.continuation_anticipated = false;
             if let Some(queued) = result.queued_turn_count {
                 while state.turns.len() as u64 > queued {
@@ -3906,12 +4004,38 @@ impl ClaudeSession {
             }
             self.expire_tasks(cx, &mut state);
             if blocking_tasks(&state).next().is_some() {
+                state.continuation_running = false;
                 state.continuation_end_pending = true;
                 self.arm_defer_timer(cx, &mut state);
+            } else if continues && state.turns.is_empty() {
+                // The next continuation follows this one at once: the slot
+                // stays held, now for it — anticipated, so the backstop (or
+                // the CLI's `idle`) closes it if the CLI does not continue.
+                retire_continuation_tasks(&mut state);
+                if was_running {
+                    state.notification_pending = false;
+                    state.continuation_anticipated = true;
+                    state.continuation_seq = state.continuation_seq.wrapping_add(1);
+                    self.arm_continuation_backstop(cx, &state);
+                } else {
+                    // A turn nobody announced (the mapper may have re-opened
+                    // it off output): announce the one that follows.
+                    self.begin_continuation(cx, &mut state, true);
+                }
             } else {
                 self.end_continuation(cx, &mut state);
             }
             return;
+        }
+        // The prompt's settle would leave nothing in flight: open the
+        // continuation FIRST, so the prompt's completion lands on a turn the
+        // agent holds.
+        if continues {
+            let left = state.turns.len().saturating_sub(1) as u64;
+            let left = result.queued_turn_count.map_or(left, |queued| left.min(queued));
+            if left == 0 {
+                self.begin_continuation(cx, &mut state, true);
+            }
         }
         self.settle_or_defer(
             cx,
@@ -3921,6 +4045,7 @@ impl ClaudeSession {
                 queued: result.queued_turn_count,
             },
         );
+        self.close_reopened_turn(cx, &state);
     }
 
     /// Continue the accepted plan in a fresh context: clear the conversation,
@@ -6284,10 +6409,83 @@ mod tests {
         let mut lane = AgentLane::default();
         lane_steps("wf", &running, &mut lane);
         run.agents.insert(1, running);
-        run.lanes.insert(1, lane);
+        run.lanes.insert("a37045b3fb76c076a".to_string(), lane);
         let steps = close_lanes(&mut run);
         assert_eq!(step_names(&steps), vec!["end:failed"]);
         assert!(close_lanes(&mut run).is_empty(), "closed once");
+    }
+
+    fn empty_run(id: &str) -> WorkflowRun {
+        WorkflowRun {
+            id: id.to_string(),
+            name: "wire-probe".to_string(),
+            description: None,
+            status: steer::WorkflowStatus::Running,
+            phases: BTreeMap::new(),
+            agents: BTreeMap::new(),
+            summary: None,
+            published_at: None,
+            lanes: BTreeMap::new(),
+        }
+    }
+
+    /// EXP-1225 review: lanes are keyed by `agentId`, never the progress
+    /// index. A workflow that reuses an index for a different agent (a
+    /// retried phase, a re-queued slot) gives the newcomer its own started
+    /// edge and rows instead of the old lane's finished flags.
+    #[test]
+    fn a_reused_index_opens_a_lane_for_the_new_agent() {
+        let mut run = empty_run("wf");
+        let mut steps = Vec::new();
+        let mut first = lane_agent(steer::WorkflowAgentState::Error);
+        first.error = Some("panicked".to_string());
+        run.fold_agent(first, &mut steps);
+        assert_eq!(step_names(&steps), vec!["started", "say:panicked", "end:failed"]);
+
+        // The retry, same index, another agent.
+        let mut steps = Vec::new();
+        let mut retry = lane_agent(steer::WorkflowAgentState::Running);
+        retry.agent_id = Some("b11111111111111111".to_string());
+        retry.last_tool = Some("Bash".to_string());
+        retry.last_tool_summary = Some("echo again".to_string());
+        run.fold_agent(retry, &mut steps);
+        assert_eq!(step_names(&steps), vec!["started", "tool:Bash:echo again"]);
+        assert!(matches!(
+            steps.first(),
+            Some(LaneStep::Started { id, .. }) if id == "b11111111111111111"
+        ));
+        assert_eq!(run.agents.len(), 1, "the card keeps one agent per index");
+
+        // The workflow ending closes the retry's lane, not the finished one.
+        run.status = steer::WorkflowStatus::Completed;
+        let closed = close_lanes(&mut run);
+        assert_eq!(step_names(&closed), vec!["end:completed"]);
+        assert!(matches!(
+            closed.first(),
+            Some(LaneStep::Finished { id, title, .. })
+                if id == "b11111111111111111" && title == "alpha:one"
+        ));
+    }
+
+    /// EXP-1225 review: a lane whose index was taken over while it still ran
+    /// is closed by the workflow's end all the same.
+    #[test]
+    fn a_replaced_running_lane_still_closes_with_its_workflow() {
+        let mut run = empty_run("wf");
+        run.fold_agent(lane_agent(steer::WorkflowAgentState::Running), &mut Vec::new());
+        let mut other = lane_agent(steer::WorkflowAgentState::Running);
+        other.agent_id = Some("b11111111111111111".to_string());
+        run.fold_agent(other, &mut Vec::new());
+        run.status = steer::WorkflowStatus::Stopped;
+        let mut closed: Vec<String> = close_lanes(&mut run)
+            .into_iter()
+            .filter_map(|step| match step {
+                LaneStep::Finished { id, .. } => Some(id),
+                _ => None,
+            })
+            .collect();
+        closed.sort();
+        assert_eq!(closed, vec!["a37045b3fb76c076a", "b11111111111111111"]);
     }
 
     /// EXP-780 — the "Working…" wedge. A task the CLI never reported back on
@@ -6392,6 +6590,36 @@ mod tests {
         assert!(!state.tasks.contains_key("old-done"));
         assert!(state.tasks.contains_key("old-live"));
         assert!(state.tasks.contains_key("now-done"));
+    }
+
+    /// EXP-1224 review: a continuation's end prunes like a settled prompt and
+    /// closes the task generation (no prompt is in flight to own it), so a
+    /// run that lives on continuations drops each one's dead tasks at the
+    /// next turn end instead of keeping every task since its last prompt.
+    #[test]
+    fn a_continuations_end_prunes_dead_tasks() {
+        let mut state = State { turn_seq: 4, ..State::default() };
+        state.tasks.insert("old-done".to_string(), task(3, false, Duration::ZERO));
+        state.tasks.insert("now-done".to_string(), task(4, false, Duration::ZERO));
+        state.tasks.insert("now-live".to_string(), task(4, true, Duration::ZERO));
+
+        retire_continuation_tasks(&mut state);
+        assert!(!state.tasks.contains_key("old-done"));
+        // This turn's memo stays for the terminal frame pair's second half.
+        assert!(state.tasks.contains_key("now-done"));
+        assert_eq!(state.turn_seq, 5, "the next continuation is a new generation");
+
+        // The next continuation's end takes the previous one's dead tasks.
+        retire_continuation_tasks(&mut state);
+        assert!(!state.tasks.contains_key("now-done"));
+        assert!(state.tasks.contains_key("now-live"), "a live task is never pruned");
+        assert_eq!(state.tasks.len(), 1);
+
+        // A prompt in flight owns the generation: pruned, but never bumped.
+        let (tx, _rx) = flume::bounded(1);
+        state.turns.push_back(tx);
+        retire_continuation_tasks(&mut state);
+        assert_eq!(state.turn_seq, 6);
     }
 
     /// Two in-flight prompts, one `result`: `queued_turn_count` is the only
