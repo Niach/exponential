@@ -11,11 +11,11 @@
 // The `summary` column itself is dropped in a follow-up; this path simply
 // stops writing it.
 //
-// EXP-673/EXP-679: the close-out ENDS the row, and only an UNATTENDED run
-// (`started_reason` set — nobody is watching that tab) ever gets here: the
-// tool is REGISTERED per request off exactly that row (lib/mcp/gates.ts), so
-// a person-started run — which keeps talking until the human closes the tab,
-// kills it, or its PR merges — is never offered it.
+// EXP-673/EXP-679/EXP-1222: the close-out ENDS the row. Every run of the
+// caller's has the tool (lib/mcp/gates.ts): an UNATTENDED run (`started_reason`
+// set — nobody is watching that tab) calls it LAST; a person-started run calls
+// it only when the person asks it to end the run, and otherwise keeps talking
+// until the human closes the tab, kills it, or its PR merges.
 //
 // It lives outside `lib/trpc/coding-sessions.ts` on purpose: the MCP tool
 // tests mock this one module instead of the whole session router.

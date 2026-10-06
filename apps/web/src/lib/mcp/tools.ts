@@ -3396,15 +3396,15 @@ export function registerExponentialTools(
   // Sessions (EXP-637)
   // -----------------------------------------------------------------------
 
-  // EXP-679: only an UNATTENDED run gets the close-out tool (gates.sessionsEnd
-  // = the header's run is the caller's and carries a started_reason). A
-  // person-started run is a conversation — the call would not end it anyway,
-  // and offering it just invites the agent to sign off mid-chat.
+  // EXP-679 / EXP-1222: every run of the caller's gets the close-out tool
+  // (gates.sessionsEnd = the header's run is the caller's). An unattended run
+  // calls it LAST; a person-started one only when the person asks it to end
+  // the run (the description and the instructions say so).
   if (gates.sessionsEnd) {
     server.registerTool(
       `exponential_sessions_end`,
       {
-        description: `Report this run's close-out, reported to whoever started this run (not stored on the run): a one-paragraph 'summary' of what you did, whether you finished, stopped for a human or changed nothing. Call it LAST, after exponential_pr_open, with the worktree clean: it ends this run. Merging your own PR never ends it; this call does.`,
+        description: `Ends this run. Unattended runs: call it LAST after exponential_pr_open with the worktree clean; attended runs: only when the person asks. 'summary' = one paragraph of what you did (finished, stopped for a human or changed nothing), reported to whoever started this run (not stored). Merging your own PR never ends it; this call does.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           summary: z.string().min(1).max(4_000),

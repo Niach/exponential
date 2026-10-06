@@ -30,12 +30,13 @@ export function createExponentialMcpServer(
     },
     // Loaded up front by every client even when tool definitions are
     // deferred behind tool search — see instructions.ts for the byte budget.
-    // EXP-679: the guidance follows the gates, so a person-started run is
-    // never told about a tool it does not have. FEED-21: reportBug mirrors
+    // EXP-679 / EXP-1222: the guidance follows the gates, so the close-out
+    // wording matches who is watching the run. FEED-21: reportBug mirrors
     // the EXP-496 registration check in tools.ts exactly.
     {
       instructions: mcpServerInstructions({
         sessionsEnd: gates.sessionsEnd,
+        unattended: gates.unattended,
         askParent: gates.askParent,
         reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
         sessionResults: gates.sessionResults,

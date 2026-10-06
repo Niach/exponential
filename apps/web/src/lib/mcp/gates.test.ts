@@ -5,9 +5,9 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // register at all. It must stay cheap (one indexed select at most). SLOP-4
 // retired the helpdesk gate; what remains are the session-header gates.
 //
-// EXP-679: it decides whether exponential_sessions_end registers — only
-// for the caller's OWN run, and only when an automation or another agent
-// started it (started_reason set).
+// EXP-679 / EXP-1222: it decides whether exponential_sessions_end registers —
+// for any of the caller's OWN runs — and whether that run is unattended
+// (started_reason set), which only picks the instructions' wording.
 
 const h = vi.hoisted(() => {
   const dbRows: { current: Array<unknown> } = { current: [] }
@@ -52,6 +52,7 @@ describe(`resolveMcpToolGates`, () => {
   it(`is all off without a session header, and never queries`, async () => {
     expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
       sessionsEnd: false,
+      unattended: false,
       askParent: false,
       sessionResults: false,
     })
@@ -67,6 +68,7 @@ describe(`resolveMcpToolGates`, () => {
     }
     expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
       sessionsEnd: false,
+      unattended: false,
       askParent: false,
       sessionResults: false,
     })
@@ -74,29 +76,29 @@ describe(`resolveMcpToolGates`, () => {
   })
 })
 
-describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
+describe(`resolveMcpToolGates — sessionsEnd (EXP-679, EXP-1222)`, () => {
   const RUN = `44444444-4444-4444-4444-444444444444`
 
   it(`is off without a session header, and never queries`, async () => {
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
-    expect(gates.sessionsEnd).toBe(false)
+    expect(gates).toMatchObject({ sessionsEnd: false, unattended: false })
     expect(h.db.select).not.toHaveBeenCalled()
   })
 
-  it(`is off for a person-started run`, async () => {
+  it(`is on for a person-started run, which is not unattended`, async () => {
     h.dbRows.current = [
       { userId: `u`, hostUserId: null, startedReason: null },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.sessionsEnd).toBe(false)
+    expect(gates).toMatchObject({ sessionsEnd: true, unattended: false })
   })
 
-  it(`is on for the caller's own automation-started run`, async () => {
+  it(`is on for the caller's own automation-started run, unattended`, async () => {
     h.dbRows.current = [
       { userId: `u`, hostUserId: null, startedReason: `schedule` },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.sessionsEnd).toBe(true)
+    expect(gates).toMatchObject({ sessionsEnd: true, unattended: true })
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"id" =`)
     expect(params).toContain(RUN)
@@ -107,7 +109,7 @@ describe(`resolveMcpToolGates — sessionsEnd (EXP-679)`, () => {
       { userId: `other`, hostUserId: `other-host`, startedReason: `schedule` },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.sessionsEnd).toBe(false)
+    expect(gates).toMatchObject({ sessionsEnd: false, unattended: false })
   })
 
   it(`is off when the header names no row at all`, async () => {
@@ -159,7 +161,7 @@ describe(`resolveMcpToolGates — askParent (EXP-700, EXP-1089)`, () => {
     expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
   })
 
-  it(`is on for the caller's own person-started run, without the close-out`, async () => {
+  it(`is on for the caller's own person-started run, attended`, async () => {
     // EXP-1089: a workflow's planner run pressed from the page is one of
     // these — it clears its questions with the person before the graph exists.
     h.dbRows.current = [
@@ -171,7 +173,11 @@ describe(`resolveMcpToolGates — askParent (EXP-700, EXP-1089)`, () => {
       },
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: false, askParent: true })
+    expect(gates).toMatchObject({
+      sessionsEnd: true,
+      unattended: false,
+      askParent: true,
+    })
   })
 
   it(`is on for an agent-started run whose parent is not stamped YET`, async () => {
@@ -217,8 +223,12 @@ describe(`resolveMcpToolGates — sessionResults (EXP-879)`, () => {
   it(`is on for the caller's own PERSON-started run`, async () => {
     h.dbRows.current = [{ userId: `u`, hostUserId: null, startedReason: null }]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    // The close-out stays shut for an attended run; publishing does not.
-    expect(gates).toMatchObject({ sessionsEnd: false, sessionResults: true })
+    // EXP-1222: an attended run gets the close-out and publishing alike.
+    expect(gates).toMatchObject({
+      sessionsEnd: true,
+      unattended: false,
+      sessionResults: true,
+    })
   })
 
   it(`is on for a run the caller only hosts`, async () => {
