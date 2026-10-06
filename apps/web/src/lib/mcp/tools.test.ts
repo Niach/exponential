@@ -5875,3 +5875,36 @@ describe(`exponential_sessions_ask_parent — targets`, () => {
     )
   })
 })
+
+describe(`MCP Apps bindings (EXP-1212)`, () => {
+  function uiBoundTools(sessionId: string | null): string[] {
+    const bound: string[] = []
+    const fakeServer = {
+      registerTool: (name: string, def: { _meta?: { ui?: unknown } }) => {
+        if (def._meta?.ui) bound.push(name)
+      },
+    }
+    registerExponentialTools(
+      fakeServer as never,
+      USER,
+      new Request(`https://x.test/api/mcp`),
+      FULL_ACCESS,
+      sessionId
+    )
+    return bound.sort()
+  }
+
+  it(`binds the views for an external caller`, () => {
+    expect(uiBoundTools(null)).toEqual([
+      `exponential_devices_list`,
+      `exponential_issues_show`,
+      `exponential_notifications_list`,
+      `exponential_sessions_get`,
+      `exponential_sessions_list`,
+    ])
+  })
+
+  it(`binds none inside a coding run`, () => {
+    expect(uiBoundTools(SESSION)).toEqual([])
+  })
+})

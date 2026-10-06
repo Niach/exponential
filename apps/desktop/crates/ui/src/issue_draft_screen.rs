@@ -22,7 +22,19 @@
 //!
 //! ONE shared instance per window ([`crate::screens::ScreensPanel`]),
 //! re-pointed per draft like the PR diff ([`IssueDraftView::set_draft`]).
+//!
+//! EXP-1212: a draft WITH content never goes silently
+//! ([`domain::issue_draft::exit_prompt`]). The `×` asks "Discard this draft
+//! and its files?"
+//! first; every other way off the page is HELD at the ONE choke point all
+//! screen changes pass (`navigation::leave_hold`: navigate, replace, a tab
+//! click's `set_screen`, Back, Forward, a team switch) and asks Discard ·
+//! Save draft · Create issue (ONE dialog; every move held meanwhile appends), the
+//! answer replaying the held moves in order. The page owns
+//! no tab, so there is no tab of its own to close; window close and quit are
+//! not held (the release hook above saves).
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -32,17 +44,18 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, TextareaState},
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
-use domain::issue_draft as copy;
+use domain::issue_draft::{self as copy, exit_prompt, DraftExit, DraftPrompt};
 use domain::rows::IssueDraftRow;
 
 use crate::controls::WebControl as _;
+use crate::native_dialog::AlertSpec;
 use crate::draft_editor::{DraftEditor, DraftEditorEvent, LeaveAction};
 use crate::drafts::DraftSave;
 use crate::icons::registry;
@@ -50,7 +63,9 @@ use crate::issue_detail::{centered_column, WYSIWYG_BLOCK_PADDING_X};
 use crate::work_header::WORK_GUTTER;
 use crate::issue_draft::IssueDraft;
 use crate::markdown::image_paste::{markdown_for_save, strip_draft_images};
-use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
+use crate::navigation::{
+    nav_for_window, resolved_screen, HeldNavigation, LeaveGuard, LeaveQueue, Navigation, Screen,
+};
 use crate::wysiwyg::WysiwygDescription;
 
 // ---------------------------------------------------------------------------
@@ -113,6 +128,50 @@ pub(crate) fn open_existing(window: &mut Window, cx: &mut App, draft: &IssueDraf
 // the view
 // ---------------------------------------------------------------------------
 
+/// EXP-1212: the draft alerts' window height (titlebar strip included): the
+/// one-line question over the button row, no empty band between them.
+const DRAFT_ALERT_HEIGHT: f32 = 136.;
+
+/// EXP-1212: the leave question — Discard (set apart, leading) · Save
+/// draft (plain) · Create issue (the primary, Enter), no Cancel (Esc / the
+/// ✕ stay).
+/// ONE builder for the page and the styleguide's `draft-leave-dialog`
+/// specimen. Like every other IDE alert, the window carries a SHORT title
+/// (the page's own "New issue") and the body slot the one-line question.
+/// Create issue stays pressable (it cannot follow a title typed after the
+/// dialog opened); the page re-checks it at click time.
+pub(crate) fn leave_alert(
+    on_create: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> AlertSpec {
+    AlertSpec::new(copy::HEADER, copy::LEAVE_TITLE, copy::LEAVE_CREATE)
+        .without_cancel()
+        .height(px(DRAFT_ALERT_HEIGHT))
+        .on_ok(on_create)
+        .secondary(copy::LEAVE_KEEP, on_keep)
+        .destructive(copy::LEAVE_DISCARD, on_discard)
+}
+
+/// EXP-1212: the `×`'s confirm (Cancel keeps the draft): the window carries
+/// the close button's own label ("Discard draft"), the body the question.
+pub(crate) fn discard_confirm_alert(
+    on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> AlertSpec {
+    AlertSpec::new(copy::DISCARD, copy::DISCARD_CONFIRM_TITLE, copy::DISCARD_CONFIRM)
+        .height(px(DRAFT_ALERT_HEIGHT))
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(on_discard)
+}
+
+/// EXP-1212: the leave dialog's three answers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LeaveChoice {
+    Create,
+    Keep,
+    Discard,
+}
+
 /// Which draft the page shows, and where it would be filed.
 #[derive(Clone, Debug)]
 struct DraftTarget {
@@ -166,6 +225,19 @@ pub(crate) struct IssueDraftView {
     /// write may not have synced yet): Back to such a draft seeds from here
     /// rather than opening it blank and overwriting the save.
     written: HashMap<String, DraftSave>,
+    /// EXP-1212: the page is up with a draft that has content, so the
+    /// window's navigation holds ([`LeaveGuard::armed`], kept by
+    /// [`Self::sync_guard`]).
+    armed: Rc<Cell<bool>>,
+    /// EXP-1212 (R6): the navigations the leave dialog is asking about, in
+    /// order — every move made while it is pending appends, ONE dialog asks
+    /// for all of them ([`crate::navigation::LeaveQueue`]).
+    held: Rc<RefCell<LeaveQueue<HeldNavigation>>>,
+    /// EXP-1212: the leave dialog's Create — the held navigations, run
+    /// instead of opening the new issue once the create succeeds.
+    after_create: Vec<HeldNavigation>,
+    /// EXP-1212 (R3): a "Save draft" is waiting on its save.
+    keeping: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -226,6 +298,7 @@ impl IssueDraftView {
                     if let Some(snapshot) = this.snapshot(cx) {
                         this.with_editor(cx, |editor, cx| editor.schedule_save(snapshot, cx));
                     }
+                    this.sync_guard(cx);
                     // The Create gate and the collapsed title follow it.
                     cx.notify();
                 }
@@ -272,6 +345,35 @@ impl IssueDraftView {
             }
         })
         .detach();
+        // EXP-1212: the hold on this window's navigation. It never reads this
+        // view (a navigation can run inside its update): it parks the move
+        // and asks on the next tick.
+        let armed = Rc::new(Cell::new(false));
+        let held: Rc<RefCell<LeaveQueue<HeldNavigation>>> = Rc::default();
+        {
+            let held = held.clone();
+            let view = cx.weak_entity();
+            crate::navigation::set_leave_guard(
+                window,
+                cx,
+                LeaveGuard {
+                    armed: armed.clone(),
+                    hold: Rc::new(move |window, cx, draft_id, navigation| {
+                        // A question already pending: the move rides along
+                        // (one dialog for the whole sequence).
+                        if !held.borrow_mut().hold(&draft_id, navigation) {
+                            return;
+                        }
+                        let view = view.clone();
+                        window.defer(cx, move |window, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.prompt_leave(draft_id, window, cx)
+                            });
+                        });
+                    }),
+                },
+            );
+        }
         Self {
             nav,
             focus_handle: cx.focus_handle(),
@@ -288,6 +390,10 @@ impl IssueDraftView {
             focused_once: false,
             busy_files: HashSet::new(),
             written: HashMap::new(),
+            armed,
+            held,
+            after_create: Vec::new(),
+            keeping: false,
             _subscriptions: subscriptions,
         }
     }
@@ -314,6 +420,7 @@ impl IssueDraftView {
             if !self.active {
                 self.active = true;
                 self.focused_once = false;
+                self.sync_guard(cx);
                 cx.notify();
             }
             return;
@@ -348,6 +455,9 @@ impl IssueDraftView {
                 self.pending = None;
                 self.parts = None;
                 self.active = false;
+                self.held.borrow_mut().clear();
+                self.keeping = false;
+                self.sync_guard(cx);
                 let nav = self.nav.clone();
                 window.defer(cx, move |window, cx| {
                     if nav.read(cx).can_go_back() {
@@ -445,7 +555,11 @@ impl IssueDraftView {
                 this.save_now(cx);
                 cx.notify();
             }),
-            cx.observe(&editor, |_, _, cx| cx.notify()),
+            // A file landing or going is content too (EXP-1212).
+            cx.observe(&editor, |this, _, cx| {
+                this.sync_guard(cx);
+                cx.notify();
+            }),
             cx.subscribe_in(&editor, window, |this, _, event, window, cx| {
                 this.on_editor_event(event, window, cx);
             }),
@@ -472,6 +586,7 @@ impl IssueDraftView {
         self.tray_top.set(None);
         self.tray_h.set(None);
         self.body_scroll.set_offset(gpui::Point::default());
+        self.sync_guard(cx);
         cx.notify();
     }
 
@@ -479,11 +594,15 @@ impl IssueDraftView {
     /// out — the ONE `draft_editor::leave_action` — and remember what was
     /// left behind. Idempotent: only an ACTIVE page leaves.
     pub(crate) fn leave(&mut self, cx: &mut gpui::Context<Self>) {
+        // EXP-1212: the page went away — nothing held may replay later.
+        self.held.borrow_mut().clear();
+        self.keeping = false;
         if !self.active {
             return;
         }
         self.active = false;
         self.pending = None;
+        self.sync_guard(cx);
         let Some(snapshot) = self.snapshot(cx) else {
             return;
         };
@@ -498,6 +617,26 @@ impl IssueDraftView {
             }
             Some(LeaveAction::Nothing) | None => {}
         }
+    }
+
+    /// EXP-1212: does the draft hold content (a title, a description, a
+    /// file)? The autosave's own rule, so "asks first" and "a row exists"
+    /// never disagree.
+    fn has_content(&self, cx: &App) -> bool {
+        let (Some(parts), Some(snapshot)) = (self.parts.as_ref(), self.snapshot(cx)) else {
+            return false;
+        };
+        parts.editor.read(cx).has_content(&snapshot)
+    }
+
+    /// EXP-1212: re-arm (or disarm) the navigation hold. Armed = the page is
+    /// up, no Create is in flight, and leaving would ask
+    /// ([`exit_prompt`]); called on every change that can move any of those.
+    fn sync_guard(&self, cx: &App) {
+        let armed = self.active
+            && !self.creating
+            && exit_prompt(self.has_content(cx), DraftExit::Leave) == DraftPrompt::Leave;
+        self.armed.set(armed);
     }
 
     /// The full row as it stands — what every write sends.
@@ -556,6 +695,7 @@ impl IssueDraftView {
             self.with_editor(cx, |editor, cx| editor.queue_image(image, snapshot, cx));
         }
         self.with_editor(cx, |editor, cx| editor.schedule_save(snapshot, cx));
+        self.sync_guard(cx);
         cx.notify();
     }
 
@@ -706,7 +846,7 @@ impl IssueDraftView {
         // file still going up would land on a draft the create deleted.
         !self.creating
             && !parts.editor.read(cx).uploads_busy()
-            && !self.title.read(cx).value().trim().is_empty()
+            && copy::leave_create_enabled(&self.title.read(cx).value())
     }
 
     /// Create: settle the draft (timer dropped, in-flight writes done, does
@@ -716,13 +856,23 @@ impl IssueDraftView {
     /// another draft by the time the create returns, and only THIS draft is
     /// filed and marked. Ok → the page BECOMES the issue (replace-navigation,
     /// the draft purged from history); Err → a toast, the button comes back.
-    fn create(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    ///
+    /// EXP-1212: `then` = the navigations the leave dialog held — on success
+    /// they replay in order instead of opening the issue; on failure they are
+    /// dropped and the page stays.
+    fn create(
+        &mut self,
+        then: Vec<HeldNavigation>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if !self.can_create(cx) {
             return;
         }
         let Some(parts) = self.parts.as_ref() else {
             return;
         };
+        self.after_create = then;
         let capture = CreateCapture {
             target: parts.target.clone(),
             title: self.title.read(cx).value().trim().to_string(),
@@ -731,6 +881,7 @@ impl IssueDraftView {
             description: parts.description.clone(),
         };
         self.creating = true;
+        self.sync_guard(cx);
         cx.notify();
         // The capture holds the editor STRONGLY, so a re-point mid-flush
         // never drops it (and the flush never answers for a dead draft).
@@ -794,6 +945,10 @@ impl IssueDraftView {
                                     return None;
                                 }
                                 this.creating = false;
+                                // EXP-1212: a held navigation dies with the
+                                // create; the page stays.
+                                this.after_create.clear();
+                                this.sync_guard(cx);
                                 cx.notify();
                                 this.snapshot(cx)
                             })
@@ -836,29 +991,100 @@ impl IssueDraftView {
             self.with_editor(cx, |editor, _| editor.mark_filed());
             self.creating = false;
             self.active = false;
+            self.sync_guard(cx);
         }
         let still_here = matches!(
             resolved_screen(&self.nav, cx),
             Some(Screen::IssueDraft { draft_id: id, .. }) if id == draft_id
         );
         if still_here {
-            crate::navigation::set_active_board(window, cx, capture.target.board_id.clone());
-            crate::navigation::navigate_replace(window, cx, Screen::IssueDetail { issue_id });
+            let then = std::mem::take(&mut self.after_create);
+            match then.is_empty() {
+                // EXP-1212: the leave dialog's Create continues where the
+                // user was going, every held move in order.
+                false => {
+                    for navigation in then {
+                        navigation(window, cx);
+                    }
+                }
+                true => {
+                    crate::navigation::set_active_board(
+                        window,
+                        cx,
+                        capture.target.board_id.clone(),
+                    );
+                    crate::navigation::navigate_replace(
+                        window,
+                        cx,
+                        Screen::IssueDetail { issue_id },
+                    );
+                }
+            }
         }
         purge_draft(&draft_id, window, cx);
         cx.notify();
     }
 
-    /// "Discard draft": the row goes (no confirm — a draft is unfiled by
-    /// definition), then Back — or the board, with nowhere to go back to.
+    /// "Discard draft" (the `×`): EXP-1212 — a draft with content asks
+    /// "Discard this draft and its files?" first (Cancel keeps it); an empty one goes at once.
     fn discard(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(draft_id) = self.parts.as_ref().map(|parts| parts.target.draft_id.clone()) else {
+            return;
+        };
+        // R2: never while a Create is in flight.
+        if self.creating {
+            return;
+        }
+        if exit_prompt(self.has_content(cx), DraftExit::Discard) != DraftPrompt::DiscardConfirm {
+            self.discard_now(window, cx);
+            return;
+        }
+        let view = cx.entity().downgrade();
+        let opener = window.window_handle();
+        let spec = discard_confirm_alert(move |_, cx| {
+            let view = view.clone();
+            let draft_id = draft_id.clone();
+            // Deferred into the opener: this runs inside the alert window.
+            cx.defer(move |cx| {
+                let _ = opener.update(cx, |_, window, cx| {
+                    let _ = view.update(cx, |this, cx| {
+                        // Only the draft the question was about, still up,
+                        // and never mid-Create (R2).
+                        if this.active && !this.creating && this.shows(&draft_id) {
+                            this.discard_now(window, cx);
+                        }
+                    });
+                });
+            });
+            true
+        });
+        crate::native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// The draft goes: the row is deleted and nothing is written again.
+    /// Returns its id (`None` with no draft up).
+    fn drop_draft(&mut self, cx: &mut gpui::Context<Self>) -> Option<String> {
+        let draft_id = self.parts.as_ref()?.target.draft_id.clone();
+        self.with_editor(cx, |editor, cx| editor.discard(cx));
+        self.written.remove(&draft_id);
+        self.active = false;
+        self.held.borrow_mut().clear();
+        self.keeping = false;
+        self.sync_guard(cx);
+        Some(draft_id)
+    }
+
+    /// The confirmed discard: the row goes, then Back — or the board, with
+    /// nowhere to go back to.
+    fn discard_now(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.creating {
+            return;
+        }
         let Some(parts) = self.parts.as_ref() else {
             return;
         };
         let target = parts.target.clone();
-        self.with_editor(cx, |editor, cx| editor.discard(cx));
-        self.written.remove(&target.draft_id);
-        self.active = false;
+        self.drop_draft(cx);
         if self.nav.read(cx).can_go_back() {
             crate::navigation::go_back(window, cx);
         } else {
@@ -873,6 +1099,156 @@ impl IssueDraftView {
         purge_draft(&target.draft_id, window, cx);
     }
 
+    // -- leaving (EXP-1212) -------------------------------------------------------
+
+    /// A navigation was HELD (`navigation::leave_hold`): ask Discard · Save
+    /// draft · Create issue about `draft_id` — ONE dialog for every move held
+    /// while it is pending. Esc or the window's close dismisses: the page
+    /// stays and nothing held is ever replayed.
+    fn prompt_leave(&mut self, draft_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // R2: nothing is asked mid-Create; nothing either for a page that is
+        // gone or shows another draft by now.
+        if !self.active || self.creating || !self.shows(&draft_id) {
+            self.held.borrow_mut().clear();
+            return;
+        }
+        if !self.held.borrow().holds_for(&draft_id) {
+            return;
+        }
+        // Another dialog of this window is up: it is raised instead, and the
+        // held moves are DROPPED (stay) — nothing may replay behind a
+        // question that was never asked.
+        if crate::native_dialog::raise_existing_dialog(window, cx) {
+            self.held.borrow_mut().clear();
+            return;
+        }
+        let ask = self.held.borrow_mut().ask();
+        let view = cx.entity().downgrade();
+        let opener = window.window_handle();
+        // Every answer runs in the OPENER, deferred: it fires inside the
+        // alert window (and BEFORE that window's close, so a real answer is
+        // never mistaken for a dismiss below).
+        let answer = |choice: LeaveChoice| {
+            let view = view.clone();
+            let draft_id = draft_id.clone();
+            move |_: &mut Window, cx: &mut App| {
+                let view = view.clone();
+                let draft_id = draft_id.clone();
+                cx.defer(move |cx| {
+                    let _ = opener.update(cx, |_, window, cx| {
+                        let _ = view.update(cx, |this, cx| {
+                            this.answer_leave(choice, &draft_id, ask, window, cx)
+                        });
+                    });
+                });
+                true
+            }
+        };
+        let held = self.held.clone();
+        let spec = leave_alert(
+            answer(LeaveChoice::Create),
+            answer(LeaveChoice::Keep),
+            answer(LeaveChoice::Discard),
+        )
+        .on_closed(move |_| held.borrow_mut().dismiss(ask));
+        crate::native_dialog::open_alert(window, cx, spec);
+    }
+
+    fn answer_leave(
+        &mut self,
+        choice: LeaveChoice,
+        draft_id: &str,
+        ask: u64,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        // R6: only the open question, about the draft still up.
+        if !self.held.borrow_mut().answer(draft_id, ask) {
+            return;
+        }
+        if !self.active || !self.shows(draft_id) || self.creating {
+            self.held.borrow_mut().clear();
+            return;
+        }
+        match choice {
+            // The page's Create, same validation; the moves follow only a
+            // success. Create stays pressable in the dialog (it cannot follow
+            // a title typed after it opened); not creatable NOW = stay and
+            // focus the title, the page's own Create gate.
+            LeaveChoice::Create => {
+                if !self.can_create(cx) {
+                    self.held.borrow_mut().clear();
+                    if !copy::leave_create_enabled(&self.title.read(cx).value()) {
+                        self.title.update(cx, |title, cx| title.focus(window, cx));
+                    }
+                    return;
+                }
+                let then = self.held.borrow_mut().take(draft_id);
+                self.create(then, window, cx);
+            }
+            // R3: save, WAIT for it, then go; a failed save stays (its toast
+            // is the page's normal save error) and drops the moves.
+            LeaveChoice::Keep => self.keep(draft_id.to_string(), window, cx),
+            // Delete, then go; no second question.
+            LeaveChoice::Discard => {
+                let then = self.held.borrow_mut().take(draft_id);
+                let dropped = self.drop_draft(cx);
+                for navigation in then {
+                    navigation(window, cx);
+                }
+                if let Some(dropped) = dropped {
+                    purge_draft(&dropped, window, cx);
+                }
+            }
+        }
+    }
+
+    /// "Save draft" (R3): the save is awaited. Moves made meanwhile keep
+    /// appending (the question stays pending, no second dialog); success
+    /// replays them all, a failure — or the page going any other way — drops
+    /// them.
+    fn keep(&mut self, draft_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let snapshot = self.snapshot(cx).filter(|_| self.has_content(cx));
+        let saving = snapshot
+            .and_then(|snapshot| self.with_editor(cx, |editor, cx| editor.save_for_leave(snapshot, cx)));
+        let Some(saving) = saving else {
+            // Nothing to keep (the content went meanwhile): the leave's own
+            // rule decides, then go.
+            self.finish_keep(&draft_id, window, cx);
+            return;
+        };
+        self.keeping = true;
+        cx.spawn_in(window, async move |this, cx| {
+            let saved = saving.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if !this.keeping {
+                    return; // the page went another way meanwhile
+                }
+                this.keeping = false;
+                if saved {
+                    this.finish_keep(&draft_id, window, cx);
+                } else {
+                    this.held.borrow_mut().clear();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn finish_keep(&mut self, draft_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.active || self.creating || !self.shows(draft_id) {
+            self.held.borrow_mut().clear();
+            return;
+        }
+        let then = self.held.borrow_mut().take(draft_id);
+        // The save already landed: the leave's write is the identical
+        // snapshot (skipped) unless the user typed on meanwhile.
+        self.leave(cx);
+        for navigation in then {
+            navigation(window, cx);
+        }
+    }
+
     // -- render -----------------------------------------------------------------
 
     /// The bar's right cluster: Create, then an `×` that discards (EXP-1191:
@@ -885,7 +1261,9 @@ impl IssueDraftView {
             .web_sm()
             .label(copy::CREATE)
             .disabled(!enabled)
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(window, cx)));
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.create(Vec::new(), window, cx)
+            }));
         let discard = crate::controls::ghost_icon_button(
             "draft-discard",
             Icon::new(registry::UI_CLOSE),
@@ -1068,7 +1446,7 @@ impl Render for IssueDraftView {
                 let keystroke = &event.keystroke;
                 if keystroke.key == "enter" && keystroke.modifiers.secondary() {
                     cx.stop_propagation();
-                    this.create(window, cx);
+                    this.create(Vec::new(), window, cx);
                 }
             }));
         if self.parts.is_none() {

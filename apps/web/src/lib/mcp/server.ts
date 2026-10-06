@@ -43,10 +43,14 @@ export function createExponentialMcpServer(
     }
   )
   registerExponentialTools(server, user, request, access, sessionId, gates)
-  // EXP-1183: the MCP Apps views the issue/run tools point at.
-  registerExponentialApps(
-    server,
-    process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin
-  )
+  // EXP-1183: the MCP Apps views the issue/run tools point at. EXP-1212: not
+  // for a coding run (it cannot draw them, and reading one would pull the
+  // whole inlined page into its context); external MCP Apps hosts only.
+  if (!sessionId) {
+    registerExponentialApps(
+      server,
+      process.env.BETTER_AUTH_URL ? appBaseUrl() : new URL(request.url).origin
+    )
+  }
   return server
 }

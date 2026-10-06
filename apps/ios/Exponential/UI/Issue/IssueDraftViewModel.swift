@@ -116,6 +116,9 @@ final class IssueDraftViewModel {
     /// Create's own pre-request flush — the one save allowed while creating.
     @ObservationIgnored private var preCreateFlush = false
     @ObservationIgnored private var lastImageCommitKeys: Set<String> = []
+    /// The newest upsert failed (cleared by the next one that lands):
+    /// `flushForKeep` reads it.
+    @ObservationIgnored private var lastWriteFailed = false
 
     /// The autosave machine: nothing pending, a debounced save waiting, or a
     /// save loop running (`dirtyAgain` = run once more when it lands).
@@ -149,8 +152,33 @@ final class IssueDraftViewModel {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// What the autosave writes: the draft's KNOWN content.
     var hasContent: Bool {
-        !trimmedTitle.isEmpty || !draftDescription.isEmpty || !attachments.isEmpty
+        IssueDraftPage.hasContent(
+            title: title, description: draftDescription, attachmentCount: attachments.count
+        )
+    }
+
+    /// EXP-1212: what an exit asks first. A create in flight owns the draft,
+    /// and a draft already created or discarded has nothing left to ask about.
+    /// A reopened draft (its row exists) whose file list has not loaded may
+    /// be file-only, so it counts as content until the list is known; a
+    /// brand-new draft (no row yet) is known to have no files.
+    func prompt(for exit: IssueDraftPage.Exit) -> IssueDraftPage.Prompt {
+        guard !finished, !creating else { return .none }
+        let content = IssueDraftPage.hasContent(
+            title: title,
+            description: draftDescription,
+            attachmentCount: attachments.count,
+            attachmentsKnown: attachmentsLoaded || !rowExists
+        )
+        return IssueDraftPage.prompt(for: exit, hasContent: content)
+    }
+
+    /// EXP-1212: the leave dialog's answers. A sub-issue draft never writes
+    /// a row, so "Keep as draft" would keep nothing: Create and Discard only.
+    var leaveChoices: [IssueDraftPage.LeaveChoice] {
+        IssueDraftPage.leaveChoices(canKeep: writesDraft)
     }
 
     /// EXP-1130: a sub-issue draft holds its uploads in memory until the
@@ -484,6 +512,20 @@ final class IssueDraftViewModel {
         await saveLoopTask?.value
     }
 
+    /// EXP-1212 "Keep as draft": save now and report whether the draft
+    /// stands saved. A failed write already toasted its error (`error`);
+    /// false = the page stays.
+    func flushForKeep() async -> Bool {
+        guard writesDraft, !finished, !creating else { return false }
+        lastWriteFailed = false
+        await flush()
+        if lastWriteFailed {
+            if error == nil { error = "Couldn't save the draft." }
+            return false
+        }
+        return true
+    }
+
     private func startSaveLoop() {
         saveState = .saving(dirtyAgain: false)
         // Strong capture: a save started by the page's exit must outlive it.
@@ -513,7 +555,10 @@ final class IssueDraftViewModel {
             }
             return
         }
-        guard let teamId = await resolveTeamId() else { return }
+        guard let teamId = await resolveTeamId() else {
+            lastWriteFailed = true
+            return
+        }
         let input = snapshot(teamId: teamId)
         do {
             let dto = try await deps.issueDraftsApi.upsert(accountId: accountId, input)
@@ -521,9 +566,11 @@ final class IssueDraftViewModel {
             if !rowExists { attachmentsLoaded = true }
             rowExists = true
             ensureRequested = false
+            lastWriteFailed = false
             await mirrorDraft(dto)
         } catch {
             ensureRequested = false
+            lastWriteFailed = true
             if !leaving { self.error = error.userFacingMessage }
         }
     }
@@ -597,8 +644,9 @@ final class IssueDraftViewModel {
         leaving = false
     }
 
-    /// Discard draft: drop the row (server + local) if there is one. No
-    /// confirm. Waits out a save in flight, which may be creating it.
+    /// Discard draft: drop the row (server + local) if there is one. The
+    /// page asks first (EXP-1212). Waits out a save in flight, which may be
+    /// creating it.
     func discard() {
         // A create in flight owns the draft until it lands or fails.
         guard !finished, !creating else { return }

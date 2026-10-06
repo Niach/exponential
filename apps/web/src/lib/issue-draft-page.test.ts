@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   ISSUE_DRAFT_AUTOSAVE_MS,
   ISSUE_DRAFT_COPY,
+  canCreateDraft,
+  draftExitPrompt,
   draftOriginFrom,
   newDraftNavigation,
   parseIssueDraftSearch,
@@ -20,6 +22,16 @@ describe(`issue draft page (contract fixture)`, () => {
       create: `Create`,
       discard: `Discard draft`,
       untitled: `Untitled draft`,
+      discardConfirm: {
+        title: `Discard this draft and its files?`,
+        confirm: `Discard`,
+      },
+      leave: {
+        title: `Save this issue as a draft?`,
+        discard: `Discard`,
+        keep: `Save draft`,
+        create: `Create issue`,
+      },
     })
   })
 
@@ -61,6 +73,28 @@ describe(`newDraftNavigation`, () => {
     expect(
       parseIssueDraftSearch({ board: `b`, status: ``, from: 3, x: `y` })
     ).toEqual({ board: `b`, status: undefined, from: undefined })
+  })
+})
+
+// EXP-1212: a draft with content never goes silently.
+describe(`draftExitPrompt`, () => {
+  it(`asks only when the draft has content`, () => {
+    expect(draftExitPrompt(`discard`, true)).toBe(`discardConfirm`)
+    expect(draftExitPrompt(`leave`, true)).toBe(`leave`)
+    expect(draftExitPrompt(`discard`, false)).toBe(`none`)
+    expect(draftExitPrompt(`leave`, false)).toBe(`none`)
+  })
+
+  it(`enables Create only with a title and nothing in flight`, () => {
+    const idle = { creating: false, uploading: false }
+    expect(canCreateDraft({ title: `Fix it`, ...idle })).toBe(true)
+    expect(canCreateDraft({ title: `   `, ...idle })).toBe(false)
+    expect(
+      canCreateDraft({ title: `Fix it`, creating: true, uploading: false })
+    ).toBe(false)
+    expect(
+      canCreateDraft({ title: `Fix it`, creating: false, uploading: true })
+    ).toBe(false)
   })
 })
 

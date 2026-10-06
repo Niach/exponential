@@ -346,7 +346,9 @@ impl DraftEditor {
         }
     }
 
-    fn has_content(&self, snapshot: &DraftSave) -> bool {
+    /// Whether `snapshot` plus this draft's files is content — the autosave's
+    /// rule, and (EXP-1212) whether leaving or discarding asks first.
+    pub(crate) fn has_content(&self, snapshot: &DraftSave) -> bool {
         crate::drafts::has_content(&snapshot.title, &snapshot.description, self.content_files())
     }
 
@@ -418,6 +420,30 @@ impl DraftEditor {
             LeaveAction::Nothing => {}
         }
         action
+    }
+
+    /// EXP-1212 (R3): the leave dialog's "Save draft" — save NOW and answer,
+    /// once the write queue has drained, whether the last write succeeded
+    /// (`false` = the page stays; the failure toasted as the normal "Could
+    /// not save the draft" error, even after a quiet autosave failure). A
+    /// snapshot already written (nothing to send) answers `true` at once.
+    pub(crate) fn save_for_leave(
+        &mut self,
+        snapshot: DraftSave,
+        cx: &mut gpui::Context<Self>,
+    ) -> Task<bool> {
+        self.failing = false;
+        self.save_now(snapshot, cx);
+        cx.spawn(async move |this, cx| loop {
+            let settled = this
+                .update(cx, |this, _| this.writes.is_idle().then(|| !this.failing))
+                .ok();
+            match settled {
+                None => return false,
+                Some(Some(ok)) => return ok,
+                Some(None) => cx.background_executor().timer(SETTLE_POLL).await,
+            }
+        })
     }
 
     /// The draft was FILED: the server deleted the row in the create's own

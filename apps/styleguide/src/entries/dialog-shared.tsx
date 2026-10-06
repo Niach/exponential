@@ -3,7 +3,7 @@ import { cn, conceptIcon } from "@exp/ui"
 
 /**
  * What the dialog entries share (`blocked-start-dialog`,
- * `stack-merge-choice-dialog`).
+ * `stack-merge-choice-dialog`, `draft-leave-dialog`).
  *
  * Not an entry itself (nothing in `sections.json` names it): just the frame.
  * `DialogContent` and `AlertDialogContent` are Radix portals, and a portal

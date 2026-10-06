@@ -2105,10 +2105,15 @@ impl ScreensPanel {
         // git, the `+` shell cwd) has to be put back; it degrades safely if
         // the board has since been trashed (`active_board_id` existence-checks
         // at query time).
-        if let Some(origin) = &entry.origin {
-            crate::sidebar::apply_origin(window, cx, origin);
-        }
-        set_screen(window, cx, Some(entry.screen));
+        // EXP-1212: the board scope + the screen = ONE held move on a New
+        // issue page (a Stay leaves the scope untouched).
+        let target = entry.screen.clone();
+        crate::navigation::leave_held(window, cx, Some(&target), move |window, cx| {
+            if let Some(origin) = &entry.origin {
+                crate::sidebar::apply_origin(window, cx, origin);
+            }
+            set_screen(window, cx, Some(entry.screen));
+        });
     }
 
     /// Close the tab at `ix`. Closing the active tab activates its right

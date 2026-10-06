@@ -320,6 +320,25 @@ describe(`useIssueDraftEditor leaving`, () => {
     expect(mocks.draftDelete).not.toHaveBeenCalled()
   })
 
+  it(`reports the leave write's outcome (EXP-1212 R3)`, async () => {
+    const { result } = renderHook(() => useIssueDraftEditor(options()))
+    act(() => result.current.setTitle(`Fix login`))
+    let ok: boolean | null = null
+    await act(async () => {
+      ok = await result.current.leave()
+    })
+    expect(ok).toBe(true)
+    mocks.upsert.mockRejectedValueOnce(new Error(`offline`))
+    act(() => result.current.setTitle(`Fix login now`))
+    await act(async () => {
+      ok = await result.current.leave()
+    })
+    expect(ok).toBe(false)
+    // The page's normal save error, once.
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+    expect(mocks.toastError).toHaveBeenCalledWith(`Could not save the draft`)
+  })
+
   it(`writes on pagehide`, async () => {
     const { result } = renderHook(() => useIssueDraftEditor(options()))
     act(() => result.current.setTitle(`Fix login`))
@@ -466,6 +485,54 @@ describe(`useIssueDraftEditor discard`, () => {
       await expect(result.current.ensureDraft()).rejects.toThrow()
     })
     expect(mocks.upsert).not.toHaveBeenCalled()
+  })
+
+  it(`never runs while a Create is in flight (EXP-1212 R2)`, async () => {
+    let release: () => void = () => {}
+    mocks.create.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ issue: { id: `i1`, identifier: `WEB-7` }, txId: 3 })
+        })
+    )
+    const { result } = renderHook(() =>
+      useIssueDraftEditor(options({ draft: existingDraft() }))
+    )
+    await settle()
+    expect(result.current.isCreating()).toBe(false)
+    let creating: Promise<unknown> = Promise.resolve()
+    act(() => {
+      creating = result.current.create()
+    })
+    expect(result.current.isCreating()).toBe(true)
+    let discarded: boolean | null = null
+    await act(async () => {
+      discarded = await result.current.discard()
+    })
+    expect(discarded).toBe(false)
+    expect(mocks.draftDelete).not.toHaveBeenCalled()
+    await act(async () => {
+      release()
+      await creating
+    })
+    expect(result.current.isCreating()).toBe(false)
+    expect(mocks.draftDelete).not.toHaveBeenCalled()
+  })
+
+  it(`clears the in-flight flag after a refused Create`, async () => {
+    mocks.create.mockRejectedValueOnce(new Error(`Nope`))
+    const { result } = renderHook(() => useIssueDraftEditor(options()))
+    act(() => result.current.setTitle(`Fix login`))
+    await act(async () => {
+      await result.current.create()
+    })
+    expect(result.current.isCreating()).toBe(false)
+    let discarded: boolean | null = null
+    await act(async () => {
+      discarded = await result.current.discard()
+    })
+    expect(discarded).toBe(true)
   })
 
   it(`deletes nothing when no row exists`, async () => {

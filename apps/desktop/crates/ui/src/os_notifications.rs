@@ -593,8 +593,14 @@ fn route_to(route: Route, cx: &mut App) {
     .detach();
 }
 
-/// Land a route in `window` — the rail Inbox rows' own paths.
+/// Land a route in `window` — the rail Inbox rows' own paths. EXP-1212: a
+/// route may switch the team first, then open its screen: on a New issue page
+/// the whole landing is ONE held move (`navigation::leave_held`).
 fn land(route: Route, window: &mut Window, cx: &mut App) {
+    navigation::leave_held(window, cx, None, move |window, cx| land_now(route, window, cx));
+}
+
+fn land_now(route: Route, window: &mut Window, cx: &mut App) {
     match route {
         Route::Issue { issue_id } => land_issue(issue_id, false, window, cx),
         Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
