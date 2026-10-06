@@ -32,7 +32,6 @@ vi.mock(`@/hooks/use-work-tabs`, () => ({
 }))
 vi.mock(`@/components/agent-session-row`, () => ({
   LIVE_DOT_TONE_BY_SESSION_TONE: { muted: `muted` },
-  RunningIndicator: () => null,
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   IssueStatusIcon: () => null,

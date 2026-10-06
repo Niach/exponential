@@ -1,6 +1,10 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { AgentBrandMark, AgentRunMark } from "./agent-brand-mark"
+import {
+  AgentBrandMark,
+  AgentRunMark,
+  RUN_MARK_ENDED_OPACITY,
+} from "./agent-brand-mark"
 import { CLAUDE_SPINNER_FRAMES } from "./claude-spinner.generated"
 
 // EXP-850 §5: the brand mark beside the working caption.
@@ -83,5 +87,13 @@ describe(`AgentRunMark`, () => {
     const { container } = render(<AgentRunMark agent="claude" />)
     expect(badgeOf(container)).toBeNull()
     expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
+  })
+
+  it(`an ended run (EXP-1208) is the brand mark dimmed, no badge, no spark`, () => {
+    const { container } = render(<AgentRunMark agent="claude" state="ended" />)
+    expect(badgeOf(container)).toBeNull()
+    expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
+    const mark = container.querySelector(`[data-slot="run-mark"]`) as HTMLElement
+    expect(mark.style.opacity).toBe(String(RUN_MARK_ENDED_OPACITY))
   })
 })
