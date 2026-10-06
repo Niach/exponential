@@ -192,9 +192,7 @@ private fun TeamBlockView(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
-            // EXP-1075: my live runs over THERE. A dot, never a count — the
-            // same rule as the switcher control's, resolved per team here so
-            // the sheet answers "which team" the control only hints at. The
+            // EXP-1075: my live runs over THERE. A dot, never a count. The
             // selected team never wears one: its runs light the Agents tab.
             val live = liveRunsByTeam[block.team.id]
             if (live != null && live.count > 0 && block.team.id != selectedTeamId) {

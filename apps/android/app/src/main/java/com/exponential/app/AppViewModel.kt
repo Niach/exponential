@@ -287,13 +287,9 @@ class AppViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // EXP-1075: the caller's LIVE runs grouped by team — the board switcher's
-    // "another team has your live runs" dot. Every session surface here is
-    // selected-team scoped (agentRows, [agentsRunning]), so a run started in
-    // another team goes dark the moment the switcher moves; this is the one
-    // pointer back to it. No team enters the combine — the selected one is
-    // subtracted at the draw site (`otherTeamsLive`), so the same map serves
-    // the switcher control and the sheet's per-team dots.
+    // EXP-1075: the caller's LIVE runs grouped by team — the board switcher
+    // sheet's per-team dots (EXP-1210: the switcher pill wears none). No team
+    // enters the combine — the sheet skips the selected one at the draw site.
     @OptIn(ExperimentalCoroutinesApi::class)
     val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> =
         accountDatabaseFlow(auth, databaseHolder)

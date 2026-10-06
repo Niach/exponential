@@ -65,7 +65,6 @@ class TeamLiveRunsTest {
             now = nowMs,
         )
         assertTrue(byTeam.isEmpty())
-        assertFalse(otherTeamsLive(byTeam, "team-1").any)
     }
 
     @Test
@@ -120,40 +119,5 @@ class TeamLiveRunsTest {
         assertTrue(byTeam["team-2"]?.needsInput ?: false)
         assertFalse(byTeam["team-3"]?.needsInput ?: true)
         assertNull(byTeam["team-1"])
-    }
-
-    @Test
-    fun `the selected team is excluded from the dot`() {
-        val byTeam = liveRunsByTeam(
-            listOf(session("a", teamId = "team-1", needsInput = true)),
-            me = "me",
-            now = nowMs,
-        )
-        // Its runs already light the Agents tab — no second dot for them.
-        assertFalse(otherTeamsLive(byTeam, "team-1").any)
-        assertTrue(otherTeamsLive(byTeam, "team-9").any)
-        assertTrue(otherTeamsLive(byTeam, "team-9").needsInput)
-        // No team selected yet (first run): every live team still counts.
-        assertTrue(otherTeamsLive(byTeam, null).any)
-    }
-
-    @Test
-    fun `an unselected team's needsInput sets the tone, the selected team's does not`() {
-        val byTeam = liveRunsByTeam(
-            listOf(
-                session("a", teamId = "team-1", needsInput = true),
-                session("b", teamId = "team-2"),
-            ),
-            me = "me",
-            now = nowMs,
-        )
-        val other = otherTeamsLive(byTeam, "team-1")
-        assertTrue(other.any)
-        assertFalse(other.needsInput)
-    }
-
-    @Test
-    fun `no other team live means no dot`() {
-        assertFalse(otherTeamsLive(emptyMap(), "team-1").any)
     }
 }

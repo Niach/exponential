@@ -276,8 +276,7 @@ fun AppNavHost() {
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
             val agentsRunning by viewModel.agentsRunning.collectAsStateWithLifecycle()
             val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
-            // EXP-1075: the board switcher's other-team dot — my live runs in
-            // teams the switcher is NOT on.
+            // EXP-1075: the board switcher sheet's per-team live-run dots.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
             val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
             val yoloMode by viewModel.yoloMode.collectAsStateWithLifecycle()
@@ -524,8 +523,8 @@ private fun AuthenticatedNav(
             IssueListScreen(
                 boardId = currentBoardId,
                 mode = IssueListMode.Root,
-                // EXP-1075: the switcher wears a dot when MY live runs sit in
-                // a team this screen isn't showing.
+                // EXP-1075: the switcher SHEET marks the teams holding MY
+                // live runs (EXP-1210: the pill wears no dot).
                 liveRunsByTeam = liveRunsByTeam,
                 selectedTeamId = selectedTeamId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
