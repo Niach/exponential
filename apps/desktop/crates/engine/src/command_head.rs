@@ -25,8 +25,8 @@ const NOISE_PROGRAMS: &[&str] = &[
 /// Leading words that only wrap the real program (`sudo make`, `time cargo`,
 /// `if git …`).
 const WRAPPERS: &[&str] = &[
-    "env", "time", "sudo", "nohup", "command", "exec", "if", "then", "else", "elif", "do",
-    "while", "until", "!", "{",
+    "env", "time", "timeout", "sudo", "nohup", "command", "exec", "if", "then", "else", "elif",
+    "do", "while", "until", "!", "{",
 ];
 
 /// The longest subcommand worth a caption.
@@ -49,10 +49,17 @@ pub fn command_head(command: &str) -> String {
     let mut noise: Option<String> = None;
     for segment in &segments {
         let mut words = segment.iter().map(String::as_str).peekable();
+        // `timeout 30 bun test`: the wrapper's duration is still to skip.
+        let mut duration_pending = false;
         // Assignments (`GW=$(cat x)`), wrappers and their flags.
         let program = loop {
             let Some(word) = words.next() else { break None };
             if is_assignment(word) || WRAPPERS.contains(&word) {
+                duration_pending |= word == "timeout";
+                continue;
+            }
+            if duration_pending && word.starts_with(|c: char| c.is_ascii_digit()) {
+                duration_pending = false;
                 continue;
             }
             if word.starts_with('-') {
@@ -226,6 +233,17 @@ fn segments(command: &str) -> Vec<Vec<String>> {
             continue;
         }
         match c {
+            '\\' if matches!(chars.peek(), Some('\n') | Some('\r')) => {
+                // A `\` line continuation is whitespace (one line break only:
+                // a blank line after it still ends the command).
+                if chars.peek() == Some(&'\r') {
+                    chars.next();
+                }
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                end_word(&mut word, &mut current);
+            }
             '\\' => {
                 word.push(c);
                 if let Some(next) = chars.next() {
@@ -305,6 +323,7 @@ mod tests {
         assert_eq!(command_head("cd /tmp/worktree; git status"), "git status");
         assert_eq!(command_head("(cd apps/desktop && cargo test -p engine)"), "cargo test");
         assert_eq!(command_head("set -e; cd x && make build"), "make build");
+        assert_eq!(command_head("cd apps/web && \\\n  bun run typecheck"), "bun run typecheck");
     }
 
     #[test]
@@ -313,11 +332,14 @@ mod tests {
         assert_eq!(command_head("DATABASE_URL=postgres://x bun run test"), "bun run test");
         assert_eq!(command_head("GW=$(cat x) && curl -H \"Authorization: $GW\" https://h"), "curl");
         assert_eq!(command_head("FOO=$(git rev-parse HEAD)\necho $FOO"), "echo");
+        assert_eq!(command_head("FOO=1 \\\n  bun test"), "bun test");
+        assert_eq!(command_head("DATABASE_URL=x \\\r\n  bun test"), "bun test");
     }
 
     #[test]
     fn flags_between_program_and_subcommand_are_skipped() {
         assert_eq!(command_head("git -C x status"), "git status");
+        assert_eq!(command_head("git \\\n  status"), "git status");
         assert_eq!(command_head("git -c core.pager=cat --no-pager log -5"), "git log");
         assert_eq!(command_head("bun run --filter @exp/web build"), "bun run build");
         assert_eq!(command_head("cargo +nightly build --release"), "cargo build");
@@ -335,6 +357,8 @@ mod tests {
     fn wrappers_are_skipped() {
         assert_eq!(command_head("sudo -u root make install"), "make install");
         assert_eq!(command_head("time cargo test"), "cargo test");
+        assert_eq!(command_head("timeout 30 bun test"), "bun test");
+        assert_eq!(command_head("timeout 5m cargo test -p engine"), "cargo test");
         assert_eq!(command_head("env FOO=1 npm test"), "npm test");
         assert_eq!(command_head("$(which node) script.js"), "");
     }

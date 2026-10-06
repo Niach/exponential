@@ -3742,6 +3742,8 @@ mod tests {
             ("GW=$(cat x) && curl -s -H \"Authorization: $GW\" https://h/api", "curl"),
             ("git -C x status", "git status"),
             ("cat Cargo.toml", "cat"),
+            ("cd apps/web && \\\n  bun run typecheck", "bun run typecheck"),
+            ("timeout 30 bun test", "bun test"),
         ];
         for (index, (command, head)) in cases.into_iter().enumerate() {
             let mut mapper = mapper();
