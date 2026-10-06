@@ -6,55 +6,33 @@ license.workspace = true
 publish = false
 
 [dependencies]
-# EXP-1196: computer use for coding runs. gpui-free and tokio-free: both the
-# IDE and the headless `exponential` daemon host it in-process, and the
-# launcher (crates/coding) hands each run its own grant.
+# EXP-1196: computer use for coding runs = the cua driver (trycua/cua, MIT),
+# LINKED, not ported. The host (IDE or `exponential` daemon) serves ONE
+# loopback MCP endpoint whose tools are cua's own; the platform runtime runs
+# in a private worker = this same executable re-run as `__private-worker`
+# (`worker.rs`), the topology cua prescribes for a GUI host: the worker owns
+# the agent-cursor overlay's main thread and inherits the host's OS
+# permissions through the responsibility chain, and nothing has to locate a
+# helper binary. gpui-free; tokio is the SDK's own runtime.
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = "0.4"
 uuid = { workspace = true }
-# PNG encode + downscale of a captured frame.
-image = { workspace = true, features = ["png"] }
-# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread, no
-# async runtime (coding and cli carry none).
+tokio = { version = "1", features = ["rt-multi-thread"] }
+# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
 tiny_http = { version = "0.12", default-features = false }
-# Image content blocks ride MCP as base64; already in the tree at this version.
-base64 = "0.22"
 
-# macOS + Windows share ONE backend: xcap captures and lists windows, enigo
-# injects (CGEvent / SendInput). Neither is compiled on Linux, where both
-# would pull system libraries (pipewire, xcb, xkbcommon) the CLI's build image
-# does not carry.
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-xcap = "0.9"
-enigo = { version = "0.6", default-features = false }
+# The cua driver SDK and its sibling crates, one pinned revision of the cua
+# monorepo (crates are `publish = false`). `cursor-overlay` = the agent
+# cursor's config record the worker hands the runtime. Linux turns on the
+# portal input (libei) and per-window capture (pipewire) features; the
+# build images carry libpipewire/libxkbcommon/libX11 headers for them.
+cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk" }
+cursor-overlay = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cursor-overlay" }
 
-# The versions enigo already resolves: the window list (layers, owners) and
-# the CF plumbing under the Accessibility FFI in `macos.rs`.
+[target.'cfg(target_os = "linux")'.dependencies]
+cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", features = ["portal-libei"] }
+
+# The worker's main thread on macOS: the AppKit run loop of the agent cursor.
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = { workspace = true }
-core-graphics = "0.25"
-core-foundation = "0.10"
-# `CGEvent::as_ptr` for the pid-routed background posts (EXP-1196); the
-# version core-graphics already pulls in, no new package.
-foreign-types = "0.5"
-
-[target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_System_Com",
-    "Win32_System_SystemInformation",
-    "Win32_System_Threading",
-    "Win32_UI_Accessibility",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_UI_WindowsAndMessaging",
-] }
-
-# Linux, pure Rust, no system libraries. X11 over the rust connection (no
-# libxcb): GetImage for pixels, XTest for input, EWMH for windows, RandR for
-# the monitors. Wayland and read_ui over D-Bus: the desktop portals and AT-SPI.
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-x11rb = { version = "0.13", features = ["xtest", "screensaver", "randr"] }
-# D-Bus in pure Rust (its own async-io thread, no tokio); the version the
-# IDE's gpui already resolves.
-zbus = "5"
+platform-macos = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "platform-macos" }

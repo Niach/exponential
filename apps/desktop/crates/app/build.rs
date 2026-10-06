@@ -18,4 +18,11 @@ fn main() {
             .manifest_optional()
             .expect("failed to embed the Windows app icon (resources/app.rc)");
     }
+
+    // EXP-1196: the linked cua driver's ScreenCaptureKit bridge is Swift and
+    // finds the Swift runtime through @rpath. A transitive crate's link args
+    // never reach the final binary, so the rpath is baked here.
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    }
 }

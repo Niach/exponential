@@ -260,7 +260,7 @@ class DeviceDoctorTest {
         val json = Json { ignoreUnknownKeys = true }
         val row = """{"id":"row","user_id":"me","device_id":"dev","doctor":${cases[2]["doctor"]}}"""
         val entity = json.decodeFromString(DeviceEntity.serializer(), row)
-        assertEquals(5, parseDeviceDoctor(entity.doctor)!!.items.size)
+        assertEquals(4, parseDeviceDoctor(entity.doctor)!!.items.size)
         val nullRow = """{"id":"row","user_id":"me","device_id":"dev","doctor":null}"""
         assertNull(json.decodeFromString(DeviceEntity.serializer(), nullRow).doctor)
         assertTrue(cases.all { it["doctor"]!!.jsonObject["items"] is JsonArray })

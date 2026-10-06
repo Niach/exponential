@@ -135,6 +135,12 @@ fn maybe_prompt_auto_update() {
 }
 
 fn main() -> ExitCode {
+    // EXP-1196: the computer-use host re-runs this executable as cua's
+    // private worker (`exponential __private-worker --generation <id>`);
+    // that process is the driver and nothing else, before any other setup.
+    if let Some(generation) = coding::computer::worker::requested_generation() {
+        coding::computer::worker::run_and_exit(generation);
+    }
     // The CLI is its own 426-gated platform: every request must say
     // `cli/<version>`, never ride the desktop's gate. Before any HTTP.
     domain::client_version::set_client_identity("cli", cli_version());
@@ -159,17 +165,11 @@ fn main() -> ExitCode {
         commands::update::maybe_auto_update_and_reexec();
     }
 
-    // EXP-1196: a host that may serve computer use reads the keyboard layout
-    // here, on the MAIN thread (the one place macOS allows it); the server's
-    // worker threads then resolve a chord's character keys from that read.
-    // Only where the switch is on, so no other box ever touches the input
-    // sources. A daemon whose switch is turned on later keeps the US
-    // positions until its next start. It also asks every OS permission now
-    // (a Wayland desktop's dialogs), so none interrupts a run.
+    // EXP-1196: a host whose Computer use switch is on asks the OS
+    // permissions and brings the cua worker up now, not mid-run.
     if matches!(command, "code" | "run" | "daemon") {
         let data_dir = context::data_dir();
         if coding::Settings::load(&coding::Settings::default_path(&data_dir)).computer_use {
-            coding::computer::refresh_key_layout();
             coding::computer::prepare_in_background();
         }
     }

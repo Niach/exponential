@@ -1319,12 +1319,19 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String], session_id: &str) -> R
 /// token then ride [`ResolvedMcp`] through the same config and env path.
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
 /// computer use (a headless session, a desktop without portals) launches without, with a
-/// warning in the log and no section in the prompt.
-fn attach_computer_use(deps: &CodingDeps, team_mcp: &mut ResolvedMcp, session_id: &str) -> bool {
+/// warning in the log and no section in the prompt. `label` = what the agent
+/// cursor's badge shows while this run drives (`EXP-42`, `EXP-42 +1`, the
+/// action's name, `Chat`).
+fn attach_computer_use(
+    deps: &CodingDeps,
+    team_mcp: &mut ResolvedMcp,
+    session_id: &str,
+    label: &str,
+) -> bool {
     if !deps.settings.computer_use {
         return false;
     }
-    match computer::grant(session_id) {
+    match computer::grant(session_id, label) {
         Ok(grant) => {
             crate::mcp_servers::attach_computer(team_mcp, &grant);
             true
@@ -1777,7 +1784,16 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
     let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
+    let run_label = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.issue_identifier.clone(),
+        PrepareRequest::Batch(batch_req) => format!(
+            "{} +{}",
+            batch_req.issues.first().map(|issue| issue.issue_identifier.as_str()).unwrap_or("batch"),
+            batch_req.issues.len().saturating_sub(1)
+        ),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => String::new(),
+    };
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
 
     // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
     // `in_progress`. Under plan mode the agent's MCP status call would only
@@ -2551,7 +2567,11 @@ fn prepare_action(
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
     let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
+    let run_label = match &req.kind {
+        ActionRunKind::Chat => "Chat".to_string(),
+        _ => req.action_name.clone(),
+    };
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
 
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
@@ -3358,7 +3378,7 @@ fn prepare_resume_run(
     // (fresh tokens) FOR the continuation row it was just persisted on;
     // unconnected or unpicked ones are skipped, never a blocker.
     let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id);
+    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &record.display_name());
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
     if agent == CodingAgent::Codex {

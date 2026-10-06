@@ -2529,10 +2529,13 @@ fn apply_server_defaults(
             return;
         }
         log::info!("launch defaults: applied the server copy");
-        // EXP-1201: the switch turned on from another client: ask this
-        // machine's permissions now, not in the middle of a run.
+        // EXP-1196: the switch flipped from another client: on = ask this
+        // machine's permissions and start the cua worker now, not in the
+        // middle of a run; off = stop it (its agent cursor goes with it).
         if settings.computer_use && !was_on {
             coding::computer::prepare_in_background();
+        } else if !settings.computer_use && was_on {
+            std::thread::spawn(coding::computer::shutdown);
         }
     }
     // Clamped/invalid fields are deliberately NOT pushed back (ping-pong);

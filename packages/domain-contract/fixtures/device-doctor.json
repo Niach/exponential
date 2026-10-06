@@ -11,8 +11,7 @@
     "codex": "Codex",
     "computer_use": "Computer use",
     "screen_recording": "Screen Recording",
-    "accessibility": "Accessibility",
-    "remote_desktop": "Remote desktop"
+    "accessibility": "Accessibility"
   },
   "states": {
     "ok": { "glyph": "check", "tone": "success" },
@@ -88,15 +87,14 @@
       "remotePills": { "claude": "update" }
     },
     {
-      "name": "git missing, claude signed out, codex ok",
+      "name": "git missing, claude signed out, codex ok, computer use on (no OS permissions here)",
       "doctor": {
         "checkedAt": "2026-10-05T19:00:00.000Z",
         "items": [
           { "key": "git", "group": "required", "state": "error", "detail": "Not installed", "action": "install" },
           { "key": "claude", "group": "agents", "state": "action", "detail": "Signed out", "action": "sign_in" },
           { "key": "codex", "group": "agents", "state": "ok", "detail": "0.156.1" },
-          { "key": "computer_use", "group": "computer_use", "state": "ok" },
-          { "key": "remote_desktop", "group": "computer_use", "parent": "computer_use", "state": "ok", "detail": "Granted" }
+          { "key": "computer_use", "group": "computer_use", "state": "ok" }
         ]
       },
       "runnable": [],

@@ -244,6 +244,6 @@ mod tests {
         let lines = render_block(&case(2), None);
         assert!(lines.contains(&format!("  ✗ Git                 Not installed  ({})", git_install_hint())));
         assert!(lines.contains(&"  ! Claude Code         Signed out  (run: claude)".to_string()));
-        assert!(lines.contains(&"    ✓ Remote desktop    Granted".to_string()));
+        assert!(!lines.iter().any(|line| line.contains("Remote desktop")));
     }
 }

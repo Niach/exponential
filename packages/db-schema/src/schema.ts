@@ -1436,7 +1436,6 @@ export const deviceDoctorKeys = [
   `computer_use`,
   `screen_recording`,
   `accessibility`,
-  `remote_desktop`,
 ] as const
 export const deviceDoctorGroups = [`required`, `agents`, `computer_use`] as const
 export const deviceDoctorStates = [

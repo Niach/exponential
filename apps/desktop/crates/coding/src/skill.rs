@@ -65,17 +65,22 @@ pub fn system_append(team_prompt: Option<&str>) -> String {
 /// most runs never get the server.
 pub const COMPUTER_USE_SECTION: &str = "# Computer use
 
-This device lets you see and drive its desktop with the `computer` MCP tools: `screenshot`, \
-`click`, `type`, `key`, `scroll`, `list_windows`, `focus_window`, `read_ui`. It is the person's \
-own screen, pointer and keyboard.
+This device lets you see and drive its desktop through the `computer` MCP server (the cua \
+driver): `list_apps`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, \
+`hotkey`, `scroll`, `drag`, `invoke_menu`, `verify_state`, `get_desktop_state` and more; read the \
+tool schemas. It is the person's own screen, pointer and keyboard.
 
 - Pixels come last. Prefer the Exponential tools, the team's MCP servers, your shell, a CLI or \
 an API; use the screen only when the task needs a desktop app or the person's logged-in browser.
-- Take a `screenshot` first: `click` and `scroll` take pixel positions in the LAST screenshot. \
-`read_ui` returns a window's text and control positions for fewer tokens.
-- Actions go to the target window in the background where the OS allows, so the person keeps \
-their pointer and focus; a foreground action waits while the person is typing.
-- Show the person a frame that matters: `screenshot` with a `path`, then \
+- One exact target per action: `list_windows`, then `get_window_state({pid, window_id})` for \
+its accessibility tree and screenshot, then act with `target: {kind: \"window\", pid, window_id}` \
+and `delivery_mode: \"background\"`, through a fresh `element_token` or pixels of THAT window. \
+Verify with `verify_state` or a fresh snapshot; an unverifiable effect is not success.
+- Background keeps the person's pointer, focus and keyboard theirs. Only a `background_unavailable` \
+refusal justifies `delivery_mode: \"foreground\"` or a desktop target (`get_desktop_state`, \
+`{kind: \"desktop\", display_id: \"primary\"}`): say so in your reply first, because that takes \
+over their pointer and keyboard.
+- Show the person a frame that matters: `screenshot_out_file` on a state tool, then \
 `exponential_sessions_show` with that `file`.
 ";
 

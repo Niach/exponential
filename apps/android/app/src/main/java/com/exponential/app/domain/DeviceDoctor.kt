@@ -127,7 +127,6 @@ object DeviceReadiness {
         "computer_use" to "Computer use",
         "screen_recording" to "Screen Recording",
         "accessibility" to "Accessibility",
-        "remote_desktop" to "Remote desktop",
     )
 
     /** Fixture `actions`: label + whether ANOTHER device may run it. */

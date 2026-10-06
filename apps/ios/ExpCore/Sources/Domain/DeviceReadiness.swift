@@ -110,7 +110,6 @@ public enum DeviceReadiness {
         "computer_use": "Computer use",
         "screen_recording": "Screen Recording",
         "accessibility": "Accessibility",
-        "remote_desktop": "Remote desktop",
     ]
 
     /// Fixture `states`; an unknown state is a muted dash.

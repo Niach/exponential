@@ -131,7 +131,6 @@ pub fn label(key: &str) -> &str {
         "computer_use" => "Computer use",
         "screen_recording" => "Screen Recording",
         "accessibility" => "Accessibility",
-        "remote_desktop" => "Remote desktop",
         other => other,
     }
 }
@@ -448,9 +447,7 @@ mod tests {
                     codex: check(Tool::Codex, Some("0.156.1")),
                 },
                 settings(true),
-                ComputerState::Supported {
-                    permissions: vec![(Permission::RemoteDesktop, true)],
-                },
+                ComputerState::Supported { permissions: Vec::new() },
             ),
             _ => panic!("no input for fixture case {index}: add one"),
         }
