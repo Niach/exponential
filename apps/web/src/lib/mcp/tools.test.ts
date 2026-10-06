@@ -274,6 +274,12 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   relayPostInput: vi.fn(),
   relayPostCompact: vi.fn(),
 }))
+// EXP-1216: the relay viewer behind sessions_messages; the error class and
+// the projection stay real.
+vi.mock(`@/lib/steer-transcript`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  readRunTranscript: vi.fn(),
+}))
 vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   notifyParentOfChildEnd: vi.fn(),
@@ -312,6 +318,7 @@ import {
   relayPostInput,
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import { readRunTranscript, TranscriptReadError } from "@/lib/steer-transcript"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { openStackThrough } from "@/lib/pr-merge-guard"
 import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
@@ -2822,28 +2829,70 @@ describe(`exponential_sessions_ask_parent`, () => {
     )
   })
 
-  it(`refuses a run without an agent parent linkage`, async () => {
-    dbRows.current = [childRow({ startedReason: `schedule`, parentSessionId: null })]
+  // EXP-1216: an MCP client (not a run) started this one — no linkage. The
+  // question parks on the row for that starter instead of failing.
+  it(`parks the question for a starter that is not a run`, async () => {
+    dbRows.current = [
+      childRow({ startedReason: `schedule`, parentSessionId: null, teamId: WS }),
+    ]
 
     const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
       `exponential_sessions_ask_parent`
-    )!({ question: `q` })
+    )!({ question: `Which env?` })
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`no live starter`)
+    expect(parseOk(result)).toMatchObject({
+      delivered: false,
+      parked: true,
+      to: `starter`,
+    })
+    const note = (parseOk(result) as { note: string }).note
+    expect(note).toContain(`exponential_sessions_get`)
+    expect(note).toContain(`exponential_sessions_messages`)
+    expect(note).toContain(`answers with exponential_sessions_message.`)
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        needsInput: true,
+        agentCaption: `Which env?`,
+        pendingQuestion: { question: `Which env?`, askedAt: expect.any(String) },
+      })
+    )
+    expect(sendAgentMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientIds: [`user-1`], body: `Which env?` })
+    )
     expect(relayPostInput).not.toHaveBeenCalled()
   })
 
-  it(`points an orphaned child at its close-out when the parent has ended`, async () => {
-    dbRows.current = [childRow({ parentStatus: `ended` })]
+  it(`parks the question when the parent chain has ended`, async () => {
+    dbRows.current = [childRow({ parentStatus: `ended`, teamId: WS })]
+    executeRows.current = []
     vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
 
     const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
       `exponential_sessions_ask_parent`
     )!({ question: `q` })
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`exponential_sessions_end`)
+    expect(parseOk(result)).toMatchObject({ parked: true, to: `starter` })
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ needsInput: true })
+    )
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`keeps "no live starter" for a missing row or a foreign run`, async () => {
+    dbRows.current = []
+    const missing = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+    expect(missing.isError).toBe(true)
+    expect(missing.content[0].text).toContain(`no live starter`)
+
+    dbRows.current = [childRow({ userId: `user-2`, hostUserId: `user-3` })]
+    const foreign = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q` })
+    expect(foreign.isError).toBe(true)
+    expect(foreign.content[0].text).toContain(`no live starter`)
+    expect(updateSet).not.toHaveBeenCalled()
     expect(relayPostInput).not.toHaveBeenCalled()
   })
 
@@ -2944,13 +2993,20 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
     expect(insertValues).not.toHaveBeenCalled()
   })
 
-  it(`still refuses a starter target from a run nobody started`, async () => {
-    selectsInOrder([childRow()])
+  // EXP-1216: a starter target from a run nobody started parks instead.
+  it(`parks a starter target from a run nobody started`, async () => {
+    selectsInOrder([childRow()], [{ teamId: WS, userId: `user-1` }])
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
       `exponential_sessions_ask_parent`
     )!({ question: `q` })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`no live starter`)
+    expect(parseOk(result)).toMatchObject({
+      delivered: false,
+      parked: true,
+      to: `starter`,
+    })
+    expect(sendAgentMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientIds: [`user-1`], title: `EXP-12 asks` })
+    )
   })
 
 })
@@ -4986,6 +5042,359 @@ describe(`exponential_sessions_get`, () => {
     ])
     expect(payload.results[1]).not.toHaveProperty(`label`)
     expect(JSON.stringify(payload.results)).not.toContain(`null`)
+  })
+})
+
+// EXP-1216: the starter's read side of a run — the parked question and the
+// title on the row, and a wait for the run's turn to end.
+describe(`exponential_sessions_get — EXP-1216`, () => {
+  it(`selects the parked question and the run's title`, async () => {
+    dbRows.current = [
+      {
+        id: RUN,
+        userId: `user-1`,
+        teamId: WS,
+        status: `running`,
+        needsInput: true,
+        pendingQuestion: { question: `Which env?`, askedAt: `2026-10-06T00:00:00Z` },
+        agentTitle: `Fix login`,
+      },
+    ]
+    const payload = parseOk(await tool(`exponential_sessions_get`)({ id: RUN }))
+    expect(payload).toMatchObject({
+      pendingQuestion: { question: `Which env?` },
+      agentTitle: `Fix login`,
+    })
+    // No wait asked for: no wait fields either.
+    expect(payload).not.toHaveProperty(`waited`)
+    const selectCalls = db.select.mock.calls as unknown as Array<
+      [Record<string, unknown>]
+    >
+    expect(Object.keys(selectCalls[0]![0])).toEqual(
+      expect.arrayContaining([`pendingQuestion`, `agentTitle`])
+    )
+  })
+
+  // The flow it is built for: the starter answers an idle run with
+  // sessions_message and waits at once — the device has not started the turn
+  // yet, so the first read is still idle.
+  it(`waits for a just-messaged idle run to start and finish its turn`, async () => {
+    const idle = (updatedAt: string) => [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false, updatedAt },
+    ]
+    dbRows.current = idle(`2026-10-06T00:00:00Z`)
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      dbRows.current = [
+        {
+          id: RUN,
+          userId: `user-1`,
+          teamId: WS,
+          status: `running`,
+          agentBusy: true,
+          updatedAt: `2026-10-06T00:00:02Z`,
+        },
+      ]
+      await vi.advanceTimersByTimeAsync(4_000)
+      dbRows.current = idle(`2026-10-06T00:00:06Z`)
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: false,
+        updatedAt: `2026-10-06T00:00:06Z`,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`settles an idle run whose row moved on (a turn quicker than a poll)`, async () => {
+    const idle = (updatedAt: string) => [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false, updatedAt },
+    ]
+    dbRows.current = idle(`2026-10-06T00:00:00Z`)
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      dbRows.current = idle(`2026-10-06T00:00:01Z`)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(parseOk(await pending)).toMatchObject({
+        updatedAt: `2026-10-06T00:00:01Z`,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`returns an idle run after the grace window when nothing starts`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false },
+    ]
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: false,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`waits until the turn ends`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: true },
+    ]
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(4_000)
+      dbRows.current = [
+        { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false },
+      ]
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: false,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    [`a parked question`, { needsInput: true }],
+    [`a usage wall`, { blocked: { window: `session` } }],
+    [`the end`, { status: `ended` }],
+  ])(`stops waiting at %s`, async (_label, over) => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: true, ...over },
+    ]
+    const payload = parseOk(
+      await tool(`exponential_sessions_get`)({ id: RUN, waitForIdle: true, timeoutS: 5 })
+    )
+    expect(payload).toMatchObject({ waited: false, timedOut: false })
+  })
+
+  it(`gives up at the timeout`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: true },
+    ]
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 3,
+      })
+      await vi.advanceTimersByTimeAsync(4_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: true,
+        waited: true,
+        timedOut: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`caps timeoutS at 120`, () => {
+    const schema = collectToolDefs().get(`exponential_sessions_get`)!.inputSchema!
+    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 120 }).success).toBe(
+      true
+    )
+    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 121 }).success).toBe(
+      false
+    )
+  })
+})
+
+describe(`exponential_sessions_messages (EXP-1216)`, () => {
+  const RELAY = { url: `https://relay.test`, secret: `s` }
+  const runRow = (over: Record<string, unknown> = {}) => ({
+    id: RUN,
+    teamId: WS,
+    boardId: PROJ,
+    userId: `user-1`,
+    hostUserId: null,
+    status: `running`,
+    deviceId: `dev-1`,
+    ...over,
+  })
+  const EVENTS = [
+    { seq: 0, event: { kind: `user_message`, text: `go` } },
+    { seq: 1, event: { kind: `narration`, text: `On `, messageId: `m1` } },
+    { seq: 2, event: { kind: `narration`, text: `it.`, messageId: `m1` } },
+    { seq: 3, event: { kind: `tool`, name: `Bash`, id: `t1`, toolKind: `execute` } },
+    { seq: 4, event: { kind: `narration`, text: `sub`, subagentId: `a1` } },
+    { seq: 5, event: { kind: `question`, text: `Which env?`, id: `q1`, options: [] } },
+  ]
+
+  beforeEach(() => {
+    vi.mocked(readRunTranscript).mockReset()
+    vi.mocked(readRunTranscript).mockResolvedValue({
+      events: EVENTS,
+      firstSeq: 0,
+      lastSeq: 5,
+      truncated: false,
+    })
+  })
+
+  it(`returns the projected top-level transcript of a live run`, async () => {
+    dbRows.current = [runRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const payload = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    )
+    expect(payload).toEqual({
+      id: RUN,
+      live: true,
+      messages: [
+        { seq: 0, role: `user`, text: `go` },
+        { seq: 2, role: `assistant`, text: `On it.`, messageId: `m1` },
+        { seq: 3, role: `tool`, name: `Bash`, kind: `execute` },
+        { seq: 5, role: `question`, text: `Which env?` },
+      ],
+      lastSeq: 5,
+      nextSince: 5,
+      truncated: false,
+    })
+    // A live run's ticket names no device (steer.mintTicket's rule).
+    expect(readRunTranscript).toHaveBeenCalledWith(RELAY, {
+      sessionId: RUN,
+      teamId: WS,
+      ownerUserId: `user-1`,
+    })
+  })
+
+  it(`returns only what is newer than since, the newest limit of it`, async () => {
+    dbRows.current = [runRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const payload = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, since: 0, limit: 2 })
+    ) as { messages: Array<{ seq: number }>; truncated: boolean; nextSince: number }
+    expect(payload.messages.map((m) => m.seq)).toEqual([3, 5])
+    expect(payload.truncated).toBe(true)
+    expect(payload.nextSince).toBe(5)
+
+    const none = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, since: 5, limit: 50 })
+    )
+    expect(none).toMatchObject({ messages: [], nextSince: 5, truncated: false })
+  })
+
+  it(`never hands back a cursor below the one passed in`, async () => {
+    dbRows.current = [runRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const payload = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, since: 99, limit: 50 })
+    )
+    expect(payload).toMatchObject({ messages: [], nextSince: 99 })
+  })
+
+  it(`asks an ended run's device for its history, under the host's account`, async () => {
+    dbRows.current = [runRow({ status: `ended`, hostUserId: `host-1` })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const payload = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    )
+    expect(payload).toMatchObject({ live: false })
+    expect(readRunTranscript).toHaveBeenCalledWith(RELAY, {
+      sessionId: RUN,
+      teamId: WS,
+      ownerUserId: `user-1`,
+      deviceId: `dev-1`,
+      deviceOwnerId: `host-1`,
+    })
+    // The requester on someone else's device must still be a member.
+    expect(membership.assertTeamMember).toHaveBeenCalledWith(`user-1`, WS)
+  })
+
+  it(`flags a relay tail when since is below it`, async () => {
+    dbRows.current = [runRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(readRunTranscript).mockResolvedValue({
+      events: EVENTS.slice(3),
+      firstSeq: 3,
+      lastSeq: 5,
+      truncated: true,
+    })
+    expect(
+      parseOk(await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 }))
+    ).toMatchObject({ truncated: true })
+    expect(
+      parseOk(
+        await tool(`exponential_sessions_messages`)({ id: RUN, since: 4, limit: 50 })
+      )
+    ).toMatchObject({ truncated: false })
+  })
+
+  it(`says when remote steer is off`, async () => {
+    dbRows.current = [runRow()]
+    const result = await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Remote steer is off`)
+    expect(readRunTranscript).not.toHaveBeenCalled()
+  })
+
+  it(`passes the relay's reason through (device offline)`, async () => {
+    dbRows.current = [runRow({ status: `ended` })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(readRunTranscript).mockRejectedValue(
+      new TranscriptReadError(`device_offline`, `The device that ran this session is offline.`)
+    )
+    const result = await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`offline`)
+  })
+
+  it(`is owner-or-host only, and confined by the grant`, async () => {
+    dbRows.current = [runRow({ userId: `user-2`, hostUserId: `user-3` })]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const teammate = await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    expect(teammate.isError).toBe(true)
+    expect(teammate.content[0].text).toContain(`owner or host`)
+
+    dbRows.current = [runRow({ boardId: `other-board` })]
+    const scoped = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_BOARD
+    ).get(`exponential_sessions_messages`)!({ id: RUN, limit: 50 })
+    expect(scoped.isError).toBe(true)
+    expect(scoped.content[0].text).toContain(`Session not found`)
+
+    dbRows.current = []
+    const missing = await tool(`exponential_sessions_messages`)({ id: RUN, limit: 50 })
+    expect(missing.content[0].text).toContain(`Session not found`)
+    expect(readRunTranscript).not.toHaveBeenCalled()
   })
 })
 

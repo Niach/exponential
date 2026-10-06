@@ -1168,6 +1168,17 @@
         "result": "session"
       },
       {
+        "name": "sessions_messages",
+        "title": "Read transcript",
+        "blurb": "Reads what a coding session said: its messages, tool calls and questions, newest last.",
+        "progressive": "Reading transcript",
+        "done": "Read transcript",
+        "progressiveMany": "Reading {n} transcripts",
+        "doneMany": "Read {n} transcripts",
+        "subjectKey": "id",
+        "result": "session"
+      },
+      {
         "name": "sessions_results",
         "title": "Publish results",
         "blurb": "Publishes the run's report on the issue's Results: GFM text and screenshots, grouped by topic.",
@@ -1412,6 +1423,7 @@
       { "name": "sessions_kill", "refs": "session@" },
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_message", "refs": "session@" },
+      { "name": "sessions_messages", "refs": "session@" },
       { "name": "sessions_results", "refs": "" },
       { "name": "sessions_show", "refs": "" },
       { "name": "sessions_start", "refs": "session@session issue@session issue@$issueId issue@$issueIds[]" },

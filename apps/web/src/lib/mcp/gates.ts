@@ -22,10 +22,11 @@
 // EXP-700 / EXP-1089: the third gate is askParent. It used to open only for
 // a run another run started; since EXP-1089 EVERY run of the caller's gets
 // the tool (tools are lazy-loaded, an unused one costs nothing): `to: 'user'`
-// asks the person who owns the run from any run. `parent` still needs a
-// starter, which the handler checks (the parent stamps `parent_session_id`
-// only after its sessions_start poll returns, so linkage is never part of the
-// gate).
+// asks the person who owns the run from any run. `parent` relays to a live
+// starter run when there is one, which the handler checks (the parent stamps
+// `parent_session_id` only after its sessions_start poll returns, so linkage
+// is never part of the gate); EXP-1216: with none it parks the question on
+// the row for an MCP-client starter instead of failing.
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"
