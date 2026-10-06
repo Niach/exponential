@@ -193,6 +193,14 @@ pub const WORKFLOW_META_KEY: &str = "exponentialWorkflow";
 /// `steerWorking.tokenTickMs`.
 pub const TURN_TOKENS_META_KEY: &str = "exponentialTurnTokens";
 
+/// EXP-1224: the `_meta` key an adapter stamps (same carrier as the token
+/// count) when the AGENT opens or closes a turn nobody prompted — claude
+/// re-announces `system/init` after a `result` and runs a continuation turn
+/// on its own whenever a background task's notification is pending. Value:
+/// `{"state": "started" | "ended"}`. The host's prompts still own their own
+/// turns; this is the agent's half of the `turn` slot.
+pub const TURN_META_KEY: &str = "exponentialTurn";
+
 /// The `_meta` key on a `CompactionUpdate` (or the notification carrying it)
 /// naming what triggered the compaction — ACP has no field for it. Folded by
 /// `steer::normalize_compaction_trigger` (`manual` stays, everything else is
