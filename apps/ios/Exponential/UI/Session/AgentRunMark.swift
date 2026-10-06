@@ -56,17 +56,57 @@ struct AgentWorkingMark: View {
     }
 }
 
-/// A LIVE run's mark — wherever a run is named by its agent (the Work
-/// screen's Run tab) it reads the same: the working mark while the agent
-/// works, else its brand mark with a small state badge (amber: wants you,
-/// green: PR open, blue: done). No `state` = a paused run, the bare mark. The caller sizes it.
+/// EXP-1208: an ENDED run's mark is the brand mark at this opacity, ×4.
+let runMarkEndedOpacity: Double = 0.5
+
+/// EXP-1208: a session list row's run mark is one indent level square (its
+/// centre IS the gutter centre a child's connector hangs off), its badge 6,
+/// and 8 separates the mark, the fold chevron and the text — ×4.
+enum SessionRowLead {
+    static let markSize: CGFloat = TreeGuides.indentPerLevel
+    static let badgeSize: CGFloat = 6
+    static let gap: CGFloat = 8
+}
+
+/// EXP-1208: a live session row's mark state, ×4 (web `runningRowMarkState`):
+/// the display state, except a paused run (offline host) wears the bare mark
+/// (nil) and only a WORKING row animates (EXP-848: the turn flag, never
+/// `running` alone).
+func runningRowMarkState(
+    _ state: CodingSessionDisplayState, paused: Bool, working: Bool
+) -> CodingSessionDisplayState? {
+    if paused { return nil }
+    if state == .working { return working ? .working : nil }
+    return state
+}
+
+/// EXP-1208: a FINISHED run's row lead (`EndedRunRow`'s `lead`): the ended
+/// mark, sized like every session row's.
+struct SessionRowEndedMark: View {
+    let agent: String?
+
+    var body: some View {
+        AgentRunMark(agent: agent, state: nil, ended: true)
+            .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A run's mark — wherever a run is named by its agent (the Work screen's
+/// Run tab and, EXP-1208, the lead of every session list row) it reads the
+/// same: the working mark while the agent works, else its brand mark with a
+/// small state badge (amber: wants you, green: PR open, blue: done). No
+/// `state` = a paused run, the bare mark; `ended` = a FINISHED run's row, the
+/// mark dimmed with no badge. The caller sizes it.
 struct AgentRunMark: View {
     let agent: String?
     let state: CodingSessionDisplayState?
     var badgeSize: CGFloat = 6
+    var ended: Bool = false
 
     var body: some View {
         mark
+            .opacity(ended ? runMarkEndedOpacity : 1)
             .overlay(alignment: .topTrailing) {
                 if let badge {
                     Circle()
@@ -79,7 +119,7 @@ struct AgentRunMark: View {
 
     @ViewBuilder
     private var mark: some View {
-        if state == .working {
+        if state == .working, !ended {
             AgentWorkingMark(agent: agent)
         } else {
             BeatingAgentMark(agent: agent, beating: false)
@@ -87,7 +127,7 @@ struct AgentRunMark: View {
     }
 
     private var badge: Color? {
-        guard let state, state != .working else { return nil }
+        guard !ended, let state, state != .working else { return nil }
         return sessionStateColor(state)
     }
 }

@@ -457,6 +457,7 @@ struct ActionDetailView: View {
             EndedRunRow(
                 title: title,
                 byline: endedByline(session),
+                lead: { SessionRowEndedMark(agent: session.agent) },
                 onOpen: { pushRoute(route) }
             )
             .accessibilityIdentifier("action-run-row")

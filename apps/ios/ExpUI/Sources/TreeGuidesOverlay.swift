@@ -23,9 +23,10 @@ public struct TreeGuidesOverlay: View {
     private let base: CGFloat
     private let gap: CGFloat
 
-    /// The default `base`: every flat list row pads its content 12pt, and the
-    /// fold chevron beside it is 14 wide — so a parent's glyph centre sits
-    /// `12 + 7` in, exactly the first gutter's centre.
+    /// The default `base`: every flat list row pads its content 12pt, and
+    /// (EXP-1208) its leading run mark is 14 wide, BEFORE any fold chevron —
+    /// so a parent's mark centre sits `12 + 7` in, exactly the first gutter's
+    /// centre, and a child's stub ends where the child's mark starts.
     public static let rowContentInset: CGFloat = 12
 
     public init(

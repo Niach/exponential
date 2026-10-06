@@ -6,7 +6,12 @@ import SwiftUI
 /// reference — the Agent page's "Running" list and an action's "Runs" (live
 /// runs; ended ones stay `EndedRunRow`).
 ///
-/// Line 1 is `SessionRowTitle` (dot, identifier for issue runs only, title);
+/// EXP-1208: [run mark][fold chevron, parents only][text], ×4 — the shared
+/// `AgentRunMark` (never a dot) at the row's base inset on every row, so a
+/// parent's mark lines up with a standalone row's and a child's connector
+/// elbow ends at its mark; the sub-lines align under the title.
+///
+/// Line 1 is `SessionRowTitle` (identifier for issue runs only, title);
 /// then the device-written caption on a live run, the status line
 /// (`sessionStatusLine`), and the usage wall on its OWN line. EXP-893
 /// dropped the trailing circles: a row only OPENS the run. The footer sits
@@ -28,7 +33,8 @@ struct RunningSessionRow<Footer: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .center, spacing: SessionRowLead.gap) {
+                runMark
                 foldControl
                 primary
                     .frame(minHeight: GlassTokens.controlSize)
@@ -38,6 +44,22 @@ struct RunningSessionRow<Footer: View>: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
+    }
+
+    /// EXP-1208: the row's lead — the run's mark (Claude's spark while it
+    /// works, a state badge when parked, the bare mark while paused).
+    private var runMark: some View {
+        let paused = device.isPaused(state, status: session.status)
+        let working = CodingSessionDisplayState.working(
+            status: session.status, state: state, paused: paused, live: true
+        )
+        return AgentRunMark(
+            agent: session.agent,
+            state: runningRowMarkState(state, paused: paused, working: working),
+            badgeSize: SessionRowLead.badgeSize
+        )
+        .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
+        .accessibilityHidden(true)
     }
 
     /// EXP-897: the fold, in a PLAIN Button OUTSIDE the row's
@@ -51,7 +73,7 @@ struct RunningSessionRow<Footer: View>: View {
                     expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 12
                 )
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(width: 14, height: GlassTokens.controlSize)
+                .frame(width: SessionRowLead.markSize, height: GlassTokens.controlSize)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -80,16 +102,7 @@ struct RunningSessionRow<Footer: View>: View {
         let paused = device.isPaused(state, status: session.status)
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    SessionRowTitle(
-                        identifier: identifier,
-                        title: title,
-                        state: state,
-                        paused: paused,
-                        status: session.status,
-                        agent: session.agent
-                    )
-                }
+                SessionRowTitle(identifier: identifier, title: title)
                 // EXP-850 §8: the device-written caption, only on a live row
                 // (web `sessionAgentCaption`: never on an ended row).
                 if session.status != DomainContract.codingSessionStatusEnded,

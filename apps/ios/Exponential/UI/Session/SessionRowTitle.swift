@@ -2,50 +2,17 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-688: the first line of a coding-session row — state dot (EXP-1184:
-/// the agent's working mark while it works), mono issue identifier, issue
-/// title.
-///
-/// ONE view, two call sites: the Agents list row and the steering screen's
-/// nav-bar title, which used to say `Live · macbook` and never named the issue
-/// it was steering. Extracted so the two cannot drift (Android's
-/// `SessionRowTitle.kt` is the twin).
+/// EXP-688: the first line of a coding-session row — mono issue identifier,
+/// issue title. EXP-1208: the run mark that leads a session row lives OUTSIDE
+/// this line (`RunningSessionRow`'s own lead), so the sub-lines align under
+/// the title (Android's `SessionRowTitle.kt` is the twin).
 struct SessionRowTitle: View {
     /// Nil for an action run; a batch carries its `EXP-874 +2` (EXP-876).
     let identifier: String?
     let title: String
-    let state: CodingSessionDisplayState
-    /// EXP-550: the host machine stopped heartbeating — the run is parked, so
-    /// the dot goes static neutral instead of pulsing "coding now". The
-    /// steering header widens this to every terminal socket state (closed /
-    /// ended), which is just as much "not coding now".
-    let paused: Bool
-    /// Whether the run is CONNECTED and coding right now. The list reads the
-    /// synced row alone, so its rows are live by definition; the steering
-    /// header knows better — it holds the live phase, and a connecting or
-    /// disconnected screen must not pulse a green "coding now" dot over a
-    /// caption that says "Connecting…" or "Session ended".
-    var live: Bool = true
-    /// The synced `coding_sessions.status`: an ended row never animates,
-    /// whatever its state says (EXP-848).
-    let status: String
-    /// EXP-1184: the run's coding agent — a working row wears its working
-    /// mark (Claude's spark, else the beating brand mark) instead of a dot.
-    let agent: String?
 
     var body: some View {
         HStack(spacing: 6) {
-            if CodingSessionDisplayState.working(
-                status: status, state: state, paused: paused, live: live
-            ) {
-                AgentWorkingMark(agent: agent)
-                    .frame(width: 13, height: 13)
-                    .accessibilityLabel("Working")
-            } else {
-                Circle()
-                    .fill(paused ? DesignTokens.Semantic.neutral : sessionStateColor(state))
-                    .frame(width: 9, height: 9)
-            }
             if let identifier, !identifier.isEmpty {
                 Text(identifier)
                     .font(.caption.monospaced())
