@@ -36,6 +36,14 @@ class TabNavigationTest {
     }
 
     @Test
+    fun `the tab on the Agent root wins over the Agent tab`() {
+        val present = setOf("agent-tab", "reviews")
+        assertEquals(MainTabs.REVIEWS, MainTabs.current { it in present })
+        assertEquals(MainTabs.AGENT, MainTabs.current { it == "agent-tab" })
+        assertNull(MainTabs.current { false })
+    }
+
+    @Test
     fun `no tab before the graph has one`() {
         assertNull(MainTabs.current(listOf(null, "onboarding")))
         assertNull(MainTabs.current(emptyList()))

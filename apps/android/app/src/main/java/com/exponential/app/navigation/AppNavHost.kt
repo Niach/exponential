@@ -392,9 +392,7 @@ private fun AuthenticatedNav(
     val currentRoute = backStackEntry?.destination?.route
     // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
     // still lights that tab.
-    val currentTab = remember(backStackEntry) {
-        MainTabs.current(navController.currentBackStack.value.map { it.destination.route })
-    }
+    val currentTab = remember(backStackEntry) { navController.currentTab() }
     val barVisible = !needsOnboarding &&
         (currentRoute in MainTabs.routes || currentRoute == "board/{boardId}")
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
@@ -418,9 +416,7 @@ private fun AuthenticatedNav(
         val flippedOff = hadReviews && !showsReviews
         hadReviews = showsReviews
         if (flippedOff) {
-            val onReviews = MainTabs.current(
-                navController.currentBackStack.value.map { it.destination.route },
-            ) == MainTabs.REVIEWS
+            val onReviews = navController.currentTab() == MainTabs.REVIEWS
             if (onReviews) navController.selectTab(MainTabs.ISSUES, tabSwitch)
             navController.clearBackStack(MainTabs.REVIEWS)
         }
@@ -692,7 +688,7 @@ private fun AuthenticatedNav(
             LoginScreen(
                 instanceUrl = "",
                 onLoggedIn = {
-                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo(AGENT_TAB_ROUTE) { inclusive = true } }
+                    navController.resetToAgentRoot()
                 },
                 onChangeInstance = { navController.popBackStack() },
             )
@@ -831,7 +827,7 @@ private fun AuthenticatedNav(
                 token = token,
                 onBack = { navController.popBackStack() },
                 onAccepted = {
-                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo(AGENT_TAB_ROUTE) { inclusive = true } }
+                    navController.resetToAgentRoot()
                 },
             )
         }
