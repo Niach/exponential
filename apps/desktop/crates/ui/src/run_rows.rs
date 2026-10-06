@@ -4,16 +4,20 @@
 //! band, the Sessions list nav, an action page's Runs)
 //! draws a `coding_sessions` row through one of two renderers:
 //!
-//! - [`render_running_run_row`]: dot · identifier · title, the agent caption,
-//!   a toned status line and the usage-wall badge. The whole row opens the
-//!   run (EXP-893: no trailing Merge / open-the-subject buttons); "Stop
-//!   session" is on the row's right-click menu, never a button.
-//! - [`render_past_run_row`]: identifier · title over the byline, a trailing
-//!   chevron. The whole row opens the session.
+//! - [`render_running_run_row`]: run mark · identifier · title, the agent
+//!   caption, a toned status line and the usage-wall badge. The whole row
+//!   opens the run (EXP-893: no trailing Merge / open-the-subject buttons);
+//!   "Stop session" is on the row's right-click menu, never a button.
+//! - [`render_past_run_row`]: the dimmed run mark, identifier · title over
+//!   the byline, a trailing chevron. The whole row opens the session.
 //!
-//! No agent brand mark appears in either (EXP-874). The data half
-//! ([`running_run_facts`], [`past_run_facts`]) is shared too, so the lists
-//! cannot disagree about what a run says.
+//! EXP-1208: both LEAD with the shared run mark
+//! ([`crate::coding_selects::run_lead`], never a dot) at the row's base inset
+//! `12 + 14·depth`, and a parent's fold chevron FOLLOWS it — so a parent's
+//! mark lines up exactly with a standalone row's and a child's connector
+//! elbow ends at its mark (×4). The data half ([`running_run_facts`],
+//! [`past_run_facts`]) is shared too, so the lists cannot disagree about what
+//! a run says.
 
 use std::rc::Rc;
 
@@ -77,17 +81,21 @@ pub(crate) struct RunningRunFacts {
     pub(crate) agent_caption: Option<SharedString>,
     pub(crate) status: SharedString,
     pub(crate) status_tone: StatusTone,
+    /// The state's dot tone — the entity preview card's dot; the list rows
+    /// wear [`Self::mark`] instead (EXP-1208).
     pub(crate) dot: Hsla,
+    /// EXP-1208: the run mark's state ([`running_row_mark`]) — `None` = the
+    /// bare mark (a paused run).
+    pub(crate) mark: Option<CodingSessionDisplay>,
     pub(crate) blocked: Option<SharedString>,
     /// The machine's name (the kill confirm names it).
     pub(crate) device_label: Option<String>,
     pub(crate) paused: bool,
     /// EXP-848/EXP-1184: the agent is mid-turn RIGHT NOW on a live row
-    /// (`queries::session_row_is_working`, never `running` alone) — the row
-    /// wears the agent's working mark in place of its dot.
+    /// (`queries::session_row_is_working`, never `running` alone).
     pub(crate) working: bool,
     /// The run's agent (`None` = an id this build does not know) — whose
-    /// working mark to draw.
+    /// mark to draw.
     pub(crate) agent: Option<coding::CodingAgent>,
 }
 
@@ -98,6 +106,35 @@ pub(crate) struct PastRunFacts {
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) byline: SharedString,
+    /// The run's agent — whose (dimmed) mark leads the row.
+    pub(crate) agent: Option<coding::CodingAgent>,
+}
+
+/// EXP-1208 — a live row's run-mark state, ×4 (web `runningRowMarkState`): the
+/// display state, except a paused run (offline host) wears the bare mark
+/// (`None`) and only a WORKING row animates (EXP-848: the turn flag, never
+/// `running` alone). Pure.
+pub(crate) fn running_row_mark(
+    display: CodingSessionDisplay,
+    paused: bool,
+    working: bool,
+) -> Option<CodingSessionDisplay> {
+    if paused {
+        return None;
+    }
+    match display {
+        CodingSessionDisplay::Working if !working => None,
+        display => Some(display),
+    }
+}
+
+/// The run's agent off its synced id: an absent id is claude
+/// (`codingSessions.start`'s default), an id this build does not know `None`.
+pub(crate) fn run_agent(session: &domain::rows::CodingSession) -> Option<coding::CodingAgent> {
+    match session.agent.as_deref() {
+        None => Some(coding::CodingAgent::default()),
+        Some(id) => coding::CodingAgent::parse(id),
+    }
 }
 
 /// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
@@ -150,6 +187,9 @@ pub(crate) fn running_run_facts(
     let blocked = crate::usage_bar::parse_blocked(session.blocked.as_ref());
     // EXP-876: a batch row names itself after the issues it covers.
     let batch_issues = batch_run_issues(session, cx);
+    // EXP-848/EXP-1184: the turn flag, the ONE input the working mark keys
+    // on — never on a paused row.
+    let working = !paused && queries::session_row_is_working(session, display);
     RunningRunFacts {
         session_id: session.id.clone(),
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
@@ -163,18 +203,14 @@ pub(crate) fn running_run_facts(
             queries::SessionDotFacts::from_display(display, false, paused),
             muted,
         ),
+        // EXP-1208: the list rows' mark.
+        mark: running_row_mark(display, paused, working),
         blocked: crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch)
             .map(SharedString::from),
         device_label: presentation.label,
         paused,
-        // EXP-848/EXP-1184: the turn flag, the ONE input the working mark
-        // keys on — never on a paused row.
-        working: !paused && queries::session_row_is_working(session, display),
-        // An absent id is claude (`codingSessions.start`'s default).
-        agent: match session.agent.as_deref() {
-            None => Some(coding::CodingAgent::default()),
-            Some(id) => coding::CodingAgent::parse(id),
-        },
+        working,
+        agent: run_agent(session),
     }
 }
 
@@ -206,6 +242,7 @@ pub(crate) fn past_run_facts(
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
         title: run_title(session, issue.as_ref(), &batch_issues),
         byline: SharedString::from(past_run_byline(session, device_label.as_deref(), now_epoch)),
+        agent: run_agent(session),
     }
 }
 
@@ -294,6 +331,11 @@ const ROW_PAD: f32 = 12.;
 /// the connector goes back to dashes.
 const ROW_GAP: f32 = 0.;
 
+/// EXP-1208: the run mark's square (= one indent level, so its centre IS the
+/// gutter centre the child's connector hangs off) and its badge, ×4.
+const RUN_MARK_PX: f32 = 14.;
+const RUN_BADGE_PX: f32 = 6.;
+
 /// The flat list row both kinds sit in: `list_hover` under the pointer,
 /// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
 /// NESTED row paints its tree connector in the gutter its indent reserves.
@@ -333,6 +375,11 @@ fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: 
     div()
         .id((SharedString::from(format!("{id_prefix}-fold")), index))
         .flex_shrink_0()
+        // EXP-1208: 14 wide ×4, AFTER the run mark.
+        .w(gpui::px(RUN_MARK_PX))
+        .flex()
+        .items_center()
+        .justify_center()
         .cursor_pointer()
         // EXP-897: the fold's accessible label, byte-identical ×4.
         .tooltip(move |window, cx| {
@@ -384,15 +431,6 @@ pub(crate) fn render_running_run_row(
         .min_w_0()
         .items_center()
         .gap_2()
-        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        // EXP-1184: a working run wears the agent's working mark (Claude's
-        // stepped spark) in the dot's place; every other state its dot.
-        .child(if facts.working {
-            crate::coding_selects::agent_working_mark(facts.agent, crate::surface::LIVE_DOT_PX + 4.)
-                .into_any_element()
-        } else {
-            crate::surface::live_dot(facts.dot, false)
-        })
         .children(facts.identifier.clone().map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -435,8 +473,17 @@ pub(crate) fn render_running_run_row(
                 .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
         );
 
+    // EXP-1208: [run mark][fold, parents only][body] — the mark at the base
+    // inset on every row, the chevron after it.
     let row = row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
+        .child(crate::coding_selects::run_lead(
+            facts.agent,
+            RUN_MARK_PX,
+            RUN_BADGE_PX,
+            facts.mark,
+        ))
+        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
         .child(body);
     match kill {
         Some(RunRowKill { label, on_kill }) => {
@@ -478,7 +525,6 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
         .min_w_0()
         .items_center()
         .gap_2()
-        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
         .children(facts.identifier.map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -513,6 +559,10 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
         });
     row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
+        // EXP-1208: the ENDED run mark (dimmed, no badge) leads, the fold
+        // follows it.
+        .child(crate::coding_selects::ended_run_lead(facts.agent, RUN_MARK_PX))
+        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
         .child(body)
         .child(
             div()
@@ -832,6 +882,28 @@ pub(crate) fn past_run_ended_at(session: &domain::rows::CodingSession) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1208: a live row's run mark, ×4 (web `runningRowMarkState`).
+    #[test]
+    fn a_running_row_mark_follows_the_display_state() {
+        use CodingSessionDisplay::*;
+        // A paused run (offline host) is the bare mark, whatever its state.
+        assert_eq!(running_row_mark(Review, true, false), None);
+        // Only a WORKING row animates.
+        assert_eq!(running_row_mark(Working, false, true), Some(Working));
+        assert_eq!(running_row_mark(Working, false, false), None);
+        for state in [NeedsInput, Review, Done] {
+            assert_eq!(running_row_mark(state, false, false), Some(state));
+        }
+    }
+
+    /// EXP-1208: the mark is one indent level square, so its centre is the
+    /// gutter centre a child's connector elbow hangs off and the stub ends
+    /// at the child's mark.
+    #[test]
+    fn the_run_mark_fills_one_indent_level() {
+        assert_eq!(RUN_MARK_PX, crate::tree_guides::LEVEL_PITCH);
+    }
 
     /// SLOP-2: the four cases, byte-identical ×4 (web `actionRunTitle`).
     #[test]
