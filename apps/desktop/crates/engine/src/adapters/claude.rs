@@ -3104,7 +3104,14 @@ impl ClaudeSession {
         };
         drop(state);
 
-        let info = tool_info(&name, &input, self.cwd());
+        let mut info = tool_info(&name, &input, self.cwd());
+        // EXP-1202: `Content` on an `Execute` call IS command output to the
+        // engine (codex reports it the same way), so the `Bash` description
+        // the permission card shows as its body is not announced with the
+        // call: it would open the published output.
+        if info.kind == ToolKind::Execute {
+            info.content.clear();
+        }
         // EXP-850 §1: a WAIT row carries its kind and its human label in
         // `_meta` — the label is resolved HERE because only the adapter holds
         // the background-task list a `TaskOutput` names by id.
@@ -4661,10 +4668,12 @@ fn tool_result_fields(
                 _ => content_text(&raw),
             };
             output.truncate(output.trim_end().len());
+            // EXP-1202: the bare output, never a markdown fence: it lands in
+            // the command-output card and the settle's wire `output` as is.
             if output.is_empty() {
                 fields
             } else {
-                fields.content(vec![text_content(format!("```console\n{output}\n```"))])
+                fields.content(vec![text_content(output)])
             }
         }
         "Agent" | "Task" => {
@@ -4727,12 +4736,42 @@ fn tool_result_fields(
         }
         _ => {
             let text = content_text(&raw);
+            // EXP-1202: an MCP answer also rides as `raw_output`, the JSON the
+            // mapper reads an Exponential call's preview off (codex hands its
+            // `item.result` over the same way). The transcript keeps the text.
+            if name.starts_with("mcp__") {
+                if let Some(output) = mcp_raw_output(&raw, structured) {
+                    fields = fields.raw_output(output);
+                }
+            }
             if text.is_empty() {
                 fields
             } else {
                 fields.content(vec![text_content(text)])
             }
         }
+    }
+}
+
+/// EXP-1202: an MCP call's answer in a shape `exp_tool_refs::tool_result_payload`
+/// reads — the message-level `tool_use_result` when it is an object or an
+/// array, else the block's own content. A bare block array (what the CLI
+/// records for an MCP answer) is wrapped back into the server's
+/// `{content:[…]}` envelope, so its JSON text is the payload; a string stays
+/// a string. Never called for a failed result, which has no answer.
+fn mcp_raw_output(raw: &Value, structured: Option<&Value>) -> Option<Value> {
+    let envelope = |value: &Value| match value {
+        Value::Array(blocks) if blocks.iter().all(|block| block.get("type").is_some()) => {
+            json!({ "content": blocks })
+        }
+        other => other.clone(),
+    };
+    match structured {
+        Some(value @ (Value::Object(_) | Value::Array(_))) => Some(envelope(value)),
+        _ => match raw {
+            Value::Array(_) | Value::String(_) => Some(envelope(raw)),
+            _ => None,
+        },
     }
 }
 
@@ -6006,6 +6045,109 @@ mod tests {
             },
             other => panic!("expected content, got {other:?}"),
         }
+    }
+
+    fn first_text(fields: &ToolCallUpdateFields) -> String {
+        match fields.content.as_ref().and_then(|content| content.first()) {
+            Some(ToolCallContent::Content(content)) => match &content.content {
+                ContentBlock::Text(text) => text.text.clone(),
+                other => panic!("expected text, got {other:?}"),
+            },
+            other => panic!("expected content, got {other:?}"),
+        }
+    }
+
+    /// EXP-1202: an MCP answer settles with its JSON as `raw_output` (the
+    /// server's `{content:[…]}` envelope, what the mapper reads a preview
+    /// off) AND its text as content, which the transcript shows.
+    #[test]
+    fn an_mcp_result_carries_its_answer_as_raw_output() {
+        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","topic":"Progress","label":"web"}"#;
+        let block = json!({
+            "tool_use_id": "t1",
+            "content": [{ "type": "text", "text": answer }],
+        });
+        let fields = tool_result_fields(
+            "mcp__exponential__exponential_sessions_show",
+            &json!({ "file": "/work/tree/shot.png", "text": "The header" }),
+            &block,
+            None,
+            false,
+        );
+        assert_eq!(
+            fields.raw_output,
+            Some(json!({ "content": [{ "type": "text", "text": answer }] }))
+        );
+        assert_eq!(first_text(&fields), answer);
+        let payload = crate::exp_tool_refs::tool_result_payload(
+            fields.raw_output.as_ref().expect("an answer"),
+        );
+        assert_eq!(
+            payload.and_then(|payload| payload.get("id").cloned()),
+            Some(json!("7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99"))
+        );
+
+        // The message-level structured result wins when it is one, and a
+        // bare string answer stays a string.
+        let structured = json!({ "id": "i-1", "identifier": "EXP-1" });
+        let fields = tool_result_fields(
+            "mcp__exponential__exponential_issues_get",
+            &Value::Null,
+            &block,
+            Some(&structured),
+            false,
+        );
+        assert_eq!(fields.raw_output, Some(structured));
+        let string = json!({ "tool_use_id": "t1", "content": answer });
+        let fields = tool_result_fields(
+            "mcp__exponential__exponential_sessions_show",
+            &Value::Null,
+            &string,
+            None,
+            false,
+        );
+        assert_eq!(fields.raw_output, Some(json!(answer)));
+
+        // Only MCP calls: a built-in tool's answer is no preview source.
+        let fields = tool_result_fields("Grep", &Value::Null, &block, None, false);
+        assert!(fields.raw_output.is_none());
+    }
+
+    /// EXP-1202: a failed MCP call has no answer, so no `raw_output` and no
+    /// preview — even when its text parses as a row.
+    #[test]
+    fn a_failed_mcp_result_has_no_raw_output() {
+        let block = json!({
+            "tool_use_id": "t1",
+            "is_error": true,
+            "content": [{ "type": "text", "text": r#"{"id":"i-1","identifier":"EXP-404"}"# }],
+        });
+        let fields = tool_result_fields(
+            "mcp__exponential__exponential_issues_get",
+            &Value::Null,
+            &block,
+            Some(&json!({ "id": "i-1" })),
+            true,
+        );
+        assert_eq!(fields.status, Some(ToolCallStatus::Failed));
+        assert!(fields.raw_output.is_none());
+        assert!(first_text(&fields).contains("EXP-404"), "the error still renders");
+    }
+
+    /// EXP-1202: a `Bash` settle is the bare output — no markdown fence, which
+    /// would otherwise open and close the published command output.
+    #[test]
+    fn a_bash_result_is_the_bare_output() {
+        let block = json!({ "tool_use_id": "t1", "content": "fg-done" });
+        let structured = json!({ "stdout": "fg-done\n", "stderr": "", "interrupted": false });
+        let fields = tool_result_fields(
+            "Bash",
+            &json!({ "command": "echo fg-done", "description": "Print the marker" }),
+            &block,
+            Some(&structured),
+            false,
+        );
+        assert_eq!(first_text(&fields), "fg-done");
     }
 
     /// EXP-761: one context window per session. The id heuristic bridges

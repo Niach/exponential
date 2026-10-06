@@ -4309,6 +4309,60 @@ mod tests {
         assert_eq!(preview.refs, vec![expected]);
     }
 
+    /// EXP-1202 / EXP-1220: the CLAUDE adapter's settle of an Exponential
+    /// call — the answer text as content AND the `{content:[…]}` envelope as
+    /// `raw_output` — publishes `sessions_show`'s attachment as `preview.id`,
+    /// the inline picture every client renders; a failed one, which carries
+    /// no `raw_output`, publishes no preview.
+    #[test]
+    fn a_claude_shaped_sessions_show_settle_publishes_the_picture() {
+        let mut mapper = mapper();
+        let title = "mcp__exponential__exponential_sessions_show";
+        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","topic":"Progress","label":"web"}"#;
+        for id in ["tc-show-1", "tc-show-2"] {
+            let call = ToolCall::new(ToolCallId::new(id), title)
+                .kind(ToolKind::Other)
+                .status(ToolCallStatus::InProgress)
+                .raw_input(json!({"file": "/work/tree/shot.png", "text": "The header"}));
+            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
+        }
+        let text = vec![ToolCallContent::from(answer.to_string())];
+
+        let mut out = MapOut::default();
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("tc-show-1"),
+            ToolCallUpdateFields::new()
+                .status(ToolCallStatus::Completed)
+                .content(text.clone())
+                .raw_output(json!({"content": [{"type": "text", "text": answer}]})),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut out);
+        let preview = out
+            .wire
+            .iter()
+            .find_map(|event| match event {
+                ActivityEvent::ToolUpdate { preview: Some(preview), .. } => Some(preview.clone()),
+                _ => None,
+            })
+            .expect("the settle carries a preview");
+        assert_eq!(preview.id.as_deref(), Some("7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99"));
+
+        let mut out = MapOut::default();
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("tc-show-2"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Failed).content(text),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut out);
+        assert!(
+            out.wire.iter().any(|event| matches!(
+                event,
+                ActivityEvent::ToolUpdate { status: Some(_), preview: None, .. }
+            )),
+            "a failed call settles with no preview: {:?}",
+            out.wire
+        );
+    }
+
     /// EXP-920: a `$`-rooted spec term reads the retained INPUT — `pr_open`
     /// answers with a url and no issue, the input named it. The preview is
     /// published on the strength of the refs alone.
