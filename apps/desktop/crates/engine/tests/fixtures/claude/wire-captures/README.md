@@ -23,6 +23,18 @@ engine work; scenario dirs for `fake-claude.sh` are cut from these.
   id, `description` == the workflow label, `prompt: "pong"`) starts while
   the original still runs inside the workflow. Note the original workflow
   agent never emitted a `task_started` of its own in this run.
+- `workflow-agents-2.1.286.jsonl` (claude 2.1.286, 2026-10-06, verbatim) —
+  EXP-1224 / EXP-1225: a two-agent `Workflow`, then one background `Agent`
+  (`run_in_background`) whose notification is waited for. Workflow agents
+  NEVER get a `task_started` and never stream with `parent_tool_use_id`:
+  they exist only as `workflow_agent` entries in `task_progress`, their
+  `state` going `start` (queued until `startedAt` appears) → `progress` →
+  `done` | `error`, with `agentId` (absent while queued), `lastToolName`,
+  `lastToolSummary`, `toolCalls`, `tokens`, `resultPreview`. After each
+  `result` the CLI, with a background-task notification pending, CONTINUES
+  ON ITS OWN: it re-announces `system/init` (same `session_id`) and streams
+  the next turn up to another `result`, with no prompt from us; only the
+  last one is followed by `session_state_changed: idle`.
 
 Scenario dirs cut from these (EXP-850 / EXP-856, `tests/claude_adapter.rs`):
 `../workflow/`, `../background-tasks/`, `../duplicate-agent/` — each one's
@@ -31,3 +43,10 @@ one prompt replays the whole probe. `../plan-flap/` and `../plan-stuck/`
 (EXP-853) are hand-built from the `../plan/` recording's `init` +
 `ExitPlanMode` frames: the same replay, once inside the mode-announcement
 grace window and once past it (`EXP_MODE_ANNOUNCE_GRACE_MS=0`).
+`../workflow-agents/` (EXP-1225) is `workflow-agents-2.1.286.jsonl` up to its
+first `result`. `../continuation/` (EXP-1224, `tests/claude_engine.rs`) is its
+background-`Agent` turn and the continuation after it, with the agent's
+completion frames moved past the turn's `result` (the order the reporting
+run's journal measured: the agent outlived the turn) and a `@@SLEEP 0.5` line
+— the fake's stand-in for the CLI's latency — between that notification and
+the continuation's `init`.

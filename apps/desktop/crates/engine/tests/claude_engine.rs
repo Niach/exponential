@@ -436,3 +436,66 @@ fn a_claude_exponential_call_publishes_its_preview() {
     let bash = settle_of(&harness.sink, "toolu_thebashcall").expect("the bash call settled");
     assert_eq!(bash["output"], serde_json::json!("fg-done"), "{bash}");
 }
+
+/// EXP-1224: claude CONTINUES ON ITS OWN after a `result` when a background
+/// task's notification is pending — it re-announces `system/init` and runs a
+/// turn no prompt opened. Cut from `wire-captures/workflow-agents-2.1.286.jsonl`
+/// in the shape the reporting run's journal measured: the background agent
+/// outlives the turn's `result` (the settle defers), its completion releases
+/// the settle, and the CLI's continuation (`init` → thinking → "done" →
+/// `result`) follows.
+///
+/// The slot reads `started` from the prompt to the END of the continuation:
+/// never `ended` between the agent's notification and the continuation's
+/// text (every client read that gap as "Done" while the agent worked on),
+/// and the run reads busy throughout — `agent_busy` follows the same edges.
+#[test]
+fn a_continuation_the_cli_starts_on_its_own_keeps_the_turn_open() {
+    let _session = one_session_at_a_time();
+    let harness = start("continuation", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+
+    harness.session.send_prompt(
+        "Launch one background Explore agent, wait for its notification, then say done."
+            .to_string(),
+    );
+    let said_done = |sink: &RecordingSink| {
+        events_of(sink, "narration").iter().any(|event| event["text"] == "done")
+    };
+    until("the continuation's text", || said_done(&harness.sink));
+    until("the turn to end", || ended_turns(&harness.sink) >= 1);
+    // Anything trailing (the CLI's final `idle`) lands first.
+    std::thread::sleep(Duration::from_millis(300));
+
+    let wire: Vec<serde_json::Value> = harness
+        .sink
+        .snapshot()
+        .iter()
+        .filter_map(|event| serde_json::to_value(event).ok())
+        .collect();
+    // The slot's edges in order, a token tick (a `started` repeat) folded
+    // into the edge it ticks.
+    let mut edges: Vec<(usize, String)> = Vec::new();
+    for (at, event) in wire.iter().enumerate() {
+        if event["kind"] != "turn" {
+            continue;
+        }
+        let state = event["state"].as_str().unwrap_or_default().to_string();
+        if edges.last().map(|(_, last)| last) != Some(&state) {
+            edges.push((at, state));
+        }
+    }
+    let states: Vec<&str> = edges.iter().map(|(_, state)| state.as_str()).collect();
+    assert_eq!(states, vec!["ended", "started", "ended"], "{edges:?}");
+    let done_at = wire
+        .iter()
+        .position(|event| event["kind"] == "narration" && event["text"] == "done")
+        .expect("the continuation's narration");
+    let (ended_at, _) = edges.last().expect("the closing edge");
+    assert!(
+        *ended_at > done_at,
+        "the turn ends after the continuation's text, not at the agent's notification \
+         (ended at {ended_at}, \"done\" at {done_at})"
+    );
+    until("the run to read idle", || !harness.session.agent_busy());
+}

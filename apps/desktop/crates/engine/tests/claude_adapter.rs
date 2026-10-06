@@ -2898,16 +2898,22 @@ async fn a_second_copy_of_a_live_agent_publishes_a_duplicate_edge() {
         )
     );
 
-    // The warning goes out BEFORE the copy's own started edge, and both carry
-    // the same id — one identity for the whole life of the agent.
+    // The warning goes out BEFORE the copy's own started edge, and every edge
+    // carries the same id — one identity for the whole life of the agent.
+    // EXP-1225: the agent's synthesized lane opened under it first (the
+    // progress frames named it running), so the order is: the lane, the
+    // warning, the copy, the copy's end, the lane's end.
     let statuses: Vec<String> = run
         .wire()
         .into_iter()
         .filter(|event| event["kind"] == "subagent" && event["id"] == agent)
         .filter_map(|event| event["status"].as_str().map(str::to_string))
         .collect();
-    assert_eq!(statuses.first().map(String::as_str), Some("duplicate"), "{statuses:?}");
-    assert!(statuses.contains(&"started".to_string()), "{statuses:?}");
+    assert_eq!(
+        statuses,
+        vec!["started", "duplicate", "started", "completed", "completed"],
+        "{statuses:?}"
+    );
 
     // The workflow itself is still a card, never a subagent row.
     let cards = run.workflow_cards();
@@ -3102,6 +3108,9 @@ async fn only_a_chat_run_asks_claude_for_its_name() {
 /// a `/clear` re-inits under a new session id with a new prefix.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_context_layout_is_published_once_per_conversation() {
+    // Every claude session attaches to the process-global live usage registry
+    // that the EXP-909 tests count: one at a time, like the rest.
+    let _session = one_session_at_a_time();
     let work = workdir("context-layout");
     let run = drive_turns_with(
         "context-layout",
@@ -3154,6 +3163,7 @@ async fn the_context_layout_is_published_once_per_conversation() {
 /// a `/clear` afterwards is a fresh conversation again, measured for real.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_resumed_conversation_carries_its_base_instead_of_measuring() {
+    let _session = one_session_at_a_time();
     let work = workdir("context-layout-resume");
     let run = drive_turns_with(
         "context-layout",
@@ -3196,5 +3206,116 @@ async fn a_resumed_conversation_carries_its_base_instead_of_measuring() {
     assert_eq!(
         bases,
         vec![("measured".to_string(), 21_000), ("measured".to_string(), 9_000)]
+    );
+}
+
+/// EXP-1225 — a workflow's agents are subagents with lanes of their own.
+/// The CLI (2.1.286, `wire-captures/workflow-agents-2.1.286.jsonl`) never
+/// sends a workflow agent's `task_started` nor streams its frames: the
+/// `workflow_agent` progress entries (`start` → `progress` → `done`) are all
+/// there is. The adapter synthesizes the lane from them — the started edge
+/// once the agent runs under an `agentId`, one settled row per distinct last
+/// tool, the result preview as narration, the completed edge — and the card
+/// still summarises them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workflows_agents_get_lanes_of_their_own() {
+    let _session = one_session_at_a_time();
+    let work = workdir("workflow-agents");
+    let run = drive(
+        "workflow-agents",
+        &work.0,
+        "Run the two-agent workflow, then launch one background agent.",
+        false,
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+
+    let workflow = "toolu_01Y5972KhTG8f94zku3tLpzG";
+    let wire = run.wire();
+    for (agent, label, command) in [
+        ("a37045b3fb76c076a", "alpha:one", "echo one"),
+        ("ad57a51f0d14da4c8", "alpha:two", "echo two"),
+    ] {
+        let edges: Vec<&Value> = wire
+            .iter()
+            .filter(|event| event["kind"] == "subagent" && event["id"] == agent)
+            .collect();
+        let statuses: Vec<&str> =
+            edges.iter().filter_map(|edge| edge["status"].as_str()).collect();
+        assert_eq!(statuses, vec!["started", "completed"], "{label}: {edges:?}");
+        for edge in &edges {
+            assert_eq!(edge["agentType"], serde_json::json!("agent"), "{edge}");
+            assert_eq!(edge["title"], serde_json::json!(label), "{edge}");
+            assert_eq!(edge["workflowId"], serde_json::json!(workflow), "{edge}");
+        }
+        assert_eq!(edges[1]["toolCalls"], serde_json::json!(1), "{:?}", edges[1]);
+
+        // ONE Bash row in the lane, settled, reading as the call it was.
+        let rows: Vec<&Value> = wire
+            .iter()
+            .filter(|event| event["kind"] == "tool" && event["subagentId"] == agent)
+            .collect();
+        assert_eq!(rows.len(), 1, "{label}: {rows:?}");
+        assert_eq!(rows[0]["name"], serde_json::json!("Bash"));
+        assert_eq!(rows[0]["detail"], serde_json::json!(command));
+        assert_eq!(rows[0]["toolKind"], serde_json::json!("execute"));
+        let row_id = rows[0]["id"].clone();
+        assert!(
+            wire.iter().any(|event| event["kind"] == "tool_update"
+                && event["id"] == row_id
+                && event["status"] == "completed"),
+            "{label}: the row settles at once"
+        );
+
+        // The result preview is the lane's narration.
+        let narration: Vec<&Value> = wire
+            .iter()
+            .filter(|event| event["kind"] == "narration" && event["subagentId"] == agent)
+            .collect();
+        assert_eq!(narration.len(), 1, "{label}: {narration:?}");
+        assert_eq!(narration[0]["text"], serde_json::json!("ok"));
+
+        // In lane order: opened, the row, the result, closed.
+        let at = |predicate: &dyn Fn(&Value) -> bool| {
+            wire.iter().position(|event| predicate(event)).expect("present")
+        };
+        let started =
+            at(&|event| event["kind"] == "subagent" && event["id"] == agent && event["status"] == "started");
+        let row = at(&|event| event["kind"] == "tool" && event["subagentId"] == agent);
+        let said = at(&|event| event["kind"] == "narration" && event["subagentId"] == agent);
+        let completed = at(&|event| {
+            event["kind"] == "subagent" && event["id"] == agent && event["status"] == "completed"
+        });
+        assert!(started < row && row < said && said < completed, "{label}");
+    }
+
+    // The card is unchanged: it ends completed with both agents done, and
+    // the `progress` frames in between read RUNNING, never queued.
+    let cards = run.workflow_cards();
+    let last = cards.last().expect("a final card");
+    assert_eq!(last["status"], serde_json::json!("completed"));
+    let agents = last["agents"].as_array().expect("agents");
+    assert_eq!(agents.len(), 2);
+    assert!(agents.iter().all(|agent| agent["state"] == "done"), "{agents:?}");
+    assert!(
+        cards.iter().any(|card| {
+            card["agents"].as_array().is_some_and(|agents| {
+                agents.iter().any(|agent| {
+                    agent["label"] == "alpha:two" && agent["state"] == "running"
+                        && agent["lastTool"] == "Bash"
+                })
+            })
+        }),
+        "alpha:two's `progress` entry reads running: {cards:?}"
+    );
+    assert!(
+        !cards.iter().any(|card| {
+            card["agents"].as_array().is_some_and(|agents| {
+                agents.iter().any(|agent| agent["state"] == "queued" && agent.get("agentId").is_some())
+            })
+        }),
+        "an agent with an id is never queued: {cards:?}"
     );
 }
