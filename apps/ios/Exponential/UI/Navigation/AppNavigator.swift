@@ -44,6 +44,10 @@ enum AppRoute: Hashable {
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
     /// a fullScreenCover, so it gets the native back button + swipe-back.
     case agentSession(accountId: String, sessionId: String)
+    /// EXP-1194: a run's OWN issue-less pull request on the Changes face
+    /// (`RunChangesView`) — what a Reviews → Agent runs row opens, like an
+    /// issue row opens its issue's `.issueFace(…, face: .changes)`.
+    case runChanges(accountId: String, sessionId: String)
     /// EXP-825: the team's Agent page — the ONE launcher (composer + the
     /// caller's Running/Recent sessions), a pushed detail. Every play button
     /// lands here with a `seed`; the Chat FAB with an empty one.
@@ -301,6 +305,8 @@ struct MainNavigator: View {
     /// `onAppear`. Rebuilding it per body pass would invalidate every reader
     /// of `\.pushRoute` on every render.
     @State private var pushRouteAction = PushRouteAction()
+    /// EXP-1212: a New issue page with content holds every path change below.
+    @State private var draftLeaveGuard = IssueDraftLeaveGuard()
     @State private var boardLoader: MultiAccountBoardLoader?
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
@@ -348,9 +354,10 @@ struct MainNavigator: View {
         // NavigationLink in a List row draws the system disclosure OUTSIDE
         // the glass card), so they push through this instead.
         .environment(\.pushRoute, pushRouteAction)
+        .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .onAppear {
-            pushRouteAction.setHandler { path.append($0) }
+            pushRouteAction.setHandler { route in navigate { path.append(route) } }
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
             }
@@ -402,35 +409,40 @@ struct MainNavigator: View {
                 // host match); push taps only know the recipient's userId.
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
-                appendIssueRoute(
-                    accountId: accountId, issueId: issueId, face: deps.deepLinkBus.pendingIssueFace
-                )
+                let face = deps.deepLinkBus.pendingIssueFace
                 _ = deps.deepLinkBus.consume()
+                navigate { appendIssueRoute(accountId: accountId, issueId: issueId, face: face) }
             }
         }
         .onChange(of: deps.deepLinkBus.pendingInviteToken) { _, token in
             if let token {
-                path.append(AppRoute.invite(token: token))
                 _ = deps.deepLinkBus.consumeInvite()
+                navigate { path.append(AppRoute.invite(token: token)) }
             }
         }
         // An agent_message push tap (EXP-801): open My Work → Inbox under the
         // recipient's account (the row renders nowhere else).
         .onChange(of: deps.deepLinkBus.pendingInbox) { _, pending in
-            if pending { openInboxFromPush() }
+            if pending {
+                navigate({ openInboxFromPush() }, dropped: { _ = deps.deepLinkBus.consumeInbox() })
+            }
         }
         // A session_blocked push tap (EXP-980): open the RUN that hit the
         // rate limit, under the recipient's account.
         .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
             if let sessionId {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
-                path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
                 _ = deps.deepLinkBus.consumeSession()
+                navigate {
+                    path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
+                }
             }
         }
         // EXP-825: a `/t/{team}/agent` universal link.
         .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
-            if slug != nil { openAgentFromLink() }
+            if slug != nil {
+                navigate({ openAgentFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAgent() })
+            }
         }
         // A team was deleted in-app (EXP-43): back to the landing tab (Agent)
         // so no pushed view (team settings, server detail) still targets it.
@@ -489,25 +501,29 @@ struct MainNavigator: View {
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
                     composeEnabled: composeTarget != nil,
-                    onIssues: { path = [] },
-                    onDevices: { if !isOnAgents { path = [.agents] } },
+                    // EXP-1212: the bar's entries go through the draft hold
+                    // like every other path change.
+                    onIssues: { navigate { path = [] } },
+                    onDevices: { if !isOnAgents { navigate { path = [.agents] } } },
                     // EXP-1187: Actions is a top-level tab; Settings is the
                     // Issues header's gear only.
-                    onActions: { if !isOnActions { path = [.actions] } },
-                    onMyWork: { if !isOnMyWork { path = [.myWork] } },
-                    onReviews: { if !isOnReviews { path = [.reviews] } },
+                    onActions: { if !isOnActions { navigate { path = [.actions] } } },
+                    onMyWork: { if !isOnMyWork { navigate { path = [.myWork] } } },
+                    onReviews: { if !isOnReviews { navigate { path = [.reviews] } } },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
-                        path.append(.issueDraft(
-                            accountId: target.accountId,
-                            draftId: UUID().uuidString.lowercased(),
-                            boardId: target.boardId
-                        ))
+                        navigate {
+                            path.append(.issueDraft(
+                                accountId: target.accountId,
+                                draftId: UUID().uuidString.lowercased(),
+                                boardId: target.boardId
+                            ))
+                        }
                     },
                     // EXP-825: the chat arm SWITCHES to the Agent root (the
                     // empty-seed page, a bar-visible root) — never a push.
-                    onChat: { if !isOnAgentTab { path = [agentTabRoot] } }
+                    onChat: { if !isOnAgentTab { navigate { path = [agentTabRoot] } } }
                 )
                 // Slides out of the way when a screen claims its slot, so the
                 // bulk bar arrives in the space the bar just left rather than
@@ -630,6 +646,28 @@ struct MainNavigator: View {
         return nil
     }
 
+    /// EXP-1212: every navigator-level path change runs through here. A New
+    /// issue page WITH content on top HOLDS it and asks (`IssueDraftPage.Leave`);
+    /// an answer that leaves pops the draft first, then runs `change`, so a
+    /// push lands where the draft was. `dropped` runs when the user stays (a
+    /// link left pending on the bus is cleared). The page's OWN exits
+    /// (`onCreated`, `onClose`) never come through here.
+    private func navigate(_ change: @escaping () -> Void, dropped: @escaping () -> Void = {}) {
+        if case let .issueDraft(_, draftId, _, _, _)? = path.last {
+            let held = IssueDraftLeaveGuard.Held(
+                proceed: {
+                    if case let .issueDraft(_, top, _, _, _)? = path.last, top == draftId {
+                        path.removeLast()
+                    }
+                    change()
+                },
+                dropped: dropped
+            )
+            if draftLeaveGuard.holds(topDraftId: draftId, held) { return }
+        }
+        change()
+    }
+
     /// Land on what was just filed (EXP-596) by REPLACING the compose page —
     /// Back from the issue returns to the board, not to an empty draft. One
     /// mutation, so the stack animates as a single push.
@@ -672,7 +710,7 @@ struct MainNavigator: View {
         let gated = gatedBackgroundAccounts
         if let first = gated.first {
             Button {
-                path.append(.serverDetail(accountId: first.id))
+                navigate { path.append(.serverDetail(accountId: first.id)) }
             } label: {
                 HStack(spacing: 6) {
                     AppIcon(AppIcons.uiUpdate, size: 11)
@@ -765,6 +803,9 @@ struct MainNavigator: View {
         case let .agentSession(accountId, sessionId):
             // EXP-893: the Work screen on its Run face.
             WorkScreen(subject: .session(id: sessionId))
+                .environment(\.accountId, accountId)
+        case let .runChanges(accountId, sessionId):
+            RunChangesView(sessionId: sessionId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             // The Agent TAB is the empty-seed page at the bottom of the

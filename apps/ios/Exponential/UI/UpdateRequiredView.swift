@@ -50,14 +50,12 @@ struct UpdateRequiredView: View {
             .glassCard()
             .padding(.horizontal, 32)
         }
-        .alert(
-            "Remove \(account?.displayName ?? "server")?",
-            isPresented: $showRemoveConfirm
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Remove", role: .destructive) { removeServer() }
-        } message: {
-            Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(isPresented: $showRemoveConfirm) {
+            GlassAlert(
+                prompt: Prompts.RemoveServer.copy(server: account?.displayName ?? "this server"),
+                handlers: ["remove": { removeServer() }]
+            )
         }
     }
 

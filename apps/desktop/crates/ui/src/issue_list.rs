@@ -53,7 +53,7 @@ use crate::controls::WebControl as _;
 use crate::icons::{option_icon, registry, resolved_status_icon, ExpIcon};
 use crate::issue_detail::{apply_status_selection, set_duplicate_of};
 use crate::pickers::{estimate_menu, option_item, status_menu, StatusMenuScope, StatusPick};
-use crate::navigation::{nav_for_window, navigate, resolved_screen, Navigation, Screen};
+use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
 use crate::issue_header::toggle_label;
 use crate::queries::{self, BoardData};
 
@@ -179,7 +179,7 @@ pub enum IssueQuery {
 
 impl IssueQuery {
     /// Run the query — the board pipeline behind this scope (EXP-915: shared
-    /// by the big list and the sidebar's `ListNav`, so both memoize the SAME
+    /// by the big list and the card's side list, so both memoize the SAME
     /// projection under [`queries::BoardDataKey`] + this scope). `None`
     /// yields an empty, not-ready result (the syncing skeleton).
     pub(crate) fn board_data(&self, cx: &App) -> BoardData {
@@ -199,17 +199,12 @@ impl IssueQuery {
 
     /// EXP-870: the LIST a row picked from this view opens beside — named
     /// explicitly, so the detail never depends on what history happens to
-    /// hold (the default board list after launch used to hold nothing, and
-    /// the first issue opened with the rail instead of its board).
+    /// hold. EXP-1192: a board lends none (its issues open full width); My
+    /// Issues pins the Inbox sidebar on its My Issues tab.
     pub(crate) fn list_origin(&self) -> Option<crate::navigation::TabOrigin> {
         use crate::sidebar::{InboxTab, ToolWindow};
         match self {
-            IssueQuery::None => None,
-            IssueQuery::Board { board_id } => Some(crate::navigation::TabOrigin {
-                tool: ToolWindow::BoardIssues,
-                board_id: Some(board_id.clone()),
-                inbox_tab: None,
-            }),
+            IssueQuery::None | IssueQuery::Board { .. } => None,
             IssueQuery::MyIssues { .. } => Some(crate::navigation::TabOrigin {
                 tool: ToolWindow::Inbox,
                 board_id: None,
@@ -220,7 +215,8 @@ impl IssueQuery {
 }
 
 /// EXP-870: open an issue from a list — beside `origin` when the list names
-/// one, the breadcrumb rule otherwise.
+/// one. EXP-1192: otherwise with NO list, explicitly (a plain navigation
+/// would keep a list the issue's tab already carried).
 pub(crate) fn open_issue_from_list(
     window: &Window,
     cx: &mut App,
@@ -230,7 +226,7 @@ pub(crate) fn open_issue_from_list(
     let screen = Screen::IssueDetail { issue_id };
     match origin {
         Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
-        None => navigate(window, cx, screen),
+        None => crate::navigation::navigate_from_rail(window, cx, screen),
     }
 }
 
@@ -885,7 +881,7 @@ impl IssueListView {
 }
 
 /// EXP-863: the view a bulk bar acts FOR — the full-width list and the left
-/// column's `ListNav` (`sidebar::ListPanel`) both keep a selection, and the
+/// card's side list (`sidebar::ListPanel`) both keep a selection, and the
 /// bar's mutations (`spawn_bulk_op`) flip the host's busy flag and clear its
 /// selection after a delete. One trait so the ~400-line bar exists once.
 pub(crate) trait BulkSelectionHost: Sized + 'static {
@@ -917,7 +913,7 @@ impl BulkSelectionHost for IssueListView {
 /// tool panel among them — collapses the buttons to icon-only (`labels =
 /// false`) and leans on the tooltips they all carry.
 ///
-/// EXP-863: `wrap` is the 264px `ListNav`'s escape hatch — even icon-only
+/// EXP-863: `wrap` is the narrow side list's escape hatch — even icon-only
 /// the row is wider than that column, and the bar FLOATS over the nav's
 /// rows there too, so letting the capsule fold onto a second line moves
 /// nothing underneath it.
@@ -1311,7 +1307,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     crate::surface::glass_bar(cx)
         .id("bulk-action-bar")
         .flex_shrink_0()
-        // EXP-863: the narrow ListNav folds the capsule (see the fn docs).
+        // EXP-863: the narrow side list folds the capsule (see the fn docs).
         .when(wrap, |bar| bar.flex_wrap().justify_center().max_w_full())
         .child(
             Button::new("bulk-clear")
@@ -1409,7 +1405,7 @@ fn spawn_bulk_op<V: BulkSelectionHost>(
 /// EXP-863: the contiguous slice of `ids` a Shift-click ADDS — from the
 /// anchor to `target`, in either direction, as inclusive indices into `ids`.
 /// `None` when either end is not in the list (the caller degrades to a plain
-/// toggle). Pure, and shared by the full list and the `ListNav`.
+/// toggle). Pure, and shared by the full list and the side list.
 pub(crate) fn selection_range(
     ids: &[String],
     anchor: Option<&str>,
@@ -2758,7 +2754,7 @@ mod tests {
 
     /// EXP-863: the Shift-click range — anchor to target in either
     /// direction, inclusive; either end missing degrades to `None` (the
-    /// caller toggles instead). Shared by the full list and the ListNav.
+    /// caller toggles instead). Shared by the full list and the side list.
     #[test]
     fn selection_range_runs_from_the_anchor_in_either_direction() {
         let ids: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();

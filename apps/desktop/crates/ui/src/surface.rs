@@ -121,7 +121,7 @@ pub(crate) fn flat_row() -> Div {
 /// EXP-963: the COMPACT density of [`flat_row`] — the web `ListRow
 /// density="compact"` / `SidebarMenuButton density="compact"` twin: the
 /// 28px one-line row the narrow column runs at (the rail's entries, the
-/// `ListNav` issue rows), the list's own 14px type, 8px of side padding and
+/// side-list issue rows), the list's own 14px type, 8px of side padding and
 /// 8px between the glyph and the text. Same fills as the list row: the
 /// caller still applies the hover wash and the active fill.
 pub(crate) fn flat_row_compact() -> Div {

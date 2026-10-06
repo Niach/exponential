@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -106,6 +105,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.launch
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 
 // The per-property/combined sheets the Issue face can present (EXP-240).
@@ -1037,45 +1038,29 @@ fun IssueFace(
 
     val pendingMoveTarget = moveTarget
     if (pendingMoveTarget != null && issue != null) {
-        AlertDialog(
-            onDismissRequest = { moveTarget = null },
-            title = { Text("Move issue") },
-            text = {
-                Text(
-                    "Move ${issue.identifier} to \"${pendingMoveTarget.name}\"? " +
-                        "The issue will get a new identifier in that board.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        PromptAlert(
+            prompt = Prompts.MoveIssue.prompt(issue.identifier, pendingMoveTarget.name),
+            onDismiss = { moveTarget = null },
+            handlers = mapOf(
+                "move" to {
                     moveTarget = null
                     viewModel.moveToBoard(pendingMoveTarget.id)
-                }) {
-                    Text("Move")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { moveTarget = null }) { Text("Cancel") }
-            },
+                },
+            ),
         )
     }
 
-    if (controller.confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { controller.confirmDelete = false },
-            title = { Text("Delete issue") },
-            text = { Text("This action cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
+    if (controller.confirmDelete && issue != null) {
+        PromptAlert(
+            prompt = Prompts.DeleteIssue.prompt(issue.identifier),
+            onDismiss = { controller.confirmDelete = false },
+            handlers = mapOf(
+                "delete" to {
                     controller.confirmDelete = false
                     viewModel.delete(onBack)
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { controller.confirmDelete = false }) { Text("Cancel") }
-            },
+                },
+            ),
+            testTags = mapOf("delete" to "issue-delete-confirm"),
         )
     }
 }

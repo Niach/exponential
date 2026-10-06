@@ -428,10 +428,9 @@ describe(`IssueContextMenuProvider`, () => {
 
     expect(mockState.moveMutate).not.toHaveBeenCalled()
     expect(screen.getByTestId(`issue-move-board-confirm`)).not.toBeNull()
+    expect(screen.getByText(`Move APP-1 to "Platform"?`)).not.toBeNull()
     expect(
-      screen.getByText(
-        `Move APP-1 to "Platform"? The issue will get a new identifier in that board.`
-      )
+      screen.getByText(`It gets a new identifier in that board.`)
     ).not.toBeNull()
 
     fireEvent.click(screen.getByRole(`button`, { name: `Move` }))

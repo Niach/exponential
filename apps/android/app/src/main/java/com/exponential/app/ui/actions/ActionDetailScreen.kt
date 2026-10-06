@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -27,7 +26,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,6 +76,8 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 // The action page (SLOP-2): ONE action — what it says, when it fires on its
 // own, and what it ran. An action row (and an `action` entity ref) opens it; it
@@ -492,19 +492,15 @@ private fun TriggerRow(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete trigger?") },
-            text = { Text("It stops firing. Past runs stay in Runs.") },
-            confirmButton = {
-                TextButton(onClick = {
+        PromptAlert(
+            prompt = Prompts.DeleteTrigger.prompt(),
+            onDismiss = { confirmDelete = false },
+            handlers = mapOf(
+                "delete" to {
                     confirmDelete = false
                     onDelete()
-                }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+                },
+            ),
         )
     }
 }

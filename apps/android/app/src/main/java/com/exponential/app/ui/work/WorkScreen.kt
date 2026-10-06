@@ -8,11 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -53,6 +49,8 @@ import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.domain.ClosePr
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.CodingReadinessSheet
 import com.exponential.app.ui.issue.CodingReadinessViewModel
 import com.exponential.app.ui.issue.CommentThreadViewModel
@@ -76,6 +74,8 @@ import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
@@ -294,7 +294,7 @@ fun WorkScreen(
     val changesVm: ChangesViewModel? = if (issueChanges && issueId != null) {
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
             key = "changes:$issueId",
-        ) { factory -> factory.create(issueId) }
+        ) { factory -> factory.create(ChangesSource.Issue(issueId)) }
     } else {
         null
     }
@@ -400,6 +400,14 @@ fun WorkScreen(
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
+    val graphVm: PrGraphViewModel = hiltViewModel()
+    LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
+    val graph by graphVm.graph.collectAsStateWithLifecycle()
+    // EXP-876: what names an issue-less BATCH run in the bar below.
+    val batchIssues by (sessionVm?.batchIssues ?: remember { MutableStateFlow(emptyList()) })
+        .collectAsStateWithLifecycle()
+    // EXP-1215: how many issues the subject's ONE pull request covers.
+    val prIssueCount = graph.batch?.issues?.size ?: 1
     // EXP-1145: a stack member's Merge asks first, per merge source.
     val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
@@ -416,12 +424,9 @@ fun WorkScreen(
             fixConflicts = fix,
             loading = merging,
             error = mergeError?.message,
-            confirmText = when (mergeTarget) {
-                is MergeTarget.Session ->
-                    "Merges this run's pull request and ends the run."
-                else ->
-                    "Merges the pull request, completes every linked issue, " +
-                        "and ends the run."
+            confirmPrompt = when (mergeTarget) {
+                is MergeTarget.Session -> Prompts.MergeRunPr.prompt(shownSession?.prNumber)
+                else -> Prompts.MergeIssuePr.prompt(mergeIssue?.prNumber, prIssueCount)
             },
             onConfirm = { sessionVm.merge() },
             stackChoice = if (fix) null else sessionStackChoice,
@@ -464,8 +469,7 @@ fun WorkScreen(
                 loading = changesMerging,
                 // EXP-1154: a Close PR refusal toasts on its own (below).
                 error = changesError.takeIf { changesErrorFrom == ChangesViewModel.PrAction.Merge },
-                confirmText = "Squash-merges PR #${issue.prNumber ?: ""} via the GitHub App. " +
-                    "Any live run for it ends.",
+                confirmPrompt = Prompts.MergeIssuePr.prompt(issue.prNumber, prIssueCount),
                 onConfirm = { changesVm.mergePr() },
                 stackChoice = if (fix) null else changesStackChoice,
                 stackIssueId = issueId,
@@ -567,12 +571,6 @@ fun WorkScreen(
     // ── The related-work graph (EXP-897/SLOP-3) ─────────────────────────────
     // ONE model for the badge and its sheet: the blockers off the `blocks`
     // relations, the batch off a shared `pr_url`, the stack off `pr_base_branch`.
-    val graphVm: PrGraphViewModel = hiltViewModel()
-    LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
-    val graph by graphVm.graph.collectAsStateWithLifecycle()
-    // EXP-876: what names an issue-less BATCH run in the bar below.
-    val batchIssues by (sessionVm?.batchIssues ?: remember { MutableStateFlow(emptyList()) })
-        .collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -874,27 +872,16 @@ fun WorkScreen(
 
     // ── Confirms ────────────────────────────────────────────────────────────
     if (killDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { killDialogOpen = false },
-            // EXP-818: ONE word for ending a run, wherever it is watched from.
-            title = { Text("Stop this run?") },
-            text = {
-                Text(
-                    "This stops the agent on the desktop " +
-                        "and ends the run. It cannot be undone.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        // EXP-818: ONE word for ending a run, wherever it is watched from.
+        PromptAlert(
+            prompt = Prompts.StopRun.prompt(),
+            onDismiss = { killDialogOpen = false },
+            handlers = mapOf(
+                "stop" to {
                     killDialogOpen = false
                     sessionVm?.killSession()
-                }) {
-                    Text("Stop run", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { killDialogOpen = false }) { Text("Cancel") }
-            },
+                },
+            ),
         )
     }
 
@@ -903,24 +890,23 @@ fun WorkScreen(
     // model error (`actionError`).
     if (closePrConfirmOpen && changesVm != null) {
         val linked by changesVm.linkedIssueCount.collectAsStateWithLifecycle()
-        AlertDialog(
-            onDismissRequest = { closePrConfirmOpen = false },
-            title = { Text(ClosePr.TITLE) },
-            text = { Text(ClosePr.body(linked)) },
-            confirmButton = {
-                TextButton(
+        GlassAlert(
+            title = ClosePr.TITLE,
+            body = ClosePr.body(linked),
+            onDismiss = { closePrConfirmOpen = false },
+            trailing = listOf(
+                GlassAlertAction("Cancel", onClick = { closePrConfirmOpen = false }),
+                GlassAlertAction(
+                    ClosePr.CONFIRM,
+                    destructive = true,
+                    testTag = "close-pr-confirm",
                     onClick = {
                         closePrConfirmOpen = false
                         changesVm.closePr()
                     },
-                    modifier = Modifier.testTag("close-pr-confirm"),
-                ) {
-                    Text(ClosePr.CONFIRM, color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { closePrConfirmOpen = false }) { Text("Cancel") }
-            },
+                ),
+            ),
+            defaultAction = 0,
         )
     }
 
@@ -928,26 +914,15 @@ fun WorkScreen(
     // the same confirm shape as the other remote commands.
     val resume = resumeTarget
     if (resumeConfirmOpen && resume != null) {
-        AlertDialog(
-            onDismissRequest = { resumeConfirmOpen = false },
-            title = { Text("Resume this run?") },
-            text = {
-                Text(
-                    "Starts the agent again on ${resume.deviceLabel}, in the same " +
-                        "workspace, picking up where the run stopped.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        resumeConfirmOpen = false
-                        sessionVm?.resumeRun(resume)
-                    },
-                ) { Text("Resume") }
-            },
-            dismissButton = {
-                TextButton(onClick = { resumeConfirmOpen = false }) { Text("Cancel") }
-            },
+        PromptAlert(
+            prompt = Prompts.ResumeRun.prompt(resume.deviceLabel),
+            onDismiss = { resumeConfirmOpen = false },
+            handlers = mapOf(
+                "resume" to {
+                    resumeConfirmOpen = false
+                    sessionVm?.resumeRun(resume)
+                },
+            ),
         )
     }
 }

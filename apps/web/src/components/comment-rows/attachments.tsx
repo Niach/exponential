@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { deleteFilePrompt, promptActions } from "@/lib/prompts"
 import { Download, ExternalLink, Eye } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -23,14 +24,7 @@ import {
   IconTooltip,
   ImagePreviewDialog,
   type PreviewMediaKind,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  Prompt,
 } from "@exp/ui"
 import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
 import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
@@ -106,6 +100,10 @@ export function CommentAttachments({
       onClick={() => setPendingDelete(row)}
       className="hidden group-hover/attachment:block"
     />
+  )
+
+  const deleteCopy = deleteFilePrompt(
+    pendingDelete?.filename ?? `this attachment`
   )
 
   return (
@@ -235,35 +233,18 @@ export function CommentAttachments({
         }
       />
 
-      <AlertDialog
+      <Prompt
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open && !deleting) setPendingDelete(null)
+          if (!open) setPendingDelete(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this attachment?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.filename} will be permanently removed for
-              everyone. This can&apos;t be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleConfirmDelete()
-              }}
-            >
-              {deleting ? `Deleting...` : `Delete`}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy: deleting, onSelect: handleConfirmDelete },
+        })}
+      />
     </div>
   )
 }

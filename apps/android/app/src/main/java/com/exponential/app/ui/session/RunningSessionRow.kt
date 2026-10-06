@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -66,9 +65,6 @@ internal fun RunningSessionRow(
     onToggle: () -> Unit = {},
     // A caller's own title for the row; null = the ordinary subject title.
     titleOverride: String? = null,
-    // EXP-1108: glyphs drawn right after the state dot (the "needs you" red
-    // dot).
-    dotAccessory: (@Composable RowScope.() -> Unit)? = null,
 ) {
     // EXP-734: an issueless run carries its own PR state, so "in review with
     // a merged PR" reads as Done there too.
@@ -122,7 +118,6 @@ internal fun RunningSessionRow(
                                 CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
                             }
                         }
-                        dotAccessory?.invoke(this)
                     } },
                 )
                 // EXP-850 (S8): what the run is DOING right now, written by

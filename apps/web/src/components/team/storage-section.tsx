@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { deleteFilePrompt, promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import { Eraser, LoaderCircle, Trash2 } from "lucide-react"
@@ -23,14 +24,7 @@ import {
   GlassSectionHeader,
   ListRow,
   SETTINGS_LIST_CLASS,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  Prompt,
   toast,
 } from "@exp/ui"
 
@@ -163,6 +157,11 @@ export function TeamStorageSection({
       setSweeping(false)
     }
   }
+
+  const deleteCopy = deleteFilePrompt(
+    pendingDelete?.filename ?? `this attachment`
+  )
+  const sweepCopy = WEB_PROMPTS.sweepImages(sweepCandidateCount)
 
   return (
     <div className="space-y-4">
@@ -384,72 +383,29 @@ export function TeamStorageSection({
         />
       )}
 
-      <AlertDialog
+      <Prompt
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open && !deleting) setPendingDelete(null)
+          if (!open) setPendingDelete(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this attachment?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.filename} is deleted for everyone and cannot be
-              restored. Every description or comment that embeds it is rewritten
-              in the same step, replacing the image with a plain &ldquo;deleted
-              image&rdquo; note.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleDelete()
-              }}
-            >
-              {deleting ? `Deleting...` : `Delete attachment`}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy: deleting, onSelect: handleDelete },
+        })}
+      />
 
-      <AlertDialog
+      <Prompt
         open={sweepConfirmOpen}
-        onOpenChange={(open) => {
-          if (!open && !sweeping) setSweepConfirmOpen(false)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Sweep {sweepCandidateCount} unreferenced image
-              {sweepCandidateCount === 1 ? `` : `s`}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              These images are no longer embedded in any description or comment
-              in this team, so deleting them changes no text. Images uploaded in
-              the last 24 hours are kept. They may still be sitting in an
-              unsaved draft. Files are never swept.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={sweeping}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={sweeping}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleSweep()
-              }}
-            >
-              {sweeping ? `Sweeping...` : `Sweep images`}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setSweepConfirmOpen}
+        busy={sweeping}
+        title={sweepCopy.title}
+        body={sweepCopy.body}
+        actions={promptActions(sweepCopy, {
+          delete: { busy: sweeping, onSelect: handleSweep },
+        })}
+      />
     </div>
   )
 }

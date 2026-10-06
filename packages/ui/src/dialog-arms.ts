@@ -1,6 +1,5 @@
 // EXP-687 — the four `< sm` presentations a Dialog can take. Kept in their
-// own module because ui/dialog.tsx and ui/alert-dialog.tsx both paint from
-// them and the strings ARE the spec: one bottom sheet, one opaque #18181B
+// own module because the strings ARE the spec: one bottom sheet, one opaque #18181B
 // surface, one 24px top radius, everywhere.
 //
 // Each arm carries its OWN mobile-only classes so nothing leaks between them,
@@ -12,8 +11,8 @@
 // page): content-fitted up to 90dvh, matching the native "fitted" detent.
 // `sheet-full` is the fixed 94dvh detent EXP-616 introduced for the tall
 // forms (Start coding, New action, Device settings) whose content-sized
-// height read as a cut-off page. `alert` is the compact centered confirm —
-// native `.alert` parity, deliberately NOT a sheet. `page` is the legacy
+// height read as a cut-off page. `alert` is the compact centered card the
+// `Prompt` (EXP-1215) opens in on every width, deliberately NOT a sheet. `page` is the legacy
 // full-screen arm, now only for the image lightbox.
 
 /** Shared by `sheet` and `sheet-full`. Opaque, no blur: it fills the screen

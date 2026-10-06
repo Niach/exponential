@@ -1,0 +1,38 @@
+{
+  "name": "@exp/mcp-apps",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@exp/db-schema": "workspace:*",
+    "@exp/domain-contract": "workspace:*",
+    "@exp/icons": "workspace:*",
+    "@exp/ui": "workspace:*",
+    "markdown-it": "^14.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@tailwindcss/vite": "^4.0.6",
+    "@testing-library/react": "^16.2.0",
+    "@types/markdown-it": "^14.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "jsdom": "^27.0.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.7.2",
+    "vite": "7.3.3",
+    "vitest": "4.1.5"
+  }
+}

@@ -11,8 +11,8 @@
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
-      "blocked-start-dialog", "stack-merge-choice-dialog", "readiness-checklist",
-      "device-readiness", "results-guide"
+      "blocked-start-dialog", "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
+      "device-readiness", "results-guide", "mcp-app-views"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -41,8 +41,10 @@
     "device-settings": "EXP-1020",
     "blocked-start-dialog": "EXP-980",
     "stack-merge-choice-dialog": "EXP-1145",
+    "draft-leave-dialog": "EXP-1212",
     "readiness-checklist": "SLOP-7",
     "device-readiness": "EXP-1196",
-    "results-guide": "EXP-1154"
+    "results-guide": "EXP-1154",
+    "mcp-app-views": "EXP-1183"
   }
 }

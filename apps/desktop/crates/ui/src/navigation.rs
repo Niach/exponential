@@ -21,7 +21,9 @@
 //! In-tree click handlers that already hold `(window, cx)` (issue rows,
 //! sidebar items) may call [`navigate`] directly.
 
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Entity, Global, Window, WindowId,
@@ -190,63 +192,37 @@ impl Screen {
         )
     }
 
-    /// EXP-851: whether this screen can sit BESIDE a list — every tab detail,
-    /// plus the tab-less centre views:
-    ///
-    /// * the Agent page, which is BOTH a list of its own AND a step on the
-    ///   way from an issue to its coding run — "start coding" on an issue
-    ///   that sits beside its board must keep that board all the way into the
-    ///   session, so Chat carries whatever led to it and falls back to its
-    ///   own sessions list when nothing did.
-    ///
-    /// A screen that carries a list holds it in the screens panel's transient
-    /// slot rather than a tab entry (`ScreensPanel::transient_origin`).
+    /// EXP-851: whether this screen can carry the LIST it was opened from —
+    /// an issue and a coding run. EXP-1192: only the Inbox and Reviews lend
+    /// one ([`Self::list_origin`]), and what it buys is the second sidebar in
+    /// the content card ([`second_sidebar_for`]). The Agent page and the New
+    /// issue page carry nothing any more; a terminal never did (EXP-791/870).
     pub(crate) fn carries_list(&self) -> bool {
-        // EXP-791/EXP-870: a terminal is FULL WIDTH — this machine's shell is
-        // not a step in any list, so it never inherits one.
-        (self.is_detail() && !matches!(self, Screen::Terminal { .. }))
-            || matches!(
-                self,
-                Screen::Chat | Screen::IssueDraft { .. }
-            )
+        matches!(self, Screen::IssueDetail { .. } | Screen::Session { .. })
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
-    /// detail opened from it inherits. The list screens are a board, the
-    /// Inbox and Reviews; everything else — Settings,
-    /// Devices, Actions, an action's page, Getting started, Files, Source Control, a
-    /// terminal, any detail — is CONTEXT-FREE and leaves the rail up.
-    ///
-    /// EXP-923: the Agent page is NOT one any more. Its Running rows moved to
-    /// the rail and its Recent ones behind the history button, so the page is
-    /// a composer — it carries the list it was reached from and lends none.
+    /// detail opened from it inherits. EXP-1192: the Inbox and Reviews — the
+    /// two lists that stay beside their detail as a second sidebar. A board
+    /// opens its issues full width (nothing beside them), and everything else
+    /// — Settings, Devices, Actions, the Agent page, Files, any detail — is
+    /// context-free.
     pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
         use crate::sidebar::ToolWindow;
-        let tool = match self {
-            Screen::BoardIssues { board_id } => {
-                return Some(TabOrigin {
-                    tool: ToolWindow::BoardIssues,
-                    board_id: (!board_id.is_empty()).then(|| board_id.clone()),
-                    inbox_tab: None,
-                })
-            }
-            Screen::Inbox { tab } => {
-                return Some(TabOrigin {
-                    tool: ToolWindow::Inbox,
-                    board_id: None,
-                    inbox_tab: Some(*tab),
-                })
-            }
-            Screen::Reviews => ToolWindow::Reviews,
-            _ => return None,
-        };
-        Some(TabOrigin {
-            tool,
-            board_id: None,
-            inbox_tab: None,
-        })
+        match self {
+            Screen::Inbox { tab } => Some(TabOrigin {
+                tool: ToolWindow::Inbox,
+                board_id: None,
+                inbox_tab: Some(*tab),
+            }),
+            Screen::Reviews => Some(TabOrigin {
+                tool: ToolWindow::Reviews,
+                board_id: None,
+                inbox_tab: None,
+            }),
+            _ => None,
+        }
     }
-
 }
 
 /// EXP-288: which sidebar entry a detail tab was opened from — clicking the
@@ -293,19 +269,15 @@ pub(crate) enum PendingOrigin {
     LiveRail,
 }
 
-/// EXP-851: the ONE rule for which LIST the left column shows beside a
-/// freshly opened detail — the "breadcrumb" rule, one layer only:
+/// EXP-851: the ONE rule for which LIST a freshly opened detail carries —
+/// the "breadcrumb" rule, one layer only:
 ///
-/// * Opened from a LIST SCREEN (a board, the Inbox, the Agent page,
-///   Reviews): that list comes along, so the detail sits beside the rows it
-///   was picked from.
-/// * Opened from another screen that already CARRIES a list (an issue → its
-///   coding session, an issue → the Agent page → the run it starts): the list
-///   is inherited, one layer at a time.
-/// * Opened from anywhere ELSE — the rail itself (a pinned row, a session
-///   row, the Agent/Devices/Reviews entries), a context-free page, Settings,
-///   a deep link at boot: NO list. The rail stays up, which is the EXP-851
-///   change: a detail no longer DERIVES a list it was never opened from.
+/// * Opened from a LIST SCREEN (EXP-1192: the Inbox or Reviews): that list
+///   comes along, so the detail sits beside the rows it was picked from.
+/// * Opened from another detail that already CARRIES a list (an inbox issue
+///   → its coding run): the list is inherited, one layer at a time.
+/// * Opened from anywhere ELSE — a board, the rail, the Agent page, a
+///   context-free page, Settings, a deep link at boot: NO list.
 ///
 /// `previous` is the screen navigated away from, `previous_origin` the list
 /// IT carried (only meaningful while `previous` is a detail). Pure, so every
@@ -315,24 +287,52 @@ pub(crate) fn derive_origin(
     previous_origin: Option<TabOrigin>,
     target: &Screen,
 ) -> Option<TabOrigin> {
-    // Only a detail (or the PR diff) gets a left-column list; a list screen
-    // and every full page show the rail.
     if !target.carries_list() {
         return None;
     }
     let previous = previous?;
-    // A screen that CARRIES a list hands that one on (an issue beside its
-    // board → its coding run; the Agent page reached from that issue → the
-    // same board). Only when it carries none does its OWN list apply — which
-    // is how the Agent page reached from the rail still lends its sessions
-    // list to the run a row starts.
+    // A screen that CARRIES a list hands that one on; only when it carries
+    // none does its OWN list apply.
     let origin = match previous_origin.filter(|_| previous.carries_list()) {
         Some(origin) => Some(origin),
         None => previous.list_origin(),
     };
-    // EXP-890: back from a run to the Agent page inherits the run's sessions
-    // list — the page itself. It shows the rail instead.
     origin.filter(|origin| !origin.is_list_of(target))
+}
+
+/// EXP-1192: the three deliberate SECOND sidebars, drawn inside the content
+/// card beside the active screen (the root sidebar never folds any more).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SecondSidebar {
+    /// The notification stream (+ My Issues) — always up on the Inbox, and
+    /// beside every detail opened from it.
+    Inbox,
+    /// The open-PR queue beside a review it opened.
+    Reviews,
+    /// The Agent page's Recent runs, behind its history button.
+    RecentRuns,
+}
+
+/// EXP-1192: which [`SecondSidebar`] the card shows for `screen`, given the
+/// list it carries (`origin`) and the window's Recent-runs flag. Pure, so the
+/// whole table is a unit test. Boards, Settings, terminals and every full
+/// page show none.
+pub(crate) fn second_sidebar_for(
+    screen: Option<&Screen>,
+    origin: Option<&TabOrigin>,
+    recent_runs: bool,
+) -> Option<SecondSidebar> {
+    use crate::sidebar::ToolWindow;
+    match screen? {
+        Screen::Inbox { .. } => Some(SecondSidebar::Inbox),
+        Screen::Chat => recent_runs.then_some(SecondSidebar::RecentRuns),
+        screen if screen.carries_list() => match origin?.tool {
+            ToolWindow::Inbox => Some(SecondSidebar::Inbox),
+            ToolWindow::Reviews => Some(SecondSidebar::Reviews),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Go to `screen` the way BACK goes there: when it is already the top of the
@@ -526,6 +526,118 @@ impl ChatSeed {
     }
 }
 
+/// EXP-1212: a navigation the New issue page HELD, replayed verbatim (the same
+/// call, now unheld) once its leave dialog is answered.
+pub(crate) type HeldNavigation = Box<dyn FnOnce(&mut Window, &mut App)>;
+
+/// EXP-1212: the New issue page's hold on its window's navigation
+/// (`issue_draft_screen`, installed once per window). `armed` = the page is up
+/// with a draft that has content (a Cell: the hold must never read the page's
+/// entity, a navigation can run inside its update); `hold` takes the draft id
+/// the page shows plus the held navigation, and asks the leave question.
+#[derive(Clone)]
+pub(crate) struct LeaveGuard {
+    pub armed: Rc<Cell<bool>>,
+    pub hold: Rc<dyn Fn(&Window, &mut App, String, HeldNavigation)>,
+}
+
+/// EXP-1212 (R6): the navigations ONE leave question is about, in order.
+/// Every move made while the question is pending APPENDS (one dialog for the
+/// whole sequence); a leaving answer replays them all in order, exactly once;
+/// a dismiss, a failed answer or the page going away clears them. Keyed by
+/// the draft the question was about (an answer for another draft takes
+/// nothing) and by the question's `ask` number (a stale dialog's dismiss
+/// never clears a newer question). Pure, so it is unit-tested as data.
+pub(crate) struct LeaveQueue<T> {
+    draft_id: Option<String>,
+    items: Vec<T>,
+    /// The open question's number; `None` = none open (not yet asked, or
+    /// answered and settling — a Keep waiting on its save).
+    asking: Option<u64>,
+    next_ask: u64,
+}
+
+impl<T> Default for LeaveQueue<T> {
+    fn default() -> Self {
+        Self {
+            draft_id: None,
+            items: Vec::new(),
+            asking: None,
+            next_ask: 0,
+        }
+    }
+}
+
+impl<T> LeaveQueue<T> {
+    /// Hold `item` for `draft_id`. `true` = the FIRST held move, the caller
+    /// must ask; `false` = a question is already pending, it rides along.
+    /// A different draft's leftovers are dropped first.
+    pub(crate) fn hold(&mut self, draft_id: &str, item: T) -> bool {
+        if self.draft_id.as_deref() != Some(draft_id) {
+            self.clear();
+            self.draft_id = Some(draft_id.to_string());
+        }
+        self.items.push(item);
+        self.items.len() == 1
+    }
+
+    /// Whether anything is held for `draft_id`.
+    pub(crate) fn holds_for(&self, draft_id: &str) -> bool {
+        !self.items.is_empty() && self.draft_id.as_deref() == Some(draft_id)
+    }
+
+    /// The question opened: its number (for [`Self::answer`] / [`Self::dismiss`]).
+    pub(crate) fn ask(&mut self) -> u64 {
+        self.next_ask += 1;
+        self.asking = Some(self.next_ask);
+        self.next_ask
+    }
+
+    /// Question `ask` about `draft_id` was answered: it is closed (its window's
+    /// dismiss is a no-op now). `false` = a stale answer (another draft, or a
+    /// question that is no longer the open one): nothing changes.
+    pub(crate) fn answer(&mut self, draft_id: &str, ask: u64) -> bool {
+        if self.asking != Some(ask) || self.draft_id.as_deref() != Some(draft_id) {
+            return false;
+        }
+        self.asking = None;
+        true
+    }
+
+    /// Everything held for `draft_id`, in order, emptied (replayed once).
+    /// Another draft's moves stay put.
+    pub(crate) fn take(&mut self, draft_id: &str) -> Vec<T> {
+        if self.draft_id.as_deref() != Some(draft_id) {
+            return Vec::new();
+        }
+        self.asking = None;
+        std::mem::take(&mut self.items)
+    }
+
+    /// Question `ask`'s window closed: unanswered (Esc / ✕), the page stays
+    /// and nothing held is ever replayed.
+    pub(crate) fn dismiss(&mut self, ask: u64) {
+        if self.asking == Some(ask) {
+            self.clear();
+        }
+    }
+
+    /// Drop everything (stay): a failed answer, the page went away.
+    pub(crate) fn clear(&mut self) {
+        self.items.clear();
+        self.asking = None;
+    }
+}
+
+/// EXP-1212: whether a navigation from `current` to `target` must be held —
+/// the pure rule behind [`leave_hold`]. Only an ARMED draft page holds, and
+/// re-navigating to the very screen it shows is not leaving. `target` `None`
+/// = a screen the caller cannot name yet (Back, Forward, a team switch) or
+/// the cleared center: always somewhere else.
+pub(crate) fn holds_leave(armed: bool, current: Option<&Screen>, target: Option<&Screen>) -> bool {
+    armed && matches!(current, Some(Screen::IssueDraft { .. })) && target != current
+}
+
 /// Per-window navigation state. Mutate through [`navigate`] /
 /// [`switch_team`] / [`go_back`] so observers fire consistently.
 pub struct Navigation {
@@ -561,10 +673,13 @@ pub struct Navigation {
     /// so a tab click or go-back never replays a stale seed.
     pending_chat_seed: Option<ChatSeed>,
     /// EXP-923: the Agent page's history panel is showing
-    /// (`shell::LeftOccupant::RecentRuns`). Per window, never persisted, and
+    /// ([`SecondSidebar::RecentRuns`], EXP-1192). Per window, never persisted, and
     /// cleared by every screen change — the panel opens on the Chat screen,
     /// by its own button, and nowhere else.
     recent_runs: bool,
+    /// EXP-1212: the New issue page's hold ([`LeaveGuard`]); every screen
+    /// change in this module asks [`leave_hold`] first.
+    leave_guard: Option<LeaveGuard>,
 }
 
 impl Navigation {
@@ -577,6 +692,10 @@ impl Navigation {
         // DEV-ONLY (EXP-851): `EXP_DEV_TOOL` beside a detail `EXP_DEV_SCREEN`
         // is the capture run asking for that list in the LEFT column.
         let pending_origin = dev_tab_origin(screen.as_ref()).map(PendingOrigin::Explicit);
+        // DEV-ONLY (EXP-1192): `EXP_DEV_SCREEN=chat EXP_DEV_TOOL=history`
+        // opens the Agent page with its Recent runs sidebar showing.
+        let recent_runs = matches!(screen, Some(Screen::Chat))
+            && std::env::var("EXP_DEV_TOOL").is_ok_and(|tool| tool.trim() == "history");
         Self {
             // DEV-ONLY (§11.4 headless verification, same family as
             // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
@@ -596,7 +715,7 @@ impl Navigation {
                 .filter(|id| !id.is_empty()),
             repo_picks: HashMap::new(),
             pending_origin,
-            recent_runs: false,
+            recent_runs,
             // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
             // seeds the composer the way a play button would, so a capture
             // run photographs the chips without synthetic input.
@@ -604,6 +723,7 @@ impl Navigation {
                 .ok()
                 .as_deref()
                 .and_then(parse_dev_chat_seed),
+            leave_guard: None,
         }
     }
 
@@ -631,7 +751,6 @@ impl Navigation {
     }
 
     /// Whether [`go_forward`] has anywhere to go.
-    #[allow(dead_code)] // the mouse/keyboard paths call `go_forward` blind
     pub fn can_go_forward(&self) -> bool {
         !self.forward_stack.is_empty()
     }
@@ -946,7 +1065,8 @@ pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
         // EXP-818: the Agent page (its sessions list is the page now).
-        "sessions" | "agent" => Some(Screen::Chat),
+        // EXP-1192: `history` = the same page with Recent runs beside it.
+        "sessions" | "agent" | "history" => Some(Screen::Chat),
         // EXP-706: Reviews was a tool window once.
         "reviews" => Some(Screen::Reviews),
         _ => None,
@@ -958,14 +1078,12 @@ fn legacy_tool_screen() -> Option<Screen> {
     dev_tool_screen(std::env::var("EXP_DEV_TOOL").ok().as_deref()?)
 }
 
-/// DEV-ONLY (EXP-851): the left-column LIST a capture run wants beside a
-/// detail screen. `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail
-/// (`issue:…`, `session:…`) — the pair used to mean "tool column
-/// + centre tab" and now means "ListNav + main view", so it seeds the first
-/// navigation's explicit origin. `None` whenever either half is missing or
-/// the screen carries no list (a list screen carries its own rail).
-/// EXP-1170: gated on [`Screen::carries_list`], so `EXP_DEV_SCREEN=draft`
-/// beside `EXP_DEV_TOOL=board` photographs the draft page beside its board.
+/// DEV-ONLY (EXP-851): the LIST a capture run wants beside a detail screen.
+/// `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail (`issue:…`,
+/// `session:…`), so it seeds the first navigation's explicit origin — the
+/// second sidebar (EXP-1192: `inbox`/`my-issues`/`reviews`; a board lends
+/// none). `None` whenever either half is missing or the screen carries no
+/// list.
 fn dev_tab_origin(screen: Option<&Screen>) -> Option<TabOrigin> {
     if !screen?.carries_list() {
         return None;
@@ -1118,6 +1236,55 @@ pub fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
+/// EXP-1212: install the New issue page's hold on `window`'s navigation.
+pub(crate) fn set_leave_guard(window: &Window, cx: &mut App, guard: LeaveGuard) {
+    if let Some(nav) = nav_for_window_readonly(window, cx) {
+        nav.update(cx, |nav, _| nav.leave_guard = Some(guard));
+    }
+}
+
+/// EXP-1212: THE choke point. Every function here that changes the window's
+/// screen asks this first; `Some(hold)` = the New issue page holds the move,
+/// and the caller hands it a replay of itself and returns. Window close and
+/// app quit never come through here (the autosave keeps the draft).
+fn leave_hold(
+    window: &Window,
+    cx: &App,
+    target: Option<&Screen>,
+) -> Option<Rc<dyn Fn(&Window, &mut App, HeldNavigation)>> {
+    let nav = nav_for_window_readonly(window, cx)?;
+    let nav = nav.read(cx);
+    let guard = nav.leave_guard.as_ref()?;
+    if !holds_leave(guard.armed.get(), nav.screen.as_ref(), target) {
+        return None;
+    }
+    let Some(Screen::IssueDraft { draft_id, .. }) = nav.screen.as_ref() else {
+        return None;
+    };
+    let draft_id = draft_id.clone();
+    let hold = guard.hold.clone();
+    Some(Rc::new(move |window, cx, navigation| {
+        hold(window, cx, draft_id.clone(), navigation)
+    }))
+}
+
+/// EXP-1212 (R6): run a COMPOUND navigation (a team switch, then a board
+/// scope, then a screen) as ONE held move: the New issue page holds the whole
+/// sequence and replays it in order, so no half of it lands while the user
+/// is still being asked (and a Stay leaves none of it behind). Unheld, `f`
+/// just runs.
+pub(crate) fn leave_held(
+    window: &mut Window,
+    cx: &mut App,
+    target: Option<&Screen>,
+    f: impl FnOnce(&mut Window, &mut App) + 'static,
+) {
+    match leave_hold(window, cx, target) {
+        Some(hold) => hold(window, cx, Box::new(f)),
+        None => f(window, cx),
+    }
+}
+
 /// Navigate the window to `screen`, pushing the previous screen onto the
 /// back stack (no-op when already there). The screens panel captures the
 /// tab's origin from the CURRENT rail tool + board (every sidebar-row click
@@ -1148,28 +1315,24 @@ pub(crate) fn navigate_from_live_rail(window: &Window, cx: &mut App, screen: Scr
 }
 
 /// Open an issue's detail LANDING FULLY SCOPED on its board (EXP-510): the
-/// board becomes the window's active one and the detail's left column is its
-/// board list, EXPLICITLY — for the paths where nothing on screen names the
-/// list (deep links, an OS notification). In-app row
-/// clicks keep plain [`navigate`]: the EXP-851 breadcrumb reads the list they
-/// came from.
+/// board becomes the window's active one, and the detail carries `origin`
+/// EXPLICITLY — for the paths where nothing on screen names the list (an OS
+/// notification pins the Inbox, a deep link pins nothing, EXP-1192). In-app
+/// row clicks keep plain [`navigate`]: the EXP-851 breadcrumb reads the list
+/// they came from.
 pub(crate) fn open_issue_scoped(
     window: &mut Window,
     cx: &mut App,
     issue_id: String,
     board_id: String,
+    origin: Option<TabOrigin>,
 ) {
-    set_active_board(window, cx, board_id.clone());
-    navigate_from(
-        window,
-        cx,
-        Screen::IssueDetail { issue_id },
-        TabOrigin {
-            tool: crate::sidebar::ToolWindow::BoardIssues,
-            board_id: Some(board_id),
-            inbox_tab: None,
-        },
-    );
+    set_active_board(window, cx, board_id);
+    let screen = Screen::IssueDetail { issue_id };
+    match origin {
+        Some(origin) => navigate_from(window, cx, screen, origin),
+        None => navigate_from_rail(window, cx, screen),
+    }
 }
 
 /// EXP-771: whether a navigation to `screen` must first look for an existing
@@ -1258,19 +1421,24 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
+    if let Some(hold) = leave_hold(window, cx, Some(&screen)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_inner(window, cx, screen, origin)),
+        );
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
     // EXP-870: with no explicit screen yet (a fresh window, a team switch,
-    // the last tab closed) the window SHOWS the default board list — read it
-    // BEFORE the update (re-entering the nav inside it would double-borrow)
-    // so it enters history like any screen, and a row clicked on it derives
-    // that board.
+    // the last tab closed) the window SHOWS the default screen (EXP-1192: the
+    // Agent page) — read it BEFORE the update (re-entering the nav inside it
+    // would double-borrow) so it enters history like any screen, and Back
+    // from the first navigation returns there.
     let fallback = if nav.read(cx).screen.is_none() {
         resolved_screen(&nav, cx)
-            .map(|default| materialize_default(default, active_board_id(&nav, cx)))
-            // A default that still names no board is no place to go back to.
-            .filter(|screen| !matches!(screen, Screen::BoardIssues { board_id } if board_id.is_empty()))
     } else {
         None
     };
@@ -1286,6 +1454,14 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// was opened from.
 pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
     if forward_to_owner_shell(window, cx, &screen) {
+        return;
+    }
+    if let Some(hold) = leave_hold(window, cx, Some(&screen)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_replace(window, cx, screen)),
+        );
         return;
     }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
@@ -1309,18 +1485,6 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
             cx.notify();
         }
     });
-}
-
-/// EXP-870: the virtual default board list names no board (the empty
-/// sentinel follows `active_board_id`); once it enters history it must name
-/// the board it showed, or the list derived from it reads "No board selected".
-pub(crate) fn materialize_default(screen: Screen, active_board: Option<String>) -> Screen {
-    match screen {
-        Screen::BoardIssues { board_id } if board_id.is_empty() => Screen::BoardIssues {
-            board_id: active_board.unwrap_or_default(),
-        },
-        other => other,
-    }
 }
 
 /// EXP-825: open the Agent page's composer with `seed` preselected — what
@@ -1370,9 +1534,18 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, fro
             return;
         }
     }
-    // EXP-851: NO list forcing. The Agent page is a full-width screen; a
-    // seed raised from a board's issue keeps that board in the left column,
-    // and so does the session the composer starts.
+    // EXP-1212: held BEFORE the seed lands, so a cancelled leave leaves no
+    // stale seed for the next Agent page.
+    if let Some(hold) = leave_hold(window, cx, Some(&Screen::Chat)) {
+        hold(
+            window,
+            cx,
+            Box::new(move |window, cx| navigate_to_chat_inner(window, cx, seed, from_rail)),
+        );
+        return;
+    }
+    // EXP-851: NO list forcing. The Agent page is a full-width screen and
+    // carries no list (EXP-1192), nor does the session the composer starts.
     if let Some(nav) = nav_for_window_readonly(window, cx) {
         nav.update(cx, |nav, cx| {
             nav.pending_chat_seed = Some(seed);
@@ -1423,6 +1596,12 @@ pub(crate) fn take_pending_origin(
 /// tab-close reactivation use this (only real navigations stack); `None`
 /// clears the center (last tab closed).
 pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
+    // EXP-1212: a tab click from the New issue page leaves it (the page owns
+    // no tab of its own), so it is held like any navigation.
+    if let Some(hold) = leave_hold(window, cx, screen.as_ref()) {
+        hold(window, cx, Box::new(move |window, cx| set_screen(window, cx, screen)));
+        return;
+    }
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
@@ -1440,7 +1619,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
 }
 
 /// EXP-923 — whether this window's Agent page is showing its Recent-runs
-/// panel ([`crate::shell::LeftOccupant::RecentRuns`]).
+/// panel ([`SecondSidebar::RecentRuns`]).
 pub(crate) fn recent_runs_open(window: &Window, cx: &App) -> bool {
     nav_for_window_id(window.window_handle().window_id(), cx)
         .is_some_and(|nav| nav.read(cx).recent_runs)
@@ -1531,6 +1710,12 @@ pub fn go_back(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).can_go_back() {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(|window, cx| go_back(window, cx)));
+            return;
+        }
+    }
     let landed = nav.update(cx, |nav, cx| {
         let previous = nav.step_back()?;
         cx.notify();
@@ -1547,6 +1732,12 @@ pub fn go_forward(window: &Window, cx: &mut App) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).can_go_forward() {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(|window, cx| go_forward(window, cx)));
+            return;
+        }
+    }
     let landed = nav.update(cx, |nav, cx| {
         let next = nav.step_forward()?;
         cx.notify();
@@ -1559,11 +1750,17 @@ pub fn go_forward(window: &Window, cx: &mut App) {
 
 /// Switch the window's active team. Resets the screen + back stack —
 /// screens are team-scoped (a board of team A is meaningless in B);
-/// the default-screen resolution then picks the new team's first board.
+/// the default-screen resolution then lands on the Agent page (EXP-1192).
 pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    if nav.read(cx).team_id.as_deref() != Some(team_id.as_str()) {
+        if let Some(hold) = leave_hold(window, cx, None) {
+            hold(window, cx, Box::new(move |window, cx| switch_team(window, cx, team_id)));
+            return;
+        }
+    }
     let changed = nav.update(cx, |nav, cx| {
         if nav.team_id.as_deref() == Some(team_id.as_str()) {
             return false;
@@ -1575,6 +1772,7 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.last_board_id = None;
         nav.pending_origin = None;
         nav.pending_chat_seed = None;
+        nav.recent_runs = false;
         cx.notify();
         true
     });
@@ -1846,26 +2044,32 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &OpenBoard, cx| {
         let board_id = action.board_id.clone();
         on_active_window(cx, move |window, cx| {
-            // EXP-69 merged picker: a board picked from ANOTHER team
-            // switches the window's team first (same reset semantics as
-            // the old footer switcher — screen + back stack cleared), then
-            // scopes to the picked board. One action, one gesture.
-            let nav = nav_for_window(window, cx);
-            let board_team = Store::global(cx)
-                .collections()
-                .boards
-                .read(cx)
-                .get(&board_id)
-                .map(|board| board.team_id.clone());
-            if let Some(board_team) = board_team {
-                if active_team_id(&nav, cx).as_deref()
-                    != Some(board_team.as_str())
-                {
-                    switch_team(window, cx, board_team);
+            // EXP-1212: the three steps are ONE held move on a New issue page.
+            let target = Screen::BoardIssues {
+                board_id: board_id.clone(),
+            };
+            leave_held(window, cx, Some(&target), move |window, cx| {
+                // EXP-69 merged picker: a board picked from ANOTHER team
+                // switches the window's team first (same reset semantics as
+                // the old footer switcher — screen + back stack cleared), then
+                // scopes to the picked board. One action, one gesture.
+                let nav = nav_for_window(window, cx);
+                let board_team = Store::global(cx)
+                    .collections()
+                    .boards
+                    .read(cx)
+                    .get(&board_id)
+                    .map(|board| board.team_id.clone());
+                if let Some(board_team) = board_team {
+                    if active_team_id(&nav, cx).as_deref()
+                        != Some(board_team.as_str())
+                    {
+                        switch_team(window, cx, board_team);
+                    }
                 }
-            }
-            set_active_board(window, cx, board_id.clone());
-            navigate(window, cx, Screen::BoardIssues { board_id });
+                set_active_board(window, cx, board_id.clone());
+                navigate(window, cx, Screen::BoardIssues { board_id });
+            });
         });
     });
     cx.on_action(|action: &OpenIssue, cx| {
@@ -1923,15 +2127,10 @@ fn navigate_active(cx: &mut App, screen: Screen) {
 // Default-screen resolution (shared by screens panel + sidebar highlight)
 // -----------------------------------------------------------------------
 
-/// The window's active SCREEN. EXP-851 gave the default back: with no
-/// explicit navigation yet (a fresh window, a team switch, the last tab
-/// closed) a team that HAS boards opens on its board list — the issues-first
-/// default the retired rail tool used to provide. `None` (the empty state)
-/// means there is genuinely nothing to show: no team, or no board yet.
-///
-/// The default names no board (the empty sentinel) so it follows
-/// `active_board_id` — which must therefore never recurse through here for
-/// it, and doesn't ([`active_board_id`] skips the empty sentinel).
+/// The window's active SCREEN. With no explicit navigation yet (a fresh
+/// window, a team switch, the last tab closed) a team that HAS boards lands
+/// on [`default_screen`]. `None` (the empty state) means there is genuinely
+/// nothing to show: no team, or no board yet ("No boards yet").
 pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     if let Some(screen) = nav.read(cx).screen.clone() {
         return Some(screen);
@@ -1939,9 +2138,13 @@ pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     // `try_global`: the panel-rehydrate tests build windows without a store.
     let collections = Store::try_global(cx)?.collections();
     let team_id = active_team_id(nav, cx)?;
-    (!collections.boards_in_team(&team_id, cx).is_empty()).then(|| Screen::BoardIssues {
-        board_id: String::new(),
-    })
+    default_screen(!collections.boards_in_team(&team_id, cx).is_empty())
+}
+
+/// EXP-1192: the landing screen — the Agent page, once the team has a board
+/// (until then the "No boards yet" empty state, `None`). Pure for the test.
+fn default_screen(team_has_boards: bool) -> Option<Screen> {
+    team_has_boards.then_some(Screen::Chat)
 }
 
 /// Whether the teams + boards shapes have seen their first
@@ -2151,12 +2354,13 @@ mod tests {
         // EXP-818/EXP-706 spellings the catalog still carries.
         assert_eq!(dev_tool_screen("agent"), Some(Screen::Chat));
         assert_eq!(dev_tool_screen("sessions"), Some(Screen::Chat));
+        assert_eq!(dev_tool_screen("history"), Some(Screen::Chat));
         assert_eq!(dev_tool_screen("reviews"), Some(Screen::Reviews));
         assert_eq!(dev_tool_screen("nonsense"), None);
     }
 
-    /// EXP-851: `EXP_DEV_TOOL` beside a DETAIL screen means "that list in the
-    /// left column" — the pair a capture run uses for the ListNav views.
+    /// EXP-851: `EXP_DEV_TOOL` beside a DETAIL screen means "that list as the
+    /// card's second sidebar" — the pair a capture run uses for those views.
     #[test]
     fn dev_inbox_tab_parses_both_values() {
         use crate::sidebar::InboxTab;
@@ -2183,7 +2387,7 @@ mod tests {
     }
 
     /// EXP-851: Reviews is a LIST screen — a detail opened from it inherits
-    /// the Reviews rows in the left column. Neither a tab nor undockable
+    /// the Reviews rows as its second sidebar. Neither a tab nor undockable
     /// (the ISSUE its rows open, EXP-1154, is both).
     #[test]
     fn reviews_is_a_list_screen() {
@@ -2268,33 +2472,12 @@ mod tests {
         assert!(session.list_origin().is_none());
     }
 
-    /// EXP-851/EXP-862: the screens that are LISTS — a board, the Inbox,
-    /// Reviews. Every other screen (and every detail) is context-free: a
-    /// detail opened from it keeps the rail up.
+    /// EXP-1192: the screens that are LISTS — the Inbox and Reviews, the two
+    /// that stay beside their detail. A board and every other screen (and
+    /// every detail) is context-free.
     #[test]
-    fn the_list_screens_are_the_six_the_left_column_can_show() {
+    fn only_the_inbox_and_reviews_are_lists() {
         use crate::sidebar::{InboxTab, ToolWindow};
-        let board = Screen::BoardIssues {
-            board_id: "b1".into(),
-        };
-        assert_eq!(
-            board.list_origin(),
-            Some(TabOrigin {
-                tool: ToolWindow::BoardIssues,
-                board_id: Some("b1".into()),
-                inbox_tab: None,
-            })
-        );
-        // The dev sentinel (`EXP_DEV_TOOL=board`) names no board — the render
-        // resolves the window's active one.
-        assert_eq!(
-            Screen::BoardIssues {
-                board_id: String::new()
-            }
-            .list_origin()
-            .and_then(|origin| origin.board_id),
-            None
-        );
         assert_eq!(
             Screen::Inbox {
                 tab: InboxTab::MyIssues
@@ -2311,12 +2494,18 @@ mod tests {
             Some(ToolWindow::Reviews)
         );
         for screen in [
+            Screen::BoardIssues {
+                board_id: "b1".into(),
+            },
+            // The dev sentinel (`EXP_DEV_TOOL=board`) lends nothing either.
+            Screen::BoardIssues {
+                board_id: String::new(),
+            },
             Screen::Settings,
             Screen::Devices,
             Screen::Drafts,
             Screen::Actions,
             Screen::Action { action_id: "act-1".into() },
-            // EXP-923: the Agent page is a composer, not a list.
             Screen::Chat,
             Screen::Files,
             Screen::SourceControl,
@@ -2329,7 +2518,6 @@ mod tests {
             Screen::Session {
                 session_id: "s1".into(),
             },
-            // EXP-1170: the New issue page carries a list, it is not one.
             draft_screen("d1", "b1"),
         ] {
             assert!(screen.list_origin().is_none(), "{screen:?}");
@@ -2344,28 +2532,130 @@ mod tests {
         }
     }
 
-    /// EXP-1170: the New issue page is a tab-less centre view that carries
-    /// the list it was opened from — never a tab, never undocked.
+    /// EXP-1212 (R6): a compound move held under ONE question replays in
+    /// order, once; only the first held move asks.
     #[test]
-    fn the_draft_page_carries_a_list_but_is_no_tab() {
+    fn leave_queue_appends_and_replays_in_order_once() {
+        let mut queue = LeaveQueue::default();
+        assert!(queue.hold("d1", "switch_team"), "the first move asks");
+        assert!(!queue.hold("d1", "set_active_board"), "a pending question absorbs it");
+        assert!(!queue.hold("d1", "navigate"));
+        let ask = queue.ask();
+        assert!(queue.answer("d1", ask));
+        assert_eq!(
+            queue.take("d1"),
+            vec!["switch_team", "set_active_board", "navigate"]
+        );
+        // Replayed once: nothing left, and the closed question's window
+        // closing afterwards changes nothing.
+        assert!(queue.take("d1").is_empty());
+        queue.dismiss(ask);
+        assert!(queue.hold("d1", "next"), "a later move asks again");
+    }
+
+    /// EXP-1212 (R6): a dismiss (Esc / ✕) drops the held moves; a stale
+    /// dialog's dismiss never clears a newer question.
+    #[test]
+    fn leave_queue_clears_on_dismiss_only_for_the_open_question() {
+        let mut queue = LeaveQueue::default();
+        queue.hold("d1", 1);
+        queue.hold("d1", 2);
+        let ask = queue.ask();
+        queue.dismiss(ask);
+        assert!(!queue.holds_for("d1"));
+        assert!(queue.take("d1").is_empty());
+
+        queue.hold("d1", 3);
+        let stale = ask;
+        let fresh = queue.ask();
+        queue.dismiss(stale);
+        assert!(queue.holds_for("d1"), "a stale dismiss is a no-op");
+        assert!(!queue.answer("d1", stale), "so is a stale answer");
+        assert!(queue.answer("d1", fresh));
+        // Answered (a Keep still saving): its window closing keeps the moves.
+        queue.dismiss(fresh);
+        assert_eq!(queue.take("d1"), vec![3]);
+    }
+
+    /// EXP-1212 (R6): moves are keyed by the draft the question was about.
+    #[test]
+    fn leave_queue_never_replays_for_another_draft() {
+        let mut queue = LeaveQueue::default();
+        queue.hold("d1", 1);
+        let ask = queue.ask();
+        assert!(!queue.answer("d2", ask));
+        assert!(queue.take("d2").is_empty());
+        assert!(queue.holds_for("d1"));
+        // A hold for another draft drops the first draft's leftovers.
+        assert!(queue.hold("d2", 2));
+        assert!(!queue.holds_for("d1"));
+        assert_eq!(queue.take("d2"), vec![2]);
+        // A cleared queue (failed answer, page gone) replays nothing.
+        queue.hold("d2", 3);
+        queue.clear();
+        assert!(queue.take("d2").is_empty());
+    }
+
+    /// EXP-1212: only an ARMED draft page holds, and only a move that
+    /// actually leaves it (a re-navigation to the same draft does not).
+    #[test]
+    fn holds_leave_table() {
         let draft = draft_screen("d1", "b1");
-        assert!(draft.carries_list());
+        let other_draft = draft_screen("d2", "b1");
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        // Armed on the draft: every other target holds.
+        assert!(holds_leave(true, Some(&draft), Some(&issue)));
+        assert!(holds_leave(true, Some(&draft), Some(&Screen::Chat)));
+        assert!(holds_leave(true, Some(&draft), Some(&other_draft)));
+        // Back / Forward / team switch / the cleared center.
+        assert!(holds_leave(true, Some(&draft), None));
+        // The same draft is not leaving.
+        assert!(!holds_leave(true, Some(&draft), Some(&draft)));
+        // Disarmed (no content, a Create in flight, already answered).
+        assert!(!holds_leave(false, Some(&draft), Some(&issue)));
+        assert!(!holds_leave(false, Some(&draft), None));
+        // Not on the draft page at all: a stale arm never holds.
+        assert!(!holds_leave(true, Some(&issue), Some(&Screen::Chat)));
+        assert!(!holds_leave(true, None, Some(&issue)));
+    }
+
+    /// EXP-1192: only an issue and a run carry a list — the New issue page,
+    /// the Agent page and a terminal never do.
+    #[test]
+    fn only_an_issue_and_a_run_carry_a_list() {
+        assert!(Screen::IssueDetail {
+            issue_id: "i1".into()
+        }
+        .carries_list());
+        assert!(Screen::Session {
+            session_id: "s1".into()
+        }
+        .carries_list());
+        let draft = draft_screen("d1", "b1");
+        assert!(!draft.carries_list());
         assert!(!draft.is_detail());
         assert!(!draft.undockable());
         assert!(!draft.is_dock_tab());
+        assert!(!Screen::Chat.carries_list());
+        // (A terminal is out too, but `TabId` has no test constructor.)
     }
 
-    /// EXP-1170: a draft opened from a board keeps that board beside it; one
-    /// opened from the Drafts page (context-free) shows the rail; and the
-    /// issue that REPLACES a filed draft derives from the back stack's top.
+    /// EXP-1170: the issue that REPLACES a filed draft derives from the back
+    /// stack's top — the Inbox it was opened from still comes along; a board
+    /// lends nothing (EXP-1192), and the draft page itself carries nothing.
     #[test]
     fn derive_origin_rows_for_the_draft_page() {
+        let inbox_screen = Screen::Inbox {
+            tab: crate::sidebar::InboxTab::Inbox,
+        };
+        let inbox = inbox_screen.list_origin().unwrap();
+        let draft = draft_screen("d1", "b1");
         let board_screen = Screen::BoardIssues {
             board_id: "b1".into(),
         };
-        let board = board_screen.list_origin().unwrap();
-        let draft = draft_screen("d1", "b1");
-        assert_eq!(derive_origin(Some(&board_screen), None, &draft), Some(board.clone()));
+        assert_eq!(derive_origin(Some(&board_screen), None, &draft), None);
         assert_eq!(derive_origin(Some(&Screen::Drafts), None, &draft), None);
         let issue = Screen::IssueDetail {
             issue_id: "i1".into(),
@@ -2374,13 +2664,16 @@ mod tests {
         nav.screen = None;
         nav.back_stack.clear();
         nav.forward_stack.clear();
-        nav.advance(board_screen.clone(), PendingOrigin::Derive, None);
+        nav.advance(inbox_screen.clone(), PendingOrigin::Derive, None);
         nav.advance(draft.clone(), PendingOrigin::Derive, None);
         nav.replace(issue.clone(), PendingOrigin::Derive);
         assert_eq!(
             derive_origin(nav.previous_screen(), None, &issue),
-            Some(board)
+            Some(inbox)
         );
+        nav.replace(board_screen.clone(), PendingOrigin::Derive);
+        nav.advance(issue.clone(), PendingOrigin::Derive, None);
+        assert_eq!(derive_origin(nav.previous_screen(), None, &issue), None);
     }
 
     /// EXP-1170: the board chip retargets every entry of THAT draft (screen
@@ -2435,8 +2728,9 @@ mod tests {
     }
 
     /// EXP-851: the breadcrumb rule, one row per navigation the product can
-    /// make. A detail keeps the list it was opened FROM, inherits one from
-    /// another detail, and gets NOTHING anywhere else — the rail stays.
+    /// make. A detail keeps the list it was opened FROM (EXP-1192: the Inbox
+    /// or Reviews), inherits one from another detail, and gets NOTHING
+    /// anywhere else.
     #[test]
     fn derive_origin_carries_a_list_one_layer_and_never_invents_one() {
         use crate::sidebar::{InboxTab, ToolWindow};
@@ -2449,20 +2743,21 @@ mod tests {
         let board_screen = Screen::BoardIssues {
             board_id: "b1".into(),
         };
-        let board = board_screen.list_origin().unwrap();
         let inbox_screen = Screen::Inbox {
             tab: InboxTab::Inbox,
         };
         let inbox = inbox_screen.list_origin().unwrap();
 
-        // A board list → an issue: the board comes along.
-        assert_eq!(
-            derive_origin(Some(&board_screen), None, &issue),
-            Some(board.clone())
-        );
-        // The Inbox → an issue: the Inbox, with the tab it was on.
+        // EXP-1192: a board list → an issue: full width, no list.
+        assert_eq!(derive_origin(Some(&board_screen), None, &issue), None);
+        // The Inbox → an issue: the Inbox, with the tab it was on …
         assert_eq!(
             derive_origin(Some(&inbox_screen), None, &issue),
+            Some(inbox.clone())
+        );
+        // … → its coding run: inherited, one layer at a time.
+        assert_eq!(
+            derive_origin(Some(&issue), Some(inbox.clone()), &session),
             Some(inbox.clone())
         );
         // Reviews → an issue (EXP-1154: on its Changes face).
@@ -2470,42 +2765,29 @@ mod tests {
             derive_origin(Some(&Screen::Reviews), None, &issue).map(|origin| origin.tool),
             Some(ToolWindow::Reviews)
         );
-        // EXP-923: the Agent page reached from the RAIL (carrying nothing) →
-        // a session: NO list. Its sessions rows moved to the rail and behind
-        // the history button, so the page is a composer and lends nothing.
-        assert_eq!(derive_origin(Some(&Screen::Chat), None, &session), None);
-        // … but reached from an issue that sits beside its board, the Agent
-        // page CARRIES that board, and so does the run it starts (EXP-851's
-        // start-coding chain: board → issue → Chat → session).
-        assert_eq!(
-            derive_origin(Some(&issue), Some(board.clone()), &Screen::Chat),
-            Some(board.clone())
-        );
-        assert_eq!(
-            derive_origin(Some(&Screen::Chat), Some(board.clone()), &session),
-            Some(board.clone())
-        );
-        // The rail's own Agent entry is a `navigate_from_rail`, so nothing is
-        // derived for it at all — the marker wins (screens::resolve_tab_origin).
-        // Detail → detail INHERITS: an issue (opened from a board) starting a
-        // coding run keeps the board beside the session.
-        assert_eq!(
-            derive_origin(Some(&issue), Some(board.clone()), &session),
-            Some(board.clone())
-        );
-        // … and a detail with no list of its own hands on nothing.
+        // A detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
-        // EXP-923: the Agent page has no list of its own to hand back (its
-        // rows moved to the rail and the history panel), so a run going back
-        // to it lands on the rail — while a board the run carried still
-        // comes along.
-        assert_eq!(derive_origin(Some(&session), None, &Screen::Chat), None);
+        // EXP-1192: anything via the Agent page carries nothing — the page
+        // carries no list, so it neither keeps one nor hands one on.
+        assert_eq!(derive_origin(Some(&Screen::Chat), None, &session), None);
         assert_eq!(
-            derive_origin(Some(&session), Some(board.clone()), &Screen::Chat),
-            Some(board.clone())
+            derive_origin(Some(&issue), Some(inbox.clone()), &Screen::Chat),
+            None
         );
-        // EXP-851's change: a context-free screen (the rail's pages, Settings,
-        // Files) derives NO list — the rail stays up.
+        assert_eq!(
+            derive_origin(Some(&Screen::Chat), Some(inbox.clone()), &session),
+            None
+        );
+        assert_eq!(
+            derive_origin(Some(&session), Some(inbox.clone()), &Screen::Chat),
+            None
+        );
+        // … and so does anything via the New issue page.
+        let draft = draft_screen("d1", "b1");
+        assert_eq!(derive_origin(Some(&issue), Some(inbox.clone()), &draft), None);
+        assert_eq!(derive_origin(Some(&draft), Some(inbox.clone()), &issue), None);
+        // A context-free screen (the rail's pages, Settings, Files) derives
+        // NO list.
         for previous in [
             Screen::Devices,
             Screen::Drafts,
@@ -2513,6 +2795,7 @@ mod tests {
             Screen::Settings,
             Screen::Files,
             Screen::SourceControl,
+            Screen::Action { action_id: "act-1".into() },
             Screen::GettingStarted {
                 tab: GettingStartedTab::FirstSteps,
             },
@@ -2520,58 +2803,84 @@ mod tests {
             assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
             assert_eq!(derive_origin(Some(&previous), None, &session), None);
         }
-        // SLOP-2: an action's page is context-free — a run opened from its
-        // Runs section shows the rail, and Back (the history) returns there.
-        assert_eq!(
-            derive_origin(Some(&Screen::Action { action_id: "act-1".into() }), None, &session),
-            None
-        );
         // A deep link at boot (nothing before) has no list either.
         assert_eq!(derive_origin(None, None, &issue), None);
-        // A plain LIST screen never gets a left-column list of its own.
+        // A plain LIST screen never carries a list of its own.
         assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
-        assert_eq!(derive_origin(Some(&board_screen), None, &Screen::Reviews), None);
+        assert_eq!(derive_origin(Some(&inbox_screen), None, &Screen::Reviews), None);
     }
 
-    /// EXP-870: the default board list the window shows before any explicit
-    /// navigation enters history MATERIALIZED, so an issue picked from it
-    /// derives that board — the "board → issue, but the rail stays" bug.
+    /// EXP-1192: the second-sidebar table — the Inbox screen and every detail
+    /// carrying the Inbox show the Inbox, a Reviews-carried detail the
+    /// Reviews queue, the Agent page Recent runs while its flag is up, and
+    /// everything else (a board-opened detail, Settings, a terminal) none.
     #[test]
-    fn advance_pushes_the_materialized_default_when_no_screen_is_set() {
-        let mut nav = Navigation::new();
-        nav.screen = None;
-        nav.back_stack.clear();
-        let default = materialize_default(
-            Screen::BoardIssues {
-                board_id: String::new(),
-            },
-            Some("b1".into()),
-        );
-        assert_eq!(
-            default,
-            Screen::BoardIssues {
-                board_id: "b1".into()
-            }
-        );
+    fn second_sidebar_for_table() {
+        use crate::sidebar::InboxTab;
         let issue = Screen::IssueDetail {
             issue_id: "i1".into(),
         };
-        nav.advance(issue.clone(), PendingOrigin::Derive, Some(default.clone()));
-        assert_eq!(nav.previous_screen(), Some(&default));
-        assert_eq!(nav.screen(), Some(&issue));
-        assert_eq!(
-            derive_origin(nav.previous_screen(), None, &issue)
-                .and_then(|origin| origin.board_id),
-            Some("b1".into())
-        );
-        // Re-entering the materialized default itself never stacks it twice.
+        let session = Screen::Session {
+            session_id: "s1".into(),
+        };
+        let inbox = Screen::Inbox {
+            tab: InboxTab::MyIssues,
+        }
+        .list_origin();
+        let reviews = Screen::Reviews.list_origin();
+        let inbox_screen = Screen::Inbox {
+            tab: InboxTab::Inbox,
+        };
+        let rows: [(Option<&Screen>, Option<&TabOrigin>, bool, Option<SecondSidebar>); 13] = [
+            (Some(&inbox_screen), None, false, Some(SecondSidebar::Inbox)),
+            (Some(&inbox_screen), None, true, Some(SecondSidebar::Inbox)),
+            (Some(&issue), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
+            (Some(&session), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
+            (Some(&issue), reviews.as_ref(), false, Some(SecondSidebar::Reviews)),
+            // A board-opened (or rail-opened) detail: none.
+            (Some(&issue), None, false, None),
+            (Some(&session), None, true, None),
+            (Some(&Screen::Chat), None, true, Some(SecondSidebar::RecentRuns)),
+            (Some(&Screen::Chat), None, false, None),
+            (Some(&Screen::Settings), None, true, None),
+            (Some(&Screen::Settings), inbox.as_ref(), false, None),
+            // (A terminal falls through the same arm as Settings; `TabId`
+            // has no test constructor.)
+            (Some(&Screen::Reviews), reviews.as_ref(), false, None),
+            (None, None, true, None),
+        ];
+        for (screen, origin, recent_runs, expected) in rows {
+            assert_eq!(
+                second_sidebar_for(screen, origin, recent_runs),
+                expected,
+                "{screen:?} {origin:?} {recent_runs}"
+            );
+        }
+    }
+
+    /// EXP-1192: the window lands on the Agent page once the team has a
+    /// board; that default enters history like any screen, so Back from the
+    /// first navigation returns to it — and it lends no list.
+    #[test]
+    fn the_default_landing_is_the_agent_page() {
+        assert_eq!(default_screen(true), Some(Screen::Chat));
+        assert_eq!(default_screen(false), None, "No boards yet");
         let mut nav = Navigation::new();
         nav.screen = None;
         nav.back_stack.clear();
-        nav.advance(default.clone(), PendingOrigin::Derive, Some(default.clone()));
+        let issue = Screen::IssueDetail {
+            issue_id: "i1".into(),
+        };
+        nav.advance(issue.clone(), PendingOrigin::Derive, default_screen(true));
+        assert_eq!(nav.previous_screen(), Some(&Screen::Chat));
+        assert_eq!(nav.screen(), Some(&issue));
+        assert_eq!(derive_origin(nav.previous_screen(), None, &issue), None);
+        // Re-entering the default itself never stacks it twice.
+        let mut nav = Navigation::new();
+        nav.screen = None;
+        nav.back_stack.clear();
+        nav.advance(Screen::Chat, PendingOrigin::Derive, default_screen(true));
         assert!(nav.back_stack.is_empty());
-        // A non-board default passes through untouched.
-        assert_eq!(materialize_default(Screen::Devices, Some("b1".into())), Screen::Devices);
     }
 
     /// EXP-818: go-back parks the screen it left for go-forward; a real

@@ -1,8 +1,5 @@
-- GitHub: eine geführte Seite verbindet dein GitHub-Konto, installiert die App und listet die Repositories, in die du pushen kannst
-- Feedback: eine Widget-Meldung ist ein Issue, antworte der meldenden Person aus dem Kommentarfeld, ihre Antworten kommen als Kommentare zurück
-- Neues Issue: das Anlegen öffnet eine ganze Seite mit allen Eigenschaften, die beim Tippen als Entwurf gespeichert wird
-- Navigation: Tabs Inbox, Devices, Reviews, Agent und Actions; Reviews, Läufe, Actions und Geräte zeigen alle deine Teams
-- Pull Requests: der Diff ist die Changes-Ansicht des Issues, Results liest sich als nummerierte Anleitung, Merge sitzt in der unteren Leiste
-- Runs: das Agent-Zeichen dreht sich, während er arbeitet, Gelb wartet auf dich, Grün hat einen offenen Pull Request, Blau ist fertig
-- Issue-Ansicht: der Titel klappt beim Scrollen in die Kopfzeile, der Inhalt gleitet unter einen unscharfen Rand
-- Team beitreten: die Einladung bietet den Schritt zur Geräteeinrichtung an, wenn du noch kein Gerät hast
+- Start: die App öffnet auf der Agent-Seite, und der Chat-Button leuchtet, solange du dort bist
+- Tabs: Inbox, My Issues und Drafts wechselst du per Wischen zur Seite, ebenso Actions und Suggestions
+- Reviews: ein Pull Request aus einem Chat- oder Action-Lauf öffnet seine Änderungen in der App
+- Runs: ein Pfeil springt zur neuesten Nachricht, und die Aufgabenliste zeigt ihren Fortschritt
+- Neues Issue: ein Tipp auf das × verwirft einen Entwurf

@@ -73,46 +73,42 @@ struct ServerDetailView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObservingUser() }
         .onDisappear { userObservationTask?.cancel() }
-        .alert(
-            "Remove \(account?.displayName ?? "server")?",
-            isPresented: $showRemoveConfirm
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Remove", role: .destructive) {
-                guard let account else { return }
-                Task {
-                    // Unregister while the credentials still exist — the
-                    // request needs the bearer token removeAccount drops.
-                    await deps.pushTokenManager.unregister(accountId: account.id)
-                    // Revoke the server session AFTER the unregister (which
-                    // needs it live) and BEFORE removeAccount drops the token.
-                    if let token = account.token {
-                        await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
-                    }
-                    await deps.syncManager.signOut(accountId: account.id)
-                    deps.auth.removeAccount(id: account.id)
-                    deps.db.closePool(forAccountId: account.id)
-                    DatabaseManager.deleteFiles(forAccountId: account.id)
-                    // The share-extension board mirror lives in app-group
-                    // defaults, not the DB — scrub it here too, since the
-                    // board loader may never have been instantiated.
-                    SharedBoardMirror.remove(accountId: account.id)
-                    dismiss()
-                }
-            }
-        } message: {
-            Text("This will sign you out and delete cached data for this server. The server can be re-added at any time.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(isPresented: $showRemoveConfirm) {
+            GlassAlert(
+                prompt: Prompts.RemoveServer.copy(server: account?.displayName ?? "this server"),
+                handlers: ["remove": { removeServer() }]
+            )
         }
-        .alert(
-            "Delete your account?",
-            isPresented: $showDeleteAccountConfirm
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete account", role: .destructive) {
-                Task { await deleteAccount() }
+        .glassAlert(isPresented: $showDeleteAccountConfirm) {
+            GlassAlert(
+                prompt: Prompts.DeleteAccount.copy(server: account?.displayName),
+                handlers: ["delete": { Task { await deleteAccount() } }]
+            )
+        }
+    }
+
+    /// Unregister push, revoke the session, drop the account and its cache.
+    private func removeServer() {
+        guard let account else { return }
+        Task {
+            // Unregister while the credentials still exist — the
+            // request needs the bearer token removeAccount drops.
+            await deps.pushTokenManager.unregister(accountId: account.id)
+            // Revoke the server session AFTER the unregister (which
+            // needs it live) and BEFORE removeAccount drops the token.
+            if let token = account.token {
+                await deps.authApi.signOut(instanceUrl: account.instanceUrl, token: token)
             }
-        } message: {
-            Text("This permanently deletes your account on \(account?.displayName ?? "this server"), including your personal teams, issues, and comments. This cannot be undone.")
+            await deps.syncManager.signOut(accountId: account.id)
+            deps.auth.removeAccount(id: account.id)
+            deps.db.closePool(forAccountId: account.id)
+            DatabaseManager.deleteFiles(forAccountId: account.id)
+            // The share-extension board mirror lives in app-group
+            // defaults, not the DB — scrub it here too, since the
+            // board loader may never have been instantiated.
+            SharedBoardMirror.remove(accountId: account.id)
+            dismiss()
         }
     }
 

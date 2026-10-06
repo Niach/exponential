@@ -125,11 +125,13 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
   await openStatusesSettings(page, teamSlug)
   await page.getByRole(`button`, { name: `Status actions for Waiting` }).click()
   await page.getByRole(`menuitem`, { name: `Delete` }).click()
-  const reassign = page.getByRole(`dialog`).filter({
-    has: page.getByRole(`heading`, { name: `Delete Waiting?` }),
+  const reassign = page.getByRole(`alertdialog`).filter({
+    has: page.getByRole(`heading`, { name: `Delete "Waiting"?` }),
   })
   await expect(reassign).toBeVisible()
-  await reassign.getByRole(`button`, { name: `Delete status` }).click()
+  await reassign
+    .getByRole(`button`, { name: `Delete`, exact: true })
+    .click()
   await expect(reassign).toBeHidden()
   await expect(
     page.getByRole(`button`, { name: `Status actions for Waiting` })

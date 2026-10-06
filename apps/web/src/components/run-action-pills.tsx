@@ -99,7 +99,6 @@ export function SessionStopRunPill({
   const { canKill, requestKill, dialog } = useKillSession(
     session,
     currentUserId,
-    device.label,
     device.online === false
   )
   if (!canKill) return null

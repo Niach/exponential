@@ -86,24 +86,16 @@ export function AgentWorkingMark({
 export function AgentRunMark({
   agent,
   state,
-  needsYou = false,
   ringClassName = `ring-sidebar`,
   className,
 }: {
   agent: string | null | undefined
   state?: RunMarkState
-  /** EXP-1068/1082 §4: an open question for a person — the RED badge, which
-   *  beats every state badge. */
-  needsYou?: boolean
   /** The badge's ring is the ground it sits on. */
   ringClassName?: string
   className?: string
 }) {
-  const badge = needsYou
-    ? `bg-red-500`
-    : state && state !== `working`
-      ? RUN_MARK_BADGE_CLASS[state]
-      : null
+  const badge = state && state !== `working` ? RUN_MARK_BADGE_CLASS[state] : null
   return (
     <span
       data-state={state}

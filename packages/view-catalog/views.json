@@ -453,6 +453,9 @@
           "kind": "screen",
           "value": "issue:$APP-5"
         }
+      },
+      "notes": {
+        "desktop": "EXP-1192: the rail never folds to an icon column and no list rides beside a detail any more — an issue opened from a board list opens ALONE in the main content card, next to the full rail. Only an issue picked from the Inbox or Reviews keeps that list as a second sidebar inside the card."
       }
     },
     {
@@ -728,6 +731,9 @@
           "kind": "tool",
           "value": "inbox"
         }
+      },
+      "notes": {
+        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My Issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
       }
     },
     {
@@ -760,7 +766,7 @@
         }
       },
       "notes": {
-        "desktop": "The Inbox tool window's My Issues tab (ToolWindow::Inbox + InboxTab::MyIssues), one rail entry with the board tool."
+        "desktop": "EXP-1192: no full-width page — My Issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My Issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
       }
     },
     {
@@ -900,7 +906,7 @@
       "notes": {
         "web": "EXP-923: the page is the COMPOSER alone. My live runs are the sidebar's Running section, and Recent is a panel behind the ghost history button at the page's top-left — so the shot shows a full-width composer, not a list.",
         "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
-        "desktop": "EXP-923: the IDE's Agent rail entry opens the COMPOSER alone — the Sessions tool window beside it is gone. My live runs are the rail's own Running section (between the boards and This device), and Recent slides into the left column behind the ghost history button at the page's top-left. `EXP_DEV_SCREEN=chat` opens it."
+        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail's first entry (above Inbox). The page is the COMPOSER alone; my live runs are the rail's own Running section. The ghost history button at the page's top-left slides Recent runs in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent runs sidebar."
       },
       "desktop": {
         "drive": {
@@ -1126,6 +1132,9 @@
           "kind": "screen",
           "value": "reviews"
         }
+      },
+      "notes": {
+        "desktop": "EXP-1192: a full-width list in the main content card beside the full rail. A row opens its issue's Changes face with the Reviews rows as a second sidebar inside the card (see review-diff)."
       }
     },
     {
@@ -1156,11 +1165,14 @@
         "drive": {
           "kind": "screen",
           "value": "issue:$APP-14?face=changes"
+        },
+        "env": {
+          "EXP_DEV_TOOL": "reviews"
         }
       },
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the diff's context, beside the compact rail, back row = the identifier), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar, beside the white Merge capsule). EXP-1154: the standalone review page is gone; this is the issue's Changes face (the toggle's +N −M segment, GitHub in the header, Merge PR in the tray, Close PR in the issue's actions menu).",
-        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. The Changes face draws its own file tree beside the diff. EXP-1154: the drive opens the issue on its Changes face (`issue:<id>?face=changes`); `Screen::PrDiff` is gone."
+        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. The Changes face draws its own file tree beside the diff. EXP-1154: the drive opens the issue on its Changes face (`issue:<id>?face=changes`); `Screen::PrDiff` is gone. EXP-1192: `EXP_DEV_TOOL=reviews` beside it pins the Reviews origin, so the Reviews rows sit as a second sidebar inside the content card (a \"Reviews\" back row on top), the way a row clicked on the Reviews page opens it."
       }
     },
     {
@@ -1413,6 +1425,7 @@
         }
       },
       "notes": {
+        "desktop": "EXP-1192: Settings swaps the root sidebar for the settings nav and HIDES the top tab band — a chrome-only band of the same height keeps the window controls. Every settings view shares this.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
       }

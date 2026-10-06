@@ -27,7 +27,6 @@ import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.session.rememberWorkingMarkPulse
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import kotlinx.coroutines.delay
 
@@ -107,21 +106,17 @@ fun AgentWorkingMark(
 }
 
 /** The badge colour each parked state wears; null = no badge. */
-internal fun runMarkBadgeColor(state: CodingSessionDisplayState?, needsYou: Boolean): Color? = when {
-    needsYou -> NeedsYouRed
-    state == CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-    state == CodingSessionDisplayState.Review -> ReviewGreen
-    state == CodingSessionDisplayState.Done -> DoneBlue
+internal fun runMarkBadgeColor(state: CodingSessionDisplayState?): Color? = when (state) {
+    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
+    CodingSessionDisplayState.Review -> ReviewGreen
+    CodingSessionDisplayState.Done -> DoneBlue
     else -> null
 }
-
-private val NeedsYouRed = DesignTokens.Semantic.Red
 
 /**
  * A LIVE run's mark, wherever a run is named: [CodingSessionDisplayState.Working]
  * = the agent's working mark, no badge; NeedsInput / Review / Done = the brand
- * mark with an amber / green / blue badge at its top end corner; [needsYou]
- * (an open question, EXP-1108) = the red badge, beating every state. A null
+ * mark with an amber / green / blue badge at its top end corner. A null
  * [state] = a paused run: the bare mark.
  */
 @Composable
@@ -131,7 +126,6 @@ fun AgentRunMark(
     size: Dp,
     badgeSize: Dp,
     modifier: Modifier = Modifier,
-    needsYou: Boolean = false,
 ) {
     val id = agent.orEmpty()
     Box(modifier = modifier.size(size)) {
@@ -145,7 +139,7 @@ fun AgentRunMark(
                 modifier = Modifier.size(size),
             )
         }
-        val badge = runMarkBadgeColor(state, needsYou)
+        val badge = runMarkBadgeColor(state)
         if (badge != null) {
             Box(
                 Modifier

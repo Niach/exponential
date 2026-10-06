@@ -1,13 +1,5 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@exp/ui"
+import { Prompt } from "@exp/ui"
+import { moveIssuePrompt, promptActions } from "@/lib/prompts"
 import type { Board } from "@/db/schema"
 
 interface MoveBoardConfirmDialogProps {
@@ -22,39 +14,37 @@ interface MoveBoardConfirmDialogProps {
 // The ONE web copy of the move-to-board confirmation (EXP-426/EXP-428):
 // the server renumbers the issue in the target board (EXP-42 → ABC-17), so
 // every move surface (detail sidebar picker, issue row context menu) lands
-// here first. Worded byte-identically to the desktop, iOS and Android
-// clients.
+// here first. EXP-1215: one question (`Move X to "Board"?`) + the renumber
+// fact as the body.
 export function MoveBoardConfirmDialog({
   board,
   issueIdentifier,
   onCancel,
   onConfirm,
 }: MoveBoardConfirmDialogProps) {
+  const copy = moveIssuePrompt(
+    issueIdentifier ?? `this issue`,
+    board?.name ?? ``
+  )
+
   return (
-    <AlertDialog
+    <Prompt
       open={board !== null}
       onOpenChange={(o) => {
         if (!o) onCancel()
       }}
-    >
-      <AlertDialogContent data-testid="issue-move-board-confirm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Move issue</AlertDialogTitle>
-          <AlertDialogDescription>
-            {`Move ${issueIdentifier ?? `this issue`} to "${board?.name ?? ``}"? The issue will get a new identifier in that board.`}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (board) onConfirm(board)
-            }}
-          >
-            Move
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      data-testid="issue-move-board-confirm"
+      title={copy.title}
+      body={copy.body}
+      actions={promptActions(copy, {
+        move: {
+          onSelect: () => {
+            if (board) onConfirm(board)
+            // The callers close on `onCancel` (the old dialog's close path).
+            onCancel()
+          },
+        },
+      })}
+    />
   )
 }

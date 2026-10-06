@@ -100,3 +100,38 @@ export function draftOriginFrom(
 ): string | undefined {
   return formatOrigin(capturedOrigin(screenFromPath(pathname), parseOrigin(from)))
 }
+
+/**
+ * EXP-1212: how the page leaves. `discard` = its own close button, `leave` =
+ * any other in-app navigation (Back, a nav entry, another screen). The page's
+ * own exits after a successful Create or a confirmed Discard never ask.
+ */
+export type DraftExitTrigger = `discard` | `leave`
+
+/** Which prompt an exit raises: none (go at once), the destructive discard
+ *  confirm, or the three-choice leave dialog. */
+export type DraftExitPrompt = `none` | `discardConfirm` | `leave`
+
+/** A draft WITH content (title, description or attachment) never goes
+ *  silently; an empty one goes at once, as before. */
+export function draftExitPrompt(
+  trigger: DraftExitTrigger,
+  hasContent: boolean
+): DraftExitPrompt {
+  if (!hasContent) return `none`
+  return trigger === `discard` ? `discardConfirm` : `leave`
+}
+
+/** The page's Create (and the leave dialog's): a title, nothing filing yet,
+ *  no eager upload still in flight. */
+export function canCreateDraft({
+  title,
+  creating,
+  uploading,
+}: {
+  title: string
+  creating: boolean
+  uploading: boolean
+}): boolean {
+  return title.trim().length > 0 && !creating && !uploading
+}

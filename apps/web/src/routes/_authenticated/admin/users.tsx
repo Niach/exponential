@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -10,17 +11,11 @@ import {
   Button,
   Input,
   Switch,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Prompt,
   UserAvatar,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
@@ -202,6 +197,8 @@ function AdminUsers() {
       setBusy(null)
     }
   }
+
+  const deleteCopy = WEB_PROMPTS.adminDeleteUser(confirmDelete?.email ?? `user`)
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
@@ -429,35 +426,16 @@ function AdminUsers() {
         })}
       </div>
 
-      <Dialog
+      <Prompt
         open={Boolean(confirmDelete)}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>Delete user?</DialogTitle>
-            <DialogDescription>
-              This permanently removes <strong>{confirmDelete?.email}</strong>.
-              Their sessions, accounts, team memberships, and any issues
-              or comments they authored will be deleted. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setConfirmDelete(null)}
-              disabled={busy !== null}
-            />
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={busy !== null}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={busy !== null}
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy: busy !== null, onSelect: () => handleDelete() },
+        })}
+      />
     </div>
   )
 }

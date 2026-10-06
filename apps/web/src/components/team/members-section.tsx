@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import {
+  leaveTeamPrompt,
+  promptActions,
+  removeMemberPrompt,
+} from "@/lib/prompts"
+import {
   Crown,
   LoaderCircle,
   Ellipsis,
@@ -14,16 +19,15 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   Dialog,
-  DialogCancel,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Prompt,
   Separator,
   UserAvatar,
   toast,
@@ -32,7 +36,7 @@ import { isPlanLimitError } from "@/lib/plan-limit-error"
 import type { User, TeamMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
-import { useTeamInvites } from "@/hooks/use-team-data"
+import { useTeamById, useTeamInvites } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -91,6 +95,7 @@ export function TeamMembersSection({
     status: PlaceholderStatus
   } | null>(null)
   const invites = useTeamInvites(teamId)
+  const team = useTeamById(teamId)
   const placeholders = useMemo(() => placeholderStatuses(invites), [invites])
 
   const handleUpdateRole = async (
@@ -118,6 +123,10 @@ export function TeamMembersSection({
       setRemoving(false)
     }
   }
+
+  const removeCopy = removeTarget?.isSelf
+    ? leaveTeamPrompt(team?.name ?? `this team`)
+    : removeMemberPrompt(removeTarget?.displayName ?? ``)
 
   return (
     <div>
@@ -314,39 +323,21 @@ export function TeamMembersSection({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !removing) setRemoveTarget(null)
+          if (!open) setRemoveTarget(null)
         }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>
-              {removeTarget?.isSelf ? `Leave team` : `Remove member`}
-            </DialogTitle>
-            <DialogDescription>
-              {removeTarget?.isSelf
-                ? `Leave this team? You lose access to its boards and issues immediately and need a new invite to rejoin.`
-                : `Remove ${removeTarget?.displayName} from the team? They lose access to its boards and issues immediately.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              disabled={removing}
-              onClick={() => setRemoveTarget(null)}
-            />
-            <Button
-              variant="destructive"
-              disabled={removing}
-              onClick={() => void handleRemove()}
-            >
-              {removing && <LoaderCircle className="animate-spin" />}
-              {removeTarget?.isSelf ? `Leave team` : `Remove`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={removing}
+        title={removeCopy.title}
+        body={removeCopy.body}
+        actions={promptActions(removeCopy, {
+          [removeTarget?.isSelf ? `leave` : `remove`]: {
+            busy: removing,
+            onSelect: handleRemove,
+          },
+        })}
+      />
     </div>
   )
 }

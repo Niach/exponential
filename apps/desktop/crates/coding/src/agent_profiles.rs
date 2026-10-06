@@ -23,7 +23,7 @@
 //! the one the heartbeat flags `active`. Last used = per agent, the login a
 //! PERSON last started or switched a run on, on that device
 //! (`agent_accounts[agent].profiles[].active`); the last used agent =
-//! `launch_defaults.defaultAgent`. Automations, workflow nodes, agent-started
+//! `launch_defaults.defaultAgent`. Triggered runs, agent-started
 //! runs and auto-rotation never move it. A launch naming no account runs on
 //! it; `account: "system"` names the ambient login. Only the launcher writes
 //! it ([`note_last_used`]), device-locally.
@@ -393,7 +393,7 @@ pub fn active_profile(data_dir: &Path, agent: CodingAgent) -> String {
 /// * An unnamed launch whose last used profile is provably SIGNED OUT
 ///   (`signed_out`, the doctor's account gate) falls through to the ambient
 ///   rules below instead of being refused: nobody picked that login, so
-///   every unpinned trigger and workflow node would die on it until a person
+///   every unpinned trigger and agent-started run would die on it until a person
 ///   started a run. A launch that NAMES a signed-out profile keeps it — the
 ///   gate refuses it by name.
 /// * `Some("system")` names the ambient login; a named custom profile is
@@ -510,7 +510,7 @@ pub fn set_ambient_hidden(data_dir: &Path, agent: CodingAgent, hidden: bool) -> 
 /// EXP-1158 — record `profile` as `agent`'s LAST USED login (`system`
 /// clears the pointer back to the ambient login). Called ONLY where a PERSON
 /// started or switched a run (`launcher::prepare`'s stamp, the desktop's
-/// mid-run switch): automations, workflow nodes, agent-started runs and
+/// mid-run switch): triggered runs, agent-started runs and
 /// auto-rotation never move it. Writes only on a change; an unknown profile
 /// is refused.
 pub fn note_last_used(data_dir: &Path, agent: CodingAgent, profile: &str) -> io::Result<()> {

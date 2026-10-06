@@ -17,12 +17,12 @@
     "android": "cd apps/android && ./gradlew :app:installProductionDebug && adb shell am start -n at.exponential/com.exponential.app.MainActivity",
 
     "dev": "bun --filter @exp/web dev",
-    "build": "bun --filter @exp/widget build && bun --filter @exp/web build && bun --filter @exp/marketing build",
+    "build": "bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build && bun --filter @exp/marketing build",
     "build:web": "bun --filter @exp/web build",
     "start": "bun --filter @exp/web start",
-    "test": "bun --filter @exp/domain-contract test && bun --filter @exp/ui --filter @exp/web test",
+    "test": "bun --filter @exp/domain-contract test && bun --filter @exp/ui --filter @exp/mcp-apps --filter @exp/web test",
     "test:e2e": "bun --filter @exp/web test:e2e",
-    "typecheck": "bun --filter @exp/ui --filter @exp/web --filter @exp/view-catalog --filter @exp/shots --filter @exp/styleguide typecheck",
+    "typecheck": "bun --filter @exp/ui --filter @exp/mcp-apps --filter @exp/web --filter @exp/view-catalog --filter @exp/shots --filter @exp/styleguide typecheck",
     "migrate": "bun --filter @exp/web migrate",
     "migrate:generate": "bun --filter @exp/web migrate:generate",
     "psql": "bun --filter @exp/web psql",
@@ -52,6 +52,7 @@
 
     "dev:widget": "bun --filter @exp/widget dev",
     "build:widget": "bun --filter @exp/widget build",
+    "build:mcp-apps": "bun --filter @exp/mcp-apps build",
     "test:widget": "bun --filter @exp/widget test",
 
     "dev:push-relay": "bun --filter @exp/push-relay dev",

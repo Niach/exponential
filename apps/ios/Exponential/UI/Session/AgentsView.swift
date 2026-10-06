@@ -248,54 +248,47 @@ struct AgentsView: View {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .alert(
-                    "Remove account?",
-                    isPresented: Binding(
-                        get: { removeAccountTarget != nil },
-                        set: { if !$0 { removeAccountTarget = nil } }
-                    ),
-                    presenting: removeAccountTarget
-                ) { target in
-                    Button("Cancel", role: .cancel) { removeAccountTarget = nil }
-                    Button("Remove", role: .destructive) {
-                        removeAccountTarget = nil
-                        viewModel?.removeAccount(target.row)
-                    }
-                } message: { target in
+                // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+                .glassAlert(item: $removeAccountTarget) { target in
                     // The pinned sentence ×4: it names the login and the
                     // machine, and says the account itself survives. EXP-1137:
                     // the ambient login's sentence says it is signed out on
                     // the machine (terminal CLI included) and hidden.
-                    Text(confirmCopy(forRemoving: target.row))
+                    GlassAlert(
+                        title: "Remove account?",
+                        message: confirmCopy(forRemoving: target.row),
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                            GlassAlertAction("Remove", role: .destructive, id: "remove") {
+                                viewModel?.removeAccount(target.row)
+                            },
+                        ]
+                    )
                 }
         )
         .background(
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .alert(
-                    "Sign out?",
-                    isPresented: Binding(
-                        get: { signOutAccountTarget != nil },
-                        set: { if !$0 { signOutAccountTarget = nil } }
-                    ),
-                    presenting: signOutAccountTarget
-                ) { target in
-                    Button("Cancel", role: .cancel) { signOutAccountTarget = nil }
-                    Button("Sign out", role: .destructive) {
-                        signOutAccountTarget = nil
-                        viewModel?.signOutAccount(target.row)
-                    }
-                } message: { target in
+                .glassAlert(item: $signOutAccountTarget) { target in
                     // EXP-1137: the pinned sentence ×4 — the machine's own
                     // login names the terminal CLI that signs out with it.
-                    Text(AgentAccountsRows.signOutConfirmCopy(
-                        account: AgentAccountsRows.loginLabel(target.row),
-                        device: confirmDeviceLabel(target.row),
-                        ambientAgentLabel: AgentAccountsRows.isAmbient(target.row.profileId)
-                            ? LaunchVocabulary.agentLabel(target.row.agent)
-                            : nil
-                    ))
+                    GlassAlert(
+                        title: "Sign out?",
+                        message: AgentAccountsRows.signOutConfirmCopy(
+                            account: AgentAccountsRows.loginLabel(target.row),
+                            device: confirmDeviceLabel(target.row),
+                            ambientAgentLabel: AgentAccountsRows.isAmbient(target.row.profileId)
+                                ? LaunchVocabulary.agentLabel(target.row.agent)
+                                : nil
+                        ),
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                            GlassAlertAction("Sign out", role: .destructive, id: "sign-out") {
+                                viewModel?.signOutAccount(target.row)
+                            },
+                        ]
+                    )
                 }
         )
     }

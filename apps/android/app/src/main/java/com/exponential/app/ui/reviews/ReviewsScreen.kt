@@ -21,12 +21,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +65,8 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.domain.Prompts
 
 /**
  * "Reviews" (EXP-131): the open pull requests across every member team
@@ -81,6 +81,8 @@ import com.exponential.app.ui.theme.glassCard
 fun ReviewsScreen(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    /** EXP-1194: an Agent runs row — the run's own PR on the Changes face. */
+    onOpenRunChanges: (sessionId: String) -> Unit,
     // EXP-825: a row's "Fix conflicts" navigates to the Agent page composer
     // on the builtin action with this PR pre-picked (EXP-323).
     onOpenAgent: (AgentComposerSeed) -> Unit,
@@ -97,6 +99,7 @@ fun ReviewsScreen(
             ReviewsListContent(
                 onOpenIssue = onOpenIssue,
                 onOpenChanges = onOpenChanges,
+                onOpenRunChanges = onOpenRunChanges,
                 onOpenAgent = onOpenAgent,
             )
         }
@@ -108,6 +111,7 @@ fun ReviewsScreen(
 private fun ReviewsListContent(
     onOpenIssue: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
+    onOpenRunChanges: (sessionId: String) -> Unit,
     onOpenAgent: (AgentComposerSeed) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ReviewsViewModel = hiltViewModel(),
@@ -179,6 +183,7 @@ private fun ReviewsListContent(
                         entry = entry,
                         failure = mergeErrors[entry.groupKey],
                         merging = entry.groupKey in merging,
+                        onClick = { onOpenRunChanges(entry.session.id) },
                         onMerge = { mergeRunTarget = entry },
                     )
                 }
@@ -216,27 +221,15 @@ private fun ReviewsListContent(
 
     mergeRunTarget?.let { entry ->
         // EXP-734: no issue is linked, so nothing is completed — say so.
-        val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
-        AlertDialog(
-            onDismissRequest = { mergeRunTarget = null },
-            title = { Text("Merge pull request?") },
-            text = {
-                Text(
-                    "Squash-merges $prLabel via the GitHub App. " +
-                        "Any live run for it ends.",
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.mergeRun(entry)
-                        mergeRunTarget = null
-                    },
-                ) { Text("Merge") }
-            },
-            dismissButton = {
-                TextButton(onClick = { mergeRunTarget = null }) { Text("Cancel") }
-            },
+        PromptAlert(
+            prompt = Prompts.MergeRunPr.prompt(entry.prNumber),
+            onDismiss = { mergeRunTarget = null },
+            handlers = mapOf(
+                "merge" to {
+                    viewModel.mergeRun(entry)
+                    mergeRunTarget = null
+                },
+            ),
         )
     }
 
@@ -290,8 +283,9 @@ private fun RunsHeader(teamName: String?) {
 }
 
 /**
- * One run's OWN pull request (EXP-734). There is no issue and so no Changes
- * face to open, so the row opens the PR on GitHub; merging goes through
+ * One run's OWN pull request (EXP-734). EXP-1194: the row opens OUR review of
+ * it — the Changes face fed by `codingSessions.prFiles` (GitHub sits in that
+ * screen's header), like an issue row opens its issue's; merging goes through
  * `codingSessions.mergePr` and completes nothing. No "Fix conflicts" here —
  * the recovery run takes an issue-linked PR as its input.
  */
@@ -300,20 +294,16 @@ private fun RunReviewRow(
     entry: RunReviewEntry,
     failure: MergeFailure?,
     merging: Boolean,
+    onClick: () -> Unit,
     onMerge: () -> Unit,
 ) {
-    val context = LocalContext.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .flatRow()
-                .clickable(enabled = entry.prUrl != null) {
-                    entry.prUrl?.let {
-                        CustomTabsIntent.Builder().build()
-                            .launchUrl(context, android.net.Uri.parse(it))
-                    }
-                }
+                .clickable(onClick = onClick)
+                .testTag("review-run-row")
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -568,19 +558,13 @@ private fun MergeConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val prLabel = entry.prNumber?.let { "PR #$it" } ?: "the pull request"
-    val message = buildString {
-        append("Squash-merges $prLabel via the GitHub App. Any live run for it ends.")
-        if (entry.isBatch) append(" Completes all ${entry.issues.size} linked issues.")
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Merge pull request?") },
-        text = { Text(message) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Merge") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    PromptAlert(
+        prompt = Prompts.MergeIssuePr.prompt(entry.prNumber, if (entry.isBatch) entry.issues.size else 1),
+        onDismiss = onDismiss,
+        handlers = mapOf("merge" to onConfirm),
     )
 }
+
 
 /** EXP-818: the Reviews scroller's row spacing. */
 private val REVIEW_ROW_GAP = 6.dp

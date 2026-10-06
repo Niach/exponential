@@ -1,8 +1,5 @@
-- GitHub: uma página guiada liga a sua conta GitHub, instala a app e lista os repositórios onde pode fazer push
-- Feedback: um envio do widget é um issue, responda a quem reportou a partir da caixa de comentários e as respostas regressam como comentários
-- Novo issue: criar um issue abre uma página completa com todas as propriedades, guardada como rascunho enquanto escreve
-- Navegação: separadores Inbox, Devices, Reviews, Agent e Actions; Reviews, execuções, ações e dispositivos mostram todas as suas equipas
-- Pull requests: o diff é a vista Changes do issue, Results lê-se como um guia numerado, Merge está na barra inferior
-- Runs: a marca do agente gira enquanto trabalha, âmbar espera por si, verde tem um pull request aberto, azul está concluído
-- Ecrã do issue: o título recolhe-se no cabeçalho ao deslizar e o conteúdo passa sob uma margem desfocada
-- Entrar numa equipa: o convite oferece o passo de configuração do dispositivo quando ainda não tem nenhum
+- Início: a app abre na página Agent e o botão de chat acende enquanto lá estiver
+- Separadores: Inbox, My Issues e Drafts mudam com um deslize para o lado, tal como Actions e Suggestions
+- Reviews: um pull request de uma execução de chat ou de ação abre as suas alterações na app
+- Runs: uma seta salta para a mensagem mais recente e a lista de tarefas mostra o seu progresso
+- Novo issue: um toque no × descarta um rascunho

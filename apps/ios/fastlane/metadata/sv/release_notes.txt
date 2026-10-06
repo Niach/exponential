@@ -1,8 +1,5 @@
-- GitHub: en guidad sida kopplar ditt GitHub-konto, installerar appen och listar de repositories du kan pusha till
-- Feedback: ett inskick från widgeten är ett issue, svara rapportören från kommentarsfältet och svaren kommer tillbaka som kommentarer
-- Nytt issue: att skapa ett issue öppnar en hel sida med alla egenskaper, sparad som utkast medan du skriver
-- Navigering: flikarna Inbox, Devices, Reviews, Agent och Actions; Reviews, körningar, åtgärder och enheter visar alla dina team
-- Pull requests: diffen är issuets Changes-vy, Results läses som en numrerad guide, Merge sitter i bottenfältet
-- Runs: agentens märke snurrar medan den arbetar, gul väntar på dig, grön har en öppen pull request, blå är klar
-- Issue-vy: titeln fälls in i sidhuvudet när du scrollar och innehållet glider in under en suddig kant
-- Gå med i ett team: inbjudan erbjuder steget för enhetsinställning när du ännu inte har någon enhet
+- Start: appen öppnas på Agent-sidan, och chattknappen lyser medan du är där
+- Flikar: Inbox, My Issues och Drafts byter du med ett svep åt sidan, och likaså Actions och Suggestions
+- Reviews: en pull request från en chatt- eller åtgärdskörning öppnar sina ändringar i appen
+- Runs: en pil hoppar till det senaste meddelandet och uppgiftslistan visar sina framsteg
+- Nytt issue: ett tryck på × kastar ett utkast

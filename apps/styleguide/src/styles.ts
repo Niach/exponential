@@ -367,13 +367,15 @@ body.actual figure.shot img { max-height: none; max-width: none; }
    SIDE, which is the whole point of that entry, and needs two 14rem columns. */
 .view.component[data-view="tokens-icons"] .cmp-demo { width: min(100%, 880px); }
 .view.component[data-view="combobox"] .cmp-demo { width: min(100%, 620px); }
-/* The two dialog entries draw the panel at the product's own width: the
-   dialog's max-w-lg (32rem), the alert dialog's max-w-md (28rem), in the
+/* The dialog entries draw the panel at the product's own width: the
+   dialog's max-w-lg (32rem), the Prompt card's max-w-md (28rem), in the
    package's rem, plus this canvas's padding and border. In the phone-width
    canvas the footer and the graph overflowed a panel the product never
    draws that narrow. */
-.view.component[data-view="blocked-start-dialog"] .cmp-demo { width: min(100%, calc(32rem + 42px)); }
-.view.component[data-view="stack-merge-choice-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
+.view.component[data-view="blocked-start-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
+.view.component[data-view="stack-merge-choice-dialog"] .cmp-demo { width: min(100%, calc(32rem + 42px)); }
+.view.component[data-view="prompt"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
+.view.component[data-view="draft-leave-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
 .cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
 .cmp-status th {
   width: 64px;

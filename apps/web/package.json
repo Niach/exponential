@@ -37,6 +37,7 @@
     "@exp/domain-contract": "workspace:*",
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
+    "@exp/mcp-apps": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",

@@ -165,9 +165,10 @@ export function LaunchComposer({
               key={suggestion}
               size="sm"
               mode="action"
+              className="max-w-full"
               onClick={() => insertSuggestion(fieldRef.current, suggestion)}
             >
-              {suggestion}
+              <span className="truncate">{suggestion}</span>
             </Pill>
           ))}
         </div>

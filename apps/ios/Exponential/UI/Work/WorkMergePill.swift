@@ -24,6 +24,8 @@ struct WorkMergePill: View {
     let prIssues: [IssueEntity]
     /// Remote start is on — the recovery run can be launched.
     let steerEnabled: Bool
+    /// A `.session` target's own PR number, for the confirm's title.
+    var runPrNumber: Int?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -54,35 +56,38 @@ struct WorkMergePill: View {
             case .circle: circle
             }
         }
-        .alert("Merge pull request?", isPresented: $showMergeConfirm) {
-            Button("Merge", role: .destructive) { merge() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            // EXP-734: a run's OWN pull request links no issue, so promising
-            // completed issues would be a lie.
-            if case .session = target {
-                Text("Merges this run's pull request and ends the run.")
-            } else if let number = issue?.prNumber {
-                Text("Squash-merges PR #\(number), completes every linked issue, and ends any live run for it.")
-            } else {
-                Text("Merges the pull request, completes every linked issue, and ends the run.")
-            }
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(isPresented: $showMergeConfirm) {
+            GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
         }
-        .confirmationDialog(
-            PrStack.stackMergeChoiceTitle,
-            isPresented: Binding(
-                get: { stackChoice != nil },
-                set: { if !$0 { stackChoice = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: stackChoice
-        ) { choice in
-            Button(PrStack.mergeStackLabel) { mergeStack(issueId: choice.topIssueId) }
-            Button(PrStack.mergeThisPrLabel) { mergeThis(choice) }
-            Button(PrStack.stackMergeCancelLabel, role: .cancel) {}
-        } message: { choice in
-            Text(choice.body)
+        // EXP-1145: the stack dialog, its copy byte-locked by the
+        // `stack-merge-choice.json` fixture.
+        .glassAlert(item: $stackChoice) { choice in
+            GlassAlert(
+                title: PrStack.stackMergeChoiceTitle,
+                message: choice.body,
+                actions: [
+                    GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, id: "cancel") {},
+                    GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
+                        mergeThis(choice)
+                    },
+                    GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
+                        mergeStack(issueId: choice.topIssueId)
+                    },
+                ]
+            )
         }
+    }
+
+    /// EXP-734: a run's OWN pull request links no issue (`merge-run-pr`);
+    /// an issue's names how many issues it covers (a batch shares one PR).
+    private var mergePrompt: PromptCopy {
+        if case .session = target {
+            return Prompts.MergeRunPr.copy(number: runPrNumber)
+        }
+        let url = issue?.prUrl
+        let linked = url.map { url in prIssues.filter { $0.prUrl == url }.count } ?? 0
+        return Prompts.MergeIssuePr.copy(number: issue?.prNumber, issueCount: max(1, linked))
     }
 
     private var pill: some View {

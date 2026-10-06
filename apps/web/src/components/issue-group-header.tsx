@@ -1,8 +1,11 @@
 import type { CSSProperties, ReactNode } from "react"
 
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
-import { type IssueStatus } from "@/lib/domain"
-import { IssueGroupBand, hexWithAlpha } from "@exp/ui"
+import {
+  BUILTIN_STATUS_WASH_CLASS,
+  IssueGroupBand,
+  hexWithAlpha,
+} from "@exp/ui"
 import type { StatusRowOption } from "@/lib/team-statuses"
 
 // EXP-862: ONE issue group band on the web. The board's big list and the
@@ -16,28 +19,16 @@ import type { StatusRowOption } from "@/lib/team-statuses"
 // DATA half — it resolves a team status row into the band's glyph and wash,
 // the way `components/issue-chip.tsx` does for `IssueChip`.
 
-// Status-tinted washes — the Tailwind palette colors the old rgba literals
-// encoded (zinc-500/zinc-300/yellow-500/green-500/blue-500), matching the
-// status icon hues in lib/domain.ts. EXP-314: BUILTIN rows keep these exact
-// classes (keyed on the builtin key, so the default team's headers are
-// byte-identical to before); CUSTOM rows get a 10%-alpha inline wash from
-// their own hex.
-const statusHeaderBg: Record<IssueStatus, string> = {
-  backlog: `bg-zinc-500/10`,
-  in_progress: `bg-yellow-500/10`,
-  in_review: `bg-green-500/10`,
-  done: `bg-blue-500/10`,
-  cancelled: `bg-zinc-500/10`,
-  duplicate: `bg-zinc-500/10`,
-}
-
+// Status-tinted washes: BUILTIN rows keep the package's exact classes (keyed
+// on the builtin key, so the default team's headers are byte-identical to
+// before, EXP-314); CUSTOM rows get a 10%-alpha inline wash from their own hex.
 type Wash = { className: string; style?: CSSProperties }
 
 /** The band's fill for a status row — its builtin class, or a 10%-alpha wash
  *  off a custom row's own hex. */
 export function statusGroupWash(status: StatusRowOption): Wash {
   if (status.builtinKey) {
-    return { className: statusHeaderBg[status.builtinKey] ?? `bg-zinc-500/10` }
+    return { className: BUILTIN_STATUS_WASH_CLASS[status.builtinKey] ?? `bg-zinc-500/10` }
   }
   return {
     className: ``,

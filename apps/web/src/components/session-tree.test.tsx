@@ -105,18 +105,6 @@ describe(`SessionTree (EXP-996)`, () => {
     expect(screen.getByTestId(`session-row-I2`)).toBeTruthy()
   })
 
-  it(`dots an open question`, () => {
-    draw([
-      row(`a1`),
-      row(`a2`, {
-        pendingQuestion: { question: `Ship it?`, askedAt: `2026-09-01T11:00:00Z` },
-        createdAt: new Date(`2026-09-01T11:00:00Z`),
-        updatedAt: new Date(`2026-09-01T11:00:00Z`),
-      }),
-    ])
-    expect(screen.getAllByLabelText(`Needs you`)).toHaveLength(1)
-  })
-
   it(`renders the empty note when nothing is listed`, () => {
     render(<SessionTree rows={[]} onOpen={() => {}} emptyNote="Nothing yet." />)
     expect(screen.getByText(`Nothing yet.`)).toBeTruthy()

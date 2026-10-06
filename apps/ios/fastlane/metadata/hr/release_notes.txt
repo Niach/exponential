@@ -1,8 +1,5 @@
-- GitHub: jedna vođena stranica povezuje vaš GitHub račun, instalira aplikaciju i prikazuje repozitorije u koje možete pushati
-- Povratne informacije: prijava iz widgeta je issue, prijavitelju odgovarate iz polja za komentare, a njegovi odgovori vraćaju se kao komentari
-- Novi issue: stvaranje otvara cijelu stranicu sa svim svojstvima, koja se sprema kao skica dok pišete
-- Navigacija: kartice Inbox, Devices, Reviews, Agent i Actions; Reviews, pokretanja, akcije i uređaji prikazuju sve vaše timove
-- Pull requestovi: diff je prikaz Changes na issueu, Results se čita kao numerirani vodič, Merge je na donjoj traci
-- Runs: oznaka agenta vrti se dok radi, narančasta čeka vas, zelena ima otvoren pull request, plava je gotova
-- Zaslon issuea: naslov se pri pomicanju sklapa u zaglavlje, a sadržaj klizi ispod zamućenog ruba
-- Pridruživanje timu: pozivnica nudi korak postavljanja uređaja ako još nemate uređaj
+- Početak: aplikacija se otvara na stranici Agent, a gumb za chat svijetli dok ste ondje
+- Kartice: Inbox, My Issues i Drafts mijenjaju se povlačenjem u stranu, a jednako tako Actions i Suggestions
+- Reviews: pull request iz pokretanja chata ili akcije otvara svoje promjene u aplikaciji
+- Runs: strelica skače na najnoviju poruku, a popis zadataka prikazuje svoj napredak
+- Novi issue: jedan dodir na × odbacuje skicu

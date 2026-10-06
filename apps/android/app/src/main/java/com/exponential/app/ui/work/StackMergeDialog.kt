@@ -1,13 +1,9 @@
 package com.exponential.app.ui.work
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import com.exponential.app.domain.PrStack
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 
 /**
  * EXP-1145: the stack merge dialog every plain Merge control on a PR-stack
@@ -16,6 +12,8 @@ import com.exponential.app.domain.PrStack
  * the issue the server merges the chain THROUGH: the top member for Merge
  * stack, the merged issue for Merge this pull request above the bottom; the
  * bottom member's Merge this pull request is the plain [onMergePlain].
+ * EXP-1215: the shared [GlassAlert] card, Cancel · Merge this pull request ·
+ * Merge stack (primary, the default); the row stacks when it cannot fit.
  */
 @Composable
 fun StackMergeDialog(
@@ -25,30 +23,30 @@ fun StackMergeDialog(
     onMergePlain: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(PrStack.STACK_MERGE_CHOICE_TITLE) },
-        text = { Text(choice.body) },
-        confirmButton = {
-            TextButton(
+    GlassAlert(
+        title = PrStack.STACK_MERGE_CHOICE_TITLE,
+        body = choice.body,
+        onDismiss = onDismiss,
+        trailing = listOf(
+            GlassAlertAction(PrStack.STACK_MERGE_CANCEL_LABEL, onClick = onDismiss),
+            GlassAlertAction(
+                PrStack.MERGE_THIS_PR_LABEL,
+                testTag = "merge-this-pr",
+                onClick = {
+                    onDismiss()
+                    if (choice.position > 1) onMergeStack(issueId) else onMergePlain()
+                },
+            ),
+            GlassAlertAction(
+                PrStack.MERGE_STACK_LABEL,
+                primary = true,
+                testTag = "merge-stack",
                 onClick = {
                     onDismiss()
                     onMergeStack(choice.topIssueId)
                 },
-                modifier = Modifier.testTag("merge-stack"),
-            ) { Text(PrStack.MERGE_STACK_LABEL) }
-        },
-        dismissButton = {
-            Row {
-                TextButton(
-                    onClick = {
-                        onDismiss()
-                        if (choice.position > 1) onMergeStack(issueId) else onMergePlain()
-                    },
-                    modifier = Modifier.testTag("merge-this-pr"),
-                ) { Text(PrStack.MERGE_THIS_PR_LABEL) }
-                TextButton(onClick = onDismiss) { Text(PrStack.STACK_MERGE_CANCEL_LABEL) }
-            }
-        },
+            ),
+        ),
+        defaultAction = 2,
     )
 }

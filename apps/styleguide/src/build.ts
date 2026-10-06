@@ -12,6 +12,7 @@ import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
 import { compileUiCss } from "@exp/ui/island"
+import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 
 import { COMPONENTS } from "./components.tsx"
 import { renderHtml } from "./render.ts"
@@ -26,7 +27,10 @@ async function build(): Promise<void> {
   // `base` is THIS directory so the Tailwind scanner sees the island fixtures
   // in `components.tsx`; the package's own `@source` pulls in every component
   // it renders. One compile per build, ~1s.
-  const uiCss = await compileUiCss({ base: import.meta.dir })
+  const uiCss = await compileUiCss({
+    base: import.meta.dir,
+    sources: [MCP_APPS_CSS_SOURCE],
+  })
 
   rmSync(distDir, { recursive: true, force: true })
   mkdirSync(distDir, { recursive: true })

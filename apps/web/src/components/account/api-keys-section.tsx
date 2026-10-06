@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Check, Copy } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import {
   Button,
   Pill,
@@ -16,6 +17,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Prompt,
 } from "@exp/ui"
 
 type ApiKeyRow = Awaited<
@@ -140,6 +142,13 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   }
 
   const revokeIsSession = revokeTarget !== null && isDeviceKey(revokeTarget)
+  const revokeCopy =
+    revokeTarget && revokeIsSession
+      ? WEB_PROMPTS.disconnectDeviceKey(deviceName(revokeTarget))
+      : WEB_PROMPTS.revokeApiKey(
+          revokeTarget?.name || `Personal key`,
+          revokeTarget ? keyPreview(revokeTarget) : ``
+        )
 
   return (
     <div className="space-y-6">
@@ -294,63 +303,21 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Prompt
         open={revokeTarget !== null}
         onOpenChange={(open) => {
           if (!open) setRevokeTarget(null)
         }}
-      >
-        <DialogContent mobile="alert">
-          <DialogHeader>
-            <DialogTitle>
-              {revokeIsSession ? `Disconnect device` : `Revoke API key`}
-            </DialogTitle>
-            <DialogDescription>
-              {revokeIsSession
-                ? `Disconnects this device's coding runs and their MCP wiring. The device stays signed in and mints a new key the next time it signs in or regenerates.`
-                : `Anything still using this key stops working immediately. This cannot be undone.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody>
-            <p className="text-sm">
-              <span className="font-medium">
-                {revokeTarget
-                  ? revokeIsSession
-                    ? deviceName(revokeTarget)
-                    : revokeTarget.name || `Personal key`
-                  : ``}
-              </span>
-              {!revokeIsSession && revokeTarget && (
-                <>
-                  {` `}
-                  <code className="text-xs text-muted-foreground">
-                    {keyPreview(revokeTarget)}
-                  </code>
-                </>
-              )}
-            </p>
-          </DialogBody>
-          <DialogFooter>
-            <DialogCancel
-              variant="outline"
-              onClick={() => setRevokeTarget(null)}
-            />
-            <Button
-              variant="destructive"
-              onClick={() => void handleRevoke()}
-              disabled={revoking}
-            >
-              {revoking
-                ? revokeIsSession
-                  ? `Disconnecting…`
-                  : `Revoking…`
-                : revokeIsSession
-                  ? `Disconnect`
-                  : `Revoke key`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={revoking}
+        title={revokeCopy.title}
+        body={revokeCopy.body}
+        actions={promptActions(revokeCopy, {
+          [revokeIsSession ? `disconnect` : `revoke`]: {
+            busy: revoking,
+            onSelect: () => handleRevoke(),
+          },
+        })}
+      />
     </div>
   )
 }

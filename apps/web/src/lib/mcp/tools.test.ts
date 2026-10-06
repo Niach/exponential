@@ -50,6 +50,8 @@ const h = vi.hoisted(() => {
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     steer: { killSession: vi.fn(), startSession: vi.fn() },
+    // EXP-1199: the device commands behind devices_account_login.
+    devices: { createCommand: vi.fn(), getCommand: vi.fn() },
   }
 
   // A chainable, thenable drizzle query stub. Every builder method returns the
@@ -5208,6 +5210,47 @@ describe(`exponential_devices_list`, () => {
   })
 })
 
+// EXP-1199: a sign-in on the user's own machine is no team's or board's to
+// grant, so only a full-access connection may queue one.
+describe(`exponential_devices_account_login`, () => {
+  const args = { deviceId: `mac-1`, agent: `claude`, code: `abc#123` }
+
+  it(`refuses a grant-scoped token before any device command`, async () => {
+    const result = await collectTools(
+      USER,
+      null,
+      ALL_MCP_TOOL_GATES,
+      SCOPED_TO_WS
+    ).get(`exponential_devices_account_login`)!(args)
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not granted access`)
+    expect(db.select).not.toHaveBeenCalled()
+    expect(caller.devices.createCommand).not.toHaveBeenCalled()
+    expect(caller.devices.getCommand).not.toHaveBeenCalled()
+  })
+
+  it(`queues the command for a full-access connection`, async () => {
+    caller.devices.createCommand.mockResolvedValue({ id: UUID })
+    caller.devices.getCommand.mockResolvedValue({
+      id: UUID,
+      kind: `agent_login_code`,
+      status: `done`,
+      result: null,
+    })
+    const result = await tool(`exponential_devices_account_login`)(args)
+    expect(parseOk(result)).toMatchObject({
+      status: `signing_in`,
+      commandId: UUID,
+    })
+    expect(caller.devices.createCommand).toHaveBeenCalledWith({
+      deviceId: `mac-1`,
+      kind: `agent_login_code`,
+      agent: `claude`,
+      code: `abc#123`,
+    })
+  })
+})
+
 describe(`exponential_sessions_start`, () => {
   const startedRow = { id: RUN, status: `running`, issueId: UUID, deviceId: `mac-1` }
 
@@ -5844,5 +5887,38 @@ describe(`exponential_sessions_ask_parent — targets`, () => {
       PARENT,
       `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} asks — reply with exponential_sessions_message sessionId=${SESSION}] Which env?`
     )
+  })
+})
+
+describe(`MCP Apps bindings (EXP-1212)`, () => {
+  function uiBoundTools(sessionId: string | null): string[] {
+    const bound: string[] = []
+    const fakeServer = {
+      registerTool: (name: string, def: { _meta?: { ui?: unknown } }) => {
+        if (def._meta?.ui) bound.push(name)
+      },
+    }
+    registerExponentialTools(
+      fakeServer as never,
+      USER,
+      new Request(`https://x.test/api/mcp`),
+      FULL_ACCESS,
+      sessionId
+    )
+    return bound.sort()
+  }
+
+  it(`binds the views for an external caller`, () => {
+    expect(uiBoundTools(null)).toEqual([
+      `exponential_devices_list`,
+      `exponential_issues_show`,
+      `exponential_notifications_list`,
+      `exponential_sessions_get`,
+      `exponential_sessions_list`,
+    ])
+  })
+
+  it(`binds none inside a coding run`, () => {
+    expect(uiBoundTools(SESSION)).toEqual([])
   })
 })

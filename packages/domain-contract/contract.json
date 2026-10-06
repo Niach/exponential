@@ -663,6 +663,17 @@
         "result": "comment"
       },
       {
+        "name": "devices_account_login",
+        "title": "Sign in agent account",
+        "blurb": "Signs a Claude or Codex account in on one of your machines.",
+        "progressive": "Signing in account",
+        "done": "Signed in account",
+        "progressiveMany": "Signing in {n} accounts",
+        "doneMany": "Signed in {n} accounts",
+        "subjectKey": "deviceId",
+        "result": "none"
+      },
+      {
         "name": "devices_list",
         "title": "List devices",
         "blurb": "Lists the machines that can run coding sessions for you.",
@@ -804,6 +815,17 @@
         "doneMany": "Read PR files {n} times",
         "subjectKey": "id",
         "result": "none"
+      },
+      {
+        "name": "issues_show",
+        "title": "Show issues",
+        "blurb": "Shows issues as an interactive list where the client renders apps.",
+        "progressive": "Showing issues",
+        "done": "Showed issues",
+        "progressiveMany": "Showing issues {n} times",
+        "doneMany": "Showed issues {n} times",
+        "subjectKey": "",
+        "result": "list"
       },
       {
         "name": "issues_subscribe",
@@ -1345,6 +1367,7 @@
       { "name": "comments_delete", "refs": "" },
       { "name": "comments_list", "refs": "list:comment@ issue@$issueId" },
       { "name": "comments_update", "refs": "comment@ issue@" },
+      { "name": "devices_account_login", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "invites_create", "refs": "invite@invite" },
       { "name": "invites_list", "refs": "list:invite@" },
@@ -1358,6 +1381,7 @@
       { "name": "issues_get", "refs": "issue@" },
       { "name": "issues_list", "refs": "list:issue@" },
       { "name": "issues_pr_files", "refs": "issue@$issueId" },
+      { "name": "issues_show", "refs": "list:issue@" },
       { "name": "issues_subscribe", "refs": "issue@" },
       { "name": "issues_unsubscribe", "refs": "issue@" },
       { "name": "issues_update", "refs": "issue@" },

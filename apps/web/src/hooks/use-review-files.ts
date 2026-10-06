@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
-import type { Issue } from "@/db/schema"
+import type { CodingSession, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 
 // EXP-706: the review's file list is fetched by the caller, not by the diff
@@ -26,32 +26,61 @@ export function useReviewFiles(
   issue: Pick<Issue, `id` | `prNumber`> | null,
   options: { enabled?: boolean } = {}
 ) {
-  const enabled = options.enabled ?? true
   const issueId = issue?.id ?? null
   const hasPr = issue?.prNumber != null
+  const fetchFiles = useCallback(
+    (id: string): Promise<DiffFile[] | null> =>
+      hasPr
+        ? trpc.issues.prFiles
+            .query({ issueId: id })
+            .then((res) => res.files.map(fromPullFile))
+        : trpc.repositories.branchDiff
+            .query({ issueId: id })
+            .then((res) => res?.files.map(fromPullFile) ?? null),
+    [hasPr]
+  )
+  return useFilesState(issueId, options.enabled ?? true, fetchFiles)
+}
+
+/** EXP-1194: the PR files of a RUN with no issue to key them on (a chat or
+ *  action run's chore PR, `codingSessions.prFiles`). Same states; no PR = no
+ *  branch-diff tier (a run's PR is stamped by `pr_open`). */
+export function useSessionPrFiles(
+  session: Pick<CodingSession, `id` | `prUrl`> | null,
+  options: { enabled?: boolean } = {}
+) {
+  const sessionId = session?.prUrl ? session.id : null
+  const fetchFiles = useCallback(
+    (id: string): Promise<DiffFile[] | null> =>
+      trpc.codingSessions.prFiles
+        .query({ sessionId: id })
+        .then((res) => (res.prNumber == null ? null : res.files.map(fromPullFile))),
+    []
+  )
+  return useFilesState(sessionId, options.enabled ?? true, fetchFiles)
+}
+
+function useFilesState(
+  key: string | null,
+  enabled: boolean,
+  fetchFiles: (key: string) => Promise<DiffFile[] | null>
+) {
   const [state, setState] = useState<ReviewFilesState>({ kind: `loading` })
   // EXP-1154: the route is reused across issues, so another issue's files
   // must never outlive a param change, even while the fetch is disabled
   // (issue B's Guide counting off A's files). Reset during render, before
   // anyone reads the stale state.
-  const [stateFor, setStateFor] = useState(issueId)
-  if (stateFor !== issueId) {
-    setStateFor(issueId)
+  const [stateFor, setStateFor] = useState(key)
+  if (stateFor !== key) {
+    setStateFor(key)
     setState({ kind: `loading` })
   }
 
   const load = useCallback(() => {
-    if (!issueId || !enabled) return
+    if (!key || !enabled) return
     let cancelled = false
     setState({ kind: `loading` })
-    const request: Promise<DiffFile[] | null> = hasPr
-      ? trpc.issues.prFiles
-          .query({ issueId })
-          .then((res) => res.files.map(fromPullFile))
-      : trpc.repositories.branchDiff
-          .query({ issueId })
-          .then((res) => res?.files.map(fromPullFile) ?? null)
-    request
+    fetchFiles(key)
       .then((files) => {
         if (cancelled) return
         setState(files ? { kind: `files`, files } : { kind: `none` })
@@ -66,7 +95,7 @@ export function useReviewFiles(
     return () => {
       cancelled = true
     }
-  }, [issueId, hasPr, enabled])
+  }, [key, enabled, fetchFiles])
 
   useEffect(() => load(), [load])
 

@@ -126,11 +126,13 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`device-settings`]: `Surfaces`,
   [`blocked-start-dialog`]: `Surfaces`,
   [`stack-merge-choice-dialog`]: `Surfaces`,
+  [`draft-leave-dialog`]: `Surfaces`,
   [`readiness-checklist`]: `Surfaces`,
   [`device-readiness`]: `Surfaces`,
   toast: `Feedback`,
   [`session-tree`]: `Lists & rows`,
   [`results-guide`]: `Lists & rows`,
+  [`mcp-app-views`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
 }

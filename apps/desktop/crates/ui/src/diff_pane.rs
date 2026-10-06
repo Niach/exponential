@@ -58,6 +58,13 @@ pub(crate) const FILE_LIST_WIDTH: f32 = 216.;
 /// EXP-916: one level of nesting in the file tree.
 const TREE_INDENT: f32 = 12.;
 
+/// The gap between the tree column and the diff column.
+const TREE_GAP: f32 = 8.;
+
+/// The narrowest diff column the tree may leave beside itself: under it the
+/// tree goes and the diff takes the whole pane.
+const MIN_DIFF_COLUMN_W: f32 = 640.;
+
 /// One row of the pane's file list — the shared file-row anatomy (status
 /// letter · basename · dimmed dir · `+N −M`), which the transcript's per-turn
 /// file card renders too ([`file_row`]).
@@ -112,12 +119,6 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     pub(crate) files: Vec<PaneFile>,
     /// The file the tree highlights (an index into `files`).
     pub(crate) selected: usize,
-    /// EXP-916: whether the pane draws the file tree BESIDE its column.
-    /// `false` where the window's left column carries it instead — the
-    /// review screen ([`crate::review_files_nav`]), whose tree sits in the
-    /// sidebar like every other detail's context. The selection, the filter
-    /// and the folds are still the host's, whichever side paints them.
-    pub(crate) tree: bool,
     /// The `Filter files` field's state. `None` = no filter on this surface.
     pub(crate) filter: Option<Entity<InputState>>,
     /// The directories the reader FOLDED. Every directory is open by
@@ -127,6 +128,11 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     /// A failure line over the diff (the issue's merge/close refusal).
     pub(crate) caption: Option<SharedString>,
     pub(crate) diff: Entity<crate::diff::DiffView>,
+    /// The host's probe of the pane's own painted width (0 before the first
+    /// paint). The pane writes it and reads it back for [`fits_tree`]: the
+    /// tree is gated on the room the PANE has, never the window's — a second
+    /// sidebar beside it takes its share first (EXP-1192).
+    pub(crate) pane_width: std::rc::Rc<std::cell::Cell<f32>>,
     pub(crate) on_pick: PickFile<V>,
     pub(crate) on_toggle_dir: ToggleDir<V>,
 }
@@ -216,18 +222,9 @@ impl domain::diff_tree::DiffTreeRow for PaneFile {
     }
 }
 
-/// EXP-916: where the tree is painted — a glass CARD beside the diff column
-/// (the pane's own tree, [`FILE_LIST_WIDTH`] wide) or the bare PANEL that
-/// fills the window's left column ([`crate::review_files_nav`]), whose
-/// chrome is the column's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TreeChrome {
-    Card,
-    Panel,
-}
-
-/// EXP-916 — the file TREE column: the summary, the `Filter files` field and
-/// the tree itself ([`domain::diff_tree::diff_file_tree`], the ×4 mirror).
+/// EXP-916 — the file TREE column, a glass card [`FILE_LIST_WIDTH`] wide
+/// beside the diff column: the summary, the `Filter files` field and the tree
+/// itself ([`domain::diff_tree::diff_file_tree`], the ×4 mirror).
 ///
 /// Directories carry their subtree's counts and are OPEN unless the reader
 /// folded them (`folded`, keyed by the node's path); a non-blank query turns
@@ -242,7 +239,6 @@ pub(crate) fn file_tree<V: Render>(
     folded: &HashSet<String>,
     on_pick: PickFile<V>,
     on_toggle_dir: ToggleDir<V>,
-    chrome: TreeChrome,
     window: &Window,
     cx: &mut Context<V>,
 ) -> AnyElement {
@@ -255,15 +251,9 @@ pub(crate) fn file_tree<V: Render>(
         .map(|state| state.read(cx).value().to_string())
         .unwrap_or_default();
     let nodes = diff_file_tree(files, &query);
-    let shell = match chrome {
-        TreeChrome::Card => crate::surface::glass_card()
-            .w(px(FILE_LIST_WIDTH))
-            .flex_shrink_0(),
-        // The panel's chrome is the left column's: no card stroke, the
-        // full width and height of the slot.
-        TreeChrome::Panel => v_flex().size_full(),
-    };
-    let mut card = shell
+    let mut card = crate::surface::glass_card()
+        .w(px(FILE_LIST_WIDTH))
+        .flex_shrink_0()
         .id("diff-file-tree")
         .min_w_0()
         .overflow_hidden()
@@ -276,13 +266,6 @@ pub(crate) fn file_tree<V: Render>(
                 .px_2p5()
                 .py_2()
                 .text_xs()
-                // The panel's summary is a section band (web: `bg-glass-section`
-                // over a hairline) — the card's is its own top edge already.
-                .when(chrome == TreeChrome::Panel, |row| {
-                    row.bg(theme::tokens::glass::FILL_SECTION.to_hsla())
-                        .border_b_1()
-                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                })
                 .child(
                     div()
                         .flex_1()
@@ -452,9 +435,10 @@ fn dir_row(
 /// EXP-877/EXP-895/EXP-916 — the pane: the file TREE and the shared [`crate::diff::DiffView`], whose
 /// column is centred at [`crate::work_header::WORK_COLUMN_W`].
 ///
-/// The tree only appears where the window has room for it BESIDE that column
-/// — on a narrow window the diff keeps the full width and the file list would
-/// have taken it, so a phone-width desktop window reads like the phone does.
+/// The tree only appears where the PANE has room for it beside a diff column
+/// of at least [`MIN_DIFF_COLUMN_W`] — on a narrow pane (a small window, or a
+/// second sidebar beside it) the diff keeps the full width the file list
+/// would have taken, so a phone-width pane reads like the phone does.
 pub(crate) fn render<V: Render>(
     spec: DiffPaneSpec<V>,
     window: &Window,
@@ -463,15 +447,29 @@ pub(crate) fn render<V: Render>(
     let DiffPaneSpec {
         files,
         selected,
-        tree,
         filter,
         folded_dirs,
         caption,
         diff,
+        pane_width,
         on_pick,
         on_toggle_dir,
     } = spec;
-    let tree = (tree && fits_tree(window)).then(|| {
+    let recorded = pane_width.get();
+    // Unmeasured first frame: the card's width with no second sidebar. The
+    // probe below corrects it one frame later.
+    let available = if recorded > 1. {
+        recorded
+    } else {
+        crate::shell::window_extent(window)
+            - crate::shell::left_column_width_for(
+                crate::shell::LeftOccupant::Rail,
+                crate::shell::window_extent(window),
+            )
+            - 2. * crate::shell::PANEL_MARGIN
+    };
+    let shows_tree = fits_tree(available);
+    let tree = shows_tree.then(|| {
         file_tree(
             &files,
             selected,
@@ -479,7 +477,6 @@ pub(crate) fn render<V: Render>(
             &folded_dirs,
             on_pick,
             on_toggle_dir,
-            TreeChrome::Card,
             window,
             cx,
         )
@@ -505,18 +502,32 @@ pub(crate) fn render<V: Render>(
                 .child(message)
         }))
         .child(div().flex_1().min_h_0().w_full().min_w_0().child(diff));
+    let host = cx.entity_id();
     v_flex()
         .size_full()
         .min_w_0()
         .items_center()
         .overflow_hidden()
+        // The pane's own painted width (its one `w_full` child), read back
+        // by the next frame's tree gate. Only a width that FLIPS the gate
+        // repaints the host.
+        .on_children_prepainted(move |bounds: Vec<gpui::Bounds<gpui::Pixels>>, _, cx| {
+            let Some(first) = bounds.first() else {
+                return;
+            };
+            let width = f32::from(first.size.width);
+            pane_width.set(width);
+            if width > 1. && fits_tree(width) != shows_tree {
+                cx.notify(host);
+            }
+        })
         .child(
             h_flex()
                 .w_full()
                 .h_full()
                 .min_w_0()
                 .justify_center()
-                .gap_2()
+                .gap(px(TREE_GAP))
                 .items_start()
                 .children(tree)
                 .child(column),
@@ -524,11 +535,12 @@ pub(crate) fn render<V: Render>(
         .into_any_element()
 }
 
-/// Whether the window is wide enough for the work column AND the tree beside
-/// it. Below that the diff keeps the whole width.
-fn fits_tree(window: &Window) -> bool {
-    f32::from(window.viewport_size().width)
-        >= crate::work_header::WORK_COLUMN_W + FILE_LIST_WIDTH + 2. * TREE_INDENT
+/// Whether a pane `pane_width` wide holds the tree AND a diff column of at
+/// least [`MIN_DIFF_COLUMN_W`] beside it. Below that the diff keeps the whole
+/// width. The width is the PANE's own (the card less any second sidebar),
+/// never the window's (EXP-1192).
+fn fits_tree(pane_width: f32) -> bool {
+    pane_width >= FILE_LIST_WIDTH + TREE_GAP + MIN_DIFF_COLUMN_W
 }
 
 #[cfg(test)]
@@ -580,13 +592,30 @@ mod tests {
         assert!(diff_file_tree(&files, "nothing here").is_empty());
     }
 
-    /// EXP-916: the tree needs the work column PLUS its own beside it — a
-    /// narrower window gives the diff the whole width instead.
+    /// EXP-916/EXP-1192: the tree needs its own column PLUS a sane diff
+    /// column beside it, measured on the PANE — a narrower pane gives the
+    /// diff the whole width instead.
     #[test]
-    fn the_tree_column_needs_room_beside_the_work_column() {
+    fn the_tree_column_needs_room_beside_the_diff_column() {
         assert_eq!(FILE_LIST_WIDTH, 216.);
         assert_eq!(TREE_INDENT, 12.);
-        assert!(FILE_LIST_WIDTH + crate::work_header::WORK_COLUMN_W > crate::work_header::WORK_COLUMN_W);
+        let threshold = FILE_LIST_WIDTH + TREE_GAP + MIN_DIFF_COLUMN_W;
+        assert_eq!(threshold, 864.);
+        assert!(fits_tree(threshold));
+        assert!(!fits_tree(threshold - 1.));
+        assert!(!fits_tree(0.));
+        // The card of a window `w` wide: less the fixed rail and the panel
+        // margins, less a second sidebar when one is open.
+        let rail = crate::resize_edge::SidebarPanel::Main.default_width();
+        let card = |w: f32| w - rail - 2. * crate::shell::PANEL_MARGIN;
+        let side = crate::resize_edge::SidebarPanel::List.default_width();
+        // A 1280 window: the tree beside a full card, never beside a second
+        // sidebar (the diff column would be left ~400px).
+        assert!(fits_tree(card(1280.)));
+        assert!(!fits_tree(card(1280.) - side));
+        assert!(!fits_tree(card(1440.) - side));
+        // A wide window holds the sidebar, the tree and the diff.
+        assert!(fits_tree(card(1728.) - side));
     }
 
     /// A file row splits its path the way the diff card's header does: the

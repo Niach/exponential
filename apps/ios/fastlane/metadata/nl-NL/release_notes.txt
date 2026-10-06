@@ -1,8 +1,5 @@
-- GitHub: één begeleide pagina koppelt je GitHub-account, installeert de app en toont de repositories waar je naar kunt pushen
-- Feedback: een widgetmelding is een issue, antwoord de melder vanuit het commentaarveld en de antwoorden komen terug als reacties
-- Nieuw issue: aanmaken opent een volledige pagina met alle eigenschappen, als concept bewaard terwijl je typt
-- Navigatie: tabbladen Inbox, Devices, Reviews, Agent en Actions; Reviews, runs, acties en apparaten tonen al je teams
-- Pull requests: de diff is de Changes-weergave van het issue, Results leest als een genummerde gids, Merge staat in de onderbalk
-- Runs: het teken van de agent draait terwijl hij werkt, oranje wacht op jou, groen heeft een open pull request, blauw is klaar
-- Issuescherm: de titel klapt bij het scrollen in de kop en de inhoud schuift onder een vervaagde rand
-- Lid worden van een team: de uitnodiging biedt de stap voor apparaatinstelling aan als je nog geen apparaat hebt
+- Start: de app opent op de Agent-pagina en de chatknop licht op zolang je daar bent
+- Tabbladen: Inbox, My Issues en Drafts wissel je door opzij te vegen, en dat geldt ook voor Actions en Suggestions
+- Reviews: een pull request uit een chat- of actierun opent zijn wijzigingen in de app
+- Runs: een pijl springt naar het nieuwste bericht en de takenlijst toont de voortgang
+- Nieuw issue: één tik op het × gooit een concept weg

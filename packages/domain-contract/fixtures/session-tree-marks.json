@@ -1,9 +1,0 @@
-{
-  "_doc": "EXP-1108: a session row's marks, ONE rule x4 (web lib/sessions/session-tree.ts, desktop domain::session_tree, iOS SessionTree.swift, Android SessionTree.kt). needsYou: sessionNeedsYou(row) = status is live (not \"ended\") AND pendingQuestion != null; the amber needs-input/blocked flags are a separate mark.",
-  "needsYou": [
-    { "name": "live with a question", "status": "running", "pendingQuestion": { "id": "q1" }, "needsYou": true },
-    { "name": "in review with a question", "status": "in_review", "pendingQuestion": { "id": "q1" }, "needsYou": true },
-    { "name": "ended with a question", "status": "ended", "pendingQuestion": { "id": "q1" }, "needsYou": false },
-    { "name": "live without a question", "status": "running", "pendingQuestion": null, "needsYou": false }
-  ]
-}

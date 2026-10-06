@@ -1,0 +1,41 @@
+{
+  "name": "@exponential/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "Exponential's issue tracker in OpenClaw over MCP, with MCP Apps views.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "homepage": "https://exponential.at/docs/mcp/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Niach/exponential.git",
+    "directory": "integrations/openclaw"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "mcp",
+    "mcp-apps",
+    "issue-tracker",
+    "exponential"
+  ],
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "skills",
+    "themes",
+    "assets",
+    "README.md"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.9.6",
+      "minGatewayVersion": "2026.9.6"
+    },
+    "build": {
+      "openclawVersion": "2026.9.8"
+    }
+  }
+}

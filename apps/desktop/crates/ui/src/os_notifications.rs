@@ -593,8 +593,14 @@ fn route_to(route: Route, cx: &mut App) {
     .detach();
 }
 
-/// Land a route in `window` — the rail Inbox rows' own paths.
+/// Land a route in `window` — the rail Inbox rows' own paths. EXP-1212: a
+/// route may switch the team first, then open its screen: on a New issue page
+/// the whole landing is ONE held move (`navigation::leave_held`).
 fn land(route: Route, window: &mut Window, cx: &mut App) {
+    navigation::leave_held(window, cx, None, move |window, cx| land_now(route, window, cx));
+}
+
+fn land_now(route: Route, window: &mut Window, cx: &mut App) {
     match route {
         Route::Issue { issue_id } => land_issue(issue_id, false, window, cx),
         Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
@@ -639,15 +645,24 @@ fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App
             if results {
                 let id = issue_id.clone();
                 crate::work_header::open_issue_results(&id, window, cx, move |window, cx| {
-                    navigation::open_issue_scoped(window, cx, issue_id, board_id);
+                    navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
                 });
             } else {
-                navigation::open_issue_scoped(window, cx, issue_id, board_id);
+                navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
             }
         }
         // Not synced (yet) — the Inbox row will resolve it later.
         None => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
     }
+}
+
+/// EXP-1192: a notification opens its issue beside the Inbox — the second
+/// sidebar it came from, wherever the window was.
+fn inbox_origin() -> Option<navigation::TabOrigin> {
+    navigation::Screen::Inbox {
+        tab: InboxTab::Inbox,
+    }
+    .list_origin()
 }
 
 /// EXP-856 §4 — the duplicate-agent toast: a session-level alert that does

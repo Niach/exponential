@@ -25,6 +25,12 @@ const h = vi.hoisted(() => ({
     boardId: `proj-1`,
     teamId: `ws-issue`,
   })),
+  // EXP-1194: prFiles' lazily imported GitHub read.
+  loadPrFiles: vi.fn(async (..._args: unknown[]) => ({
+    repo: `acme/app`,
+    prNumber: 12,
+    files: [{ filename: `a.ts`, status: `modified`, additions: 1, deletions: 0 }],
+  })),
 }))
 
 // lib/trpc.ts + lib/admin.ts import db/auth at module scope; runtime here only
@@ -42,6 +48,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   repoFromPrUrl: (url: string) =>
     url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)?.[1] ?? null,
 }))
+vi.mock(`@/lib/integrations/pr-files`, () => ({ loadPrFiles: h.loadPrFiles }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryByFullName: h.loadRepositoryByFullName,
   mergeRepositoryPull: h.mergeRepositoryPull,
@@ -316,6 +323,58 @@ describe(`codingSessions.mergePr`, () => {
     err = (await rejectionOf(caller.mergePr({ sessionId: SESSION_ID }))) as TRPCError
     expect(err.code).toBe(`NOT_FOUND`)
     expect(h.mergeRepositoryPull).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1194: an issue-less run's PR diff, keyed by the run.
+describe(`codingSessions.prFiles`, () => {
+  const PR_URL = `https://github.com/acme/app/pull/12`
+
+  it(`reads the run's PR files after the member check`, async () => {
+    h.loadPrFiles.mockClear()
+    selectResults.push([{ teamId: TEAM_ID, prUrl: PR_URL, prNumber: 12 }])
+    const result = await caller.prFiles({ sessionId: SESSION_ID })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+    expect(h.loadRepositoryByFullName).toHaveBeenCalledWith(TEAM_ID, `acme/app`)
+    expect(h.loadPrFiles).toHaveBeenCalledWith(PR_URL, 12)
+    expect(result.files).toHaveLength(1)
+  })
+
+  // A member of the run's team is not thereby a reader of whatever repo the
+  // stored url names: it must be registered in that team, like mergePr.
+  it(`refuses a PR in a repository the run's team has not registered`, async () => {
+    h.loadPrFiles.mockClear()
+    h.loadRepositoryByFullName.mockRejectedValueOnce(
+      new TRPCError({
+        code: `NOT_FOUND`,
+        message: `acme/app is not a repository of this team`,
+      })
+    )
+    selectResults.push([{ teamId: TEAM_ID, prUrl: PR_URL, prNumber: 12 }])
+    const err = (await rejectionOf(caller.prFiles({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`NOT_FOUND`)
+    expect(h.loadPrFiles).not.toHaveBeenCalled()
+  })
+
+  it(`answers a run without a PR without a repository lookup`, async () => {
+    h.loadRepositoryByFullName.mockClear()
+    selectResults.push([{ teamId: TEAM_ID, prUrl: null, prNumber: null }])
+    await caller.prFiles({ sessionId: SESSION_ID })
+    expect(h.loadRepositoryByFullName).not.toHaveBeenCalled()
+    expect(h.loadPrFiles).toHaveBeenCalledWith(null, null)
+  })
+
+  it(`refuses a non-member and an unknown run`, async () => {
+    h.loadPrFiles.mockClear()
+    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
+    selectResults.push([{ teamId: TEAM_ID, prUrl: PR_URL, prNumber: 12 }])
+    let err = (await rejectionOf(caller.prFiles({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`FORBIDDEN`)
+
+    selectResults.push([])
+    err = (await rejectionOf(caller.prFiles({ sessionId: SESSION_ID }))) as TRPCError
+    expect(err.code).toBe(`NOT_FOUND`)
+    expect(h.loadPrFiles).not.toHaveBeenCalled()
   })
 })
 
@@ -2417,16 +2476,23 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       prNumber: 7,
       prState: `open`,
     }
-    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    // The issue path's team is the issue's (`ws-issue`), not the frame's.
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
+    ])
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
     expect(inserts[0]!.values).toMatchObject({ ...PR, status: `running` })
 
-    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: TEAM_ID, userId: `actor`, ...PR },
+    ])
     await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
     expect(inserts[1]!.values).toMatchObject({ ...PR, status: `running` })
 
     // The frame's own branch still wins on a branch-carrying subject.
-    selectResults.push([{ id: RESUMED_FROM, userId: `actor`, ...PR }])
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: TEAM_ID, userId: `actor`, ...PR },
+    ])
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
     await caller.start({
       actionId: ACTION_ID,
@@ -2435,6 +2501,45 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     })
     expect(inserts[2]!.values).toMatchObject({
       ...PR,
+      branch: `exp/refresh-1a2b3c4d`,
+    })
+  })
+
+  // The PR names a repo of the predecessor's team: a resume landing in
+  // ANOTHER team keeps the link and starts, but inherits no PR or branch.
+  it(`drops the PR of a predecessor in another team, on every subject`, async () => {
+    const OTHER_TEAM = `77777777-7777-4777-8777-777777777777`
+    const PR = {
+      branch: `exp/APP-1`,
+      prUrl: `https://github.com/acme/app/pull/7`,
+      prNumber: 7,
+      prState: `open`,
+    }
+    const NO_PR = { prUrl: null, prNumber: null, prState: null }
+    const predecessor = { id: RESUMED_FROM, teamId: OTHER_TEAM, userId: `actor`, ...PR }
+
+    selectResults.push([predecessor])
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    expect(inserts[0]!.values).toMatchObject({
+      ...NO_PR,
+      branch: null,
+      resumedFromId: RESUMED_FROM,
+      status: `running`,
+    })
+
+    selectResults.push([predecessor])
+    await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
+    expect(inserts[1]!.values).toMatchObject({ ...NO_PR, branch: null })
+
+    selectResults.push([predecessor])
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+    await caller.start({
+      actionId: ACTION_ID,
+      branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
+    })
+    expect(inserts[2]!.values).toMatchObject({
+      ...NO_PR,
       branch: `exp/refresh-1a2b3c4d`,
     })
   })

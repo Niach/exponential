@@ -579,6 +579,7 @@ struct WorkScreen: View {
                 issue: mergeRow,
                 prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
                 steerEnabled: steerEnabled,
+                runPrNumber: shownSession?.prNumber,
                 state: $mergeState,
                 identifier: page == .changes ? "work-merge-pr" : "work-merge-pr-\(page.rawValue)",
                 style: style
@@ -972,21 +973,22 @@ struct WorkScreen: View {
                 onConfirm: { target in Task { await issueVM?.moveToBoard(target.id) } }
             )
             // EXP-1154: Close PR, off the `…` menu — the fixture copy ×4.
-            .confirmationDialog(
-                ClosePrCopy.title,
-                isPresented: $showClosePrConfirm,
-                titleVisibility: .visible
-            ) {
-                Button(ClosePrCopy.confirm, role: .destructive) { closePr() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(ClosePrCopy.message(otherLinkedIssues: closePrOtherIssues))
+            .glassAlert(isPresented: $showClosePrConfirm) {
+                GlassAlert(
+                    title: ClosePrCopy.title,
+                    message: ClosePrCopy.message(otherLinkedIssues: closePrOtherIssues),
+                    actions: [
+                        GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
+                        GlassAlertAction(ClosePrCopy.confirm, role: .destructive, id: "close-pr") { closePr() },
+                    ]
+                )
             }
-            .alert("Delete Issue", isPresented: $showDeleteConfirm) {
-                Button("Delete", role: .destructive) { deleteIssue() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This action cannot be undone.")
+            // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+            .glassAlert(isPresented: $showDeleteConfirm) {
+                GlassAlert(
+                    prompt: Prompts.DeleteIssue.copy(identifier: issue?.identifier ?? "this issue"),
+                    handlers: ["delete": { deleteIssue() }]
+                )
             }
             // EXP-897 Part 4: the badge's overlay, the same on every face.
             .background {
@@ -1038,11 +1040,11 @@ struct WorkScreen: View {
                         }
                     }
             }
-            .alert("Resume this run?", isPresented: $showResumeConfirm) {
-                Button("Resume") { resumeRun() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Reopens the run on the machine that ran it, in the same worktree, and continues where the agent stopped.")
+            .glassAlert(isPresented: $showResumeConfirm) {
+                GlassAlert(
+                    prompt: Prompts.ResumeRun.copy(device: resumeDevice?.deviceLabel),
+                    handlers: ["resume": { resumeRun() }]
+                )
             }
     }
 
@@ -1243,10 +1245,11 @@ struct WorkScreen: View {
             guard prChangesModel == nil, let issueId else { return }
             let model = ChangesViewModel(
                 accountId: accountId,
-                issueId: issueId,
+                source: .issue(issueId),
                 db: deps.db,
                 issuesApi: deps.issuesApi,
-                repositoriesApi: deps.repositoriesApi
+                repositoriesApi: deps.repositoriesApi,
+                codingSessionsApi: deps.codingSessionsApi
             )
             prChangesModel = model
             model.startObserving()

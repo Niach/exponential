@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate } from "@tanstack/react-router"
+import { useBlocker, useNavigate } from "@tanstack/react-router"
 import {
   Button,
   CollapsedTitle,
   conceptIcon,
   Pill,
+  Prompt,
   toast,
   Tooltip,
   TooltipContent,
@@ -19,7 +20,7 @@ import type { Board, IssueDraft, User } from "@/db/schema"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import { useIssueDraftEditor } from "@/hooks/use-issue-draft-editor"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
+import { draftExitPrompt, ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
 import {
   isFileAttachment,
   isInlineImageAttachment,
@@ -58,6 +59,17 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 // faces, coding, timeline, relations or bottom bar, and the trailing cluster
 // is Create plus an `×` whose tooltip says "Discard draft" (EXP-1191).
 // Everything typed autosaves to the draft row (`use-issue-draft-editor.ts`).
+//
+// EXP-1212: a draft WITH content never goes silently (`draftExitPrompt`). The
+// `×` first asks the destructive discard confirm; every other in-app
+// navigation (Back, a sidebar or tab bar entry, another screen) is HELD by
+// the router blocker and asks Discard · Create issue · Save draft, then
+// continues to where the person was going. The page's own exits (a filed
+// Create, a confirmed Discard) bypass it; closing the browser tab does not
+// ask (the autosave keeps the draft).
+
+// EXP-1212/EXP-1215: the two prompts are the shared `Prompt` (one question,
+// no ✕, no body, one row of the 32px `Pill` capsules) on phone AND desktop.
 
 export interface IssueDraftPageProps {
   draftId: string
@@ -106,6 +118,7 @@ export function IssueDraftPage({
 
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
 
   // EXP-1162: the detail chrome — the title row scrolls away under the
   // header, which then breaks into the collapsed title.
@@ -119,15 +132,21 @@ export function IssueDraftPage({
   } = useTitleCollapsed(isMobile ? mobileHeaderSize.height : WORK_BAR_HEIGHT)
 
   // Back = the list this draft was opened from, else its board.
-  const goBack = useCallback(() => {
-    void navigate(
-      (originListNavigation(teamSlug, parseOrigin(from)) ?? {
-        to: `/t/$teamSlug/boards/$boardSlug`,
-        params: { teamSlug, boardSlug: board?.slug ?? `` },
-        search: {},
-      }) as never
-    )
-  }, [navigate, teamSlug, from, board?.slug])
+  // `ignoreBlocker`: only the page's OWN exits (a confirmed Discard) pass
+  // the leave blocker unasked; Back goes through it.
+  const goBack = useCallback(
+    (ignoreBlocker = false) => {
+      void navigate({
+        ...((originListNavigation(teamSlug, parseOrigin(from)) ?? {
+          to: `/t/$teamSlug/boards/$boardSlug`,
+          params: { teamSlug, boardSlug: board?.slug ?? `` },
+          search: {},
+        }) as object),
+        ignoreBlocker,
+      } as never)
+    },
+    [navigate, teamSlug, from, board?.slug]
+  )
 
   const handleBack = () => {
     void editor.leave()
@@ -135,8 +154,19 @@ export function IssueDraftPage({
   }
 
   const handleDiscard = async () => {
-    await editor.discard()
-    goBack()
+    setDiscardConfirmOpen(false)
+    // A Create in flight wins (R2): nothing is thrown away, nothing leaves.
+    if (!(await editor.discard())) return
+    goBack(true)
+  }
+
+  // The `×`: a draft with content asks first.
+  const requestDiscard = () => {
+    if (draftExitPrompt(`discard`, editor.hasContent) === `discardConfirm`) {
+      setDiscardConfirmOpen(true)
+    } else {
+      void handleDiscard()
+    }
   }
 
   const handleCreate = async () => {
@@ -152,8 +182,65 @@ export function IssueDraftPage({
       },
       search: from ? { from } : {},
       replace: true,
+      ignoreBlocker: true,
     })
   }
+
+  // ── Leaving (EXP-1212): any in-app navigation to another path is HELD
+  // while the draft has content and no Create is in flight (R2). Read
+  // through refs so the blocker registers once; the browser's own unload is
+  // never held.
+  // Known limit (not fixed): a held browser Forward or multi-step history
+  // pop answered with "stay" can leave the URL one step off — that is
+  // @tanstack/history's own blocker behaviour.
+  const hasContentRef = useRef(editor.hasContent)
+  hasContentRef.current = editor.hasContent
+  const isCreatingRef = useRef(editor.isCreating)
+  isCreatingRef.current = editor.isCreating
+  const shouldBlockLeave = useCallback(
+    ({
+      current,
+      next,
+    }: {
+      current: { pathname: string }
+      next: { pathname: string }
+    }) =>
+      next.pathname !== current.pathname &&
+      !isCreatingRef.current() &&
+      draftExitPrompt(`leave`, hasContentRef.current) === `leave`,
+    []
+  )
+  const blocker = useBlocker({
+    shouldBlockFn: shouldBlockLeave,
+    enableBeforeUnload: false,
+    withResolver: true,
+  })
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  // One answer per held navigation (R6): a second click before the
+  // disabled state renders never replays it.
+  const leaveBusyRef = useRef(false)
+  // Run the choice, then continue to the HELD destination; a choice that
+  // failed (a Create the server refused, a "Keep" whose save failed) stays
+  // on the page — its toast already said why — and drops the held
+  // navigation (R3).
+  const resolveLeave = async (choice: () => Promise<boolean>) => {
+    if (blocker.status !== `blocked` || leaveBusyRef.current) return
+    const { proceed, reset } = blocker
+    leaveBusyRef.current = true
+    setLeaveBusy(true)
+    const ok = await choice()
+    leaveBusyRef.current = false
+    setLeaveBusy(false)
+    if (ok) proceed()
+    else reset()
+  }
+  const leaveCreate = () =>
+    resolveLeave(async () => (await editor.create()) !== null)
+  const leaveKeep = () => resolveLeave(() => editor.leave())
+  const leaveDiscard = () => resolveLeave(() => editor.discard())
+  // R5: the dialog opens on its default "Create issue" (or "Save draft"
+  // while Create is disabled, no title), never on the destructive Discard
+  // (`Prompt` never focuses a destructive answer).
 
   // Cmd/Ctrl+Enter anywhere on the page files it. Capture phase, so the
   // description editor never sees it as its own hard break. Only for keys
@@ -297,7 +384,7 @@ export function IssueDraftPage({
           className={phone ? HEADER_BUTTON_CLASS : undefined}
           aria-label={ISSUE_DRAFT_COPY.discard}
           disabled={disabled}
-          onClick={() => void handleDiscard()}
+          onClick={requestDiscard}
           data-testid="issue-draft-discard"
         >
           <UiCloseIcon className="size-4" />
@@ -398,6 +485,62 @@ export function IssueDraftPage({
     />
   )
 
+  // EXP-1212: the destructive confirm the `×` raises on a draft with content.
+  // ONE line (the question) over ONE trailing row: Cancel (initial focus, so
+  // Discard is never the default) and Discard, the plain pill in the
+  // destructive colour, no solid red block.
+  const discardConfirm = (
+    <Prompt
+      open={discardConfirmOpen}
+      onOpenChange={setDiscardConfirmOpen}
+      data-testid="issue-draft-discard-confirm"
+      title={ISSUE_DRAFT_COPY.discardConfirm.title}
+      actions={[
+        { label: `Cancel` },
+        {
+          label: ISSUE_DRAFT_COPY.discardConfirm.confirm,
+          role: `destructive`,
+          onSelect: () => void handleDiscard(),
+        },
+      ]}
+    />
+  )
+
+  // EXP-1212: the held navigation's three answers, Thunderbird's save
+  // prompt: a quiet destructive Discard set apart on the leading edge, then
+  // Save draft (the plain pill) and the DEFAULT Create issue (the primary
+  // pill, trailing, initial focus, so Enter creates; disabled without a
+  // title, then Save draft takes the focus). No ✕: dismissing (Esc, scrim)
+  // stays on the page.
+  const leaveDialog = (
+    <Prompt
+      open={blocker.status === `blocked`}
+      onOpenChange={() => {}}
+      onDismiss={() => blocker.reset?.()}
+      busy={leaveBusy}
+      data-testid="issue-draft-leave-dialog"
+      title={ISSUE_DRAFT_COPY.leave.title}
+      actions={[
+        {
+          label: ISSUE_DRAFT_COPY.leave.discard,
+          role: `quietDestructive`,
+          onSelect: () => void leaveDiscard(),
+        },
+        {
+          label: ISSUE_DRAFT_COPY.leave.keep,
+          autoFocus: !editor.canCreate,
+          onSelect: () => void leaveKeep(),
+        },
+        {
+          label: ISSUE_DRAFT_COPY.leave.create,
+          role: `primary`,
+          disabled: !editor.canCreate,
+          onSelect: () => void leaveCreate(),
+        },
+      ]}
+    />
+  )
+
   if (isMobile) {
     return (
       <div
@@ -444,6 +587,8 @@ export function IssueDraftPage({
           {attachmentError}
           {filesSection}
         </div>
+        {discardConfirm}
+        {leaveDialog}
       </div>
     )
   }
@@ -497,6 +642,8 @@ export function IssueDraftPage({
           </div>
         </div>
       </div>
+      {discardConfirm}
+      {leaveDialog}
     </div>
   )
 }

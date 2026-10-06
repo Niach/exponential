@@ -1,18 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from "react"
-import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
+import { deleteTriggerPrompt, promptActions } from "@/lib/prompts"
+import { Ellipsis, Pencil, Trash2 } from "lucide-react"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import {
   AGENT_LABELS,
   conceptIcon,
   Button,
   Pill,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -20,6 +14,7 @@ import {
   GlassSectionHeader,
   ListRow,
   LiveDot,
+  Prompt,
   Switch,
   toast,
 } from "@exp/ui"
@@ -297,6 +292,8 @@ function TriggerRow({
   )
 }
 
+const DELETE_TRIGGER = deleteTriggerPrompt()
+
 export function ActionTriggersSection({
   action,
   devices,
@@ -409,35 +406,18 @@ export function ActionTriggersSection({
         />
       )}
 
-      <Dialog
+      <Prompt
         open={deleteTarget !== null}
         onOpenChange={(next) => {
-          if (!next && !deleting) setDeleteTarget(null)
+          if (!next) setDeleteTarget(null)
         }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete trigger?</DialogTitle>
-            <DialogDescription>
-              It stops firing. Past runs stay in Runs.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
-            />
-            <Button
-              variant="destructive"
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
-            >
-              {deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        busy={deleting}
+        title={DELETE_TRIGGER.title}
+        body={DELETE_TRIGGER.body}
+        actions={promptActions(DELETE_TRIGGER, {
+          delete: { busy: deleting, onSelect: confirmDelete },
+        })}
+      />
     </>
   )
 }

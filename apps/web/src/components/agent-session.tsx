@@ -801,7 +801,7 @@ export function AgentSessionView({
     canKill: ownsLiveRow,
     requestKill,
     dialog: killDialog,
-  } = useKillSession(session, currentUserId, device.label, paused)
+  } = useKillSession(session, currentUserId, paused)
   const canKill = live && ownsLiveRow
   /** EXP-877: Resume in the run header (issue-less runs) — an issue-bound
    *  run's tray decides for itself (`issue-coding-action.tsx`). */
@@ -1567,6 +1567,9 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
+                    // The md+ fade masks the scroller's last 48px: the
+                    // newest row rests above it (the desktop's list `pb`).
+                    !isMobile && `pb-10`,
                     TRANSCRIPT_COLUMN
                   )}
                 >
@@ -1580,6 +1583,7 @@ export function AgentSessionView({
                   ref={setContentRef}
                   className={cn(
                     `flex min-h-full flex-col justify-end py-2`,
+                    !isMobile && `pb-10`,
                     TRANSCRIPT_COLUMN
                   )}
                 >

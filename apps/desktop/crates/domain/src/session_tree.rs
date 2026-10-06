@@ -17,8 +17,7 @@
 //! `lib/sessions/session-tree.ts` twin, same rules and same test names):
 //! resume successions COLLAPSE into one node, children nest under their
 //! parent's succession, and [`visible_session_tree_rows`] is the flattening
-//! every client paints its connector over. [`session_needs_you`] is the red
-//! needs-you mark, byte-locked ×4 by `fixtures/session-tree-marks.json`.
+//! every client paints its connector over.
 
 use std::collections::{HashMap, HashSet};
 
@@ -462,54 +461,6 @@ pub fn visible_session_tree_rows<'a, T>(
     let mut out = Vec::new();
     walk(nodes, 0, collapsed, &mut out);
     out
-}
-
-// ---------------------------------------------------------------------------
-// EXP-1108: a run row's needs-you MARK, byte-locked x4 by
-// `packages/domain-contract/fixtures/session-tree-marks.json` (web
-// `lib/sessions/session-tree.ts` `sessionNeedsYou`).
-
-/// The red needs-you dot: a LIVE row with an open question. The amber
-/// needs-input/blocked flags are a separate mark, never this one.
-pub fn session_needs_you(status: &str, has_pending_question: bool) -> bool {
-    session_row_is_live(status) && has_pending_question
-}
-
-#[cfg(test)]
-mod marks_tests {
-    use super::*;
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Fixture {
-        needs_you: Vec<NeedsYouCase>,
-    }
-
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct NeedsYouCase {
-        name: String,
-        status: String,
-        pending_question: Option<serde_json::Value>,
-        needs_you: bool,
-    }
-
-    fn fixture() -> Fixture {
-        serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-tree-marks.json"
-        ))
-        .expect("session-tree-marks.json parses")
-    }
-
-    #[test]
-    fn needs_you_matches_the_fixture() {
-        let fixture = fixture();
-        assert!(!fixture.needs_you.is_empty());
-        for case in fixture.needs_you {
-            let has_question = case.pending_question.as_ref().is_some_and(|q| !q.is_null());
-            assert_eq!(session_needs_you(&case.status, has_question), case.needs_you, "{}", case.name);
-        }
-    }
 }
 
 #[cfg(test)]

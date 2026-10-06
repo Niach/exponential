@@ -5,17 +5,7 @@ import type { Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { mergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import {
-  Button,
-  Dialog,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  toast,
-} from "@exp/ui"
+import { Prompt, toast } from "@exp/ui"
 
 // EXP-1154: CLOSE PR (without merging) moved off the deleted Reviews detail
 // page into the issue's actions menu (`…`, md+ and phone): a destructive item
@@ -80,20 +70,17 @@ export function useClosePr(
   }
 
   const dialog = canClose ? (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent mobile="alert" data-testid="close-pr-confirm">
-        <DialogHeader>
-          <DialogTitle>{closePrCopy.title}</DialogTitle>
-          <DialogDescription>{closePrBody(others)}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogCancel onClick={() => setOpen(false)} />
-          <Button variant="destructive" onClick={confirm}>
-            {closePrCopy.confirm}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Prompt
+      open={open}
+      onOpenChange={setOpen}
+      data-testid="close-pr-confirm"
+      title={closePrCopy.title}
+      body={closePrBody(others)}
+      actions={[
+        { label: `Cancel` },
+        { label: closePrCopy.confirm, role: `destructive`, onSelect: confirm },
+      ]}
+    />
   ) : null
 
   return {

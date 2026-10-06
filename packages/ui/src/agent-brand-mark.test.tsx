@@ -67,7 +67,7 @@ describe(`AgentRunMark`, () => {
     )
   })
 
-  it(`parked states wear their badge, the red needs-you beats them`, () => {
+  it(`parked states wear their badge`, () => {
     for (const [state, cls] of [
       [`needs_input`, `bg-amber-500`],
       [`review`, `bg-emerald-500`],
@@ -77,10 +77,6 @@ describe(`AgentRunMark`, () => {
       expect(badgeOf(container)?.getAttribute(`class`)).toContain(cls)
       expect(container.querySelector(`[data-slot="claude-spinner"]`)).toBeNull()
     }
-    const { container } = render(
-      <AgentRunMark agent="claude" state="review" needsYou />
-    )
-    expect(badgeOf(container)?.getAttribute(`class`)).toContain(`bg-red-500`)
   })
 
   it(`a paused run (no state) is the bare mark`, () => {

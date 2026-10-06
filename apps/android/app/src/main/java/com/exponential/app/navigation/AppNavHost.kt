@@ -79,6 +79,7 @@ import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.actions.ActionDetailScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
+import com.exponential.app.ui.work.RunChangesScreen
 import com.exponential.app.ui.work.WorkScreen
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.work.WorkSubject
@@ -118,6 +119,13 @@ fun AppNavHost() {
     val navController = rememberNavController()
     val pendingTarget by deepLinkBus.target.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // EXP-1212: the New issue page holds navigation while its draft has
+    // content; a held navigation drops the page first, so Back never
+    // returns to a draft that has already been created, kept or discarded.
+    val leaveGuard = remember { LeaveGuard() }
+    val guarded: (() -> Unit) -> Unit = { navigation ->
+        leaveGuard.navigate(beforeHeld = { navController.popBackStack() }, navigation = navigation)
+    }
 
     val startDestination = when {
         state.instanceUrl == null -> "instance"
@@ -138,26 +146,30 @@ fun AppNavHost() {
             // while ANOTHER issue was open re-showed that issue. navigateDeepLink
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
-            is DeepLinkBus.Target.Issue ->
+            is DeepLinkBus.Target.Issue -> guarded {
                 navController.navigateIssueDeepLink(target.id, target.face)
-            is DeepLinkBus.Target.Invite ->
+            }
+            is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
+            }
             // An agent's message (EXP-801) renders in My Work's inbox — the
             // segment the screen opens on unless the user last left it on
             // My Issues.
-            DeepLinkBus.Target.Inbox ->
+            DeepLinkBus.Target.Inbox -> guarded {
                 navController.navigate("personal") {
                     launchSingleTop = true
                     popUpTo(AGENT_TAB_ROUTE)
                 }
+            }
             // EXP-980: a blocked run's push tap lands on the run itself. Same
             // snapshot hazard as the issue route — the session screen reads
             // its id from SavedStateHandle once.
-            is DeepLinkBus.Target.Session ->
+            is DeepLinkBus.Target.Session -> guarded {
                 navController.navigateDeepLink("steer/${target.id}")
+            }
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
             // which IS the Agent tab.
-            DeepLinkBus.Target.Agent -> navController.openAgentTab()
+            DeepLinkBus.Target.Agent -> guarded { navController.openAgentTab() }
             is DeepLinkBus.Target.WebIssueRef ->
                 // Verified App Link (EXP-92): resolve slug+identifier against
                 // the local DB of the account matching the link's host (brief
@@ -165,7 +177,7 @@ fun AppNavHost() {
                 // opens in a Custom Tab — which never re-triggers App Links,
                 // so it can't loop back here.
                 when (val resolution = webLinkResolver.resolve(target)) {
-                    is WebLinkResolver.Resolution.Found -> {
+                    is WebLinkResolver.Resolution.Found -> guarded {
                         if (resolution.accountId != state.activeAccountId) {
                             // The issue lives under another signed-in account:
                             // switch first; IssueDetail re-scopes reactively.
@@ -184,8 +196,10 @@ fun AppNavHost() {
             is DeepLinkBus.Target.ShareContent -> {
                 // Stash the shared content for the single-screen share composer
                 // to consume (it carries its own inline board selector).
-                teamSelection.setPendingShare(target)
-                navController.navigate("share-compose") { launchSingleTop = true }
+                guarded {
+                    teamSelection.setPendingShare(target)
+                    navController.navigate("share-compose") { launchSingleTop = true }
+                }
             }
         }
         deepLinkBus.consume()
@@ -272,6 +286,8 @@ fun AppNavHost() {
             val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
             AuthenticatedNav(
                 navController = navController,
+                leaveGuard = leaveGuard,
+                guarded = guarded,
                 cloudAlreadyAdded = cloudAlreadyAdded,
                 activeAccountId = state.activeAccountId,
                 gatedOtherServers = gatedOtherServers,
@@ -327,6 +343,8 @@ private fun UnauthenticatedNav(
 @Composable
 private fun AuthenticatedNav(
     navController: NavHostController,
+    leaveGuard: LeaveGuard,
+    guarded: (() -> Unit) -> Unit,
     cloudAlreadyAdded: Boolean,
     activeAccountId: String?,
     gatedOtherServers: List<String>,
@@ -388,8 +406,13 @@ private fun AuthenticatedNav(
     LaunchedEffect(showsReviews) {
         val flippedOff = hadReviews && !showsReviews
         hadReviews = showsReviews
-        if (flippedOff) {
-            navController.popBackStack("reviews", inclusive = true)
+        // Every tab sits on the Agent root, so the pop alone would reveal the
+        // Agent page: switch to Issues like the tab does (iOS parity).
+        if (flippedOff && navController.popBackStack("reviews", inclusive = true)) {
+            navController.navigate("home") {
+                launchSingleTop = true
+                popUpTo(AGENT_TAB_ROUTE)
+            }
         }
     }
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
@@ -437,7 +460,7 @@ private fun AuthenticatedNav(
     // kind's detail surface behind one local, so the transcript never threads
     // a lambda per kind.
     val entityNavigator = remember(navController) {
-        EntityNavigator { target ->
+        EntityNavigator { target -> guarded {
             when (target) {
                 is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
@@ -458,13 +481,14 @@ private fun AuthenticatedNav(
                     popUpTo(AGENT_TAB_ROUTE)
                 }
             }
-        }
+        } }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
     CompositionLocalProvider(
         LocalBottomBarSuppression provides barSuppression,
         LocalEntityNavigator provides entityNavigator,
+        LocalLeaveGuard provides leaveGuard,
     ) {
     NavHost(
         navController = navController,
@@ -608,7 +632,17 @@ private fun AuthenticatedNav(
             ReviewsScreen(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id?face=changes") },
+                // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
+                onOpenRunChanges = { id -> navController.navigate("runChanges/$id") },
                 onOpenAgent = openAgent,
+            )
+        }
+        composable("runChanges/{sessionId}") { entry ->
+            // EXP-1194: the Changes face of a run's own issue-less PR.
+            val sessionId = entry.arguments?.getString("sessionId").orEmpty()
+            RunChangesScreen(
+                sessionId = sessionId,
+                onBack = { navController.popBackStack() },
             )
         }
         composable("settings") {

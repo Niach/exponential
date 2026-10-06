@@ -12,9 +12,10 @@
 //! ([`crate::queries::own_ended_runs`]). A TRIGGERED run is NOT here — its
 //! home is its action page's Runs section (SLOP-2; EXP-676 split it out), and
 //! listing it twice is the duplication that split. EXP-923 moved it behind
-//! the Agent page's history button, into the left column
-//! ([`RecentRunsNav`], `shell::LeftOccupant::RecentRuns`) — the composer's
-//! page is a composer and nothing else.
+//! the Agent page's history button; EXP-1192 made that panel a second
+//! sidebar INSIDE the content card ([`RecentRunsNav`],
+//! `navigation::SecondSidebar::RecentRuns`) — the composer's page is a
+//! composer and nothing else.
 //!
 //! EXP-827/EXP-996: both NEST — a run started by another run through
 //! `exponential_sessions_start` sits under it, a resume succession collapses
@@ -26,11 +27,11 @@
 use std::collections::HashSet;
 
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, InteractiveElement as _, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    div, App, AppContext as _, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription,
     Task, Window,
 };
-use gpui_component::{scroll::ScrollableElement as _, v_flex};
+use gpui_component::{scroll::ScrollableElement as _, v_flex, ActiveTheme as _};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
@@ -54,6 +55,10 @@ const NO_RUNNING_COPY: &str = "No agents running right now.";
 /// EXP-923 — the number of Recent rows the history panel keeps. It is a
 /// backstop behind a composer, not an archive.
 const RECENT_CAP: usize = 20;
+
+/// EXP-1192 — the Recent band's empty line: the panel is a column of its own
+/// now, and a bare band over nothing read as still loading.
+const NO_RECENT_COPY: &str = "No recent runs.";
 
 // ---------------------------------------------------------------------------
 // Running — the RAIL's section (EXP-923)
@@ -89,8 +94,6 @@ pub(crate) struct RailRunRow {
     /// Web `ownsLiveRow`: a paused host is never killed (it resumes when the
     /// lid opens), so its row offers no Stop.
     pub(crate) paused: bool,
-    /// EXP-1068: the tree's needs-you dot.
-    pub(crate) marks: run_rows::RunTreeMarks,
 }
 
 /// EXP-996 — one flattened row of a session TREE: a built run row. `key` is
@@ -119,7 +122,6 @@ fn live_run_tree<T>(
     cx: &mut App,
     build: impl Fn(
         &domain::rows::CodingSession,
-        run_rows::RunTreeMarks,
         Option<&LocalSessionHost>,
         i64,
         &App,
@@ -191,7 +193,7 @@ fn live_run_tree<T>(
             .iter()
             .find(|(id, _)| id == &session.id)
             .map(|(_, host)| host);
-        build(session, run_rows::RunTreeMarks::derive(node, cx), host, now, cx)
+        build(session, host, now, cx)
     })
 }
 
@@ -225,7 +227,7 @@ pub(crate) fn rail_running_rows(
     nav: &Entity<Navigation>,
     cx: &mut App,
 ) -> Vec<SessionTreeRow<RailRunRow>> {
-    live_run_tree(nav, cx, |session, marks, host, now, cx| {
+    live_run_tree(nav, cx, |session, host, now, cx| {
         let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
         let issue = collections.as_ref().and_then(|collections| {
             session
@@ -283,7 +285,6 @@ pub(crate) fn rail_running_rows(
             device_label: presentation.label.clone().map(SharedString::from),
             local: host.cloned(),
             paused,
-            marks,
         }
     })
 }
@@ -360,10 +361,7 @@ impl PastSessionsSection {
         rows.truncate(RECENT_CAP);
         // EXP-996: the ONE tree the rail draws too — a finished sub-session
         // under the run that started it, a resume succession as one row.
-        flatten_session_tree(rows, |node| run_rows::PastRunFacts {
-            marks: run_rows::RunTreeMarks::derive(node, cx),
-            ..run_rows::past_run_facts(node.session(), now, cx)
-        })
+        flatten_session_tree(rows, |node| run_rows::past_run_facts(node.session(), now, cx))
         .into_iter()
         .map(|row| PastRow {
             key: row.key,
@@ -378,7 +376,18 @@ impl PastSessionsSection {
 impl Render for PastSessionsSection {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if self.rows.is_empty() {
-            return v_flex();
+            // EXP-1192: the band stays — it is the panel's only title.
+            return v_flex()
+                .min_w_0()
+                .child(glass_section_header("Recent", None, cx))
+                .child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(NO_RECENT_COPY),
+                );
         }
         let open_session = open_session_id(window, cx);
         let rows = drop_collapsed(
@@ -407,7 +416,8 @@ impl Render for PastSessionsSection {
                     // EXP-773: a plain link. The transcript and Resume live in
                     // the fullscreen session view now. EXP-923: no list
                     // origin — the Agent page is no longer a list, so a row
-                    // opens its run beside the panel with nothing to pin it to.
+                    // opens its run with nothing to pin it to (EXP-1192: the
+                    // panel is the Agent page's, it stays behind).
                     on_open: Box::new(move |_, window, cx| {
                         crate::session_screen::open_session_with_origin(&open_id, None, window, cx);
                     }),
@@ -430,10 +440,12 @@ impl Render for PastSessionsSection {
 // The Recent-runs panel (EXP-923)
 // ---------------------------------------------------------------------------
 
-/// EXP-923 — the Agent page's history, in the left column: the Recent rows
-/// behind the composer's history button
-/// (`shell::LeftOccupant::RecentRuns`). Hidden by default, opened by that
-/// button alone, and gone the moment the window leaves the Chat screen.
+/// EXP-923 — the Agent page's history: the Recent rows behind the composer's
+/// history button. EXP-1192: a second sidebar inside the content card
+/// (`navigation::SecondSidebar::RecentRuns`), mounted by the screens panel.
+/// Hidden by default, opened and put away by that button alone (it turns
+/// into Back while this is up), and gone the moment the window leaves the
+/// Chat screen.
 pub(crate) struct RecentRunsNav {
     past: Entity<PastSessionsSection>,
 }
@@ -447,18 +459,13 @@ impl RecentRunsNav {
 }
 
 impl Render for RecentRunsNav {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // EXP-1119: the back row every left-column panel wears; it puts the
-        // panel away (the page's history button hides while it is up).
-        let back = crate::settings::nav_back_row("recent-runs-back", "Agent", cx).on_click(
-            |_: &ClickEvent, window, cx| crate::navigation::toggle_recent_runs(window, cx),
-        );
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-1192: no back row — the page's own history button (Back while
+        // this is up) puts the panel away; the Recent band is its title.
         v_flex()
             .size_full()
             .min_w_0()
             .overflow_hidden()
-            .child(back)
-            .child(crate::settings::nav_back_rule(cx))
             .child(
                 div()
                     .id("recent-runs-scroll")
@@ -608,6 +615,7 @@ mod tests {
     #[test]
     fn the_empty_running_band_copy_is_locked() {
         assert_eq!(NO_RUNNING_COPY, "No agents running right now.");
+        assert_eq!(NO_RECENT_COPY, "No recent runs.");
     }
 
     /// EXP-827: a collapsed parent takes its WHOLE subtree off the list — its

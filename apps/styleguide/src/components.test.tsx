@@ -37,6 +37,7 @@ import {
   compileUiCss,
   renderIsland,
 } from "@exp/ui/island"
+import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 
 import { client } from "./client.ts"
 import { componentStyles } from "./component-styles.ts"
@@ -74,7 +75,10 @@ const EMPTY: GalleryData = {
   counts: { ok: 0, missing: 0, manual: 0, na: 0 },
 }
 
-const uiCss = await compileUiCss({ base: import.meta.dir })
+const uiCss = await compileUiCss({
+  base: import.meta.dir,
+  sources: [MCP_APPS_CSS_SOURCE],
+})
 const html = renderHtml(EMPTY, COMPONENTS, uiCss)
 
 const ISLANDS = COMPONENTS.filter(isIsland)

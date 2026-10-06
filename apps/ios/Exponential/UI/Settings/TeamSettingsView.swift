@@ -74,7 +74,8 @@ struct TeamSettingsView: View {
                         invites: invites,
                         currentUserId: deps.auth.userId,
                         membersApi: deps.teamMembersApi,
-                        isOwner: isOwner
+                        isOwner: isOwner,
+                        teamName: team?.name
                     )
 
                     // Labels section
@@ -139,28 +140,20 @@ struct TeamSettingsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
-        .alert("Delete Team", isPresented: $showDeleteTeam) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                Task { await deleteTeam() }
-            }
-            .disabled(deletingTeam)
-        } message: {
-            Text("This will permanently delete \(team?.name ?? "this team") and all its boards, issues, and data. This cannot be undone.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(isPresented: $showDeleteTeam) {
+            GlassAlert(
+                prompt: Prompts.DeleteTeam.copy(name: team?.name ?? "this team"),
+                enabled: ["delete": !deletingTeam],
+                handlers: ["delete": { Task { await deleteTeam() } }]
+            )
         }
-        .alert("Delete Board", isPresented: Binding(
-            get: { deleteBoardTarget != nil },
-            set: { if !$0 { deleteBoardTarget = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { deleteBoardTarget = nil }
-            Button("Delete", role: .destructive) {
-                if let board = deleteBoardTarget {
-                    Task { await deleteBoard(board) }
-                }
-            }
-            .disabled(deletingBoard)
-        } message: {
-            Text("Move \(deleteBoardTarget?.name ?? "this board") and all its issues, comments and attachments to trash? You can restore it from team settings for 48 hours; after that it is permanently deleted.")
+        .glassAlert(item: $deleteBoardTarget) { board in
+            GlassAlert(
+                prompt: Prompts.TrashBoard.copy(name: board.name),
+                enabled: ["trash": !deletingBoard],
+                handlers: ["trash": { Task { await deleteBoard(board) } }]
+            )
         }
     }
 

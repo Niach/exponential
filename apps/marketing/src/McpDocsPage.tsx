@@ -47,6 +47,7 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_issues_list`, desc: `List issues, open work only unless includeClosed (or a status filter) says otherwise: boards, statusId / statusCategory, priority, assignee, labels (any, all, or unlabeled), source (user or widget), comment activity, created/updated ranges, title search, each with an exclude twin, plus sort (a "-" prefix descends). Up to 1000 per page.` },
       { name: `exponential_issues_get`, desc: `Get one issue with labels, relations and recent comments, by UUID or identifier ("EXP-42").` },
+      { name: `exponential_issues_show`, desc: `The issue list as an interactive view in clients that render MCP Apps (OpenClaw, Claude, ChatGPT): status groups, priorities and PR numbers; a row opens the issue. Other clients get the same rows as exponential_issues_list.` },
       { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
@@ -134,6 +135,7 @@ const TOOL_GROUPS: {
     heading: `Coding sessions & devices`,
     tools: [
       { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
+      { name: `exponential_devices_account_login`, desc: `Sign an agent account in on one of your own machines. The machine runs the agent's own login; only the sign-in link and the code you type travel, the credential never leaves it.` },
       { name: `exponential_sessions_start`, desc: `Start a run on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
       { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended run.` },
       { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended.` },
@@ -307,6 +309,41 @@ bearer_token_env_var = "EXPONENTIAL_API_KEY"
               Cursor&apos;s MCP list to run the OAuth flow. For API keys, add
               a <code>headers</code> object with the{` `}
               <code>Authorization</code> header instead.
+            </p>
+
+            <h3>OpenClaw</h3>
+            <p>
+              Install the Exponential plugin from ClawHub (the MCP server plus
+              a skill) and give the gateway an API key, or add the server by
+              hand and sign in with OAuth:
+            </p>
+            <DocsCode language="shell">{`
+openclaw plugins install clawhub:@exponential/openclaw-plugin
+export EXPONENTIAL_API_KEY=expu_...
+
+# or, with OAuth
+openclaw mcp add exponential --url ${LINKS.app.mcp} --transport streamable-http --auth oauth
+openclaw mcp login exponential
+`}</DocsCode>
+            <p>
+              Turn on OpenClaw&apos;s MCP Apps bridge (
+              <code>openclaw config set mcp.apps.enabled true --strict-json</code>
+              ) and the issue list and a run&apos;s report render as
+              Exponential&apos;s own views in the dashboard; the issue list
+              also opens straight from the app catalog.
+            </p>
+
+            <h3>Interactive views (MCP Apps)</h3>
+            <p>
+              Clients that render MCP Apps show five tools as Exponential
+              views instead of JSON: <code>exponential_issues_show</code> (the
+              issue list, grouped by status; a row opens the issue),{` `}
+              <code>exponential_sessions_list</code> (your runs),{` `}
+              <code>exponential_sessions_get</code> (a coding run&apos;s
+              report), <code>exponential_notifications_list</code> (your
+              inbox) and <code>exponential_devices_list</code> (your machines
+              and their agent logins). Self-hosted instances serve the same
+              views; nothing to configure on the server.
             </p>
 
             <h3>Other clients</h3>

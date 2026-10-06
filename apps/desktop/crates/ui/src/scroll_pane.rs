@@ -154,7 +154,7 @@ pub(crate) fn sidebar_scrollbar_styles(styles: ScrollbarStyles) -> ScrollbarStyl
 
 /// The absolute overlay layer holding a sidebar-styled vertical scrollbar
 /// over `handle` — for a scroller that already owns its scroll area (the
-/// `ListNav` virtual list).
+/// side list's virtual list).
 pub(crate) fn sidebar_scrollbar_layer<H: ScrollbarHandle + Clone>(
     id: impl Into<ElementId>,
     handle: &H,

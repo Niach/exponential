@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { useLiveQuery, eq, inArray } from "@tanstack/react-db"
 import {
   ChevronDown,
@@ -33,14 +34,7 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   GlassSectionHeader,
-  Dialog,
-  DialogBody,
-  DialogCancel,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Prompt,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -417,57 +411,48 @@ function ReassignDialog({
     }
   }
 
+  const deleteCopy = WEB_PROMPTS.deleteStatus(
+    target?.option.name ?? ``,
+    serverCount
+  )
+
   return (
-    <Dialog open={target !== null} onOpenChange={onOpenChange}>
-      <DialogContent mobile="alert" className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete {target?.option.name}?</DialogTitle>
-          <DialogDescription>
-            {serverCount === null
-              ? `Issues using this status (including any on trashed boards) will move to the status you pick.`
-              : serverCount === 0
-                ? `No issues use this status right now. Anything referencing it when you confirm will move to the status you pick.`
-                : `${serverCount} issue${serverCount === 1 ? `` : `s`}${serverCount > (target?.count ?? 0) ? ` (some on trashed boards)` : ``} will move to the status you pick.`}
-          </DialogDescription>
-        </DialogHeader>
-        {/* The reassign list is the only growing part — it scrolls inside the
-            DialogBody so the confirm buttons stay pinned (EXP-369). */}
-        <DialogBody className="space-y-3">
-          {prPinNotice && (
-            <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-              {prPinNotice}
-            </p>
-          )}
-          <div className="space-y-1">
-            {candidates.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setReassignToId(option.id)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent ${
-                  selectedId === option.id ? `bg-accent` : ``
-                }`}
-              >
-                <StatusIcon option={option} />
-                <span className="truncate">{option.name}</span>
-              </button>
-            ))}
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </DialogBody>
-        <DialogFooter>
-          <DialogCancel disabled={busy} onClick={() => onOpenChange(false)} />
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={busy || !selectedId}
-            onClick={() => void confirm()}
-          >
-            {busy ? `Deleting…` : `Delete status`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Prompt
+      open={target !== null}
+      onOpenChange={onOpenChange}
+      busy={busy}
+      title={deleteCopy.title}
+      body={deleteCopy.body}
+      actions={promptActions(deleteCopy, {
+        delete: { busy, disabled: !selectedId, onSelect: confirm },
+      })}
+    >
+      {/* The reassign list is the only growing part — it scrolls inside the
+          content slot so the answer row stays pinned (EXP-369). */}
+      <div className="space-y-3">
+        {prPinNotice && (
+          <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+            {prPinNotice}
+          </p>
+        )}
+        <div className="space-y-1">
+          {candidates.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setReassignToId(option.id)}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent ${
+                selectedId === option.id ? `bg-accent` : ``
+              }`}
+            >
+              <StatusIcon option={option} />
+              <span className="truncate">{option.name}</span>
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+    </Prompt>
   )
 }
 

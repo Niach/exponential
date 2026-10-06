@@ -795,8 +795,9 @@ impl IssueHeader {
     /// show (the detail's PR files pane or a run's diff face), the ONE face
     /// that carries the GitHub link (EXP-949).
     ///
-    /// EXP-1162: `actions` = the collapsed issue face's copies of Merge /
-    /// Stop / Resume ([`Self::bar_actions`]), placed BEFORE the toggle.
+    /// EXP-1162: `actions` = extra buttons placed BEFORE the toggle (the
+    /// collapsed issue face's Merge / Stop / Resume copies rode here; both
+    /// callers pass none today).
     pub(crate) fn right_cluster(
         &mut self,
         issue: &Issue,

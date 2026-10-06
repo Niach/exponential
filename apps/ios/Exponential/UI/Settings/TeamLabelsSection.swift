@@ -96,16 +96,13 @@ struct TeamLabelsSection: View {
                 }
             }
         }
-        .alert("Delete label?", isPresented: Binding(
-            get: { deleteTarget != nil },
-            set: { if !$0 { deleteTarget = nil } }
-        ), presenting: deleteTarget) { label in
-            Button("Cancel", role: .cancel) { deleteTarget = nil }
-            Button("Delete", role: .destructive) {
-                Task { await run { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
-            }
-        } message: { label in
-            Text("\"\(label.name)\" will be removed from all issues. This cannot be undone.")
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
+        .glassAlert(item: $deleteTarget) { label in
+            GlassAlert(prompt: Prompts.DeleteLabel.copy(name: label.name), handlers: [
+                "delete": {
+                    Task { await run { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
+                },
+            ])
         }
     }
 

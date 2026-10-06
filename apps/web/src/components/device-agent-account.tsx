@@ -49,18 +49,11 @@ import {
   conceptIcon,
   Button,
   Input,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Prompt,
   toast,
 } from "@exp/ui"
 import {
@@ -328,86 +321,68 @@ export function AccountChipMenu({
       {/* EXP-1137: destructive too — a sign-out on the machine's own login
           also signs the CLI in the person's terminal out, and the sentence
           says so. */}
-      <AlertDialog
+      <Prompt
         open={confirmSignOut}
-        onOpenChange={(open) => {
-          if (!open && !busy) setConfirmSignOut(false)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{ACTION_SIGN_OUT}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {signOutConfirmCopy(
-                loginLabel,
-                deviceLabel,
-                ambient ? agentLabel(row.agent) : null
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault()
-                setConfirmSignOut(false)
-                void queue(
-                  `agent_profile_sign_out`,
-                  `${deviceLabel} will sign this login out.`,
-                  `Couldn't sign the account out on that device`
-                )
-              }}
-            >
-              {busy && <LoaderCircle className="animate-spin" />}
-              Sign out
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmSignOut}
+        busy={busy}
+        title={`${ACTION_SIGN_OUT}?`}
+        body={signOutConfirmCopy(
+          loginLabel,
+          deviceLabel,
+          ambient ? agentLabel(row.agent) : null
+        )}
+        actions={[
+          { label: `Cancel` },
+          {
+            label: `Sign out`,
+            role: `destructive`,
+            leading: busy ? <LoaderCircle className="animate-spin" /> : undefined,
+            onSelect: () => {
+              setConfirmSignOut(false)
+              void queue(
+                `agent_profile_sign_out`,
+                `${deviceLabel} will sign this login out.`,
+                `Couldn't sign the account out on that device`
+              )
+            },
+          },
+        ]}
+      />
 
       {/* Destructive, so it asks — and the sentence says in the same breath
           that only this device's copy of the login goes (the ambient login:
           signed out there and hidden, EXP-1137). */}
-      <AlertDialog
+      <Prompt
         open={confirmRemove}
-        onOpenChange={(open) => {
-          if (!open && !busy) setConfirmRemove(false)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{ACTION_REMOVE}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {ambient
-                ? removeAmbientAccountConfirmCopy(
-                    loginLabel,
-                    deviceLabel,
-                    agentLabel(row.agent)
-                  )
-                : removeAccountConfirmCopy(loginLabel, deviceLabel)}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault()
-                setConfirmRemove(false)
-                void queue(
-                  `agent_profile_remove`,
-                  `${deviceLabel} will remove this login.`,
-                  `Couldn't remove the account on that device`
-                )
-              }}
-            >
-              {busy && <LoaderCircle className="animate-spin" />}
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={setConfirmRemove}
+        busy={busy}
+        title={`${ACTION_REMOVE}?`}
+        body={
+          ambient
+            ? removeAmbientAccountConfirmCopy(
+                loginLabel,
+                deviceLabel,
+                agentLabel(row.agent)
+              )
+            : removeAccountConfirmCopy(loginLabel, deviceLabel)
+        }
+        actions={[
+          { label: `Cancel` },
+          {
+            label: `Remove`,
+            role: `destructive`,
+            leading: busy ? <LoaderCircle className="animate-spin" /> : undefined,
+            onSelect: () => {
+              setConfirmRemove(false)
+              void queue(
+                `agent_profile_remove`,
+                `${deviceLabel} will remove this login.`,
+                `Couldn't remove the account on that device`
+              )
+            },
+          },
+        ]}
+      />
     </>
   )
 }

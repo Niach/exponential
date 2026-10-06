@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { deleteFilePrompt, promptActions } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Download, ExternalLink, Eye, LoaderCircle, Trash2 } from "lucide-react"
 import type { Attachment } from "@/db/schema"
@@ -17,14 +18,7 @@ import {
   GlassRow,
   GlassSectionHeader,
   IconTooltip,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  Prompt,
 } from "@exp/ui"
 import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
@@ -204,6 +198,8 @@ export function FilesSectionView({
     return null
   }
 
+  const deleteCopy = deleteFilePrompt(pendingDelete?.filename ?? `this file`)
+
   return (
     // EXP-698 r4: the same gutter the coding / PR cards use, so every card
     // down the reading column shares an edge.
@@ -321,37 +317,19 @@ export function FilesSectionView({
         }}
       />
 
-      <AlertDialog
+      <Prompt
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open && !deleting) setPendingDelete(null)
+          if (!open) setPendingDelete(null)
         }}
-      >
-        <AlertDialogContent data-testid="issue-file-delete-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingDelete?.filename} will be permanently removed for
-              everyone. This can&apos;t be undone. If it is referenced anywhere
-              in a description or comment, that reference is replaced with a
-              plain &ldquo;deleted image&rdquo; note.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={deleting}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleConfirmDelete()
-              }}
-            >
-              {deleting ? `Deleting...` : `Delete file`}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        busy={deleting}
+        data-testid="issue-file-delete-confirm"
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          delete: { busy: deleting, onSelect: handleConfirmDelete },
+        })}
+      />
     </div>
   )
 }

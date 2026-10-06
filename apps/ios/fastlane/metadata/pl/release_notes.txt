@@ -1,8 +1,5 @@
-- GitHub: jedna strona z przewodnikiem łączy konto GitHub, instaluje aplikację i pokazuje repozytoria, do których możesz pushować
-- Feedback: zgłoszenie z widgetu to issue, odpowiadasz zgłaszającemu z pola komentarza, a jego odpowiedzi wracają jako komentarze
-- Nowe issue: tworzenie otwiera pełną stronę ze wszystkimi właściwościami, zapisywaną jako szkic podczas pisania
-- Nawigacja: karty Inbox, Devices, Reviews, Agent i Actions; Reviews, uruchomienia, akcje i urządzenia pokazują wszystkie twoje zespoły
-- Pull requesty: diff to widok Changes issue, Results czyta się jak numerowany przewodnik, Merge jest na dolnym pasku
-- Runs: znak agenta kręci się, gdy pracuje, bursztynowy czeka na ciebie, zielony ma otwarty pull request, niebieski jest gotowy
-- Ekran issue: tytuł zwija się do nagłówka podczas przewijania, a treść wsuwa się pod rozmytą krawędź
-- Dołączanie do zespołu: zaproszenie proponuje krok konfiguracji urządzenia, gdy nie masz jeszcze żadnego
+- Start: aplikacja otwiera się na stronie Agent, a przycisk czatu świeci, gdy na niej jesteś
+- Karty: Inbox, My Issues i Drafts przełączasz przesunięciem w bok, podobnie Actions i Suggestions
+- Reviews: pull request z uruchomienia czatu lub akcji otwiera swoje zmiany w aplikacji
+- Runs: strzałka przeskakuje do najnowszej wiadomości, a lista zadań pokazuje postęp
+- Nowe issue: jedno stuknięcie w × odrzuca szkic

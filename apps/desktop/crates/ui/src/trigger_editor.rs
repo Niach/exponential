@@ -1169,8 +1169,8 @@ impl TriggerEditorState {
             cx,
         )
         .into_any_element();
-        // EXP-1021: THE device picker — the same rows the composer and the
-        // workflow runner row draw, each machine by its own glyph.
+        // EXP-1021: THE device picker — the same rows the composer draws,
+        // each machine by its own glyph.
         // EXP-615: every trigger-capable machine reads the same.
         // Offline-but-capable is not a lesser choice — the run fires when the
         // machine comes back (the offline catch-up rule) — so no row is

@@ -220,19 +220,18 @@ struct AgentPageView: View {
                 .environment(\.accountId, accountId)
         }
         // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
-        // ordinary run, a stacked PR, or nothing. A SHEET, not an alert: it carries the transitive
-        // chain under the sentence.
-        .sheet(
+        // ordinary run, a stacked PR, or nothing. EXP-1215: the app's alert
+        // card, the transitive chain in its content slot.
+        .glassAlert(
             item: Binding(
                 get: { composer?.blockedPrompt },
                 set: { if $0 == nil { composer?.blockedPrompt = nil } }
             )
         ) { prompt in
-            BlockedStartSheet(
-                prompt: prompt,
-                onCancel: { composer?.blockedPrompt = nil },
+            BlockedStartAlert.card(
+                prompt,
                 onStartAnyway: { composer?.startAnyway() },
-                onStartStacked: { composer?.startStacked() },
+                onStartStacked: { composer?.startStacked(prompt) },
                 onOpenIssue: { id in
                     composer?.blockedPrompt = nil
                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)

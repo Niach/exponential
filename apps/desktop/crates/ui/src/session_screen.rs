@@ -55,16 +55,17 @@ use crate::steer_viewer::{FeedSource, SteerSessionView};
 
 /// Open `session_id`'s screen in this window (EXP-773: a coding run has no
 /// terminal tab). EXP-818: ALWAYS its own [`Screen::Session`] — Start,
-/// Resume, Watch and a Sessions row all land here, and the list column
-/// beside it is the one the caller came from (`navigation::derive_origin`);
-/// the EXP-791 slide-in over the issue is gone.
+/// Resume, Watch and a Sessions row all land here, and its origin is the one
+/// the caller came from (`navigation::derive_origin`; EXP-1192: an Inbox or
+/// Reviews origin keeps that list as the card's second sidebar); the EXP-791
+/// slide-in over the issue is gone.
 pub(crate) fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     open_session_inner(session_id, Origin::Derive, window, cx);
 }
 
 /// EXP-862: [`open_session`] from a LIST, which pins that list explicitly —
-/// the run's Back and its left column then name the rows it was picked from
-/// (a board, the Inbox, Reviews) instead
+/// the run's Back (and, for the Inbox or Reviews, the card's second sidebar)
+/// then name the rows it was picked from instead
 /// of whatever the breadcrumb rule can derive from the screen that was up.
 /// `None` falls back to [`open_session`].
 pub(crate) fn open_session_with_origin(
@@ -473,14 +474,6 @@ impl SessionScreenView {
     /// changes or its published results.
     pub(crate) fn run_face(&self, cx: &App) -> crate::screens::RunFace {
         self.inner.read(cx).run_face()
-    }
-
-    /// EXP-945: the viewer behind this screen — the owner of the Changes
-    /// face's files, selection, filter and folds, which the window's left
-    /// column paints ([`crate::review_files_nav`]). Handed over whole rather
-    /// than through six delegates: the panel observes it for repaints too.
-    pub(crate) fn inner(&self) -> &Entity<crate::steer_viewer::SteerSessionView> {
-        &self.inner
     }
 
     /// EXP-879/EXP-933: how many result TOPICS (pictures or report text) the
