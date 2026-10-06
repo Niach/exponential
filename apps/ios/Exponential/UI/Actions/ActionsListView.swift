@@ -49,6 +49,7 @@ struct ActionsListView: View {
             }
         }
         .navigationTitle("Actions")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         // Reload when the active team changes (and on first mount).
         .task(id: teamState.activeTeam?.id) {

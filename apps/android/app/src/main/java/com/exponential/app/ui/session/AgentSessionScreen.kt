@@ -2498,9 +2498,9 @@ private const val TASK_LIST_SPIN_MS = 1_200
 
 /**
  * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
- * block above the composer, and deliberately NOT a box (no fill, no border),
- * so it never reads as a queued steer message or as the composer itself.
- * Collapsed (the default) it is ONE plain line: the checklist glyph, the
+ * block above the composer. EXP-1213: on the same [glassRow] ground as its
+ * sibling strips ([BackgroundWorkStrip], [QueueStrip]) — the band floats over
+ * the transcript, and plain rows there read as feed text. Collapsed (the default) it is ONE plain line: the checklist glyph, the
  * current entry, the segmented [TaskListProgress] mark, `{completed}/{total}`
  * and the disclosure chevron; the whole line toggles. Expanded it is one line
  * per entry in wire order. The expansion is view state, never persisted — a
@@ -2514,6 +2514,8 @@ private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .glassRow()
+            .padding(horizontal = 8.dp)
             .testTag("task-list-block"),
     ) {
         // The header is the toggle, so its own tag is the one a test may read:

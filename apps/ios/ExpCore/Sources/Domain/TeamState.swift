@@ -7,8 +7,8 @@ public final class TeamState {
     public var activeTeamId: String?
     /// EXP-1075: the caller's OWN live runs per team, recomputed beside the
     /// Agents tab dots (`AppNavigator.recomputeAgentDots`). The board
-    /// switcher reads it for the "another team has your live runs" dot — the
-    /// team-scoped lists otherwise leave those runs unannounced anywhere.
+    /// switcher SHEET reads it for its per-team dots (EXP-1210: the pill
+    /// that opens it wears none).
     public var liveRunsByTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [:]
 
     public init() {}

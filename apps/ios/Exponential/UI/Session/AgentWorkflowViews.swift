@@ -65,9 +65,10 @@ struct WorkingIndicatorRow: View {
 /// composer — and a background task of kind `agent` is a conversation TAB, so
 /// `stripLines` never hands one down.
 ///
-/// EXP-1191: NO box — no fill, border or capsule, so it never reads as the
-/// composer or a queued message; plain rows in the reading column over the
-/// band's floating-bar edge ground (web `BackgroundStrip`).
+/// EXP-1191: the lines carry NO box — no fill, border or capsule; plain rows
+/// in the reading column over the band's floating-bar edge ground (web
+/// `BackgroundStrip`). EXP-1213: the task list under them sits on the queue
+/// strip's ground, since the band floats over the transcript.
 struct AgentBottomStrip: View {
     let lines: [AgentStripLine]
     let taskList: [AgentTaskListEntry]
@@ -114,7 +115,9 @@ struct AgentBottomStrip: View {
 /// entry is done. Collapsed by default: ONE line with the current entry and a
 /// trailing `{completed}/{total}`, the whole line toggling it open; expanded:
 /// one line per entry in wire order, eight tall at most and then it scrolls.
-/// The expansion is view state, never persisted.
+/// The expansion is view state, never persisted. EXP-1213: on the queue
+/// strip's ground (`.glassRow(isOpaque: true)`, fill + hairline) — it floats
+/// over the scrolling transcript, so plain rows read as feed text.
 struct AgentTaskListBlock: View {
     let entries: [AgentTaskListEntry]
 
@@ -143,6 +146,9 @@ struct AgentTaskListBlock: View {
                 }
             }
             .animation(motion.standard, value: expanded)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassRow(isOpaque: true)
             .accessibilityIdentifier("agent-task-list")
         }
     }
@@ -237,8 +243,8 @@ private struct SpinningGlyph: View {
 }
 
 /// EXP-861: the queued-messages strip directly above the composer — one line
-/// per message the agent has not read yet in a filled box (EXP-1191: the
-/// queue's mark alone; the task-list strip under it has none), each with a
+/// per message the agent has not read yet in a filled box (EXP-1213: the
+/// task list under it wears the same one), each with a
 /// trailing ghost X that revokes a HELD message
 /// (`{"t":"unqueue","id"}`). EXP-873: a `sent` line (already with the agent,
 /// awaiting its replay) draws no X — only Stop takes it back. The caller
