@@ -25,7 +25,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   // EXP-1126 sign-in methods: Better Auth's fresh-session gate (passkey
   // registration) and our own last-way-in rule (lib/auth/sign-in-methods.ts).
   SESSION_NOT_FRESH: `Sign in again to do this (your current session is older than a day).`,
-  LAST_SIGN_IN_METHOD: `This is your only way to sign in. Add another method before removing it.`,
+  LAST_SIGN_IN_METHOD: `This is your only way to sign in. Add another method first, or delete your account.`,
 }
 
 export function authErrorMessage(

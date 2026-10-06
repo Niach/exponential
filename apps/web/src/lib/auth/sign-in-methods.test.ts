@@ -50,14 +50,14 @@ describe(`configuredProviders`, () => {
 })
 
 describe(`countWaysIn`, () => {
-  it(`counts the email code once, each configured account row, and passkeys`, () => {
+  it(`counts each configured account row and passkeys, never the email code`, () => {
     expect(
       countWaysIn({
         accounts: [{ providerId: `google` }, { providerId: `credential` }],
         passkeyCount: 2,
         config: everythingOn,
       })
-    ).toBe(5)
+    ).toBe(4)
   })
 
   it(`ignores rows for providers the instance no longer offers`, () => {
@@ -70,8 +70,8 @@ describe(`countWaysIn`, () => {
     ).toBe(0)
   })
 
-  it(`the email code alone is a way in`, () => {
-    expect(countWaysIn({ accounts: [], passkeyCount: 0, config: codeOnly })).toBe(1)
+  it(`the email code alone is not a way in (EXP-1209)`, () => {
+    expect(countWaysIn({ accounts: [], passkeyCount: 0, config: codeOnly })).toBe(0)
   })
 })
 
@@ -87,7 +87,7 @@ describe(`the GitHub row without GitHub login (SLOP-7)`, () => {
     expect(methods.providers.some((p) => p.id === `github`)).toBe(false)
     expect(
       countWaysIn({ accounts: [{ providerId: `github` }], passkeyCount: 0, config })
-    ).toBe(1)
+    ).toBe(0)
   })
 
   it(`counts as a way in once GitHub login is on`, () => {
@@ -115,10 +115,21 @@ describe(`removalLeavesNoWayIn`, () => {
     ).toBe(true)
   })
 
-  it(`allows unlinking the only row while the email code remains`, () => {
+  it(`only Google + the email code => unlinking Google is refused (EXP-1209)`, () => {
     expect(
       removalLeavesNoWayIn({
         accounts: [{ providerId: `google` }],
+        passkeys: [],
+        config: everythingOn,
+        removal: { providerId: `google` },
+      })
+    ).toBe(true)
+  })
+
+  it(`allows unlinking a row while another method remains`, () => {
+    expect(
+      removalLeavesNoWayIn({
+        accounts: [{ providerId: `google` }, { providerId: `credential` }],
         passkeys: [],
         config: everythingOn,
         removal: { providerId: `google` },
@@ -155,6 +166,28 @@ describe(`removalLeavesNoWayIn`, () => {
       })
     ).toBe(false)
   })
+
+  it(`removing a row for a provider no longer offered is allowed even with no other way in`, () => {
+    expect(
+      removalLeavesNoWayIn({
+        accounts: [{ providerId: `old-idp` }],
+        passkeys: [],
+        config: everythingOn,
+        removal: { providerId: `old-idp` },
+      })
+    ).toBe(false)
+  })
+
+  it(`removing the password row while password login is off is allowed`, () => {
+    expect(
+      removalLeavesNoWayIn({
+        accounts: [{ providerId: `credential` }],
+        passkeys: [],
+        config: { ...everythingOn, passwordEnabled: false },
+        removal: { providerId: `credential` },
+      })
+    ).toBe(false)
+  })
 })
 
 describe(`buildSignInMethods`, () => {
@@ -184,8 +217,8 @@ describe(`buildSignInMethods`, () => {
     expect(methods.passkeys).toEqual([
       { id: `pk`, name: `Mac`, createdAt: day.toISOString(), backedUp: true },
     ])
-    // code + google + credential + passkey (old-idp is unusable)
-    expect(methods.waysIn).toBe(4)
+    // google + credential + passkey (old-idp is unusable, the code is no way in)
+    expect(methods.waysIn).toBe(3)
     expect(methods.email).toBe(`a@example.com`)
   })
 
@@ -197,7 +230,7 @@ describe(`buildSignInMethods`, () => {
       config: everythingOn,
     })
     expect(methods.providers.some((p) => p.kind === `password`)).toBe(false)
-    expect(methods.waysIn).toBe(1)
+    expect(methods.waysIn).toBe(0)
   })
 })
 

@@ -103,3 +103,34 @@ describe(`SignInMethodsSection link return`, () => {
     expect(consumed).not.toHaveBeenCalled()
   })
 })
+
+describe(`SignInMethodsSection last way in`, () => {
+  const only = (provider: Partial<SignInMethods["providers"][number]>) => (
+    <SignInMethodsSection
+      initialMethods={{
+        ...methods,
+        providers: [{ ...methods.providers[0], ...provider }],
+        waysIn: provider.available === false ? 0 : 1,
+      }}
+      teamSlug="acme"
+      linkReturn={{}}
+      onLinkReturnConsumed={vi.fn()}
+    />
+  )
+
+  it(`blocks unlinking the only way in`, () => {
+    render(only({}))
+    const unlink = screen.getByRole(`button`, { name: `Unlink` }) as HTMLButtonElement
+    expect(unlink.disabled).toBe(true)
+    expect(screen.getByText(`Linked · your only way to sign in`)).toBeTruthy()
+  })
+
+  it(`lets a row that is no way in go (EXP-1209)`, () => {
+    render(only({ available: false }))
+    const unlink = screen.getByRole(`button`, { name: `Unlink` }) as HTMLButtonElement
+    expect(unlink.disabled).toBe(false)
+    expect(
+      screen.getByText(`Linked · no longer offered on this instance`)
+    ).toBeTruthy()
+  })
+})

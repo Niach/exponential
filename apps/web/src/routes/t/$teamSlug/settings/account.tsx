@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { AccountOverview } from "@/components/account/account-overview"
 import { DeleteAccountSection } from "@/components/account/delete-account-section"
@@ -55,6 +55,10 @@ function SettingsAccount() {
   const { timezone, signInMethods } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = useNavigate()
+  const router = useRouter()
+  // EXP-1209: both bands gate the last way in on the ONE `waysIn`; a change
+  // in either reloads it.
+  const reloadMethods = () => void router.invalidate()
 
   const linkReturn: LinkReturn = {
     linked: search.linked,
@@ -76,8 +80,13 @@ function SettingsAccount() {
             replace: true,
           })
         }
+        onChanged={reloadMethods}
       />
-      <PasskeysSection passkeyEnabled={signInMethods.passkeyEnabled} />
+      <PasskeysSection
+        passkeyEnabled={signInMethods.passkeyEnabled}
+        waysIn={signInMethods.waysIn}
+        onChanged={reloadMethods}
+      />
       <DeleteAccountSection />
     </div>
   )

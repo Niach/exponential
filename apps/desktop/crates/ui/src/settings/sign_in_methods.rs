@@ -509,7 +509,7 @@ impl SignInMethodsSection {
         method_row(
             Some(glyph(Icon::from(registry::AUTH_PASSKEY), cx)),
             passkey_name(passkey).into(),
-            passkey_subtitle(passkey).into(),
+            passkey_subtitle(passkey, blocked).into(),
             Some(trailing),
             cx,
         )
@@ -740,12 +740,16 @@ fn passkey_name(passkey: &SignInPasskey) -> String {
         .unwrap_or_else(|| "Passkey".to_string())
 }
 
-fn passkey_subtitle(passkey: &SignInPasskey) -> String {
+/// Web copy (`passkeys-section.tsx`); the last way in reads
+/// `added <date> · your only way to sign in` (EXP-1209).
+fn passkey_subtitle(passkey: &SignInPasskey, blocked: bool) -> String {
     let mut subtitle = match passkey.created_at.as_deref() {
         Some(at) => format!("added {}", format_created_date(at)),
         None => "added".to_string(),
     };
-    if passkey.backed_up {
+    if blocked {
+        subtitle.push_str(" · your only way to sign in");
+    } else if passkey.backed_up {
         subtitle.push_str(" · synced across your devices");
     }
     subtitle
@@ -806,8 +810,12 @@ mod tests {
         };
         assert_eq!(passkey_name(&passkey), "Passkey");
         assert_eq!(
-            passkey_subtitle(&passkey),
+            passkey_subtitle(&passkey, false),
             "added Sep 2, 2026 · synced across your devices"
+        );
+        assert_eq!(
+            passkey_subtitle(&passkey, true),
+            "added Sep 2, 2026 · your only way to sign in"
         );
         let named = SignInPasskey {
             name: Some("MacBook".to_string()),
@@ -815,7 +823,7 @@ mod tests {
             ..passkey
         };
         assert_eq!(passkey_name(&named), "MacBook");
-        assert_eq!(passkey_subtitle(&named), "added Sep 2, 2026");
+        assert_eq!(passkey_subtitle(&named, false), "added Sep 2, 2026");
     }
 
     #[test]

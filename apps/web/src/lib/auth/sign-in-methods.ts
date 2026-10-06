@@ -15,13 +15,14 @@ import {
 // (tRPC `users.signInMethods`), plus the invariant every removal respects:
 // at least one way in must remain. A "way in" is a login the instance
 // currently offers AND the account holds — an `accounts` row whose provider
-// is still configured, a passkey while passkeys are on, and the one-time
-// code to the primary email while a mail transport exists (that one needs
-// no row: it is always there for the primary address).
+// is still configured (the password only while password login is on) and a
+// passkey while passkeys are on. The one-time code to the primary email is
+// NOT one (EXP-1209): it is a convenience, not a method the person holds, so
+// the last real method stays put; to leave entirely, delete the account.
 //
 // Better Auth's own last-account check (`/unlink-account`) only counts
 // `accounts` rows — it would refuse to drop the sole Google row of an account
-// that also signs in by code and passkey — so the server config sets
+// that also signs in by passkey — so the server config sets
 // `allowUnlinkingAll` and this module owns the rule instead: the tRPC
 // mutations call `assertNotLastWayIn`, and the plugin below guards the two
 // Better Auth endpoints a direct API caller could still reach.
@@ -64,7 +65,7 @@ export interface SignInMethods {
 }
 
 export const LAST_SIGN_IN_METHOD_CODE = `LAST_SIGN_IN_METHOD`
-export const LAST_SIGN_IN_METHOD_MESSAGE = `This is your only way to sign in. Add another method before removing it.`
+export const LAST_SIGN_IN_METHOD_MESSAGE = `This is your only way to sign in. Add another method first, or delete your account.`
 
 type ProviderConfig = Pick<
   AuthConfig,
@@ -118,13 +119,17 @@ function providerAvailable(providerId: string, config: ProviderConfig): boolean 
   return config.oidcProviders.some((p) => p.id === providerId)
 }
 
-/** Pure: how many ways in the account has right now. */
+/** Pure: how many ways in the account has right now — the methods the
+ *  person HOLDS: each usable provider row (the password only while password
+ *  login is on) and each passkey (while passkeys are on). The one-time email
+ *  code is a convenience, never a way in (EXP-1209): counting it let the last
+ *  real method go and locked the account out. */
 export function countWaysIn(input: {
   accounts: AccountRow[]
   passkeyCount: number
   config: ProviderConfig
 }): number {
-  let n = input.config.emailOtpEnabled ? 1 : 0
+  let n = 0
   for (const row of input.accounts) {
     if (providerAvailable(row.providerId, input.config)) n += 1
   }
@@ -255,7 +260,10 @@ export type SignInMethodRemoval =
   | { providerId: string }
   | { passkeyId: string }
 
-/** Pure: would removing `removal` leave the account with no way in? */
+/** Pure: would removing `removal` take away the account's LAST way in?
+ *  Only a removal that drops a way in can be refused: a row that is no way
+ *  in (a provider no longer offered, the password while password login is
+ *  off) always goes, even when nothing else counts. */
 export function removalLeavesNoWayIn(input: {
   accounts: AccountRow[]
   passkeys: Array<{ id: string }>
@@ -274,13 +282,17 @@ export function removalLeavesNoWayIn(input: {
     removedPasskey === null
       ? input.passkeys
       : input.passkeys.filter((p) => p.id !== removedPasskey)
-  return (
-    countWaysIn({
-      accounts: accountsLeft,
-      passkeyCount: passkeysLeft.length,
-      config: input.config,
-    }) === 0
-  )
+  const before = countWaysIn({
+    accounts: input.accounts,
+    passkeyCount: input.passkeys.length,
+    config: input.config,
+  })
+  const after = countWaysIn({
+    accounts: accountsLeft,
+    passkeyCount: passkeysLeft.length,
+    config: input.config,
+  })
+  return before > 0 && after === 0
 }
 
 async function wouldLeaveNoWayIn(

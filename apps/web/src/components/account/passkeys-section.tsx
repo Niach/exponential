@@ -61,9 +61,13 @@ const NOT_FRESH_CODE = `SESSION_NOT_FRESH`
 // (moved back from Security, which keeps the API keys).
 export function PasskeysSection({
   passkeyEnabled,
+  waysIn,
   onChanged,
 }: {
   passkeyEnabled: boolean
+  // EXP-1209: `users.signInMethods.waysIn`; at 1 the last passkey's Remove is
+  // disabled up front, like the provider rows above.
+  waysIn: number
   // EXP-1126: the Sign-in methods band above counts passkeys as ways in.
   onChanged?: () => void
 }) {
@@ -157,6 +161,7 @@ export function PasskeysSection({
   }
 
   const removeCopy = removePasskeyPrompt(removeTarget?.name || `Passkey`)
+  const onlyWayIn = waysIn <= 1
 
   return (
     <div>
@@ -192,17 +197,20 @@ export function PasskeysSection({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {`added ${formatDate(row.createdAt)}`}
-                  {row.backedUp
-                    ? ` · synced across your devices`
-                    : row.deviceType === `singleDevice`
-                      ? ` · this device only`
-                      : ``}
+                  {onlyWayIn
+                    ? ` · your only way to sign in`
+                    : row.backedUp
+                      ? ` · synced across your devices`
+                      : row.deviceType === `singleDevice`
+                        ? ` · this device only`
+                        : ``}
                 </div>
               </div>
               <Button
                 size="sm"
                 variant="outline"
                 className="shrink-0 text-destructive hover:text-destructive"
+                disabled={onlyWayIn}
                 onClick={() => setRemoveTarget(row)}
               >
                 Remove

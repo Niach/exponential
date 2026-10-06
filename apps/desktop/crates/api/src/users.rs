@@ -197,7 +197,7 @@ pub fn users_set_timezone(
 /// The server's refusal when a removal would leave no way in — byte-equal to
 /// `LAST_SIGN_IN_METHOD_MESSAGE` (apps/web/src/lib/auth/sign-in-methods.ts).
 pub const LAST_SIGN_IN_METHOD_MESSAGE: &str =
-    "This is your only way to sign in. Add another method before removing it.";
+    "This is your only way to sign in. Add another method first, or delete your account.";
 
 /// `users.signInMethods` output.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -307,9 +307,10 @@ pub fn mint_sign_in_link_ticket(
 }
 
 /// Whether a provider row may be unlinked right now — the web section's rule
-/// (`provider.linked && waysIn > 1`); the server re-checks either way.
+/// (a linked row goes while another way in remains, or when it is no way in
+/// itself: a provider no longer offered, EXP-1209); the server re-checks.
 pub fn can_unlink(methods: &SignInMethods, provider: &SignInProvider) -> bool {
-    provider.linked && methods.ways_in > 1
+    provider.linked && (!provider.available || methods.ways_in > 1)
 }
 
 /// The key's server-side display name for this device (§7.2:
@@ -711,7 +712,7 @@ mod tests {
     fn unlink_refusal_carries_the_server_message() {
         let (base, _captured) = one_shot_server(
             412,
-            r#"{"error":{"message":"This is your only way to sign in. Add another method before removing it.","code":-32600,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+            r#"{"error":{"message":"This is your only way to sign in. Add another method first, or delete your account.","code":-32600,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
         let err = unlink_sign_in_method(&client(&base), "google").unwrap_err();
         assert_eq!(err.user_message(), LAST_SIGN_IN_METHOD_MESSAGE);
@@ -758,6 +759,11 @@ mod tests {
         assert!(!can_unlink(&methods(1), &provider(true)));
         assert!(!can_unlink(&methods(0), &provider(true)));
         assert!(!can_unlink(&methods(3), &provider(false)));
+        let gone = SignInProvider {
+            available: false,
+            ..provider(true)
+        };
+        assert!(can_unlink(&methods(0), &gone));
     }
 
     #[test]

@@ -71,7 +71,8 @@ function ProviderMark({ provider }: { provider: SignInProvider }) {
 }
 
 // EXP-1126: Settings › Account › Sign-in methods. ONE list of every way into
-// the account: the code to the primary email (always present, changeable),
+// the account: the code to the primary email (always present, changeable, a
+// convenience that never counts toward `waysIn`, EXP-1209),
 // the configured providers (Apple, Google, OIDC) with Link/Unlink, and a
 // password row while one is set. Passkeys keep their own band right below
 // (PasskeysSection). Removals go through tRPC so the last-way-in rule is
@@ -81,13 +82,18 @@ export function SignInMethodsSection({
   teamSlug,
   linkReturn,
   onLinkReturnConsumed,
+  onChanged,
 }: {
   initialMethods: SignInMethods
   teamSlug: string
   linkReturn: LinkReturn
   onLinkReturnConsumed: () => void
+  // EXP-1209: the Passkeys band below gates its last Remove on `waysIn` too.
+  onChanged?: () => void
 }) {
   const [methods, setMethods] = useState<SignInMethods>(initialMethods)
+  // A passkey added or removed below reloads the page's payload: take it.
+  useEffect(() => setMethods(initialMethods), [initialMethods])
   const [error, setError] = useState(``)
   // The arrival outcome toasts ONCE (StrictMode re-runs effects, and
   // stripping the params below re-renders with an empty return).
@@ -166,6 +172,7 @@ export function SignInMethodsSection({
       )
       setUnlinkTarget(null)
       await refresh()
+      onChanged?.()
     } catch (err) {
       setUnlinkError(
         err instanceof Error ? err.message : `Couldn't remove that sign-in method.`
@@ -214,7 +221,7 @@ export function SignInMethodsSection({
         </ListRow>
 
         {methods.providers.map((provider) => {
-          const blocked = provider.linked && onlyWayIn
+          const blocked = provider.linked && provider.available && onlyWayIn
           return (
             <ListRow key={provider.id} className="justify-between gap-3 px-3 py-2">
               <div className="flex min-w-0 items-center gap-3">
