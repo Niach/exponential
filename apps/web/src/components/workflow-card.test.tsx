@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
 import type { WorkflowState } from "@/lib/agent-feed"
@@ -80,18 +80,12 @@ describe(`WorkflowCard`, () => {
     expect(screen.getByText(`One lane died`)).toBeTruthy()
   })
 
-  it(`an agent with nested events folds them away`, () => {
-    render(
-      <WorkflowCard
-        workflow={workflow()}
-        agentEvents={new Map([[`a2`, <span key="x">nested rows</span>]])}
-      />
-    )
-    expect(screen.queryByText(`nested rows`)).toBeNull()
-    fireEvent.click(screen.getByRole(`button`, { name: /beta:shell/ }))
-    expect(screen.getByText(`nested rows`)).toBeTruthy()
-    // The agent WITHOUT nested events has no expander at all.
-    expect(screen.queryByRole(`button`, { name: /alpha:one/ })).toBeNull()
+  it(`summarises its agents and never folds their rows in (EXP-1225)`, () => {
+    render(<WorkflowCard workflow={workflow()} />)
+    // One summary line per agent; the rows live in each agent's own tab, so
+    // the card has nothing to expand.
+    expect(screen.getByText(`beta:shell`)).toBeTruthy()
+    expect(screen.queryAllByRole(`button`)).toHaveLength(0)
   })
 
   it(`carries the duplicate warnings that named it (§4)`, () => {

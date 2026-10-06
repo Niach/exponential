@@ -875,26 +875,6 @@ export function AgentSessionView({
     return byWorkflow
   }, [feed])
 
-  /** §3: a workflow agent's own rows, by agent id — the card folds them away
-   *  behind its agent row, and they never stand in the transcript. */
-  const workflowAgentEvents = useMemo(() => {
-    const byWorkflow = new Map<string, Map<string, ReactNode>>()
-    for (const [subagentId, workflowId] of workflowAgents) {
-      const items = feed.filter(
-        (item) =>
-          subagentIdOf(item) === subagentId &&
-          (item.kind === `tool` ||
-            item.kind === `narration` ||
-            item.kind === `api_error`)
-      )
-      if (items.length === 0) continue
-      const agents = byWorkflow.get(workflowId) ?? new Map<string, ReactNode>()
-      agents.set(subagentId, <NestedAgentEvents items={items} />)
-      byWorkflow.set(workflowId, agents)
-    }
-    return byWorkflow
-  }, [feed, workflowAgents])
-
   /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold —
    *  evicted, or above the rendered rows. They land at the TAIL of the
    *  transcript, because a card is the ONLY place a running workflow's agents
@@ -1700,7 +1680,6 @@ export function AgentSessionView({
                           return wrap(
                             <WorkflowCard
                               workflow={workflow}
-                              agentEvents={workflowAgentEvents.get(workflow.id)}
                               duplicates={workflowDuplicates.get(workflow.id)}
                               className={TRANSCRIPT_TOOL_TEXT}
                             />
@@ -1804,7 +1783,6 @@ export function AgentSessionView({
                     >
                       <WorkflowCard
                         workflow={workflow}
-                        agentEvents={workflowAgentEvents.get(workflow.id)}
                         duplicates={workflowDuplicates.get(workflow.id)}
                         className={TRANSCRIPT_TOOL_TEXT}
                       />
@@ -2389,23 +2367,16 @@ function QueueStrip({
   )
 }
 
-/** A workflow agent's own rows, folded away inside its card (§3) — the same
- *  rows the transcript uses, grouped the same way (EXP-916: a lane's
- *  consecutive edits are ITS edited-files card, not a stack of bare rows). */
-function NestedAgentEvents({ items }: { items: FeedItem[] }) {
-  return <LaneRows items={items} />
-}
-
-/** EXP-916: ONE lane's items — a subagent's fold, a workflow agent's rows, a
- *  subagent's own conversation TAB — through the same projection the main
- *  transcript runs (`groupLaneRows`), so an edit run reads as the card it is
- *  everywhere else. The ONE row switch a lane has: a tab used to carry a copy
- *  of it.
+/** EXP-916: ONE lane's items — a subagent's fold or a subagent's own
+ *  conversation TAB (EXP-1225: a workflow agent's too) — through the same
+ *  projection the main transcript runs (`groupLaneRows`), so an edit run
+ *  reads as the card it is everywhere else. The ONE row switch a lane has: a
+ *  tab used to carry a copy of it.
  *
  *  `gaps` is the only difference between the two readings. A conversation tab
  *  IS a transcript, so its rows take the gap ladder (EXP-787); folded inside a
- *  card the lane keeps the tighter uniform rhythm, with its tool rows flush
- *  against each other. */
+ *  group row the lane keeps the tighter uniform rhythm, with its tool rows
+ *  flush against each other. */
 function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }) {
   const rows = useMemo(() => groupLaneRows(items), [items])
   return (

@@ -1,5 +1,4 @@
-import { useState, type ReactNode } from "react"
-import { conceptIcon, DisclosureHeader } from "@exp/ui"
+import { conceptIcon } from "@exp/ui"
 import {
   workflowPhaseCounts,
   type WorkflowAgent,
@@ -15,8 +14,9 @@ import { cn } from "@/lib/utils"
 // one row per agent with its live telemetry, and the summary it ends with.
 // The card REPLACES the `tool` row carrying the same id (the store stamps
 // `workflowId` on it), so the call's own settle folds in and no second row is
-// ever drawn. Its agents are never subagent tabs and are never steerable
-// (§3); a second copy of one of them is the amber warning row below (§4).
+// ever drawn. It SUMMARISES its agents, one line each; their rows live in
+// their own subagent tabs (EXP-1225). A second copy of one of them is the
+// amber warning row below (§4).
 //
 // Icons are CONCEPTS — this is a multi-client surface (desktop, iOS and
 // Android draw the same card).
@@ -86,48 +86,21 @@ export function DuplicateWarningRow({ detail }: { detail: string }) {
   )
 }
 
-function AgentRow({
-  agent,
-  events,
-  renderEvents,
-}: {
-  agent: WorkflowAgent
-  /** The agent's own nested feed rows, when this viewer holds any. */
-  events?: ReactNode
-  renderEvents: boolean
-}) {
-  const [expanded, setExpanded] = useState(false)
+function AgentRow({ agent }: { agent: WorkflowAgent }) {
   const stats = agentStats(agent)
   const note = agentNote(agent)
   const label = agent.label ?? `Agent ${agent.index}`
-  const head = (
-    <>
-      <AgentStateIcon state={agent.state} />
-      <span className="min-w-0 truncate font-medium">{label}</span>
-      {stats.length > 0 && (
-        <span className="min-w-0 truncate text-muted-foreground">
-          {stats.join(` · `)}
-        </span>
-      )}
-    </>
-  )
   return (
     <div className="min-w-0">
-      {renderEvents ? (
-        // The fold's 12px chevron plus the 1.5 gap is exactly the indent the
-        // non-foldable arm below pads itself by, so both rows line up.
-        <DisclosureHeader
-          open={expanded}
-          onToggle={() => setExpanded((open) => !open)}
-          className="gap-1.5"
-        >
-          {head}
-        </DisclosureHeader>
-      ) : (
-        <div className="flex min-w-0 items-center gap-1.5 pl-[calc(0.75rem_+_0.375rem)]">
-          {head}
-        </div>
-      )}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <AgentStateIcon state={agent.state} />
+        <span className="min-w-0 truncate font-medium">{label}</span>
+        {stats.length > 0 && (
+          <span className="min-w-0 truncate text-muted-foreground">
+            {stats.join(` · `)}
+          </span>
+        )}
+      </div>
       {note && (
         <div
           className={cn(
@@ -139,21 +112,16 @@ function AgentRow({
           {note}
         </div>
       )}
-      {renderEvents && expanded && <div className="ml-4">{events}</div>}
     </div>
   )
 }
 
 export function WorkflowCard({
   workflow,
-  agentEvents,
   duplicates = [],
   className,
 }: {
   workflow: WorkflowState
-  /** The nested rows of a workflow agent, by the agent's wire id — rendered
-   *  by the transcript (it owns the row components), folded away here. */
-  agentEvents?: Map<string, ReactNode>
   /** §4: the duplicate warnings that named THIS workflow. */
   duplicates?: readonly string[]
   className?: string
@@ -204,19 +172,9 @@ export function WorkflowCard({
       )}
       {workflow.agents.length > 0 && (
         <div className="min-w-0 space-y-1">
-          {workflow.agents.map((agent) => {
-            const events = agent.agentId
-              ? agentEvents?.get(agent.agentId)
-              : undefined
-            return (
-              <AgentRow
-                key={agent.index}
-                agent={agent}
-                events={events}
-                renderEvents={events !== undefined}
-              />
-            )
-          })}
+          {workflow.agents.map((agent) => (
+            <AgentRow key={agent.index} agent={agent} />
+          ))}
         </div>
       )}
       {duplicates.map((detail) => (
