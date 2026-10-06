@@ -75,6 +75,8 @@ class UsersWireFormatTest {
         assertTrue(canUnlink(m, google))
         val last = m.copy(waysIn = 1)
         assertFalse(canUnlink(last, google))
+        // EXP-1209: a row that is no way in (no longer offered) always goes.
+        assertTrue(canUnlink(m.copy(waysIn = 0), google.copy(available = false)))
         assertFalse(canRemovePasskey(last))
         assertTrue(canRemovePasskey(m))
     }

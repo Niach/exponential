@@ -67,6 +67,13 @@ final class SignInMethodsDecodingTests: XCTestCase {
         )
         XCTAssertFalse(SignInMethods.canUnlink(onlyWay.providers[0], in: onlyWay), "last way in")
         XCTAssertFalse(onlyWay.canRemovePasskey)
+
+        let gone = SignInProvider(id: "old-idp", name: "Old IdP", kind: "oidc", available: false, linked: true, linkedAt: nil)
+        let goneOnly = SignInMethods(
+            email: "a@x.com", emailVerified: true, emailOtpEnabled: true, passwordEnabled: false,
+            passkeyEnabled: false, providers: [gone], passkeys: [], waysIn: 0
+        )
+        XCTAssertTrue(SignInMethods.canUnlink(gone, in: goneOnly), "a row that is no way in always goes")
     }
 
     func testLinkTicketDecodes() throws {

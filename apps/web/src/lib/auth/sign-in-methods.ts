@@ -260,7 +260,10 @@ export type SignInMethodRemoval =
   | { providerId: string }
   | { passkeyId: string }
 
-/** Pure: would removing `removal` leave the account with no way in? */
+/** Pure: would removing `removal` take away the account's LAST way in?
+ *  Only a removal that drops a way in can be refused: a row that is no way
+ *  in (a provider no longer offered, the password while password login is
+ *  off) always goes, even when nothing else counts. */
 export function removalLeavesNoWayIn(input: {
   accounts: AccountRow[]
   passkeys: Array<{ id: string }>
@@ -279,13 +282,17 @@ export function removalLeavesNoWayIn(input: {
     removedPasskey === null
       ? input.passkeys
       : input.passkeys.filter((p) => p.id !== removedPasskey)
-  return (
-    countWaysIn({
-      accounts: accountsLeft,
-      passkeyCount: passkeysLeft.length,
-      config: input.config,
-    }) === 0
-  )
+  const before = countWaysIn({
+    accounts: input.accounts,
+    passkeyCount: input.passkeys.length,
+    config: input.config,
+  })
+  const after = countWaysIn({
+    accounts: accountsLeft,
+    passkeyCount: passkeysLeft.length,
+    config: input.config,
+  })
+  return before > 0 && after === 0
 }
 
 async function wouldLeaveNoWayIn(

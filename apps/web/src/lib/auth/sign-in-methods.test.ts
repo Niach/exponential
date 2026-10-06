@@ -166,6 +166,28 @@ describe(`removalLeavesNoWayIn`, () => {
       })
     ).toBe(false)
   })
+
+  it(`removing a row for a provider no longer offered is allowed even with no other way in`, () => {
+    expect(
+      removalLeavesNoWayIn({
+        accounts: [{ providerId: `old-idp` }],
+        passkeys: [],
+        config: everythingOn,
+        removal: { providerId: `old-idp` },
+      })
+    ).toBe(false)
+  })
+
+  it(`removing the password row while password login is off is allowed`, () => {
+    expect(
+      removalLeavesNoWayIn({
+        accounts: [{ providerId: `credential` }],
+        passkeys: [],
+        config: { ...everythingOn, passwordEnabled: false },
+        removal: { providerId: `credential` },
+      })
+    ).toBe(false)
+  })
 })
 
 describe(`buildSignInMethods`, () => {

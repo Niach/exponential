@@ -307,9 +307,10 @@ pub fn mint_sign_in_link_ticket(
 }
 
 /// Whether a provider row may be unlinked right now — the web section's rule
-/// (`provider.linked && waysIn > 1`); the server re-checks either way.
+/// (a linked row goes while another way in remains, or when it is no way in
+/// itself: a provider no longer offered, EXP-1209); the server re-checks.
 pub fn can_unlink(methods: &SignInMethods, provider: &SignInProvider) -> bool {
-    provider.linked && methods.ways_in > 1
+    provider.linked && (!provider.available || methods.ways_in > 1)
 }
 
 /// The key's server-side display name for this device (§7.2:
@@ -758,6 +759,11 @@ mod tests {
         assert!(!can_unlink(&methods(1), &provider(true)));
         assert!(!can_unlink(&methods(0), &provider(true)));
         assert!(!can_unlink(&methods(3), &provider(false)));
+        let gone = SignInProvider {
+            available: false,
+            ..provider(true)
+        };
+        assert!(can_unlink(&methods(0), &gone));
     }
 
     #[test]

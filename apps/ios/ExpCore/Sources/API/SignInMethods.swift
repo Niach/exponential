@@ -118,10 +118,11 @@ public struct SignInMethods: Decodable, Sendable, Equatable {
     }
 
     /// Nothing may remove the last way in: a linked row can go only while
-    /// another way remains (the server enforces the same rule and answers
-    /// `PRECONDITION_FAILED` otherwise).
+    /// another way remains, or when it is no way in itself (a provider no
+    /// longer offered, EXP-1209). The server enforces the same rule and answers
+    /// `PRECONDITION_FAILED` otherwise.
     public static func canUnlink(_ provider: SignInProvider, in methods: SignInMethods) -> Bool {
-        provider.linked && methods.waysIn > 1
+        provider.linked && (!provider.available || methods.waysIn > 1)
     }
 
     /// The same rule for a passkey row.

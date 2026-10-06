@@ -69,10 +69,11 @@ internal data class MintSignInLinkTicketInput(@SerialName("provider") val provid
 /**
  * EXP-1126: a linked row may be unlinked only while another way in remains —
  * the server refuses the last one (PRECONDITION_FAILED); this is the same rule
- * the UI disables the button on. Also used for passkeys (always "linked").
+ * the UI disables the button on. A row that is no way in (a provider no longer
+ * offered) always goes (EXP-1209).
  */
 fun canUnlink(methods: SignInMethodsDto, provider: SignInProviderDto): Boolean =
-    provider.linked && methods.waysIn > 1
+    provider.linked && (!provider.available || methods.waysIn > 1)
 
 /** Removing a passkey follows the same last-way-in rule as unlinking. */
 fun canRemovePasskey(methods: SignInMethodsDto): Boolean = methods.waysIn > 1

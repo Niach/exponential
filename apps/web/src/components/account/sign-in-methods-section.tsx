@@ -221,7 +221,7 @@ export function SignInMethodsSection({
         </ListRow>
 
         {methods.providers.map((provider) => {
-          const blocked = provider.linked && onlyWayIn
+          const blocked = provider.linked && provider.available && onlyWayIn
           return (
             <ListRow key={provider.id} className="justify-between gap-3 px-3 py-2">
               <div className="flex min-w-0 items-center gap-3">
