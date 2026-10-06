@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
@@ -25,10 +26,13 @@ fun FoldChevron(
     expanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    // EXP-1208: the session rows' variant is 14dp WIDE (×4), after the run
+    // mark; the hit area keeps its 20dp height.
+    width: Dp = 20.dp,
 ) {
     Box(
         modifier = modifier
-            .size(20.dp)
+            .size(width = width, height = 20.dp)
             .clickable(onClick = onToggle)
             .testTag("fold-chevron"),
         contentAlignment = Alignment.Center,

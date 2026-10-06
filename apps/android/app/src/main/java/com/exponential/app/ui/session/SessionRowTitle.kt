@@ -19,27 +19,19 @@ import com.exponential.app.domain.batchRunName
 import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.theme.TextEmphasis
 
-// EXP-688: a coding session's IDENTITY line — status dot, mono identifier,
-// what the run is about. The Agents list row and the steering screen's header
-// render the SAME composable so the two can't drift: the header used to say
-// only "Live · macbook", which never named the issue being worked on.
+// EXP-688: a coding session's IDENTITY line — mono identifier, what the run
+// is about. EXP-1208: the run mark that leads a session row lives OUTSIDE
+// this line (the row's own lead), so the sub-lines align under the title.
 
-/**
- * One session's identity line. [dot] is the caller's status dot — the list
- * derives it from the synced row's display state, the steering header from the
- * live phase — everything else is shared.
- */
+/** One session's identity line. */
 @Composable
 internal fun SessionRowTitle(
     /** The issue's shortcode — null for a non-issue run, which prints none. */
     identifier: String?,
     title: String,
     modifier: Modifier = Modifier,
-    dot: @Composable () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-        dot()
-        Spacer(Modifier.width(12.dp))
         if (identifier != null) {
             Text(
                 identifier,

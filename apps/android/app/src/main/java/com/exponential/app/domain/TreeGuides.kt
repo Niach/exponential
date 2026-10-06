@@ -42,6 +42,31 @@ object TreeGuides {
     const val INDENT_DP = 14
 
     /**
+     * EXP-1208: the first gutter starts here — every nesting list row's own
+     * 12dp start padding (`GlassTokens.RowPaddingH`), the ×4 `TREE_BASE`.
+     * The connector used to measure its gutters from 0, so the elbow sat 12dp
+     * left of the parent's mark.
+     */
+    const val BASE_DP = 12
+
+    /**
+     * The x centre of gutter [level] — `base + 14·level + 7`, which is where a
+     * row at depth [level] draws the centre of its leading run mark (one
+     * indent level square). ×4: web `treeGuideCentre`, desktop
+     * `gutter_center`, iOS `TreeGuidesOverlay.centre(of:)`.
+     */
+    fun centre(level: Int, base: Float = BASE_DP.toFloat(), indent: Float = INDENT_DP.toFloat()): Float =
+        base + indent * level + indent / 2f
+
+    /**
+     * Where the elbow's stub ends for an elbow in gutter [level]: that
+     * gutter's right edge, `base + 14·(level + 1)` — exactly where the child's
+     * own leading mark starts.
+     */
+    fun stubEnd(level: Int, base: Float = BASE_DP.toFloat(), indent: Float = INDENT_DP.toFloat()): Float =
+        base + indent * (level + 1)
+
+    /**
      * The guide for every row of a flattened tree, given the VISIBLE rows'
      * depths in order — folded-away rows are simply absent, which is what
      * makes a folded parent read as the last child of its band.

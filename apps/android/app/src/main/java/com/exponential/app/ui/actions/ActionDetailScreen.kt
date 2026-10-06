@@ -563,6 +563,7 @@ private fun RunsTab(
                 EndedRunRow(
                     title = title,
                     timeLabel = timeLabel,
+                    agent = session.agent,
                     byline = pastRunByline(
                         deviceLabel = device.displayLabel,
                         timeLabel = timeLabel,

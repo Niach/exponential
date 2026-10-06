@@ -32,14 +32,17 @@ import com.exponential.app.ui.theme.flatRow
  *
  * EXP-773 made it a plain LINK. A row used to expand to the agent's close-out
  * summary and a Resume pill; both now live at the top of the fullscreen
- * session view, next to the transcript they belong to. So a row is title ·
- * state · byline and a tap opens that session — live or finished, the same
+ * session view, next to the transcript they belong to. So a row is run mark ·
+ * title · state · byline and a tap opens that session — live or finished, the same
  * gesture, the same destination. Same rule on web, desktop and iOS.
  */
 @Composable
 fun EndedRunRow(
     title: String,
     timeLabel: String,
+    // EXP-1208: the run's `coding_sessions.agent` — whose (dimmed) run mark
+    // leads the row.
+    agent: String?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
     // The monospace lead-in an issue-scoped run shows (its identifier); action
@@ -58,7 +61,7 @@ fun EndedRunRow(
     // The run is still going: "Running".
     isLive: Boolean = false,
     // EXP-897: this row has children nested under it (the session TREE) — the
-    // same 12dp fold chevron the Running rows wear, on every client.
+    // same fold chevron the Running rows wear, AFTER the mark (EXP-1208).
     expandable: Boolean = false,
     expanded: Boolean = true,
     onToggle: () -> Unit = {},
@@ -72,9 +75,23 @@ fun EndedRunRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // EXP-1208: [run mark][fold, parents only][text] ×4 — the ENDED
+            // mark (dimmed, no badge); a still-live row the bare mark.
+            AgentRunMark(
+                agent = agent,
+                state = null,
+                size = SessionRowMarkSize,
+                badgeSize = SessionRowBadgeSize,
+                ended = !isLive,
+            )
+            Spacer(Modifier.width(SessionRowLeadGap))
             if (expandable) {
-                FoldChevron(expanded = expanded, onToggle = onToggle)
-                Spacer(Modifier.width(4.dp))
+                FoldChevron(
+                    expanded = expanded,
+                    onToggle = onToggle,
+                    width = SessionRowMarkSize,
+                )
+                Spacer(Modifier.width(SessionRowLeadGap))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
