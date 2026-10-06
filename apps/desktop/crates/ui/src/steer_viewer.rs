@@ -309,16 +309,15 @@ impl PrChangesSource {
 
 /// EXP-895 — how much of a tool row is SHOWN.
 ///
-/// The transcript runs inside the flow: exactly ONE row is expanded at a time
-/// and every other one is its headline plus compact evidence (a collapsed edit
-/// card's `+a −b`, a `failed` tint), the reader's Show more still opening it.
-/// The rule behind the choice is shared ×4 — [`steer::feed::live_tool_row_id`].
+/// Every row is its headline plus compact evidence (a collapsed edit card's
+/// `+a −b`, a `failed` tint), the reader's Show more opening a settled one.
+/// The rule behind the running row is shared ×4 —
+/// [`steer::feed::live_tool_row_id`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ToolRowMode {
-    /// The ONE call still running: its evidence is OPEN. On the RUNNER that is
-    /// the live window — the output tail as the PTY writes it, the patch
-    /// unfolded ([`crate::session_extras::LocalExtras`]); for a remote viewer
-    /// it is the wire's own patch, which is all there is until the settle.
+    /// The ONE call still running. EXP-1206: its headline ALONE — nothing
+    /// streams under it, so the transcript never jumps while a command
+    /// prints; its output is the wire's once it settles.
     Live,
     /// A call that ENDED: the wire's capped patch and tail-cut output, folded
     /// away until the reader asks — the same bytes on the runner and on every
@@ -1003,8 +1002,10 @@ impl SteerSessionView {
             facets |= facet::BODY_EXPANDED;
         }
         // EXP-786: a remote row's wire diff is the same fold as a local
-        // row's extras — same card, same "Show more".
+        // row's extras — same card, same "Show more" — and so is a settled
+        // row's wire output (EXP-1206: the only output a row ever carries).
         let has_extras = self.extras.has_extras(item.id)
+            || matches!(&item.kind, FeedKind::Tool { output: Some(_), .. })
             || (self.source.session().is_none()
                 && matches!(&item.kind, FeedKind::Tool { diff: Some(_), .. }));
         if has_extras {
@@ -1738,9 +1739,6 @@ impl SteerSessionView {
                 if over {
                     // EXP-724: nothing is coming to close an open strip.
                     self.feed.clear_compaction();
-                    // …and nothing is coming to close a terminal card that
-                    // never got an exit code either.
-                    self.extras.apply(engine::LocalFeedEvent::Phase(phase));
                 }
             }
             other => self.extras.apply(other),
@@ -1771,10 +1769,6 @@ impl SteerSessionView {
             self.phase = merge_ended_phase(&self.phase, next);
             self.feed.clear_compaction();
         }
-        // The same edge as the engine's `Phase(Ended)`, on the path where no
-        // phase arrives at all: a card still marked live has nothing left to
-        // end it (review C4).
-        self.extras.end_live();
         cx.notify();
     }
 
@@ -4791,13 +4785,9 @@ impl SteerSessionView {
 
     /// One tool call's row plus whatever hangs off it.
     ///
-    /// EXP-895 replaced "local run → local cards, remote → the wire's" with the
-    /// FLOW: the row still RUNNING shows the LOCAL live window where the engine
-    /// runs ([`Self::render_extras`] — the output tail as the PTY writes it, the
-    /// patch unfolded), and every SETTLED row shows the WIRE's own capped patch
-    /// and tail-cut output, folded away, on the runner exactly as on a viewer.
-    /// The two still never stack, and the bytes agree: the local cards are cut
-    /// to the same contract caps the publisher applies.
+    /// EXP-1206: the row still RUNNING is its headline alone; every SETTLED
+    /// row shows the WIRE's own tail-cut output, folded away, on the runner
+    /// exactly as on a viewer (EXP-895 runner parity).
     fn render_tool_item(
         &self,
         item: &FeedItem,
@@ -4843,36 +4833,17 @@ impl SteerSessionView {
             return row;
         }
         let id = item.id;
-        // EXP-895: the RUNNING row is open, and open on the RUNNER means the
-        // live window — the output tail as the PTY writes it, the patch
-        // unfolded. Every other row is compact until the reader's Show more.
-        let expanded = mode == ToolRowMode::Live || self.expanded_extras.contains(&id);
-        // EXP-910: while the call RUNS its log is a TAIL — the last few lines,
-        // the way a terminal shows a running command — so a chatty `bun test`
-        // cannot own the screen for as long as it runs. The SETTLED row is
-        // untouched: folded until the reader's Show more, then the publisher's
-        // full `toolOutputMaxLines` cut. ONE number ×4
-        // (`steerFeed.liveToolOutputTailLines`).
-        let live_output = if mode == ToolRowMode::Live {
-            output.as_deref().map(|text| {
-                steer::feed::live_tool_output_tail(
-                    text,
-                    steer::feed::LIVE_TOOL_OUTPUT_TAIL_LINES,
-                )
-            })
-        } else {
-            None
-        };
+        let expanded = self.expanded_extras.contains(&id);
         let extras = match mode {
-            ToolRowMode::Live if self.source.session().is_some() => {
-                self.render_extras(id, expanded, cx)
-            }
+            // EXP-1206: the RUNNING row is its headline alone — no output
+            // tail, no live terminal strip — so the transcript never jumps.
+            ToolRowMode::Live => None,
             // Runner parity: once a call ENDED the row reads the same locally
             // and remotely — the wire's own tail-cut output. EXP-916: a
             // patch never hangs off a tool row; it belongs to the
             // edited-files card the run's edits grouped into.
             _ => crate::session_extras::render_wire_extras(
-                live_output.as_deref().or(output.as_deref()),
+                output.as_deref(),
                 id,
                 expanded,
                 Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -4903,46 +4874,6 @@ impl SteerSessionView {
             .children(extras)
             .children(card)
             .into_any_element()
-    }
-
-    /// EXP-746 — the local cards hanging off feed row `item` (per-edit
-    /// diffs, command output). `None` for every remote row: they exist only
-    /// where the engine runs.
-    ///
-    /// The fold flag is this view's, the rendering is
-    /// [`crate::session_extras`]' — the same split every other card here
-    /// uses, so the transcript owns interaction and the extras own shape.
-    fn render_extras(
-        &self,
-        item: FeedItemId,
-        expanded: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        if !self.extras.has_extras(item) {
-            return None;
-        }
-        // EXP-750: the Stop on a live terminal card goes straight to the
-        // in-process engine — a remote viewer and a replay have no terminal
-        // to stop, so they get no Running/Stop strip at all rather than a
-        // button whose click goes nowhere.
-        let session = self.source.steerable_session().cloned();
-        crate::session_extras::render_extras(
-            &self.extras,
-            item,
-            expanded,
-            Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                if !this.expanded_extras.insert(item) {
-                    this.expanded_extras.remove(&item);
-                }
-                cx.notify();
-            })),
-            session.map(|session| -> Box<dyn Fn(&str, &mut Window, &mut App) + 'static> {
-                Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
-                    session.kill_terminal(terminal_id);
-                })
-            }),
-            cx,
-        )
     }
 
     /// EXP-916 — THE edited-files card for a [`steer::feed::FeedRow::Edits`].

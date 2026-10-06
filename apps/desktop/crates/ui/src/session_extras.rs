@@ -1,11 +1,12 @@
 //! EXP-746 — the LOCAL-only half of a session transcript.
 //!
 //! An in-process ACP run sees strictly more than the relay does: the exact
-//! patch of every edit and a command's output. Neither may ride the wire raw
-//! — patch bodies and command strings are precisely what the redactor exists
-//! to keep off it — so they arrive as [`engine::LocalFeedEvent`]s and are
-//! rendered HERE, hung off the feed rows the matching
-//! [`steer::ActivityEvent`]s appended. (EXP-791: the agent's plan and its
+//! patch of every edit. It may not ride the wire raw — patch bodies are
+//! precisely what the redactor exists to keep off it — so it arrives as an
+//! [`engine::LocalFeedEvent`] and is rendered HERE, hung off the feed row the
+//! matching [`steer::ActivityEvent`] appended. (EXP-1206: a command's
+//! streamed output is no longer kept: a RUNNING row is its headline alone,
+//! and a settled one shows the wire's own output, the same on every client.) (EXP-791: the agent's plan and its
 //! thoughts used to be pinned here too; the plan now lives in the answer card
 //! and the transcript, and thoughts are the transcript's.)
 //!
@@ -49,10 +50,7 @@ use gpui::{
     div, AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use coding::scm::DiffFile;
 
@@ -82,23 +80,15 @@ pub(crate) struct ToolExtras {
     /// own `tool_update` diff has, so the edited-files card reads either
     /// through the same contract parser.
     edits: String,
-    /// The call's streamed output (`Execute` tools), tail-capped.
-    output: Option<OutputCard>,
 }
 
+/// A settled call's output as the card draws it (the wire's, see
+/// [`OutputCard::from_wire`]).
 #[derive(Default)]
 struct OutputCard {
     lines: Vec<String>,
-    /// Set with the final chunk; `None` while the command is still running.
-    exit_code: Option<i32>,
     /// A partial last line waiting for its newline.
     partial: String,
-    /// EXP-750: a LIVE `terminal/*` command — the card marks itself running
-    /// and offers a Stop until the exit code lands.
-    live: bool,
-    /// The terminal the Stop button kills. `None` on the plain
-    /// `ToolCallContent::Content` path, which has nothing to stop.
-    terminal_id: Option<String>,
 }
 
 /// Everything local a transcript accumulated: the per-tool-call extras.
@@ -154,70 +144,21 @@ impl LocalExtras {
                         .push_str(&patch);
                 }
             }
-            engine::LocalFeedEvent::Output {
-                tool_call_id,
-                chunk,
-                exit_code,
-            } => {
-                let card = self
-                    .by_tool_call
-                    .entry(tool_call_id)
-                    .or_default()
-                    .output
-                    .get_or_insert_with(OutputCard::default);
-                card.push(&chunk);
-                if exit_code.is_some() {
-                    card.finish(exit_code);
-                }
-            }
-            // EXP-750: the tool call names the live terminal it renders. The
-            // engine flushes what the command already wrote just before this
-            // arrives, so a card that ALREADY carries an exit code was over
-            // before it was bound and must not go live again.
-            engine::LocalFeedEvent::TerminalBound {
-                tool_call_id,
-                terminal_id,
-            } => {
-                let card = self
-                    .by_tool_call
-                    .entry(tool_call_id)
-                    .or_default()
-                    .output
-                    .get_or_insert_with(OutputCard::default);
-                card.live = card.exit_code.is_none();
-                card.terminal_id = Some(terminal_id);
-            }
+            // EXP-1206: a RUNNING call is its headline alone — nothing
+            // streams under it, so the transcript never jumps while a command
+            // prints. Its output (and the live terminal it ran in) is the
+            // wire's once it settles, the same bytes on every client.
+            engine::LocalFeedEvent::Output { .. } | engine::LocalFeedEvent::TerminalBound { .. } => {}
             // EXP-791: the plan reaches the reader through the answer card
             // and the transcript, and a thought is transcript too — neither
             // is pinned state here any more.
             engine::LocalFeedEvent::Plan { .. } | engine::LocalFeedEvent::Thought { .. } => {}
-            // The run is over, so nothing is coming to close a card that
-            // never saw an exit code: a REPLAYED `TerminalBound` has no
-            // terminal behind it at all, and a child that ignored the kill
-            // signal never reports one. Either would keep drawing "Running"
-            // over a finished transcript.
-            // EXP-758: `Failed` is the same edge for a card. The run died on
-            // its handshake or transport, so nothing will ever close one.
-            engine::LocalFeedEvent::Phase(
-                engine::EnginePhase::Ended | engine::EnginePhase::Failed(_),
-            ) => self.end_live(),
             // A tool card's header is already the feed's `tool` row — the
             // status/locations it carries add nothing the row does not show,
             // and a second header per call would double every line.
             engine::LocalFeedEvent::ToolCall { .. }
             | engine::LocalFeedEvent::Activity { .. }
             | engine::LocalFeedEvent::Phase(_) => {}
-        }
-    }
-
-    /// The run ended: every still-live output card stops claiming to run.
-    /// The exit code stays `None` — none ever arrived, and inventing one
-    /// would render a verdict the command never gave.
-    pub(crate) fn end_live(&mut self) {
-        for tool in self.by_tool_call.values_mut() {
-            if let Some(output) = tool.output.as_mut() {
-                output.live = false;
-            }
         }
     }
 
@@ -241,8 +182,7 @@ impl LocalExtras {
 
     /// Whether `item`'s row has anything hanging off it.
     pub(crate) fn has_extras(&self, item: FeedItemId) -> bool {
-        self.for_item(item)
-            .is_some_and(|extras| !extras.edits.is_empty() || extras.output.is_some())
+        self.for_item(item).is_some_and(|extras| !extras.edits.is_empty())
     }
 
     /// EXP-916 — the LIVE patch of `item`'s call: what the engine has written
@@ -267,14 +207,11 @@ impl OutputCard {
         self.trim();
     }
 
-    fn finish(&mut self, exit_code: Option<i32>) {
+    fn finish(&mut self) {
         if !self.partial.is_empty() {
             let last = std::mem::take(&mut self.partial);
             self.lines.push(last);
         }
-        self.exit_code = exit_code;
-        // The exit code IS the end of a live terminal (EXP-750).
-        self.live = false;
         self.trim();
     }
 
@@ -303,7 +240,7 @@ impl OutputCard {
     fn from_wire(text: &str) -> Self {
         let mut card = OutputCard::default();
         card.push(text);
-        card.finish(None);
+        card.finish();
         card
     }
 }
@@ -351,44 +288,6 @@ fn tool_edit_patch(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Opt
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-
-/// The card hanging off feed row `item`: the command's output.
-///
-/// EXP-916 took the per-edit cards out of here — a run of edits is the ONE
-/// edited-files card the transcript draws over the whole run
-/// ([`render_edit_card`]), never a stack of cards under one tool row. What is
-/// left is the LIVE window of an `execute` call.
-///
-/// `on_toggle` is the host's own listener (`cx.listener(..)`), so this stays
-/// free of the hosting view's type; `on_kill` is the same idea for the Stop
-/// button on a LIVE terminal card (EXP-750) and is handed the terminal id to
-/// stop. It is `None` when the source cannot stop anything (a replay, a
-/// remote viewer): there the whole Running/Stop strip is left out rather than
-/// offering a button whose click goes nowhere.
-pub(crate) fn render_extras(
-    extras: &LocalExtras,
-    item: FeedItemId,
-    expanded: bool,
-    on_toggle: CardClick,
-    on_kill: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
-    cx: &App,
-) -> Option<AnyElement> {
-    let tool = extras.for_item(item)?;
-    let output = tool.output.as_ref()?;
-    let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
-    // EXP-910: this renderer serves the RUNNING row only (steer_viewer's
-    // `ToolRowMode::Live`), so its log is a TAIL — the last few lines, the
-    // way a terminal shows a running command, instead of the whole 200-row
-    // buffer under the reader's eye. The SETTLED row is
-    // `render_wire_extras`' and is untouched.
-    column = column.child(render_output_card(
-        output, item, expanded, true, on_kill, cx,
-    ));
-    if output.rows().len() > OUTPUT_PREVIEW_ROWS {
-        column = column.child(fold_toggle(item, expanded, on_toggle, cx));
-    }
-    Some(column.into_any_element())
-}
 
 /// The `Show more` / `Show less` line under a folded output card — the shared
 /// in-place text toggle (EXP-963, [`controls::text_button`]), not a hand-rolled
@@ -744,22 +643,10 @@ fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
     line.into_any_element()
 }
 
-fn render_output_card(
-    output: &OutputCard,
-    item: FeedItemId,
-    expanded: bool,
-    // EXP-910: the call is still RUNNING — the card is bounded to the
-    // contract's `steerFeed.liveToolOutputTailLines`, whatever `expanded`
-    // says, and opens with a lone `…` when there was more.
-    live_tail: bool,
-    on_kill: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
-    cx: &App,
-) -> AnyElement {
+fn render_output_card(output: &OutputCard, expanded: bool, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let rows = output.rows();
-    let shown = if live_tail {
-        rows.len().min(steer::feed::LIVE_TOOL_OUTPUT_TAIL_LINES)
-    } else if expanded {
+    let shown = if expanded {
         rows.len()
     } else {
         rows.len().min(OUTPUT_PREVIEW_ROWS)
@@ -767,21 +654,6 @@ fn render_output_card(
     // The TAIL is what matters, so a collapsed card shows the last rows.
     let skip = rows.len().saturating_sub(shown);
     let mut lines = v_flex().w_full().min_w_0();
-    // EXP-910: the live tail says so — a lone `…` where the earlier lines are,
-    // the same shape the wire's `\ N more lines truncated` marker has, so it
-    // reads as the log's first line rather than as chrome. Mirrored ×4
-    // (`steer::feed::live_tool_output_tail`).
-    if live_tail && skip > 0 {
-        lines = lines.child(
-            div()
-                .w_full()
-                .min_w_0()
-                .text_2xs()
-                .text_color(muted)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child("…"),
-        );
-    }
     for line in rows.iter().skip(skip) {
         lines = lines.child(
             div()
@@ -799,44 +671,7 @@ fn render_output_card(
         .min_w_0()
         .px_2()
         .py_1p5();
-    // EXP-750: a live terminal says so and offers a Stop — above the output,
-    // because the tail of a running command moves under the reader's eye.
-    // Only where the click can actually reach a terminal, though: a replay
-    // gets neither marker nor button (its card is history, not a run).
-    if let Some(on_kill) = on_kill.filter(|_| output.live) {
-        let terminal_id = output.terminal_id.clone().unwrap_or_default();
-        card = card.child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .items_center()
-                .text_2xs()
-                .text_color(muted)
-                .child(Icon::new(registry::NAV_TERMINAL).xsmall())
-                .child("Running")
-                .child(
-                    Button::new(("session-terminal-stop", item as usize))
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::CODING_STOP)
-                        .tooltip("Stop this command")
-                        .on_click(move |_: &ClickEvent, window, cx| {
-                            on_kill(&terminal_id, window, cx)
-                        }),
-                ),
-        );
-    }
     card = card.child(lines);
-    if let Some(code) = output.exit_code.filter(|code| *code != 0) {
-        card = card.child(
-            div()
-                .text_2xs()
-                .text_color(cx.theme().danger)
-                .child(SharedString::from(format!("exit {code}"))),
-        );
-    }
     card.into_any_element()
 }
 
@@ -845,9 +680,9 @@ fn render_output_card(
 /// `\ N more lines truncated` marker) and nothing is re-truncated here.
 ///
 /// This is the SETTLED row's renderer on every client, the desktop runner
-/// included (EXP-895 runner parity): [`LocalExtras`]'s own output card serves
-/// only the pre-settle live window, where it streams. Collapsed, the row is
-/// its headline alone; the reader's Show more opens the log. An EDIT row has
+/// included (EXP-895 runner parity); a RUNNING row has none (EXP-1206).
+/// Collapsed, the row is its headline alone; the reader's Show more opens the
+/// log. An EDIT row has
 /// nothing here — its patch belongs to the edited-files card (EXP-916).
 pub(crate) fn render_wire_extras(
     output: Option<&str>,
@@ -861,14 +696,7 @@ pub(crate) fn render_wire_extras(
     // A settled log is COMPACT until it is asked for: the headline already
     // says what ran and whether it failed.
     if expanded {
-        column = column.child(render_output_card(
-            &OutputCard::from_wire(printed),
-            item,
-            true,
-            false,
-            None,
-            cx,
-        ));
+        column = column.child(render_output_card(&OutputCard::from_wire(printed), true, cx));
     }
     column = column.child(fold_toggle(item, expanded, on_toggle, cx));
     Some(column.into_any_element())
@@ -1201,13 +1029,13 @@ mod tests {
             card.rows().last().map(String::as_str),
             Some(format!("line {}", OUTPUT_LINES_MAX + 4).as_str())
         );
-        // A chunk with no trailing newline still shows, and the exit code
-        // closes the card.
+        // A chunk with no trailing newline still shows, and the finish keeps
+        // it as the last line.
         let mut card = OutputCard::default();
         card.push("no newline");
         assert_eq!(card.rows(), vec!["no newline".to_string()]);
-        card.finish(Some(1));
-        assert_eq!(card.exit_code, Some(1));
+        card.finish();
+        assert_eq!(card.lines, vec!["no newline".to_string()]);
     }
 
     /// EXP-895: the WIRE's settled output reads as a card of its own — the
@@ -1220,8 +1048,6 @@ mod tests {
             card.rows(),
             vec!["\\ 12 more lines truncated".to_string(), "42 passed".to_string()]
         );
-        assert!(!card.live, "a settled log never claims to run");
-        assert_eq!(card.exit_code, None, "no exit code rides the wire");
         // A log with no trailing newline keeps its last word, and the card is
         // still capped at the local window.
         assert_eq!(OutputCard::from_wire("done").rows(), vec!["done".to_string()]);
@@ -1229,114 +1055,24 @@ mod tests {
         assert_eq!(OutputCard::from_wire(&long).rows().len(), OUTPUT_LINES_MAX);
     }
 
-    /// EXP-750: a bound terminal card runs until its exit code lands — that
-    /// is what draws the "Running" marker and the Stop button, and what
-    /// takes them away again.
+    /// EXP-1206: a RUNNING command's output and its live terminal never
+    /// collect locally — the row is its headline alone until the wire's
+    /// settled output lands.
     #[test]
-    fn a_bound_terminal_card_is_live_until_its_exit_code_lands() {
+    fn streamed_output_never_hangs_off_a_row() {
         let mut extras = LocalExtras::default();
+        extras.bind(7, "call-1".to_string());
         extras.apply(engine::LocalFeedEvent::TerminalBound {
             tool_call_id: "call-1".to_string(),
             terminal_id: "term-1".to_string(),
         });
-        fn card<'a>(extras: &'a LocalExtras, id: &str) -> &'a OutputCard {
-            extras
-                .by_tool_call
-                .get(id)
-                .and_then(|tool| tool.output.as_ref())
-                .expect("the bound terminal has a card")
-        }
-        assert!(card(&extras, "call-1").live);
-        assert_eq!(
-            card(&extras, "call-1").terminal_id.as_deref(),
-            Some("term-1")
-        );
-
         extras.apply(engine::LocalFeedEvent::Output {
             tool_call_id: "call-1".to_string(),
             chunk: "building\n".to_string(),
             exit_code: None,
         });
-        assert!(
-            card(&extras, "call-1").live,
-            "a chunk without an exit keeps it running"
-        );
-        assert_eq!(card(&extras, "call-1").rows(), vec!["building".to_string()]);
-
-        extras.apply(engine::LocalFeedEvent::Output {
-            tool_call_id: "call-1".to_string(),
-            chunk: String::new(),
-            exit_code: Some(0),
-        });
-        assert!(!card(&extras, "call-1").live, "the exit code ends the run");
-        assert_eq!(card(&extras, "call-1").exit_code, Some(0));
-
-        // A terminal bound only AFTER it finished (the engine flushes the
-        // whole buffer plus the code in one chunk) never goes live again.
-        let mut late = LocalExtras::default();
-        late.apply(engine::LocalFeedEvent::Output {
-            tool_call_id: "call-2".to_string(),
-            chunk: "done\n".to_string(),
-            exit_code: Some(2),
-        });
-        late.apply(engine::LocalFeedEvent::TerminalBound {
-            tool_call_id: "call-2".to_string(),
-            terminal_id: "term-2".to_string(),
-        });
-        assert!(!card(&late, "call-2").live);
-    }
-
-    /// Review C4: a bound terminal whose exit code NEVER lands — a replayed
-    /// `TerminalBound` (no terminal behind it) or a child that ignored the
-    /// kill signal — must not keep drawing "Running" over a finished run.
-    /// The end of the run is that card's other closing edge.
-    #[test]
-    fn the_end_of_the_run_ends_every_live_card() {
-        let mut extras = LocalExtras::default();
-        for id in ["call-1", "call-2"] {
-            extras.apply(engine::LocalFeedEvent::TerminalBound {
-                tool_call_id: id.to_string(),
-                terminal_id: format!("term-{id}"),
-            });
-        }
-        extras.apply(engine::LocalFeedEvent::Output {
-            tool_call_id: "call-1".to_string(),
-            chunk: "building\n".to_string(),
-            exit_code: None,
-        });
-        assert!(extras
-            .by_tool_call
-            .values()
-            .all(|tool| tool.output.as_ref().is_some_and(|output| output.live)));
-
-        // A phase that is not the end changes nothing.
-        extras.apply(engine::LocalFeedEvent::Phase(engine::EnginePhase::Live));
-        assert!(extras
-            .by_tool_call
-            .values()
-            .all(|tool| tool.output.as_ref().is_some_and(|output| output.live)));
-
-        extras.apply(engine::LocalFeedEvent::Phase(engine::EnginePhase::Ended));
-        for id in ["call-1", "call-2"] {
-            let card = extras
-                .by_tool_call
-                .get(id)
-                .and_then(|tool| tool.output.as_ref())
-                .expect("the bound terminal has a card");
-            assert!(!card.live, "{id} is no longer running");
-            // No code was ever reported, so none is invented — the card just
-            // stops claiming to run.
-            assert_eq!(card.exit_code, None);
-        }
-        // What the card already showed survives the edge.
-        assert_eq!(
-            extras
-                .by_tool_call
-                .get("call-1")
-                .and_then(|tool| tool.output.as_ref())
-                .map(|output| output.rows()),
-            Some(vec!["building".to_string()])
-        );
+        assert!(!extras.has_extras(7));
+        assert!(extras.by_tool_call.is_empty());
     }
 
     /// Extras key on the FEED ROW, through the tool-call id the engine

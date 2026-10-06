@@ -1613,12 +1613,11 @@ public enum AgentFeed {
 
     /// EXP-895 — the ONE tool row that is still RUNNING, or nil.
     ///
-    /// The transcript runs inside the flow: exactly one row is ever expanded
-    /// (its live output, its edit diff open) and every other row is the compact
-    /// headline plus its evidence. That row is the LAST feed item and only while
-    /// it is an UNSETTLED tool call — the moment its `tool_update` settles, or
-    /// the agent says anything after it, the transcript has moved on and the row
-    /// folds.
+    /// That row is the LAST feed item and only while it is an UNSETTLED tool
+    /// call — the moment its `tool_update` settles, or the agent says anything
+    /// after it, the transcript has moved on. EXP-1206: the running row is its
+    /// headline ALONE (no output streams under it, so the transcript never
+    /// jumps); a settled row folds its output until the reader opens it.
     ///
     /// A pure projection over the FLAT feed (never the rows), mirrored ×4 (web
     /// `liveToolRowId`, desktop `steer::feed::live_tool_row_id`, Android
@@ -1629,34 +1628,6 @@ public enum AgentFeed {
               !settled
         else { return nil }
         return id
-    }
-
-    /// EXP-910: how many lines of a STILL-RUNNING call's output the live row
-    /// shows. The contract's number, so the tail is the same length ×4.
-    public static let liveToolOutputTailLines =
-        DomainContract.steerFeedLiveToolOutputTailLines
-
-    /// EXP-910 — the tail of a RUNNING tool call's output: its last `n` lines,
-    /// the way a terminal shows a running command's last words. The live row is
-    /// the one row that opens itself (`liveToolRowId`), so without this a
-    /// chatty `bun test` pushes the conversation off screen for as long as it
-    /// runs. A SETTLED row is untouched — folded until the reader opens it,
-    /// then the publisher's full `toolOutputMaxLines` cut.
-    ///
-    /// One trailing empty line is dropped first (a command's output ends in a
-    /// newline, and a blank last row would spend one of the three on nothing).
-    /// When earlier lines were dropped the result OPENS with a lone `…` line —
-    /// the same shape the wire's `\ N more lines truncated` marker has, and it
-    /// reads as part of the log rather than as chrome.
-    ///
-    /// Pure, mirrored ×4 (web `liveToolOutputTail`, desktop
-    /// `steer::feed::live_tool_output_tail`, Android `liveToolOutputTail`).
-    public static func liveToolOutputTail(_ text: String, _ n: Int) -> String {
-        guard n > 0 else { return "" }
-        let body = text.hasSuffix("\n") ? String(text.dropLast()) : text
-        let lines = body.components(separatedBy: "\n")
-        guard lines.count > n else { return body }
-        return (["…"] + lines.suffix(n)).joined(separator: "\n")
     }
 
     /// §9: pending cards last, everything else in place. Pure and mirrored ×4.

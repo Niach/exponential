@@ -119,7 +119,6 @@ object DomainContract {
     const val steerFeedToolDiffMaxBytes: Int = 16384
     const val steerFeedToolOutputMaxLines: Int = 200
     const val steerFeedToolOutputMaxBytes: Int = 16384
-    const val steerFeedLiveToolOutputTailLines: Int = 3
     const val diffUiFilterPlaceholder: String = "Filter files"
     const val diffUiChangedFilesTitle: String = "Changed files"
     const val diffUiEditedFilesOne: String = "1 file edited"

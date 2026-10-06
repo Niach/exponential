@@ -748,12 +748,11 @@ export function mergeNarrationFragment<
 
 /** EXP-895: the ONE tool row that is still RUNNING, or `undefined`.
  *
- *  The transcript runs inside the flow: exactly one row is ever expanded (its
- *  live bash tail, its edit diff open) and every other row is the compact
- *  headline plus its `exit N` / `+a −b` chip. That row is the LAST feed item
- *  and only while it is an UNSETTLED tool call — the moment its `tool_update`
- *  settles, or the agent says anything after it, the transcript has moved on
- *  and the row folds.
+ *  That row is the LAST feed item and only while it is an UNSETTLED tool call
+ *  — the moment its `tool_update` settles, or the agent says anything after
+ *  it, the transcript has moved on. EXP-1206: the running row is its headline
+ *  ALONE (no output streams under it, so the transcript never jumps); a
+ *  settled row folds its output until the reader opens it.
  *
  *  A pure projection over the flat feed, mirrored ×4 (desktop
  *  `steer::feed::live_tool_row_id`, ExpCore `AgentFeed.liveToolRowId`, Android
@@ -766,34 +765,6 @@ export function liveToolRowId<
   const last = feed[feed.length - 1]
   if (!last || last.kind !== `tool` || last.settled === true) return undefined
   return last.id
-}
-
-/** EXP-910: how many lines of a STILL-RUNNING call's output the live row shows.
- *  The contract's number, so the tail is the same length ×4. */
-export const LIVE_TOOL_OUTPUT_TAIL_LINES =
-  contract.steerFeed.liveToolOutputTailLines
-
-/** EXP-910 — the tail of a RUNNING tool call's output: its last `n` lines, the
- *  way a terminal shows a running command's last words. The live row is the one
- *  row that opens itself (`liveToolRowId`), so without this a chatty `bun test`
- *  pushes the conversation off screen for as long as it runs. A SETTLED row is
- *  untouched — folded until the reader opens it, then the publisher's full
- *  `toolOutputMaxLines` cut.
- *
- *  One trailing empty line is dropped first (a command's output ends in a
- *  newline, and a blank last row would spend one of the three on nothing).
- *  When earlier lines were dropped the result OPENS with a lone `…` line — the
- *  same shape the wire's `\ N more lines truncated` marker has, and it reads as
- *  part of the log rather than as chrome.
- *
- *  Pure, mirrored ×4 (desktop `steer::feed::live_tool_output_tail`, ExpCore
- *  `AgentFeed.liveToolOutputTail`, Android `liveToolOutputTail`). */
-export function liveToolOutputTail(text: string, n: number): string {
-  if (n <= 0) return ``
-  const body = text.endsWith(`\n`) ? text.slice(0, -1) : text
-  const lines = body.split(`\n`)
-  if (lines.length <= n) return body
-  return [`…`, ...lines.slice(lines.length - n)].join(`\n`)
 }
 
 /** Group the flat feed into render rows — a pure projection: the feed (and

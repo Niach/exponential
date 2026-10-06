@@ -266,8 +266,7 @@
     "toolDiffMaxLines": 200,
     "toolDiffMaxBytes": 16384,
     "toolOutputMaxLines": 200,
-    "toolOutputMaxBytes": 16384,
-    "liveToolOutputTailLines": 3
+    "toolOutputMaxBytes": 16384
   },
   "diffUi": {
     "filterPlaceholder": "Filter files",

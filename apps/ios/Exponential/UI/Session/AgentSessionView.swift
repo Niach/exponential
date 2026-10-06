@@ -986,10 +986,10 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-895: the ONE row the transcript keeps EXPANDED — the last feed item
-    /// while it is an unsettled tool call, and only in a LIVE run (an ended
-    /// run's trailing unsettled row is history, not a tail). `AgentFeed`'s rule,
-    /// shared ×4.
+    /// EXP-895: the ONE row still RUNNING — the last feed item while it is an
+    /// unsettled tool call, and only in a LIVE run (an ended run's trailing
+    /// unsettled row is history, not a tail). EXP-1206: it is its headline
+    /// alone. `AgentFeed`'s rule, shared ×4.
     private var liveToolRowId: Int? {
         guard model?.phase == .live, let feed = model?.feed else { return nil }
         return AgentFeed.liveToolRowId(feed)
@@ -2886,23 +2886,20 @@ private struct ToolRow: View {
     /// redacted and tail-cut by the publisher. Nil for every other call.
     var output: String? = nil
     /// EXP-895: this call is the ONE still running (`AgentFeed.liveToolRowId`).
-    /// The transcript runs inside the flow, so this row — and only this row —
-    /// opens itself.
+    /// EXP-1206: it is the headline ALONE — nothing streams under it, so the
+    /// transcript never jumps while a command prints.
     var live: Bool = false
 
-    /// EXP-806/895: nil = "whatever the flow says", so the RUNNING row is open
-    /// and every other row is the compact headline; a tap pins it either way.
-    /// The pin drops on the live→settled edge, which is what folds a row away
-    /// by itself once the transcript has moved past it. (A row the reader opened
-    /// AFTER it settled stays open: `live` no longer moves.)
-    @State private var pinned: Bool? = nil
+    /// EXP-806: a settled row opens only on the reader's tap.
+    @State private var pinned: Bool = false
 
     /// The disclosure's state. One toggle for one row: since EXP-916 an edit's
     /// patch belongs to the edited-files card, so the only evidence a tool row
     /// discloses is an `execute`'s output.
-    private var showsDetail: Bool { pinned ?? live }
-    /// Whether there is anything to disclose at all.
-    private var hasDetail: Bool { output != nil }
+    private var showsDetail: Bool { hasDetail && pinned }
+    /// Whether there is anything to disclose at all — never while the call
+    /// still runs (EXP-1206).
+    private var hasDetail: Bool { output != nil && !live }
 
     var body: some View {
         // EXP-846: one of OUR OWN MCP tools gets its own row — the Exponential
@@ -2939,14 +2936,11 @@ private struct ToolRow: View {
                 .accessibilityLabel(showsDetail ? "Hide the output" : "Show the output")
             }
             if showsDetail, let output {
-                ToolOutputBlock(output: output, live: live)
+                ToolOutputBlock(output: output)
                     .padding(.top, 4)
             }
         }
         .padding(.vertical, nested ? 2 : 0)
-        // EXP-895: the live→settled edge drops the reader's pin, so the row
-        // folds behind the flow instead of staying open forever.
-        .onChange(of: live) { pinned = nil }
     }
 
     private var headline: some View {
@@ -3232,18 +3226,6 @@ private struct ExpToolIssuePreview: View {
 /// is on the wire at all.
 private struct ToolOutputBlock: View {
     let output: String
-    /// EXP-910: the call is still RUNNING — show its TAIL
-    /// (`AgentFeed.liveToolOutputTail`), not the whole log. A command that
-    /// prints while it works owns the one open row, and an unbounded one owns
-    /// the screen. The settled row (and the reader's own tap on it) still gets
-    /// everything.
-    var live: Bool = false
-
-    private var shown: String {
-        live
-            ? AgentFeed.liveToolOutputTail(output, AgentFeed.liveToolOutputTailLines)
-            : output
-    }
 
     /// Web's `max-h-72` — tall enough to read a failure in, short enough that
     /// the prose after the call stays on screen.
@@ -3254,7 +3236,7 @@ private struct ToolOutputBlock: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(shown)
+                    Text(output)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .textSelection(.enabled)
@@ -3328,9 +3310,9 @@ private struct ToolGroupRow: View {
                         if case let .tool(
                             id, name, detail, _, _, _, settled, failed, _, preview, output
                         ) = item {
-                            // EXP-895: inside the group too, only the RUNNING
-                            // call is expanded — the same rule the top-level
-                            // rows follow.
+                            // EXP-1206: inside the group too, the RUNNING call
+                            // is its headline alone — the same rule the
+                            // top-level rows follow.
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
                                 nested: true,

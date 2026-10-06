@@ -120,7 +120,6 @@ pub const STEER_FEED_TOOL_DIFF_MAX_LINES: usize = 200;
 pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = 16384;
 pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = 200;
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = 16384;
-pub const STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES: usize = 3;
 pub const DIFF_UI_FILTER_PLACEHOLDER: &str = "Filter files";
 pub const DIFF_UI_CHANGED_FILES_TITLE: &str = "Changed files";
 pub const DIFF_UI_EDITED_FILES_ONE: &str = "1 file edited";

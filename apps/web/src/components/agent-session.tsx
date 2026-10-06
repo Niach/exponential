@@ -137,8 +137,6 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
-  LIVE_TOOL_OUTPUT_TAIL_LINES,
-  liveToolOutputTail,
   liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
@@ -629,10 +627,10 @@ export function AgentSessionView({
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
   )
-  /** EXP-895: the ONE row the transcript keeps EXPANDED — the last item while
-   *  it is an unsettled tool call, and only in a live run (an ended run's
-   *  trailing unsettled row is history, not a tail). Every other row is
-   *  compact; the shared rule is `liveToolRowId` ×4. */
+  /** EXP-895: the ONE row still RUNNING — the last item while it is an
+   *  unsettled tool call, and only in a live run (an ended run's trailing
+   *  unsettled row is history, not a tail). EXP-1206: it is the headline
+   *  alone, nothing streams under it; the shared rule is `liveToolRowId` ×4. */
   const liveRowId = useMemo(
     () => (live ? liveToolRowId(feed) : undefined),
     [live, feed]
@@ -3878,11 +3876,11 @@ function AgentConversation({
  *  rose. The pinned "Latest changes" bar is untouched — that is the whole
  *  worktree, this is the one call.
  *
- *  EXP-895: the transcript runs inside the flow, so `live` — set for the ONE
- *  row `liveToolRowId` names — is the only row that opens itself: its diff
- *  cards unfold, its output box is up. Every other row is the headline plus
- *  its compact evidence (the collapsed file cards' `+a −b`, the `failed`
- *  chip), and the reader's own tap still opens a settled one. */
+ *  EXP-1206: `live` — set for the ONE row `liveToolRowId` names, the call
+ *  still RUNNING — is the headline ALONE: nothing streams under it, so the
+ *  transcript never jumps while a command prints. A settled row is the
+ *  headline plus its compact evidence (the `failed` chip), its output folded
+ *  until the reader's own tap opens it. */
 function ToolRow({
   item,
   flush = false,
@@ -3894,13 +3892,10 @@ function ToolRow({
   live?: boolean
 }) {
   const failed = item.failed === true
-  // EXP-895: `null` = "whatever the flow says" (open while the call runs), and
-  // the reader's tap pins it either way. The pin drops on the live edge, so a
-  // row folds by itself once the transcript has moved past it — and a row the
-  // reader opened AFTER it settled stays open, because `live` no longer moves.
-  const [pinned, setPinned] = useState<boolean | null>(null)
-  useEffect(() => setPinned(null), [live])
-  const open = pinned ?? live
+  // EXP-1206: a settled row opens only on the reader's tap; a running one
+  // never does.
+  const [pinned, setPinned] = useState(false)
+  const open = !live && pinned
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
   // "Created issue · <title>" plus the preview its answer carried — instead of
   // the raw `mcp__exponential__exponential_issues_create`.
@@ -3936,7 +3931,7 @@ function ToolRow({
   )
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
-      {item.output === undefined ? (
+      {item.output === undefined || live ? (
         <div className={headlineClassName}>{headline}</div>
       ) : (
         // The output is the only thing a row-level toggle has to reveal —
@@ -3957,7 +3952,7 @@ function ToolRow({
       {/* EXP-916: an edit call's patch belongs to the edited-files CARD its
           run forms (`groupFeedRows`), never to a lone tool row. */}
       {open && item.output !== undefined && (
-        <ToolOutput output={item.output} live={live} />
+        <ToolOutput output={item.output} />
       )}
     </div>
   )
@@ -3971,33 +3966,18 @@ function ToolRow({
  *
  *  Scrolled to the BOTTOM on mount: the verdict is the last line, and it is why
  *  the output is on the wire at all. */
-const ToolOutput = memo(function ToolOutput({
-  output,
-  live = false,
-}: {
-  output: string
-  /** EXP-910: the call is still RUNNING — show its TAIL
-   *  (`liveToolOutputTail`), not the whole log. A command that prints while it
-   *  works owns the one open row, and an unbounded one owns the screen. The
-   *  settled row (and the reader's own tap on it) still gets everything. */
-  live?: boolean
-}) {
-  const shown = useMemo(
-    () =>
-      live ? liveToolOutputTail(output, LIVE_TOOL_OUTPUT_TAIL_LINES) : output,
-    [live, output]
-  )
+const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
   const box = useRef<HTMLPreElement | null>(null)
   useEffect(() => {
     const node = box.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [shown])
+  }, [output])
   return (
     <pre
       ref={box}
       className="mt-1 max-h-72 overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md border border-border/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground"
     >
-      {shown}
+      {output}
     </pre>
   )
 })
@@ -4283,8 +4263,9 @@ function EditsCardRow({
  *  expandable to the individual rows. EXP-785: the caption is the contract's
  *  `toolGroupSummary` over the rows' kinds ("Ran 4 commands · edited 2 files
  *  · 1 failed"), byte-identical on every client. While the run is the
- *  trailing row of a live session, the latest call stays visible under the
- *  caption so the viewer still sees live progress. */
+ *  trailing row of a live session, the latest call's HEADLINE stays visible
+ *  under the caption so the viewer still sees live progress (EXP-1206: never
+ *  its output). */
 function ToolGroupRow({
   items,
   liveTail,
@@ -4310,8 +4291,8 @@ function ToolGroupRow({
       {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
-            // EXP-895: inside the group only the RUNNING call is expanded —
-            // the same rule the top-level rows follow.
+            // EXP-1206: the RUNNING call is its headline alone — the same
+            // rule the top-level rows follow.
             <ToolRow
               key={item.id}
               item={item}
