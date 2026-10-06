@@ -30,7 +30,10 @@ const FIXTURE: SeqEvent[] = [
       kind: `question`,
       text: `Which env?`,
       id: `q1`,
-      options: [{ label: `prod`, key: `1` }],
+      options: [
+        { label: `prod`, key: `1` },
+        { label: `staging`, key: `2` },
+      ],
     },
   },
   { seq: 13, event: { kind: `usage`, contextUsed: 1, contextSize: 2 } },
@@ -59,8 +62,27 @@ describe(`projectTranscript`, () => {
       },
       { seq: 9, role: `tool`, name: `Edit`, kind: `edit` },
       { seq: 11, role: `assistant`, text: `More.`, messageId: `m1` },
-      { seq: 12, role: `question`, text: `Which env?` },
+      { seq: 12, role: `question`, text: `Which env?`, options: [`prod`, `staging`] },
       { seq: 14, role: `assistant`, text: `No id.` },
+    ])
+  })
+
+  it(`marks a plan-approval card`, () => {
+    expect(
+      projectTranscript([
+        {
+          seq: 3,
+          event: {
+            kind: `question`,
+            text: `# Plan`,
+            id: `p1`,
+            planMode: true,
+            options: [{ label: `Approve`, key: `a` }],
+          },
+        },
+      ])
+    ).toEqual([
+      { seq: 3, role: `question`, text: `# Plan`, options: [`Approve`], planMode: true },
     ])
   })
 

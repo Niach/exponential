@@ -26,6 +26,10 @@ export interface TranscriptMessage {
   kind?: string
   /** Tool rows: the call settled as failed (its `tool_update`). */
   failed?: true
+  /** Question rows: the option labels the card offers (≤10), and the
+   *  ExitPlanMode plan-approval marker. */
+  options?: string[]
+  planMode?: true
   /** Assistant rows: the agent's message id the fragments merged by. */
   messageId?: string
 }
@@ -111,14 +115,27 @@ export function projectTranscript(
         if (target && event.status === `failed`) target.failed = true
         break
       }
-      case `question`:
+      case `question`: {
+        const options = Array.isArray(event.options)
+          ? event.options
+              .map((option) =>
+                option && typeof option === `object`
+                  ? str((option as Record<string, unknown>).label)
+                  : undefined
+              )
+              .filter((label): label is string => label !== undefined)
+              .slice(0, 10)
+          : []
         messages.push({
           seq,
           ...stamp,
           role: `question`,
           text: str(event.text) ?? ``,
+          ...(options.length > 0 ? { options } : {}),
+          ...(event.planMode === true ? { planMode: true as const } : {}),
         })
         break
+      }
       default:
         break
     }
