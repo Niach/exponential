@@ -144,6 +144,7 @@ export function SessionTree({
   onOpen,
   emptyNote,
   titleOf,
+  ringClassName,
 }: {
   /** The rows to nest, in the caller's order. */
   rows: readonly TreeListRow[]
@@ -153,6 +154,9 @@ export function SessionTree({
   emptyNote?: string
   /** A row's title when the caller knows better than the identity. */
   titleOf?: (row: TreeListRow) => string
+  /** EXP-1208: the run mark badge's ring = the ground the list sits on
+   *  (`ring-sidebar` in a sidebar panel); absent = the page background. */
+  ringClassName?: string
 }) {
   const [collapsed, toggle] = useCollapsedNodes()
   const tree = useSessionTreeRows(rows, collapsed)
@@ -176,6 +180,7 @@ export function SessionTree({
           <PastSessionRow
             key={key}
             sessionId={session.id}
+            agent={session.agent}
             title={titleOf?.(row) ?? row.title ?? sessionIdentity(row).subject}
             identifier={row.identifier ?? sessionIdentity(row).identifier}
             byline={pastRunRowByline(row)}
@@ -186,6 +191,7 @@ export function SessionTree({
             expanded={expanded}
             onToggle={() => toggle(key)}
             onOpen={() => onOpen(session)}
+            ringClassName={ringClassName}
           />
         ) : (
           <RunningSessionRow
@@ -200,6 +206,7 @@ export function SessionTree({
             expanded={expanded}
             onToggle={() => toggle(key)}
             onOpen={() => onOpen(session)}
+            ringClassName={ringClassName}
           />
         )
       })}

@@ -113,11 +113,31 @@ internal fun runMarkBadgeColor(state: CodingSessionDisplayState?): Color? = when
     else -> null
 }
 
+/** EXP-1208: an ENDED run's mark is the brand mark at this alpha, ×4. */
+internal const val RUN_MARK_ENDED_ALPHA = 0.5f
+
 /**
- * A LIVE run's mark, wherever a run is named: [CodingSessionDisplayState.Working]
+ * EXP-1208: a live session row's mark state, ×4 (web `runningRowMarkState`):
+ * the display state, except a paused run (offline host) wears the bare mark
+ * (null) and only a WORKING row animates (EXP-848: the turn flag, never
+ * `running` alone).
+ */
+internal fun runningRowMarkState(
+    state: CodingSessionDisplayState,
+    paused: Boolean,
+    working: Boolean,
+): CodingSessionDisplayState? = when {
+    paused -> null
+    state == CodingSessionDisplayState.Working -> if (working) state else null
+    else -> state
+}
+
+/**
+ * A run's mark, wherever a run is named: [CodingSessionDisplayState.Working]
  * = the agent's working mark, no badge; NeedsInput / Review / Done = the brand
  * mark with an amber / green / blue badge at its top end corner. A null
- * [state] = a paused run: the bare mark.
+ * [state] = a paused run: the bare mark. EXP-1208: [ended] = a FINISHED run's
+ * row (the session lists' Recent rows): the brand mark dimmed, no badge.
  */
 @Composable
 fun AgentRunMark(
@@ -126,9 +146,22 @@ fun AgentRunMark(
     size: Dp,
     badgeSize: Dp,
     modifier: Modifier = Modifier,
+    ended: Boolean = false,
 ) {
     val id = agent.orEmpty()
-    Box(modifier = modifier.size(size)) {
+    if (ended) {
+        Icon(
+            agentIconPainter(id),
+            contentDescription = null,
+            tint = agentIconTint(id),
+            modifier = modifier
+                .size(size)
+                .alpha(RUN_MARK_ENDED_ALPHA)
+                .testTag("run-mark-ended"),
+        )
+        return
+    }
+    Box(modifier = modifier.size(size).testTag("run-mark")) {
         if (state == CodingSessionDisplayState.Working) {
             AgentWorkingMark(id, size)
         } else {
@@ -155,3 +188,13 @@ fun AgentRunMark(
 
 /** Sizes shared by the list rows' working mark (it rides the 8dp dot slot). */
 internal val RowWorkingMarkSize = 12.dp
+
+/** EXP-1208: a session list row's run mark — one indent level square, so its
+ *  centre IS the gutter centre a child's connector hangs off — and its
+ *  badge, ×4. */
+internal val SessionRowMarkSize = 14.dp
+internal val SessionRowBadgeSize = 6.dp
+
+/** EXP-1208: the gap between a session row's mark, its fold chevron and its
+ *  text, ×4 (web `gap-2`). */
+internal val SessionRowLeadGap = 8.dp

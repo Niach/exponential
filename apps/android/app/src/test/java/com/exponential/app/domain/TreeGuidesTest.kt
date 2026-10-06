@@ -60,4 +60,17 @@ class TreeGuidesTest {
         assertEquals(listOf(0), guides[2].passThrough)
         assertEquals(listOf(0), guides[3].passThrough)
     }
+
+    @Test
+    fun `the gutters start at the rows own 12dp padding`() {
+        // EXP-1208: the ×4 geometry (web `treeGuideCentre`): a depth-d row's
+        // mark sits at 12 + 14·d, so its centre is 12 + 14·d + 7, and a
+        // child's elbow stub ends exactly where the child's mark starts.
+        assertEquals(19f, TreeGuides.centre(0))
+        assertEquals(33f, TreeGuides.centre(1))
+        assertEquals(26f, TreeGuides.stubEnd(0))
+        assertEquals(40f, TreeGuides.stubEnd(1))
+        // A container that nests from its own edge passes base 0.
+        assertEquals(7f, TreeGuides.centre(0, base = 0f))
+    }
 }

@@ -104,6 +104,7 @@ fun RecentRunsSheet(
                                     // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
                                     identifier = pastRunIdentifier(row.session, row.issue, row.batchIssues),
                                     timeLabel = timeLabel,
+                                    agent = row.session.agent,
                                     byline = pastRunByline(
                                         deviceLabel = row.device.displayLabel,
                                         timeLabel = timeLabel,

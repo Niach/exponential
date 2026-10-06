@@ -14,6 +14,11 @@
 //! by `run_rows::render_run_list_row` over `RunListFacts::derive` — the Recent
 //! panel's and an action's Runs' exact calls. The runs are action runs so
 //! their titles need no synced issue.
+//!
+//! EXP-1208: so the demo shows the ×4 row layout as the product draws it —
+//! every row leads with the run mark (`coding_selects::run_lead`, the ended
+//! rows' dimmed `ended_run_lead`) at the base inset, the parent's fold
+//! chevron AFTER its mark, and the child's elbow ending at the child's mark.
 
 use std::collections::HashSet;
 

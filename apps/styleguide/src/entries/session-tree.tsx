@@ -1,40 +1,140 @@
-import { escapeHtml } from "../html.ts"
+import {
+  AgentRunMark,
+  conceptIcon,
+  ListRow,
+  type RunMarkState,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  treeGuides,
+} from "@exp/ui"
+
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-996: the session tree — a list of runs that nests a run under the run
 // that started it and folds a resumed run into one row.
 //
-// The specimen is deliberately hand-drawn markup rather than the app's own
-// component: `SessionTree` reads four Electric collections and the router, and
-// a specimen that needs a team to exist documents nothing. What the page has
-// to show is the SHAPE — how the connector nests a child run — and that is
-// geometry.
-//
-// It draws in the page's own vocabulary (`.cmp-session-tree*` in
-// `component-styles.ts`): EXP-1019 holds a filled
-// entry to the same rules as a component demo, so no inline style and no class
-// the stylesheet does not declare.
+// EXP-1208: the specimen is the REAL row layout drawn with the real `@exp/ui`
+// primitives (`ListRow`, `AgentRunMark`, `TreeGuides` over `treeGuides`),
+// static rows instead of the four Electric collections `SessionTree` reads:
+// [run mark][fold chevron, parents only][identifier + title], the mark at
+// the row's base inset `12 + 14·depth` on EVERY row — so the parent's mark
+// sits exactly under the standalone row's above it, and the child's elbow
+// ends at the child's own mark. The sub-line aligns under the title.
 
-/** 14px of indent per level — `TREE_INDENT`, the ×4 constant, in the CSS. */
-function row(depth: number, body: string): string {
-  return `<div class="cmp-session-tree-row" data-depth="${depth}">${body}</div>`
+const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+
+interface SpecimenRun {
+  depth: number
+  /** The run mark's state; `ended` = a finished run (dimmed, no badge). */
+  state: RunMarkState
+  agent: string
+  identifier: string | null
+  title: string
+  byline: string
+  parent?: boolean
 }
 
-/** A run row: its state dot, the identifier (none on an action or chat run),
- *  the title. */
-function run(
-  depth: number,
-  identifier: string | null,
-  title: string,
-  { live = true }: { live?: boolean } = {}
-): string {
-  return row(
-    depth,
-    [
-      `<span class="cmp-session-tree-dot"${live ? ` data-live` : ``}></span>`,
-      identifier ? `<span class="cmp-session-tree-id">${escapeHtml(identifier)}</span>` : ``,
-      `<span class="cmp-session-tree-title">${escapeHtml(title)}</span>`,
-    ].join(``)
+const RUNS: readonly SpecimenRun[] = [
+  // A standalone run, then a parent run with the two it started.
+  {
+    depth: 0,
+    state: `working`,
+    agent: `claude`,
+    identifier: `APP-88`,
+    title: `Checkout rework`,
+    byline: `Studio Mac · started 20m ago`,
+  },
+  {
+    depth: 0,
+    state: `review`,
+    agent: `claude`,
+    identifier: `APP-89`,
+    title: `Plan the release train`,
+    byline: `Ready for review · Studio Mac`,
+    parent: true,
+  },
+  {
+    depth: 1,
+    state: `needs_input`,
+    agent: `codex`,
+    identifier: `APP-90`,
+    title: `Refresh the store screenshots`,
+    byline: `Needs input · Studio Mac`,
+  },
+  {
+    depth: 1,
+    state: `ended`,
+    agent: `claude`,
+    identifier: `APP-91`,
+    title: `Write the changelog`,
+    byline: `Studio Mac · 12m ago`,
+  },
+  // An unrelated chat run at top level.
+  {
+    depth: 0,
+    state: `ended`,
+    agent: `claude`,
+    identifier: null,
+    title: `Why is the board slow?`,
+    byline: `Studio Mac · 2h ago`,
+  },
+]
+
+/** The sub-line's tone — the session status line's palette. */
+const STATUS_TONE: Record<RunMarkState, string> = {
+  working: `text-muted-foreground`,
+  needs_input: `text-amber-400`,
+  review: `text-emerald-400`,
+  done: `text-sky-400`,
+  ended: `text-muted-foreground`,
+}
+
+function SessionTreeSpecimen() {
+  const guides = treeGuides(RUNS.map((run) => run.depth))
+  return (
+    <div className="flex w-[420px] max-w-full flex-col">
+      {RUNS.map((run, index) => (
+        <ListRow
+          key={run.title}
+          interactive
+          className="relative gap-2 px-3 py-2.5"
+          style={{ paddingLeft: `${TREE_BASE + run.depth * TREE_INDENT}px` }}
+        >
+          <TreeGuides guide={guides[index]} />
+          <AgentRunMark
+            agent={run.agent}
+            state={run.state}
+            ringClassName="ring-background"
+          />
+          {run.parent && (
+            <span className="flex w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+              <ChevronDownIcon className="size-3" />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5 text-sm">
+              {run.identifier && (
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {run.identifier}
+                </span>
+              )}
+              <span className="truncate font-medium">{run.title}</span>
+            </div>
+            <div className={`truncate text-xs ${STATUS_TONE[run.state]}`}>
+              {run.byline}
+            </div>
+          </div>
+          {run.state === `ended` && (
+            <ChevronRightIcon
+              aria-hidden
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+          )}
+        </ListRow>
+      ))}
+    </div>
   )
 }
 
@@ -43,44 +143,32 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-996`,
   title: `Session tree`,
-  blurb: `Runs nested under their parent, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, an orphan whose parent is gone sits at top level. Top-level rows sort by last activity, newest first; children keep creation order; folding a parent takes its children with it.`,
+  blurb: `Runs nested under their parent, resumes collapsed. ONE selector over the synced coding_sessions rows (\`sessionTree\`) that every sessions list draws: a resume succession is ONE row keyed by its newest, a \`sessions_start\` child nests under its parent's succession, an orphan whose parent is gone sits at top level. Top-level rows sort by last activity, newest first; children keep creation order; folding a parent takes its children with it. EXP-1208: every row ×4 LEADS with the run mark (the agent's brand mark, Claude's spark while it works, a state badge when parked, dimmed once ended; never a dot) at the row's base inset 12 + 14 per level, and a parent's fold chevron FOLLOWS the mark, so a parent lines up exactly with a standalone row and its child's connector elbow ends at the child's mark.`,
   status: {
     web: {
       state: `ok`,
       symbol: `SessionTree / sessionTree`,
       file: `apps/web/src/components/session-tree.tsx`,
-      note: `the rule is lib/sessions/session-tree.ts; drawn in the sidebar's Running section and every sessions list`,
+      note: `the rule is lib/sessions/session-tree.ts; the rows are components/session-list-rows.tsx; drawn in every sessions list`,
     },
     desktop: {
       state: `ok`,
       symbol: `domain::session_tree::session_tree`,
       file: `apps/desktop/crates/domain/src/session_tree.rs`,
-      note: `drawn by sidebar.rs (Running) and sessions_section.rs`,
+      note: `drawn by sidebar.rs (Running) and sessions_section.rs; the rows are run_rows.rs`,
     },
     ios: {
       state: `ok`,
       symbol: `SessionTree.sessionTree`,
       file: `apps/ios/ExpCore/Sources/Domain/SessionTree.swift`,
-      note: `drawn by UI/Agent/AgentSessionsList.swift`,
+      note: `drawn by UI/Agent/AgentSessionsList.swift; the rows are UI/Session/RunningSessionRow.swift + ExpUI EndedRunRow`,
     },
     android: {
       state: `ok`,
       symbol: `SessionTree.sessionTree`,
       file: `apps/android/app/src/main/java/com/exponential/app/domain/SessionTree.kt`,
-      note: `drawn by ui/agent/AgentSessionsList.kt`,
+      note: `drawn by ui/agent/AgentSessionsList.kt; the rows are ui/session/RunningSessionRow.kt + ui/components/EndedRunRow.kt`,
     },
   },
-  render: () =>
-    [
-      `<div class="cmp-session-tree">`,
-      // A parent run, its `sessions_start` children one level deeper, and a
-      // grandchild under the first of them.
-      run(0, `APP-88`, `Plan the release train`),
-      run(1, `APP-89`, `Bump the iOS build number`),
-      run(2, `APP-90`, `Refresh the store screenshots`),
-      run(1, `APP-91`, `Write the changelog`, { live: false }),
-      // An unrelated chat run at top level.
-      run(0, null, `Why is the board slow?`, { live: false }),
-      `</div>`,
-    ].join(``),
+  island: () => <SessionTreeSpecimen />,
 }

@@ -87,6 +87,7 @@ const RUN_STATE_LABEL: Record<RunMarkState, string> = {
   needs_input: `Needs input`,
   review: `Pull request open`,
   done: `Done`,
+  ended: `Ended`,
 }
 
 function RunMark({

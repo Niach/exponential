@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 /// EXP-637: the ONE row a runs list draws — an action's "Runs" (SLOP-2), the
@@ -13,7 +14,12 @@ import SwiftUI
 /// EXP-818: it wears the FLAT list row (`.flatRow()`) — both its lists sit
 /// under a `GlassSectionBand` now, and a bordered card inside a table was the
 /// one row that still read as a card.
-public struct EndedRunRow: View {
+///
+/// EXP-1208: the row LEADS with the run's mark (`lead`, the app's dimmed
+/// `AgentRunMark` — ExpUI cannot see it), a parent's fold chevron FOLLOWS it,
+/// so a parent's mark lines up with a standalone row's ×4.
+public struct EndedRunRow<Lead: View>: View {
+    private let lead: Lead
     private let title: String
     private let identifier: String?
     private let byline: String
@@ -35,8 +41,10 @@ public struct EndedRunRow: View {
         expandable: Bool = false,
         expanded: Bool = true,
         onToggle: (() -> Void)? = nil,
+        @ViewBuilder lead: () -> Lead,
         onOpen: @escaping () -> Void
     ) {
+        self.lead = lead()
         self.title = title
         self.identifier = identifier
         self.byline = byline
@@ -48,7 +56,8 @@ public struct EndedRunRow: View {
     }
 
     public var body: some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .center, spacing: 8) {
+            lead
             foldControl
             Button(action: onOpen) {
                 header
@@ -73,7 +82,7 @@ public struct EndedRunRow: View {
                     expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 12
                 )
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(width: 14, height: 20)
+                .frame(width: TreeGuides.indentPerLevel, height: 20)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -121,5 +130,31 @@ public struct EndedRunRow: View {
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
         .contentShape(Rectangle())
+    }
+}
+
+extension EndedRunRow where Lead == EmptyView {
+    /// A row with no lead (a surface that names no agent).
+    public init(
+        title: String,
+        identifier: String? = nil,
+        byline: String,
+        isLive: Bool = false,
+        expandable: Bool = false,
+        expanded: Bool = true,
+        onToggle: (() -> Void)? = nil,
+        onOpen: @escaping () -> Void
+    ) {
+        self.init(
+            title: title,
+            identifier: identifier,
+            byline: byline,
+            isLive: isLive,
+            expandable: expandable,
+            expanded: expanded,
+            onToggle: onToggle,
+            lead: { EmptyView() },
+            onOpen: onOpen
+        )
     }
 }

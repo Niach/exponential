@@ -389,6 +389,7 @@ function ActionRunsListNav({ team, actionId }: { team: Team; actionId: string })
     <div className="flex-1 overflow-y-auto p-2">
       {/* EXP-897: nested, like every other session list. */}
       <SessionTree
+        ringClassName="ring-sidebar"
         rows={rows}
         activeSessionId={sessionId}
         titleOf={(row) => actionRunTitle(row.session.startedReason)}

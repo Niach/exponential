@@ -112,6 +112,8 @@ struct RecentRunsSheet: View {
             expandable: expandable,
             expanded: expanded,
             onToggle: onToggle,
+            // EXP-1208: the dimmed run mark leads every ended row.
+            lead: { SessionRowEndedMark(agent: row.session.agent) },
             onOpen: { onOpen(row.session.id) }
         )
         .accessibilityIdentifier("past-run-row")

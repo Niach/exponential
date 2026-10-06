@@ -3791,7 +3791,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `run-state-mark`,
     title: `Run state mark`,
     kind: `Icons`,
-    blurb: `EXP-1184: what a LIVE run is doing, one rule ×4 (contract fixture \`session-display.json\`, first match wins): it waits on you → the AMBER badge; the agent works → Claude's own "writing" spark, eight hand-drawn frames at 90 ms with hard cuts (vendored once as \`packages/icons/agent/claude-writing.svg\`, generated into every client; an agent without working art pulses its brand mark instead; reduced motion holds the static mark); idle with its pull request open → the GREEN badge (in review); idle with no open pull request, or merged → the BLUE badge (done). A follow-up turn on a run in review reads working again; the session row and the issue status never change for it. The red needs-you badge beats every state, a paused run wears the bare mark. Where a surface draws a dot instead (list rows, tab chips), the dot takes the state's tone and gives way to the same working mark.`,
+    blurb: `EXP-1184: what a LIVE run is doing, one rule ×4 (contract fixture \`session-display.json\`, first match wins): it waits on you → the AMBER badge; the agent works → Claude's own "writing" spark, eight hand-drawn frames at 90 ms with hard cuts (vendored once as \`packages/icons/agent/claude-writing.svg\`, generated into every client; an agent without working art pulses its brand mark instead; reduced motion holds the static mark); idle with its pull request open → the GREEN badge (in review); idle with no open pull request, or merged → the BLUE badge (done). A follow-up turn on a run in review reads working again; the session row and the issue status never change for it. The red needs-you badge beats every state, a paused run wears the bare mark. EXP-1208: every session LIST row ×4 leads with this mark too (running and ended rows, the action Runs list; no more state dots), and a FINISHED run's row wears the ENDED mark: the brand mark at half opacity with no badge. Where a surface still draws a dot (tab chips), the dot takes the state's tone and gives way to the same working mark.`,
     status: {
       web: ok(
         `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
@@ -3822,6 +3822,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             [`needs_input`, `Needs input`],
             [`review`, `In review`],
             [`done`, `Done`],
+            [`ended`, `Ended`],
           ] as const
         ).map(([state, label]) => (
           <div key={state} className="flex items-center gap-1.5 text-xs">

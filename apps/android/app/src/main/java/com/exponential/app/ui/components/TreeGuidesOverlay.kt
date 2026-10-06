@@ -30,7 +30,9 @@ private val GuideRadius = 3.dp
 /**
  * Draw [guide] in the gutter bands to the LEFT of this row's content. Apply it
  * BEFORE the indent padding, so the draw area still spans the gutters the
- * lines live in ([TreeGuidesRow] does exactly that).
+ * lines live in ([TreeGuidesRow] does exactly that). [base] = the row's own
+ * start padding (EXP-1208: 12dp, the ×4 `TREE_BASE`) — the gutters start
+ * there, so a level's centre is the centre of a row's leading mark.
  *
  * [gap] is the LIST's row spacing: every vertical that starts at the row's top
  * edge starts that much ABOVE it (nothing clips the row, so the ink lands in
@@ -39,16 +41,23 @@ private val GuideRadius = 3.dp
  * list drew the branch as a dashed ladder. The ×4 rule; the pure shape
  * (`domain/TreeGuides.kt`) knows nothing about it.
  */
-fun Modifier.treeGuides(guide: TreeGuide?, gap: Dp = 0.dp): Modifier {
+fun Modifier.treeGuides(
+    guide: TreeGuide?,
+    gap: Dp = 0.dp,
+    base: Dp = TreeGuides.BASE_DP.dp,
+): Modifier {
     if (guide == null || guide.isEmpty) return this
     return drawBehind {
         val indent = TreeGuides.INDENT_DP.dp.toPx()
+        val basePx = base.toPx()
         val stroke = Stroke(width = GuideWidth.toPx())
         val radius = GuideRadius.toPx()
         val midY = size.height / 2f
         // The row above ends `gap` up there: start every downward line from it.
         val top = -gap.toPx()
-        fun centreOf(level: Int) = indent * level + indent / 2f
+        // EXP-1208: measured from the row's own start padding ([base]), so
+        // the line lands on the parent's mark centre, ×4.
+        fun centreOf(level: Int) = TreeGuides.centre(level, basePx, indent)
 
         // An ancestor whose subtree carries on: a straight full-height line.
         guide.passThrough.forEach { level ->
@@ -61,7 +70,8 @@ fun Modifier.treeGuides(guide: TreeGuide?, gap: Dp = 0.dp): Modifier {
 
         val elbow = guide.elbowAt ?: return@drawBehind
         val x = centreOf(elbow)
-        val right = indent * (elbow + 1)
+        // The stub ends where the child's own mark starts.
+        val right = TreeGuides.stubEnd(elbow, basePx, indent)
         val path = Path().apply {
             if (guide.tee) {
                 // A later sibling follows: the vertical runs the whole height,

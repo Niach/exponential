@@ -47,12 +47,19 @@ export function AgentBrandMark({
 
 /** EXP-1184: what a live run is doing, the ×4 rule
  *  (`fixtures/session-display.json`): it waits on you, it works, its PR is
- *  open, or it is done (no open PR, or merged). */
-export type RunMarkState = `needs_input` | `working` | `review` | `done`
+ *  open, or it is done (no open PR, or merged). EXP-1208: `ended` = a
+ *  FINISHED run's row (the session lists' Recent rows), the brand mark dimmed
+ *  with no badge. */
+export type RunMarkState =
+  | `needs_input`
+  | `working`
+  | `review`
+  | `done`
+  | `ended`
 
 /** The badge each parked state wears, in the session-dot palette. */
 export const RUN_MARK_BADGE_CLASS: Record<
-  Exclude<RunMarkState, `working`>,
+  Exclude<RunMarkState, `working` | `ended`>,
   string
 > = {
   needs_input: `bg-amber-500`,
@@ -76,12 +83,16 @@ export function AgentWorkingMark({
   return <AgentBrandMark agent={agent} className={className} pulse />
 }
 
+/** EXP-1208: an ended run's mark is the brand mark at this opacity, ×4. */
+export const RUN_MARK_ENDED_OPACITY = 0.5
+
 /**
- * EXP-923 / EXP-1162 / EXP-1184: a LIVE run's mark — wherever a run is named
- * (the sidebar's Running rows, the compact rail, the Work face strip's Run
- * tab) it reads the same: the agent's working mark while it works, else its
- * brand mark with a small state badge (amber: wants you, emerald: PR open,
- * sky: done). No `state` = a paused run, the bare mark.
+ * EXP-923 / EXP-1162 / EXP-1184: a run's mark — wherever a run is named (the
+ * sidebar's Running rows, the compact rail, the Work face strip's Run tab and,
+ * EXP-1208, the LEAD of every session list row) it reads the same: the
+ * agent's working mark while it works, else its brand mark with a small state
+ * badge (amber: wants you, emerald: PR open, sky: done). No `state` = a
+ * paused run, the bare mark; `ended` = a finished run, the mark dimmed.
  */
 export function AgentRunMark({
   agent,
@@ -95,11 +106,21 @@ export function AgentRunMark({
   ringClassName?: string
   className?: string
 }) {
-  const badge = state && state !== `working` ? RUN_MARK_BADGE_CLASS[state] : null
+  const badge =
+    state && state !== `working` && state !== `ended`
+      ? RUN_MARK_BADGE_CLASS[state]
+      : null
   return (
     <span
       data-state={state}
-      className={cn(`relative flex size-3.5 items-center justify-center`, className)}
+      data-slot="run-mark"
+      className={cn(
+        `relative flex size-3.5 shrink-0 items-center justify-center`,
+        className
+      )}
+      style={
+        state === `ended` ? { opacity: RUN_MARK_ENDED_OPACITY } : undefined
+      }
     >
       {state === `working` ? (
         <AgentWorkingMark agent={agent} className="size-3.5" />

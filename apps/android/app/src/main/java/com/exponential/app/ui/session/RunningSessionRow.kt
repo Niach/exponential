@@ -1,14 +1,11 @@
 package com.exponential.app.ui.session
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.AgentUsagePresentation
@@ -25,20 +21,22 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.codingSessionIsWorking
-import com.exponential.app.ui.components.AgentWorkingMark
-import com.exponential.app.ui.components.RowWorkingMarkSize
+import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.FoldChevron
+import com.exponential.app.ui.components.SessionRowBadgeSize
+import com.exponential.app.ui.components.SessionRowLeadGap
+import com.exponential.app.ui.components.SessionRowMarkSize
+import com.exponential.app.ui.components.runningRowMarkState
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
-import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
 /**
- * EXP-874: ONE live coding-session row — state dot + identity line, the
+ * EXP-874: ONE live coding-session row — run mark + identity line, the
  * device-written caption, the state/device byline and the usage wall. Shared
  * by the Agent page's Running band and an action page's live runs, so the
  * two can't drift (the reference layout web/desktop/iOS copy).
@@ -59,7 +57,8 @@ internal fun RunningSessionRow(
     // that row reads "Batch run" as it always did.
     batchIssues: List<IssueEntity> = emptyList(),
     // EXP-897: this row has children nested under it (the session TREE) — a
-    // 12dp fold chevron leads the row, on Running and Recent alike (×4).
+    // fold chevron, AFTER the run mark (EXP-1208), on Running and Recent
+    // alike (×4).
     expandable: Boolean = false,
     expanded: Boolean = true,
     onToggle: () -> Unit = {},
@@ -84,9 +83,24 @@ internal fun RunningSessionRow(
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // EXP-1208: [run mark][fold chevron, parents only][text] ×4 —
+            // the mark at the row's base inset on every row, so a parent's
+            // mark lines up with a standalone row's and a child's connector
+            // elbow ends at its mark. Never a dot.
+            AgentRunMark(
+                agent = session.agent,
+                state = runningRowMarkState(state, paused, working),
+                size = SessionRowMarkSize,
+                badgeSize = SessionRowBadgeSize,
+            )
+            Spacer(Modifier.width(SessionRowLeadGap))
             if (expandable) {
-                FoldChevron(expanded = expanded, onToggle = onToggle)
-                Spacer(Modifier.width(4.dp))
+                FoldChevron(
+                    expanded = expanded,
+                    onToggle = onToggle,
+                    width = SessionRowMarkSize,
+                )
+                Spacer(Modifier.width(SessionRowLeadGap))
             }
             Column(modifier = Modifier.weight(1f)) {
                 // EXP-688: the identity line is shared with the steering
@@ -94,31 +108,6 @@ internal fun RunningSessionRow(
                 SessionRowTitle(
                     identifier = sessionRowIdentifier(issue, session, batchIssues),
                     title = titleOverride ?: sessionRowTitle(session, issue, batchIssues),
-                    dot = { Row(verticalAlignment = Alignment.CenterVertically) {
-                        when {
-                            paused -> StaticDot(LostGray)
-                            // EXP-1184: the agent at work wears its working
-                            // mark (Claude's spark, else the pulsed brand
-                            // mark), overflowing the 8dp dot slot so the
-                            // byline stays aligned; a parked state is a
-                            // steady dot in its tone.
-                            working -> Box(Modifier.size(8.dp), contentAlignment = Alignment.Center) {
-                                AgentWorkingMark(
-                                    session.agent,
-                                    RowWorkingMarkSize,
-                                    modifier = Modifier
-                                        .requiredSize(RowWorkingMarkSize)
-                                        .testTag("session-working-mark"),
-                                )
-                            }
-                            else -> when (state) {
-                                CodingSessionDisplayState.Working -> StaticDot(LostGray)
-                                CodingSessionDisplayState.NeedsInput -> StaticDot(NeedsInputAmber)
-                                CodingSessionDisplayState.Review -> StaticDot(ReviewGreen)
-                                CodingSessionDisplayState.Done -> StaticDot(DoneBlue)
-                            }
-                        }
-                    } },
                 )
                 // EXP-850 (S8): what the run is DOING right now, written by
                 // the device (today the running workflow's caption) — the
@@ -135,9 +124,7 @@ internal fun RunningSessionRow(
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .padding(start = 20.dp)
-                            .testTag("session-agent-caption"),
+                        modifier = Modifier.testTag("session-agent-caption"),
                     )
                 }
                 // EXP-549: the LIVE machine label, so a rename lands here
@@ -167,9 +154,8 @@ internal fun RunningSessionRow(
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    // Aligned under the identifier: the dot (8dp) plus its
-                    // 12dp gap live inside the identity line above.
-                    modifier = Modifier.padding(start = 20.dp),
+                    // EXP-1208: aligned under the title — the mark lives
+                    // outside this column.
                 )
                 // EXP-804: the agent's usage wall, on its OWN line under the
                 // state — a walled run is still `running` and both facts have
@@ -185,7 +171,6 @@ internal fun RunningSessionRow(
                         color = NeedsInputAmber,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 20.dp),
                     )
                 }
             }

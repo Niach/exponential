@@ -30,9 +30,7 @@ vi.mock(`@/components/pin-toggle-button`, () => ({
 vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))
 vi.mock(`@/components/issue-coding-rows`, () => ({ PrStateBadge: () => null }))
-vi.mock(`@/components/agent-session-row`, () => ({
-  RunningIndicator: () => null,
-}))
+vi.mock(`@/components/agent-session-row`, () => ({}))
 vi.mock(`@/lib/collections`, () => ({
   codingSessionCollection: {},
   issueCollection: {},

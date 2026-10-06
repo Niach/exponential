@@ -252,6 +252,25 @@ pub(crate) fn run_lead(
         })
 }
 
+/// EXP-1208 — an ENDED run's mark ×4 (web `AgentRunMark state="ended"`):
+/// the agent's brand mark at this opacity, no badge.
+pub(crate) const RUN_MARK_ENDED_OPACITY: f32 = 0.5;
+
+/// EXP-1208 — a FINISHED run's lead (the session lists' past rows): the
+/// brand mark [`run_lead`] would draw, dimmed to [`RUN_MARK_ENDED_OPACITY`],
+/// with no state badge.
+pub(crate) fn ended_run_lead(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
+    let mark = match agent {
+        Some(agent) => agent_mark(agent),
+        None => Icon::new(registry::SETTINGS_AGENTS),
+    };
+    div()
+        .relative()
+        .flex_shrink_0()
+        .opacity(RUN_MARK_ENDED_OPACITY)
+        .child(mark.with_size(px(size)))
+}
+
 /// EXP-862 — THE agent picker, one component per client (web
 /// `components/agent-picker.tsx`, iOS `AgentPickerMenu`, Android
 /// `AgentPickerPill`): an ICON-ONLY trigger (the selected agent's brand mark
