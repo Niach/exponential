@@ -5075,14 +5075,91 @@ describe(`exponential_sessions_get — EXP-1216`, () => {
     )
   })
 
-  it(`returns at once when the run is already idle`, async () => {
+  // The flow it is built for: the starter answers an idle run with
+  // sessions_message and waits at once — the device has not started the turn
+  // yet, so the first read is still idle.
+  it(`waits for a just-messaged idle run to start and finish its turn`, async () => {
+    const idle = (updatedAt: string) => [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false, updatedAt },
+    ]
+    dbRows.current = idle(`2026-10-06T00:00:00Z`)
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      dbRows.current = [
+        {
+          id: RUN,
+          userId: `user-1`,
+          teamId: WS,
+          status: `running`,
+          agentBusy: true,
+          updatedAt: `2026-10-06T00:00:02Z`,
+        },
+      ]
+      await vi.advanceTimersByTimeAsync(4_000)
+      dbRows.current = idle(`2026-10-06T00:00:06Z`)
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: false,
+        updatedAt: `2026-10-06T00:00:06Z`,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`settles an idle run whose row moved on (a turn quicker than a poll)`, async () => {
+    const idle = (updatedAt: string) => [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false, updatedAt },
+    ]
+    dbRows.current = idle(`2026-10-06T00:00:00Z`)
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(1_000)
+      dbRows.current = idle(`2026-10-06T00:00:01Z`)
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(parseOk(await pending)).toMatchObject({
+        updatedAt: `2026-10-06T00:00:01Z`,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`returns an idle run after the grace window when nothing starts`, async () => {
     dbRows.current = [
       { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: false },
     ]
-    const payload = parseOk(
-      await tool(`exponential_sessions_get`)({ id: RUN, waitForIdle: true, timeoutS: 60 })
-    )
-    expect(payload).toMatchObject({ waited: false, timedOut: false })
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)({
+        id: RUN,
+        waitForIdle: true,
+        timeoutS: 60,
+      })
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(parseOk(await pending)).toMatchObject({
+        agentBusy: false,
+        waited: true,
+        timedOut: false,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it(`waits until the turn ends`, async () => {
@@ -5230,6 +5307,15 @@ describe(`exponential_sessions_messages (EXP-1216)`, () => {
       await tool(`exponential_sessions_messages`)({ id: RUN, since: 5, limit: 50 })
     )
     expect(none).toMatchObject({ messages: [], nextSince: 5, truncated: false })
+  })
+
+  it(`never hands back a cursor below the one passed in`, async () => {
+    dbRows.current = [runRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    const payload = parseOk(
+      await tool(`exponential_sessions_messages`)({ id: RUN, since: 99, limit: 50 })
+    )
+    expect(payload).toMatchObject({ messages: [], nextSince: 99 })
   })
 
   it(`asks an ended run's device for its history, under the host's account`, async () => {

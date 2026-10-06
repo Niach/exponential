@@ -516,6 +516,10 @@ function sleep(ms: number) {
 const SESSION_WAIT_POLL_MS = 2_000
 const SESSION_WAIT_DEFAULT_S = 60
 const SESSION_WAIT_MAX_S = 120
+// A run that reads idle on the FIRST read may simply not have picked up the
+// message the starter just sent (relay → device → turn start → setAgentBusy):
+// wait this long for the turn to start before calling it settled.
+const SESSION_WAIT_GRACE_MS = 10_000
 
 /** EXP-1216: the run needs nobody's patience any more — its turn ended
  *  (`agentBusy` false, the ONE working signal), it asked, it hit a wall, or
@@ -532,6 +536,28 @@ function sessionSettled(row: {
     row.needsInput === true ||
     (row.blocked !== null && row.blocked !== undefined)
   )
+}
+
+/** EXP-1216: idle but nothing else to report — the state a freshly messaged
+ *  run sits in until its device starts the turn. */
+function sessionIdleButLive(row: {
+  status?: string | null
+  agentBusy?: boolean | null
+  needsInput?: boolean | null
+  blocked?: unknown
+}): boolean {
+  return (
+    row.status !== `ended` &&
+    !row.agentBusy &&
+    row.needsInput !== true &&
+    (row.blocked === null || row.blocked === undefined)
+  )
+}
+
+function rowTime(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const time = new Date(value as string | number | Date).getTime()
+  return Number.isNaN(time) ? null : time
 }
 
 /** FEED-63: the device's reported launch failure for this start, as the
@@ -4133,7 +4159,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 60, max 120); answers waited + timedOut. What it said: exponential_sessions_messages.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 60, max 120; a run idle at the call first gets 10s to start the turn your message began); answers waited + timedOut. What it said: exponential_sessions_messages.`,
       inputSchema: strictInput({
         id: uuidString,
         waitForIdle: z.boolean().optional(),
@@ -4200,6 +4226,31 @@ export function registerExponentialTools(
         if (waitForIdle) {
           const deadline =
             Date.now() + (timeoutS ?? SESSION_WAIT_DEFAULT_S) * 1000
+          // Idle on the first read: the message just sent may not have
+          // reached the agent yet. Give the turn a grace window to start
+          // (agentBusy flips, or the row moves on) before trusting "idle".
+          if (sessionIdleButLive(row)) {
+            const graceEnd = Math.min(deadline, Date.now() + SESSION_WAIT_GRACE_MS)
+            const firstUpdatedAt = rowTime(row.updatedAt)
+            while (true) {
+              const left = graceEnd - Date.now()
+              if (left <= 0) break
+              await sleep(Math.min(SESSION_WAIT_POLL_MS, left))
+              waited = true
+              const next = await loadRow()
+              if (!next) throw new Error(`Session not found`)
+              row = next
+              const updatedAt = rowTime(row.updatedAt)
+              if (
+                !sessionIdleButLive(row) ||
+                (updatedAt !== null &&
+                  firstUpdatedAt !== null &&
+                  updatedAt > firstUpdatedAt)
+              ) {
+                break
+              }
+            }
+          }
           while (!sessionSettled(row)) {
             const left = deadline - Date.now()
             if (left <= 0) {
@@ -4350,7 +4401,14 @@ export function registerExponentialTools(
           live: !ended,
           messages,
           lastSeq: read.lastSeq,
-          nextSince: newest ?? since ?? null,
+          // Never hand back a cursor below the one passed in (a stale or
+          // restarted seq would otherwise re-deliver consumed messages).
+          nextSince:
+            newest === null
+              ? (since ?? null)
+              : since === undefined
+                ? newest
+                : Math.max(newest, since),
           // The relay keeps a tail; older pages exist only on the device.
           truncated:
             newer.length > messages.length ||
