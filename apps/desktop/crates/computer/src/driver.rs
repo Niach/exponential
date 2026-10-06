@@ -129,6 +129,40 @@ impl Driver {
         Ok(session)
     }
 
+    /// Wayland's portals consent on first use (the screenshot portal, the
+    /// remote-desktop one behind libei input) and cua persists what they
+    /// grant: make that first use NOW, while the person who flipped the
+    /// switch is there, so no dialog interrupts a run. One desktop capture
+    /// and one pointer move to where the pointer already is; nothing the
+    /// person can see change. Other sessions: nothing to warm.
+    pub fn warm_up(&self) {
+        if cfg!(not(target_os = "linux")) || std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            return;
+        }
+        const SETUP: &str = "computer-use-setup";
+        let shot = self.call(SETUP, "Setup", "get_desktop_state", json!({ "max_image_dimension": 64 }));
+        let position = self.call(SETUP, "Setup", "get_cursor_position", json!({}));
+        let point = position.pointer("/structuredContent").and_then(|value| {
+            Some((value.get("x")?.as_f64()?, value.get("y")?.as_f64()?))
+        });
+        let moved = point.map(|(x, y)| {
+            self.call(
+                SETUP,
+                "Setup",
+                "move_cursor",
+                json!({ "x": x, "y": y, "target": { "kind": "desktop", "display_id": "primary" } }),
+            )
+        });
+        for (name, result) in [("capture", Some(shot)), ("input", moved)] {
+            if let Some(result) = result {
+                if result.get("isError").and_then(Value::as_bool).unwrap_or(false) {
+                    log::warn!("[computer] wayland warm-up, {name}: {}", result["content"][0]["text"]);
+                }
+            }
+        }
+        self.end(SETUP);
+    }
+
     fn forget_session(&self, session_id: &str) {
         if let Some(live) = self.live.lock().unwrap().as_mut() {
             live.sessions.remove(session_id);

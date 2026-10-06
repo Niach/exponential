@@ -195,8 +195,8 @@ pub fn readiness() -> Readiness {
 
 /// The switch is on: ask the OS for every permission computer use needs NOW
 /// (macOS Screen Recording + Accessibility, attributed to this app, which
-/// the worker then inherits) and bring the worker up, so neither interrupts
-/// a run. Blocks while a dialog waits: off the UI thread, see
+/// the worker then inherits; a Wayland desktop's portal consents through
+/// the worker) and bring the worker up, so nothing interrupts a run. Blocks while a dialog waits: off the UI thread, see
 /// [`prepare_in_background`].
 pub fn prepare() -> Readiness {
     #[cfg(all(target_os = "macos", feature = "cua"))]
@@ -212,8 +212,9 @@ pub fn prepare() -> Readiness {
     let readiness = readiness_of(&permissions);
     #[cfg(feature = "cua")]
     if readiness == Readiness::Ready {
-        if let Err(reason) = host().and_then(|host| host.driver.start()) {
-            log::warn!("[computer] {reason}");
+        match host().and_then(|host| host.driver.start().map(|()| host)) {
+            Ok(host) => host.driver.warm_up(),
+            Err(reason) => log::warn!("[computer] {reason}"),
         }
     }
     readiness

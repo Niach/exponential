@@ -4,6 +4,10 @@
 //! bearer token ([`crate::grant`]), which is what names the run. The tools
 //! are cua's, verbatim: the hub only routes a call to the run's session.
 
+// Without cua linked nothing serves; the hub still compiles (and its tests
+// run against the fake host) so the two builds share one file.
+#![cfg_attr(not(feature = "cua"), allow(dead_code))]
+
 use std::collections::HashMap;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
@@ -58,7 +62,6 @@ impl Hub {
         self.host.end(session_id);
     }
 
-    #[cfg_attr(not(feature = "cua"), allow(dead_code))]
     pub fn revoke_all(&self) {
         let runs = std::mem::take(&mut *self.runs.lock().unwrap());
         for run in runs.values() {
