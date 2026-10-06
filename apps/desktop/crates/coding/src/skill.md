@@ -15,17 +15,17 @@ Your working directory is your whole subject: a worktree of the run's repository
 
 Prefer a new issue over widening your PR for out-of-scope work, a bug you will not fix now, or a task of its own:
 
-1. `exponential_issues_create` on the board of the issue you work on (`boardId`), a GFM description that names your issue as `#IDENT`, plus `priority`, `labelIds` or `assigneeId` when you know them. A sub-issue: pass `parentId` (the parent's UUID) in the same call.
+1. `exponential_issues_create` on your issue's board (`boardId`), a GFM description that names your issue as `#IDENT`, plus `priority`, `labelIds` or `assigneeId` when you know them. A sub-issue: pass `parentId` (the parent's UUID) in the same call.
 2. Any other relation via `exponential_issue_relations_add`: `parent`, `blocks` (ordering), `duplicate` or `related`; `issueId` is the first issue, `relatedIssueId` the other, `inverse: true` flips the direction.
 3. Name it (`#IDENT`) in your comment or report.
 
-Never file an issue for what you can finish in your own PR.
+Never file an issue for what you can finish in your PR.
 
 After your PR is open and your branch is pushed, start a run for each follow-up you filed that needs no person's decision, is in this repository and can be verified on this device: `exponential_sessions_start({deviceId: <yours>, issueId, account, prompt})`; `exponential_devices_list` names your device and its accounts (`account` = a profile id with usage left). The prompt names your branch as the base (`git fetch origin <your branch> && git reset --hard origin/<your branch>` before any edit), tells the child to open its PR with `exponential_pr_open({issueId, base: "<your branch>"})`, and carries the depth (`follow-up depth N of 3`). Caps: 3 children per run, depth 3, 10 runs per tree; over the cap, file only (a stacked line named in your prompt always continues). Children do the same. Do not wait for them: end your turn. Skip this when the prompt or team prompt says `no follow-up runs`, when you have no repository, or when the follow-up needs a decision, another platform, or a migration/auth/billing/pipeline change.
 
-Other work can be delegated the same way to any ONLINE device whose `agents` has the agent you want (offline ones refuse), with one subject: `issueId`, `issueIds` (one combined PR) or `actionId`. A child's questions and finish arrive as `[Exponential child run ...]` user messages; answer with `exponential_sessions_message`. Read a child's report before merging its PR: merging first ends the run unreported.
+Other work can be delegated the same way to any ONLINE device whose `agents` has the agent you want, with one subject: `issueId`, `issueIds` (one combined PR) or `actionId`. A child's questions and finish arrive as `[Exponential child run ...]` user messages; answer with `exponential_sessions_message`. Read a child's report before merging its PR: merging first ends the run unreported.
 
-`exponential_sessions_ask_parent` reaches the run that started you (`to: 'parent'`) or the person (`to: 'user'`): ask, then stop until the answer arrives. Close out with your report (Results below); if `exponential_sessions_end` is registered, it is your last call.
+`exponential_sessions_ask_parent` reaches your starter (`to: 'parent'`) or the person (`to: 'user'`): ask, then stop until the answer arrives. Close out with your report (Results below). Unattended runs (a trigger or another agent started you) call `exponential_sessions_end` LAST; a person-started run only when asked.
 
 ## Subagents
 
@@ -50,4 +50,4 @@ A long context: `exponential_sessions_compact` asks the host to compact at the n
 
 ## Exponential misbehaving
 
-When Exponential misbehaves (a result contradicting its tool, a dropped start, a sync glitch), file it with `exponential_report_bug` if registered; it reaches Exponential's developers.
+When Exponential misbehaves (a result contradicting its tool, a dropped start), file it with `exponential_report_bug` if registered; it reaches Exponential's developers.

@@ -34,13 +34,13 @@ pub const WORKTREE_CLEAN: &str = "Before you finish, leave the worktree clean: c
 everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
 you created).";
 
-/// EXP-679 — the second half, and it has TWO shapes because the server now
-/// registers the `exponential_sessions_end` tool only for UNATTENDED runs
-/// (`coding_sessions.started_reason` set: an automation's `schedule`/`event`,
-/// or `agent` — a run another coding session started). A person-started run
-/// never sees the tool and stays open afterwards (EXP-673), so telling it to
-/// call one it doesn't have is a dead end; an unattended run must call it
-/// last, because that call is what ends it and nobody is there to reply.
+/// EXP-679 — the second half, and it has TWO shapes. Since EXP-1222 the server
+/// registers the `exponential_sessions_end` tool for EVERY run, but only an
+/// UNATTENDED one (`coding_sessions.started_reason` set: an automation's
+/// `schedule`/`event`, or `agent` — a run another coding session started)
+/// must call it last, because that call is what ends it and nobody is there
+/// to reply. A person-started run stays open afterwards (EXP-673) and calls
+/// the tool only when the person asks it to end the run.
 /// Decision 6 is spelled out in both: an agent that merges its own PR keeps
 /// running server-side, and would otherwise assume the merge ended it.
 pub fn close_out(unattended: bool) -> String {
@@ -54,7 +54,8 @@ session."
     } else {
         format!(
             "{PUBLISH_RESULTS} {WORKTREE_CLEAN} This session stays open after you finish: summarize what you did \
-here and keep answering follow-ups. Merging your own PR never ends the session."
+here and keep answering follow-ups. Call the `exponential_sessions_end` MCP tool only when the \
+person asks you to end the run. Merging your own PR never ends the session."
         )
     }
 }
@@ -224,8 +225,8 @@ mod tests {
     use super::*;
 
     /// The §7.1 step-5 template — exact bytes for a described issue a PERSON
-    /// started (EXP-679: no `exponential_sessions_end`, the tool that run
-    /// doesn't get).
+    /// started (EXP-1222: `exponential_sessions_end` only when the person
+    /// asks).
     const EXPECTED: &str = "Please read the issue context below and work on **EXP-42: Fix login flicker** in this \
 repository. BEFORE implementing anything, read the issue's full comment thread by \
 calling the `exponential_comments_list` MCP tool with issueId `EXP-42` — \
@@ -240,7 +241,8 @@ it touched, and screenshot every changed screen you can run; name any screen you
 capture in the report. Before you finish, leave the \
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
 .`, `git clean -fd` for files you created). This session stays open after you finish: summarize \
-what you did here and keep answering follow-ups. Merging your own PR never ends the session.
+what you did here and keep answering follow-ups. Call the `exponential_sessions_end` MCP tool \
+only when the person asks you to end the run. Merging your own PR never ends the session.
 
 ## Issue context
 
@@ -263,13 +265,16 @@ The login page flickers on slow connections.
     }
 
     /// EXP-679: the close-out is the ONLY difference between an attended and
-    /// an unattended run's prompt — and the `exponential_sessions_end`
-    /// sentence appears in exactly one of them (the server registers that
-    /// tool only for unattended runs).
+    /// an unattended run's prompt. EXP-1222: both name
+    /// `exponential_sessions_end` (every run has it now), but only the
+    /// unattended one calls it last; the attended one only when asked.
     #[test]
-    fn only_the_unattended_prompt_names_the_close_out_tool() {
+    fn only_the_unattended_prompt_closes_out_with_the_tool() {
         let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None);
-        assert!(!attended.contains("exponential_sessions_end"));
+        assert!(attended.contains(
+            "Call the `exponential_sessions_end` MCP tool only when the person asks you to end the run."
+        ));
+        assert!(!attended.contains("That call ends this run"));
         assert!(attended.contains("This session stays open after you finish"));
 
         let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None);

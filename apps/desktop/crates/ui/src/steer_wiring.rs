@@ -1240,10 +1240,10 @@ pub(crate) enum EndPolicy {
     CloseNow,
     /// The agent declared its own run over (`exponential_sessions_end`): let
     /// the turn finish (it is still writing the close-out that call was
-    /// about), then close the tab. Since EXP-673 the server ends a row on
-    /// that call ONLY for an automation-started run — a person-started run
-    /// stays live for their replies and never reaches here — so this is
-    /// always a tab nobody is watching.
+    /// about), then close the tab. An unattended run calls it on its own
+    /// (EXP-673); since EXP-1222 a person-started run has the tool too and
+    /// calls it only when the person asks it to end the run — either way the
+    /// close-out reply finishes before the tab goes.
     CloseAfterTurn,
 }
 
