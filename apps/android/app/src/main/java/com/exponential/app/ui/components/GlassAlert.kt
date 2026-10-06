@@ -61,9 +61,10 @@ data class GlassAlertAction(
     val destructive: Boolean = false,
     val enabled: Boolean = true,
     val testTag: String? = null,
-    /** A call in flight (EXP-1215): the pill shows its spinner and stops
-     *  answering, keeping its width; the dialog stays up until the caller
-     *  closes it. */
+    /** A call in flight (EXP-1215): the spinner takes the pill's glyph slot
+     *  (an answer has no glyph, so it grows by one, exactly as web's
+     *  `Pill leading` does) and it stops answering; the dialog stays up
+     *  until the caller closes it. */
     val loading: Boolean = false,
 )
 

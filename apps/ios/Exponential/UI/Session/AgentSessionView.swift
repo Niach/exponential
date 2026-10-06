@@ -205,26 +205,38 @@ struct AgentSessionView: View {
     /// The confirms: Kill, Merge, and a `/`-command's own.
     private func withAlerts(_ content: some View) -> some View {
         content
-            // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-            .glassAlert(isPresented: $showKillConfirm) {
-                GlassAlert(
-                    prompt: Prompts.StopRun.copy(),
-                    handlers: ["stop": { Task { await model?.killSession() } }]
-                )
+            // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on
+            // a zero-size node of its own (EXP-240): two presentations
+            // stacked on one node and SwiftUI drops the second.
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(isPresented: $showKillConfirm) {
+                        GlassAlert(
+                            prompt: Prompts.StopRun.copy(),
+                            handlers: ["stop": { Task { await model?.killSession() } }]
+                        )
+                    }
             }
             // EXP-724: `/clear` discards the conversation, so confirm rows
             // confirm before the frames go out. Copy is byte-identical ×4.
-            .glassAlert(item: $slashConfirm) { command in
-                GlassAlert(
-                    title: SlashCommands.confirmTitle(command),
-                    message: SlashCommands.confirmBody,
-                    actions: [
-                        GlassAlertAction("Cancel", role: .outline, id: "cancel") {},
-                        GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
-                            if let model { performSend(model) }
-                        },
-                    ]
-                )
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(item: $slashConfirm) { command in
+                        GlassAlert(
+                            title: SlashCommands.confirmTitle(command),
+                            message: SlashCommands.confirmBody,
+                            actions: [
+                                GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                                GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
+                                    if let model { performSend(model) }
+                                },
+                            ]
+                        )
+                    }
             }
     }
 

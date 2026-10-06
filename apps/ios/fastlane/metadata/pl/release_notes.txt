@@ -1,5 +1,6 @@
-- Start: aplikacja otwiera się na stronie Agent, a przycisk czatu świeci, gdy na niej jesteś
-- Karty: Inbox, My Issues i Drafts przełączasz przesunięciem w bok, podobnie Actions i Suggestions
-- Reviews: pull request z uruchomienia czatu lub akcji otwiera swoje zmiany w aplikacji
-- Runs: strzałka przeskakuje do najnowszej wiadomości, a lista zadań pokazuje postęp
-- Nowe issue: jedno stuknięcie w × odrzuca szkic
+- Okna dialogowe: każde potwierdzenie i wybór używa tej samej karty, a Return nigdy nie wybiera destrukcyjnej odpowiedzi
+- Nowe issue: × pyta przed odrzuceniem szkicu, a wyjście ze szkicu z treścią pyta o Create, Keep as draft lub Discard
+- Runs: znak uruchomienia otwiera każdy wiersz listy, aktywny wiersz narzędzia pokazuje tylko nagłówek, a uruchomienie pokazuje Working, dopóki agent naprawdę nie skończy
+- Boards: wybór boardu nie pokazuje już kropki innych zespołów
+- Konto: odłącz metodę logowania, o ile zostaje inna droga wejścia
+- Urządzenia: blok gotowości mówi, czego maszynie jeszcze brakuje, a Computer use można włączyć dla każdego urządzenia

@@ -73,9 +73,24 @@ public struct PromptEntry: Sendable {
 }
 
 public enum Prompts {
-    /// Replaces every `{name}` with its value.
+    /// Replaces every `{name}` with its value in ONE pass over the template,
+    /// so a value that itself contains a `{param}` is never re-filled and the
+    /// dictionary's order never changes the output; an unnamed placeholder
+    /// stays as typed.
     public static func fill(_ template: String, _ values: [String: String]) -> String {
-        values.reduce(template) { $0.replacingOccurrences(of: "{\($1.key)}", with: $1.value) }
+        guard !values.isEmpty, template.contains("{") else { return template }
+        // `{name}`: a word (letters, digits, underscore) in braces. Built per
+        // call: `Regex` is not `Sendable`, so it cannot be a static.
+        let placeholder = #/\{(\w+)\}/#
+        var output = ""
+        var cursor = template.startIndex
+        for match in template.matches(of: placeholder) {
+            output += template[cursor..<match.range.lowerBound]
+            output += values[String(match.output.1)] ?? String(template[match.range])
+            cursor = match.range.upperBound
+        }
+        output += template[cursor...]
+        return output
     }
 
     private static let cancel = PromptAction(id: "cancel", label: "Cancel", role: .cancel)

@@ -1,5 +1,6 @@
-- Aloitus: sovellus avautuu Agent-sivulle, ja chat-painike palaa, kun olet siellä
-- Välilehdet: Inbox, My Issues ja Drafts vaihtuvat pyyhkäisemällä sivulle, samoin Actions ja Suggestions
-- Reviews: chat- tai toimintoajon pull request avaa muutoksensa sovelluksessa
-- Runs: nuoli hyppää uusimpaan viestiin, ja tehtävälista näyttää edistymisensä
-- Uusi issue: yksi napautus ×:ään hylkää luonnoksen
+- Dialogit: jokainen vahvistus ja valinta käyttää samaa korttia, eikä Return koskaan valitse tuhoavaa vastausta
+- Uusi issue: × kysyy ennen luonnoksen hylkäämistä, ja sisältöä sisältävästä luonnoksesta poistuminen kysyy Create, Keep as draft tai Discard
+- Runs: ajon merkki aloittaa jokaisen listarivin, käynnissä oleva työkalurivi näyttää vain otsikkonsa, ja ajo näyttää Working, kunnes agentti on todella valmis
+- Boardit: boardin valitsin ei enää näytä muiden tiimien pistettä
+- Tili: poista kirjautumistavan linkitys, kunhan jokin toinen tapa kirjautua jää
+- Laitteet: valmiuslohko kertoo, mitä koneelta vielä puuttuu, ja Computer use kytketään päälle laitekohtaisesti

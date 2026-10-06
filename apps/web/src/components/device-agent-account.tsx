@@ -332,7 +332,7 @@ export function AccountChipMenu({
           ambient ? agentLabel(row.agent) : null
         )}
         actions={[
-          { label: `Cancel` },
+          { label: `Cancel`, role: `cancel` },
           {
             label: `Sign out`,
             role: `destructive`,
@@ -367,7 +367,7 @@ export function AccountChipMenu({
             : removeAccountConfirmCopy(loginLabel, deviceLabel)
         }
         actions={[
-          { label: `Cancel` },
+          { label: `Cancel`, role: `cancel` },
           {
             label: `Remove`,
             role: `destructive`,

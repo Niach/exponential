@@ -444,20 +444,6 @@ impl Settings {
     }
 }
 
-/// SLOP-3: the retired workflow engine kept its working state under
-/// `{data_dir}/workflows/`. Nothing reads it any more; every host (the CLI
-/// daemon, the desktop app) removes it ONCE at startup, best-effort.
-pub fn remove_legacy_workflow_state(data_dir: &Path) {
-    let dir = data_dir.join("workflows");
-    if !dir.exists() {
-        return;
-    }
-    match fs::remove_dir_all(&dir) {
-        Ok(()) => log::info!("removed the retired workflow state at {}", dir.display()),
-        Err(err) => log::warn!("could not remove {}: {err}", dir.display()),
-    }
-}
-
 /// Lowercase-trim `raw`; anything outside `allowed` (except blank, which
 /// always maps to `fallback`) also maps to `fallback`. Keeps every persisted
 /// model/effort value inside the closed alias sets the CLI accepts.
@@ -797,20 +783,6 @@ mod tests {
         let settings = Settings::load(&path);
         assert_eq!(settings.claude_model, "fable", "unknown model → fable");
         assert_eq!(settings.claude_effort, "", "unknown effort → omit");
-    }
-
-    /// SLOP-3: the retired `{data_dir}/workflows/` goes, everything beside it
-    /// stays, and a data dir without one is left alone.
-    #[test]
-    fn remove_legacy_workflow_state_drops_only_the_workflows_dir() {
-        let dir = TempDir::new("legacy-workflows");
-        fs::create_dir_all(dir.0.join("workflows")).unwrap();
-        fs::write(dir.0.join("workflows").join("wf-1.json"), "{}").unwrap();
-        fs::write(dir.0.join("settings.json"), "{}").unwrap();
-        remove_legacy_workflow_state(&dir.0);
-        assert!(!dir.0.join("workflows").exists());
-        assert!(dir.0.join("settings.json").exists());
-        remove_legacy_workflow_state(&dir.0);
     }
 
     /// Per-agent run fields (EXP-206): MISSING keys must fill from the

@@ -46,6 +46,24 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-06-release-train",
+    date: "2026-10-06",
+    title: "Computer use, one dialog style, and drafts that ask before they leave",
+    summary: "Agents can drive the screen from the IDE and the CLI, every confirm prompt looks the same on web, iOS and Android, leaving a draft with content asks what to do, a run reads Working until the agent is really done, and a session that started a run can read its transcript.",
+    body: r#"- **Computer use**: a per-device switch (off by default) lets Claude see and drive the screen on macOS, Linux and Windows from the IDE and the CLI daemon. The doctor block on every client says whether the machine is ready.
+- **One dialog style**: every confirm and choice prompt on web, iOS and Android uses the same card with the same wording, and Return never picks a destructive answer.
+- **Drafts**: the × asks before discarding a draft, and leaving a draft with content asks Create, Keep as draft or Discard, on web, desktop, iOS and Android.
+- **Runs**: a run keeps reading Working while the agent continues after a background task finishes, a live tool row shows only its headline, the run mark leads every list row, and the red needs-you dot is gone (an amber badge still marks a run waiting for you).
+- **MCP**: `exponential_sessions_messages` lets the session that started a run read that run's transcript, `exponential_sessions_get` can wait for the run to go idle, and `exponential_sessions_end` is registered in every run (a person-started run calls it only when asked).
+- **Account**: unlink a sign-in method as long as another way in remains; the email code no longer counts as one.
+- **Phones**: the board picker no longer shows the other-teams dot.
+- **Desktop**: the markdown editor keeps a paragraph's leading spaces and Tab works on images, and Claude runs show an Exponential tool's preview (chips, inline pictures).
+- **Older apps**: apps from before this release keep working."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_33: ChangelogEntry = ChangelogEntry {
     id: "2026-10-05-release-train",
     date: "2026-10-05",
     title: "Agent first, and run pull requests you can read in the app",

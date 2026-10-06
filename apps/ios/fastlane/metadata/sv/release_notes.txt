@@ -1,5 +1,6 @@
-- Start: appen öppnas på Agent-sidan, och chattknappen lyser medan du är där
-- Flikar: Inbox, My Issues och Drafts byter du med ett svep åt sidan, och likaså Actions och Suggestions
-- Reviews: en pull request från en chatt- eller åtgärdskörning öppnar sina ändringar i appen
-- Runs: en pil hoppar till det senaste meddelandet och uppgiftslistan visar sina framsteg
-- Nytt issue: ett tryck på × kastar ett utkast
+- Dialogrutor: varje bekräftelse och val använder samma kort, och Return väljer aldrig ett destruktivt svar
+- Nytt issue: × frågar innan ett utkast kastas, och när du lämnar ett utkast med innehåll frågar den Create, Keep as draft eller Discard
+- Runs: körningsmärket leder varje listrad, en aktiv verktygsrad visar bara sin rubrik, och en körning visar Working tills agenten verkligen är klar
+- Boards: boardväljaren visar inte längre pricken för andra team
+- Konto: koppla bort en inloggningsmetod så länge ett annat sätt in finns kvar
+- Enheter: beredskapsblocket säger vad en maskin fortfarande behöver, och Computer use kan slås på per enhet

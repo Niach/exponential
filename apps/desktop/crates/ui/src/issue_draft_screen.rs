@@ -55,7 +55,7 @@ use domain::issue_draft::{self as copy, exit_prompt, DraftExit, DraftPrompt};
 use domain::rows::IssueDraftRow;
 
 use crate::controls::WebControl as _;
-use crate::native_dialog::AlertSpec;
+use crate::native_dialog::{AlertEnter, AlertSpec};
 use crate::draft_editor::{DraftEditor, DraftEditorEvent, LeaveAction};
 use crate::drafts::DraftSave;
 use crate::icons::registry;
@@ -135,12 +135,14 @@ const DRAFT_ALERT_HEIGHT: f32 = 136.;
 /// EXP-1212: the leave question — Discard (set apart, leading) · Save
 /// draft (plain) · Create issue (the primary, Enter), no Cancel (Esc / the
 /// ✕ stay).
-/// ONE builder for the page and the styleguide's `draft-leave-dialog`
-/// specimen. Like every other IDE alert, the window carries a SHORT title
-/// (the page's own "New issue") and the body slot the one-line question.
-/// Create issue stays pressable (it cannot follow a title typed after the
-/// dialog opened); the page re-checks it at click time.
-pub(crate) fn leave_alert(
+/// Like every other IDE alert, the window carries a SHORT title (the page's
+/// own "New issue") and the body slot the one-line question. Without a
+/// title (`create_enabled` false, the page's own Create gate) Create issue
+/// is shown DISABLED and Save draft takes Enter, the ×4 contract; the title
+/// cannot change while the question is up, and the page re-checks it at
+/// click time anyway.
+pub(crate) fn leave_alert_for(
+    create_enabled: bool,
     on_create: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
@@ -149,18 +151,37 @@ pub(crate) fn leave_alert(
         .without_cancel()
         .height(px(DRAFT_ALERT_HEIGHT))
         .on_ok(on_create)
+        .ok_disabled(!create_enabled)
+        .enter(if create_enabled {
+            AlertEnter::Ok
+        } else {
+            AlertEnter::Secondary
+        })
         .secondary(copy::LEAVE_KEEP, on_keep)
         .destructive(copy::LEAVE_DISCARD, on_discard)
 }
 
+/// [`leave_alert_for`] with a title present: the styleguide's
+/// `draft-leave-dialog` specimen.
+pub(crate) fn leave_alert(
+    on_create: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    on_keep: impl Fn(&mut Window, &mut App) -> bool + 'static,
+    on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
+) -> AlertSpec {
+    leave_alert_for(true, on_create, on_keep, on_discard)
+}
+
 /// EXP-1212: the `×`'s confirm (Cancel keeps the draft): the window carries
 /// the close button's own label ("Discard draft"), the body the question.
+/// Enter answers Cancel, never the destructive Discard (web, iOS and Android
+/// focus Cancel too); Discard takes a click.
 pub(crate) fn discard_confirm_alert(
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> AlertSpec {
     AlertSpec::new(copy::DISCARD, copy::DISCARD_CONFIRM_TITLE, copy::DISCARD_CONFIRM)
         .height(px(DRAFT_ALERT_HEIGHT))
         .ok_variant(ButtonVariant::Danger)
+        .enter(AlertEnter::Cancel)
         .on_ok(on_discard)
 }
 
@@ -1145,7 +1166,10 @@ impl IssueDraftView {
             }
         };
         let held = self.held.clone();
-        let spec = leave_alert(
+        // No title = Create issue shown disabled, Save draft takes Enter.
+        let create_enabled = copy::leave_create_enabled(&self.title.read(cx).value());
+        let spec = leave_alert_for(
+            create_enabled,
             answer(LeaveChoice::Create),
             answer(LeaveChoice::Keep),
             answer(LeaveChoice::Discard),
@@ -1172,9 +1196,9 @@ impl IssueDraftView {
         }
         match choice {
             // The page's Create, same validation; the moves follow only a
-            // success. Create stays pressable in the dialog (it cannot follow
-            // a title typed after it opened); not creatable NOW = stay and
-            // focus the title, the page's own Create gate.
+            // success. The dialog already shows Create disabled without a
+            // title; not creatable NOW for any reason = stay and focus the
+            // title, the page's own Create gate.
             LeaveChoice::Create => {
                 if !self.can_create(cx) {
                     self.held.borrow_mut().clear();
@@ -1548,5 +1572,37 @@ impl Render for IssueDraftView {
                 .child(header),
         )
         .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-1212: the ×'s confirm never discards on Enter: Cancel (keep the
+    /// draft) is the default answer, as on web, iOS and Android.
+    #[test]
+    fn discard_confirm_gives_enter_to_cancel() {
+        let spec = discard_confirm_alert(|_, _| true);
+        assert_eq!(spec.enter_answer(), AlertEnter::Cancel);
+        assert!(!spec.is_ok_disabled());
+    }
+
+    /// EXP-1212: the leave question's default answer is Create issue; without
+    /// a title it is shown disabled and Save draft takes Enter.
+    #[test]
+    fn leave_question_disables_create_without_a_title_and_moves_enter_to_keep() {
+        let with_title = leave_alert_for(true, |_, _| true, |_, _| true, |_, _| true);
+        assert!(!with_title.is_ok_disabled());
+        assert_eq!(with_title.enter_answer(), AlertEnter::Ok);
+
+        let no_title = leave_alert_for(false, |_, _| true, |_, _| true, |_, _| true);
+        assert!(no_title.is_ok_disabled());
+        assert_eq!(no_title.enter_answer(), AlertEnter::Secondary);
+
+        // The styleguide specimen is the titled form.
+        let specimen = leave_alert(|_, _| true, |_, _| true, |_, _| true);
+        assert!(!specimen.is_ok_disabled());
+        assert_eq!(specimen.enter_answer(), AlertEnter::Ok);
     }
 }

@@ -137,32 +137,44 @@ struct TeamRepositoriesSection: View {
                 }
             }
         }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(item: $removeTarget) { repo in
-            GlassAlert(prompt: Prompts.RemoveRepository.copy(fullName: repo.fullName), handlers: [
-                "remove": {
-                    Task { await mutate { try await repositoriesApi.remove(accountId: accountId, repositoryId: repo.id) } }
-                },
-            ])
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each card on
+        // a zero-size node of its own (EXP-240): stacked on the picker's
+        // node SwiftUI drops them.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $removeTarget) { repo in
+                    GlassAlert(prompt: Prompts.RemoveRepository.copy(fullName: repo.fullName), handlers: [
+                        "remove": {
+                            Task { await mutate { try await repositoriesApi.remove(accountId: accountId, repositoryId: repo.id) } }
+                        },
+                    ])
+                }
         }
         // Confirm-first disconnect of the viewer's GitHub account (web
         // `GH_DISCONNECT_CONFIRM_TITLE`): repositories already added keep
         // working, their tokens mint off the App installation.
-        .glassAlert(isPresented: $disconnectConfirm) {
-            GlassAlert(
-                title: GithubCopy.disconnectTitle,
-                message: GithubCopy.disconnectBody,
-                actions: [
-                    GlassAlertAction(GithubCopy.cancel, role: .outline, id: "cancel") {},
-                    GlassAlertAction(GithubCopy.disconnect, role: .destructive, id: "disconnect") {
-                        Task {
-                            await mutate {
-                                try await integrationsApi.githubDisconnect(accountId: accountId)
-                            }
-                        }
-                    },
-                ]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $disconnectConfirm) {
+                    GlassAlert(
+                        title: GithubCopy.disconnectTitle,
+                        message: GithubCopy.disconnectBody,
+                        actions: [
+                            GlassAlertAction(GithubCopy.cancel, role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
+                            GlassAlertAction(GithubCopy.disconnect, role: .destructive, id: "disconnect") {
+                                Task {
+                                    await mutate {
+                                        try await integrationsApi.githubDisconnect(accountId: accountId)
+                                    }
+                                }
+                            },
+                        ]
+                    )
+                }
         }
     }
 

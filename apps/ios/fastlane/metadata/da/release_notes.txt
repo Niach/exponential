@@ -1,5 +1,6 @@
-- Start: appen åbner på Agent-siden, og chatknappen lyser, mens du er der
-- Faner: Inbox, My Issues og Drafts skifter med et swipe til siden, og det gør Actions og Suggestions også
-- Reviews: en pull request fra en chat- eller action-kørsel åbner sine ændringer i appen
-- Runs: en pil hopper til den nyeste besked, og opgavelisten viser sin fremdrift
-- Nyt issue: ét tryk på × kasserer en kladde
+- Dialoger: hver bekræftelse og hvert valg bruger det samme kort, og Return vælger aldrig et destruktivt svar
+- Nyt issue: × spørger, før en kladde kasseres, og når du forlader en kladde med indhold, spørger den Create, Keep as draft eller Discard
+- Runs: kørselsmærket står først i hver listerække, en aktiv værktøjsrække viser kun sin overskrift, og en kørsel viser Working, indtil agenten virkelig er færdig
+- Boards: boardvælgeren viser ikke længere prikken for andre teams
+- Konto: fjern en loginmetode, så længe der er en anden vej ind
+- Enheder: klarhedsblokken siger, hvad en maskine stadig mangler, og Computer use kan slås til for hver enhed

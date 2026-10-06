@@ -1,5 +1,6 @@
-- Start: de app opent op de Agent-pagina en de chatknop licht op zolang je daar bent
-- Tabbladen: Inbox, My Issues en Drafts wissel je door opzij te vegen, en dat geldt ook voor Actions en Suggestions
-- Reviews: een pull request uit een chat- of actierun opent zijn wijzigingen in de app
-- Runs: een pijl springt naar het nieuwste bericht en de takenlijst toont de voortgang
-- Nieuw issue: één tik op het × gooit een concept weg
+- Dialogen: elke bevestiging en keuze gebruikt dezelfde kaart, en Return kiest nooit een destructief antwoord
+- Nieuw issue: het × vraagt het eerst voordat een concept wordt weggegooid, en wie een concept met inhoud verlaat, krijgt Create, Keep as draft of Discard
+- Runs: het run-teken staat vooraan in elke lijstrij, een actieve toolrij toont alleen de kop, en een run toont Working tot de agent echt klaar is
+- Boards: de boardkiezer toont de stip voor andere teams niet meer
+- Account: ontkoppel een inlogmethode zolang er een andere manier om in te loggen overblijft
+- Apparaten: het gereedheidsblok zegt wat een machine nog nodig heeft, en Computer use zet je per apparaat aan

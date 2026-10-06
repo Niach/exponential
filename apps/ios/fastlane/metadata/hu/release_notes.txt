@@ -1,5 +1,6 @@
-- Indítás: az app az Agent oldalon nyílik meg, és a chat gomb világít, amíg ott vagy
-- Fülek: az Inbox, a My Issues és a Drafts oldalra húzással váltható, ahogy az Actions és a Suggestions is
-- Reviews: egy chat- vagy műveletfutás pull requestje az appban nyitja meg a változásait
-- Runs: egy nyíl a legújabb üzenetre ugrik, a feladatlista pedig mutatja a haladását
-- Új issue: egy koppintás az ×-re elveti a piszkozatot
+- Párbeszédek: minden megerősítés és választás ugyanazt a kártyát használja, és a Return soha nem választ romboló választ
+- Új issue: az × rákérdez, mielőtt elvet egy piszkozatot, a tartalommal bíró piszkozat elhagyásakor pedig Create, Keep as draft vagy Discard közül választhatsz
+- Runs: a futás jele vezeti a lista minden sorát, egy élő eszközsor csak a címét mutatja, és a futás addig mutat Working állapotot, amíg az ügynök valóban nem végzett
+- Boardok: a boardválasztó már nem mutatja a többi csapat pöttyét
+- Fiók: leválaszthatsz egy bejelentkezési módot, amíg marad más út befelé
+- Eszközök: a készenléti blokk megmondja, mi hiányzik még egy gépnek, a Computer use pedig eszközönként bekapcsolható

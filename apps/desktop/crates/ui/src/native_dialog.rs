@@ -1027,6 +1027,20 @@ const ALERT_WIDTH: f32 = 416.;
 type OnOkFn = Rc<dyn Fn(&mut Window, &mut App) -> bool>;
 type AlertContentFn = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
+/// EXP-1212: the footer answer Enter gives (see [`AlertSpec::enter`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AlertEnter {
+    /// The OK button, every alert before it. A disabled OK swallows Enter.
+    Ok,
+    /// Enter dismisses the window, the Cancel answer: for a destructive OK
+    /// that must be clicked (the draft discard confirm, where web, iOS and
+    /// Android focus Cancel).
+    Cancel,
+    /// The [`AlertSpec::secondary`] answer (none configured = `Cancel`): the
+    /// leave question hands Enter to Save draft while Create is disabled.
+    Secondary,
+}
+
 /// A native confirm window: title, description, optional extra content block
 /// (e.g. a typed-confirm input), Cancel + OK footer. The old
 /// `open_alert_dialog` + `DialogButtonProps` surface.
@@ -1065,6 +1079,10 @@ pub(crate) struct AlertSpec {
     /// EXP-980: the OK button is SHOWN but not pressable: the answer stays
     /// visible (with a caption saying why it is off) instead of vanishing.
     ok_disabled: bool,
+    /// EXP-1212: which answer Enter gives. `Ok` is every alert before it;
+    /// an alert whose default answer is NOT its primary (a destructive OK,
+    /// a disabled primary) moves Enter to Cancel or the secondary.
+    enter: AlertEnter,
     /// Return `true` to close the window (a `false` keeps it open — the
     /// typed-confirm mismatch case). Runs inside the dialog window.
     on_ok: OnOkFn,
@@ -1091,8 +1109,27 @@ impl AlertSpec {
             destructive: None,
             on_closed: None,
             ok_disabled: false,
+            enter: AlertEnter::Ok,
             on_ok: Rc::new(|_, _| true),
         }
+    }
+
+    /// EXP-1212: hand Enter to another footer answer (see [`AlertEnter`]).
+    pub(crate) fn enter(mut self, enter: AlertEnter) -> Self {
+        self.enter = enter;
+        self
+    }
+
+    /// The answer Enter gives (the draft alerts' tests).
+    #[cfg(test)]
+    pub(crate) fn enter_answer(&self) -> AlertEnter {
+        self.enter
+    }
+
+    /// Whether the OK button is shown disabled (the draft alerts' tests).
+    #[cfg(test)]
+    pub(crate) fn is_ok_disabled(&self) -> bool {
+        self.ok_disabled
     }
 
     /// Drop the Cancel button — an informational alert has nothing to cancel,
@@ -1193,7 +1230,7 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
         let on_enter = view.clone();
         DialogContent::new(view)
             .padless()
-            .on_enter(move |window, cx| AlertView::confirm(&on_enter, window, cx))
+            .on_enter(move |window, cx| AlertView::enter(&on_enter, window, cx))
     });
 }
 
@@ -1242,6 +1279,7 @@ struct AlertView {
 }
 
 impl AlertView {
+    /// The OK button's click (and Enter, for [`AlertEnter::Ok`]).
     fn confirm(view: &Entity<Self>, window: &mut Window, cx: &mut App) {
         if view.read(cx).spec.ok_disabled {
             return;
@@ -1249,6 +1287,23 @@ impl AlertView {
         let on_ok = view.read(cx).spec.on_ok.clone();
         if on_ok(window, cx) {
             close_dialog_window(window, cx);
+        }
+    }
+
+    /// EXP-1212: Enter, routed per [`AlertSpec::enter`].
+    fn enter(view: &Entity<Self>, window: &mut Window, cx: &mut App) {
+        match view.read(cx).spec.enter {
+            AlertEnter::Ok => Self::confirm(view, window, cx),
+            AlertEnter::Cancel => close_dialog_window(window, cx),
+            AlertEnter::Secondary => {
+                let Some((_, on_click)) = view.read(cx).spec.secondary.clone() else {
+                    close_dialog_window(window, cx);
+                    return;
+                };
+                if on_click(window, cx) {
+                    close_dialog_window(window, cx);
+                }
+            }
         }
     }
 }

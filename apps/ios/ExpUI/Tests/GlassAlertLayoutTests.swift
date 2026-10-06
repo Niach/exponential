@@ -82,6 +82,23 @@ final class GlassAlertLayoutTests: XCTestCase {
         XCTAssertEqual(actions.map(\.label), ["Cancel", "Delete"])
         XCTAssertEqual(actions.map(\.role), [.outline, .destructive])
         XCTAssertEqual(GlassAlertLayout.defaultActionId(actions), "cancel")
+        // The contract's `cancel` role is the card's Esc answer; the
+        // destructive one never is.
+        XCTAssertEqual(actions.map(\.isCancel), [true, false])
+    }
+
+    func testOnlyAMarkedActionIsTheCancelAnswer() {
+        // A hand-built card marks its Cancel itself; nothing is inferred
+        // from the label or the id.
+        XCTAssertEqual(deleteConfirm.map(\.isCancel), [false, false])
+        let marked = GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {}
+        XCTAssertTrue(marked.isCancel)
+        XCTAssertTrue(marked.isDefault)
+        // Marking never moves the row: ordering stays pure role order.
+        let confirm = [marked, deleteConfirm[1]]
+        XCTAssertEqual(ids(GlassAlertLayout.trailing(confirm)), ["cancel", "Delete"])
+        XCTAssertEqual(ids(GlassAlertLayout.stacked(confirm)), ["Delete", "cancel"])
+        XCTAssertEqual(GlassAlertLayout.defaultActionId(confirm), "cancel")
     }
 
     func testPromptPrimaryTakesFocus() {

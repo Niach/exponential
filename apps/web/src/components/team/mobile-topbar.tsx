@@ -24,10 +24,7 @@ import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
 import { ChangelogSheet } from "@/components/whats-new"
 import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
 import { RecentRunsList } from "@/components/team/recent-runs-nav"
-import { TeamLiveDot } from "@/components/team/sidebar-rail"
-import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
-import { otherTeamsLive } from "@/lib/sessions/team-live-runs"
 import {
   resolveBoardTarget,
   useMobileChromeVisible,
@@ -78,12 +75,6 @@ export function TeamMobileTopbar({
   // EXP-1186: Recent reads every member team on the phone.
   const scope = useCrossTeamScope(team)
   const feedbackAvailable = useFeedbackWidgetAvailable()
-  // EXP-1075: the phone's team picker is this button — it carries the same
-  // "a run of mine is live in another team" dot as the sidebar's.
-  const otherLive = otherTeamsLive(
-    useTeamLiveRuns(session?.user?.id),
-    team?.id
-  )
 
   // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
   // (composer over Running/Recent), not a detail, so it wears this bar like the
@@ -127,17 +118,9 @@ export function TeamMobileTopbar({
             <BoardGlyph board={boardTarget} className="size-3.5" />
           )}
           <span className="truncate">{switcherLabel}</span>
-          {/* EXP-1075: my live runs in the teams this screen is not showing. */}
-          <span className="relative flex shrink-0 items-center">
-            <NavTeamSwitcherIcon className="size-3.5 text-muted-foreground" />
-            <TeamLiveDot
-              live={otherLive.any ? otherLive : undefined}
-              placement="corner"
-              className="ring-background"
-              title="Runs in other teams"
-              data-testid="mobile-team-switcher-live-dot"
-            />
-          </span>
+          {/* EXP-1210: no live dot here; the per-team dots live in the
+              board switcher sheet. */}
+          <NavTeamSwitcherIcon className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       )}
 

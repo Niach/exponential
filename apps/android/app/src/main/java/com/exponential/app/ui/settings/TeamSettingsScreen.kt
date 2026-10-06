@@ -116,7 +116,10 @@ private fun SettingsConfirmDialog(
         is SettingsConfirm.DeleteBoard -> Prompts.TrashBoard.prompt(confirm.board.name)
         is SettingsConfirm.DeleteLabel -> Prompts.DeleteLabel.prompt(confirm.label.name)
         is SettingsConfirm.RemoveMember -> if (confirm.isSelf) {
-            Prompts.LeaveTeam.prompt(state.team?.name ?: "Team")
+            // The team row can lag the roster: web (`members-section.tsx`)
+            // asks about "this team" until the name is synced, never a
+            // literal "Team".
+            Prompts.LeaveTeam.prompt(state.team?.name ?: "this team")
         } else {
             Prompts.RemoveMember.prompt(userDisplayName(confirm.row.user, confirm.row.member.userId))
         }
@@ -377,9 +380,13 @@ private fun DangerZone(
         }
     }
 
-    if (confirmDelete) {
+    // The capsule above only renders with the team row, so the prompt names
+    // it; should the row vanish underneath (the delete landed), the prompt
+    // goes with it rather than asking about a literal "Team".
+    val team = state.team
+    if (confirmDelete && team != null) {
         PromptAlert(
-            prompt = Prompts.DeleteTeam.prompt(state.team?.name ?: "Team"),
+            prompt = Prompts.DeleteTeam.prompt(team.name),
             onDismiss = { confirmDelete = false },
             handlers = mapOf(
                 "delete" to {

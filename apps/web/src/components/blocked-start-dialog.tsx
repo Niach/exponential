@@ -108,7 +108,7 @@ export function BlockedStartDialog({
         )
       }
       actions={[
-        { label: `Cancel` },
+        { label: `Cancel`, role: `cancel` },
         { label: START_ANYWAY_LABEL, onSelect: onStartAnyway },
         {
           label: STACKED_PR_LABEL,

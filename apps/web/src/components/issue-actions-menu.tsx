@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link2 } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import { useNavigate } from "@tanstack/react-router"
@@ -13,9 +14,11 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   IconTooltip,
+  Prompt,
   toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { deleteIssuePrompt, promptActions } from "@/lib/prompts"
 import {
   RELATION_SIDES,
   pickLabel,
@@ -41,7 +44,7 @@ export function issueUrlFor(
 
 // EXP-760: ONE round `…` beside the title — Copy link · Add relation ▸ ·
 // Unmark duplicate (conditional) · Close PR (EXP-1154, an open PR) · Delete
-// issue ▸ Confirm delete. It replaces
+// issue (EXP-1215: confirmed in the shared `delete-issue` prompt). It replaces
 // the copy-link / unmark / trash trio: three permanent circles for actions
 // taken once a week, where the IDE (`work_header.rs`) and both natives already
 // collapse everything but the switcher into one menu. EXP-877: lifted out of
@@ -65,6 +68,11 @@ export function IssueActionsMenu({
   const issueUrl = issueUrlFor(teamSlug, board.slug, issue.identifier)
   // EXP-1154: Close PR without merging (EXP-248), once the review page's.
   const closePr = useClosePr(issue, { readOnly })
+
+  // EXP-1215: Delete confirms in the shared prompt (`delete-issue`), the same
+  // card the phone menu and the list row's context menu raise.
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const deleteCopy = deleteIssuePrompt(issue.identifier)
 
   // Delete is a hard delete (issues.delete cleans up attachments server-side);
   // once it commits, land back on the board.
@@ -159,31 +167,33 @@ export function IssueActionsMenu({
             </DropdownMenuItem>
           )}
 
-          {/* Delete confirms on a second step, matching the list row's
-              context menu. */}
+          {/* Delete confirms in the prompt, deferred past the menu's close +
+              focus restore so the card's focus trap does not fight Radix. */}
           {!readOnly && (
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger variant="destructive">
-                <UiDeleteIcon className="size-4" />
-                Delete issue
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[14rem]">
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => {
-                    void handleDeleteIssue()
-                  }}
-                >
-                  <UiDeleteIcon className="size-4" />
-                  Confirm delete
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+            <DropdownMenuItem
+              variant="destructive"
+              data-testid="issue-delete"
+              onSelect={() => setTimeout(() => setDeleteOpen(true), 0)}
+            >
+              <UiDeleteIcon className="size-4" />
+              Delete issue
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
       {addRelation.dialog}
       {closePr.dialog}
+      <Prompt
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        data-testid="issue-delete-confirm"
+        title={deleteCopy.title}
+        body={deleteCopy.body}
+        actions={promptActions(deleteCopy, {
+          // Async: the pill spins until the delete lands and the page leaves.
+          delete: { onSelect: handleDeleteIssue },
+        })}
+      />
     </>
   )
 }

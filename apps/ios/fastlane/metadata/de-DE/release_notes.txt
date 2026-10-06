@@ -1,5 +1,6 @@
-- Start: die App öffnet auf der Agent-Seite, und der Chat-Button leuchtet, solange du dort bist
-- Tabs: Inbox, My Issues und Drafts wechselst du per Wischen zur Seite, ebenso Actions und Suggestions
-- Reviews: ein Pull Request aus einem Chat- oder Action-Lauf öffnet seine Änderungen in der App
-- Runs: ein Pfeil springt zur neuesten Nachricht, und die Aufgabenliste zeigt ihren Fortschritt
-- Neues Issue: ein Tipp auf das × verwirft einen Entwurf
+- Dialoge: jede Bestätigung und jede Auswahl nutzt dieselbe Karte, und Return wählt nie eine destruktive Antwort
+- Neues Issue: das × fragt, bevor ein Entwurf verworfen wird, und wer einen Entwurf mit Inhalt verlässt, wird nach Create, Keep as draft oder Discard gefragt
+- Runs: das Lauf-Symbol führt jede Listenzeile an, eine laufende Tool-Zeile zeigt nur ihre Überschrift, und ein Lauf zeigt Working, bis der Agent wirklich fertig ist
+- Boards: die Board-Auswahl zeigt den Punkt für andere Teams nicht mehr
+- Konto: trenne eine Anmeldemethode, solange ein anderer Zugang bleibt
+- Geräte: der Bereitschaftsblock sagt, was einem Rechner noch fehlt, und Computer use lässt sich pro Gerät einschalten

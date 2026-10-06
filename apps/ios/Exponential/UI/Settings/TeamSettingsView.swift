@@ -140,20 +140,32 @@ struct TeamSettingsView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
-        // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
-        .glassAlert(isPresented: $showDeleteTeam) {
-            GlassAlert(
-                prompt: Prompts.DeleteTeam.copy(name: team?.name ?? "this team"),
-                enabled: ["delete": !deletingTeam],
-                handlers: ["delete": { Task { await deleteTeam() } }]
-            )
+        // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on a
+        // zero-size node of its own (EXP-240): two presentations stacked on
+        // one node and SwiftUI drops the second.
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showDeleteTeam) {
+                    GlassAlert(
+                        prompt: Prompts.DeleteTeam.copy(name: team?.name ?? "this team"),
+                        enabled: ["delete": !deletingTeam],
+                        handlers: ["delete": { Task { await deleteTeam() } }]
+                    )
+                }
         }
-        .glassAlert(item: $deleteBoardTarget) { board in
-            GlassAlert(
-                prompt: Prompts.TrashBoard.copy(name: board.name),
-                enabled: ["trash": !deletingBoard],
-                handlers: ["trash": { Task { await deleteBoard(board) } }]
-            )
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $deleteBoardTarget) { board in
+                    GlassAlert(
+                        prompt: Prompts.TrashBoard.copy(name: board.name),
+                        enabled: ["trash": !deletingBoard],
+                        handlers: ["trash": { Task { await deleteBoard(board) } }]
+                    )
+                }
         }
     }
 

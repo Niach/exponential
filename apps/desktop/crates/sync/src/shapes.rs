@@ -552,9 +552,9 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "device_id",
             "label",
             "kind",
+            "platform",
             // EXP-924: the owner-picked glyph (NULL = the kind default).
             "icon",
-            "platform",
             "version",
             "agents",
             "caps",
@@ -572,6 +572,13 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "agent_accounts",
             "agent_usage",
             "agent_usage_at",
+            // EXP-1196: the device-built readiness report (NULL = an older
+            // build). It was missing from this list (the proxy always served
+            // it), so `DeviceRow.doctor` hydrated None and the chat screen and
+            // device settings drew no readiness block for shared machines.
+            // `heal_missing_columns` ALTERs it onto existing store tables and
+            // stamps a refetch so old rows get real values, not NULLs.
+            "doctor",
             "active_sessions",
             "last_seen_at",
             // FEED-33: `uuid[]`, every team the machine is shared with
@@ -1041,6 +1048,46 @@ mod tests {
         // And the session row names the agent whose windows those are.
         let sessions = shape_by_name("coding_sessions").unwrap();
         assert!(sessions.columns.contains(&"agent"));
+    }
+
+    #[test]
+    fn devices_sync_the_doctor_report() {
+        // EXP-1196: the readiness block on the chat screen and in device
+        // settings reads `DeviceRow.doctor`; without the column every shared
+        // machine looks report-less on this client alone. The list byte-
+        // matches the proxy allowlist (apps/web routes/api/shapes/devices.ts).
+        let spec = shape_by_name("devices").unwrap();
+        assert!(spec.columns.contains(&"doctor"));
+        assert_eq!(
+            spec.columns,
+            &[
+                "id",
+                "user_id",
+                "device_id",
+                "label",
+                "kind",
+                "platform",
+                "icon",
+                "version",
+                "agents",
+                "caps",
+                "unauthed_agents",
+                "acp_agents",
+                "launch_defaults",
+                "launch_defaults_updated_at",
+                "agent_accounts",
+                "agent_usage",
+                "agent_usage_at",
+                "doctor",
+                "active_sessions",
+                "last_seen_at",
+                "shared_team_ids",
+                "is_default",
+                "update_requested_at",
+                "created_at",
+                "updated_at",
+            ]
+        );
     }
 
     #[test]

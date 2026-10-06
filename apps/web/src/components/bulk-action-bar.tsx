@@ -14,11 +14,12 @@ import {
   Pill,
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
+  Prompt,
   Separator,
   UserAvatar,
 } from "@exp/ui"
+import { deleteIssuesPrompt, promptActions } from "@/lib/prompts"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
@@ -103,6 +104,9 @@ export function BulkActionBar({
   wrap = false,
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
+  // EXP-1215: Delete confirms in the shared `delete-issues` prompt.
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const deleteCopy = deleteIssuesPrompt(issues.length)
   // The phone already runs every action as a bare 32px glyph cell; icon-only
   // is that same cell at every width.
   const actionButtonClass = `shrink-0 text-muted-foreground ${
@@ -526,38 +530,35 @@ export function BulkActionBar({
           <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
         )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`shrink-0 text-destructive hover:text-destructive ${
-                iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
-              }`}
-              disabled={busy}
-              aria-label="Delete selected"
-            >
-              <Trash2 className="size-4" />
-              {!iconOnly && <span className="hidden md:inline">Delete</span>}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="end"
-            collisionPadding={12}
-            className="w-[14rem]"
-          >
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => void deleteSelected()}
-            >
-              <Trash2 className="size-4" />
-              {issues.length === 1
-                ? `Confirm delete 1 issue`
-                : `Confirm delete ${issues.length} issues`}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={`shrink-0 text-destructive hover:text-destructive ${
+            iconOnly ? `w-8 px-0!` : `max-md:w-8 max-md:px-0!`
+          }`}
+          disabled={busy}
+          aria-label="Delete selected"
+          data-testid="bulk-delete"
+          onClick={() => setDeleteOpen(true)}
+        >
+          <Trash2 className="size-4" />
+          {!iconOnly && <span className="hidden md:inline">Delete</span>}
+        </Button>
+        <Prompt
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          data-testid="bulk-delete-confirm"
+          title={deleteCopy.title}
+          body={deleteCopy.body}
+          actions={promptActions(deleteCopy, {
+            delete: {
+              onSelect: async () => {
+                await deleteSelected()
+                setDeleteOpen(false)
+              },
+            },
+          })}
+        />
       </div>
     </div>
   )

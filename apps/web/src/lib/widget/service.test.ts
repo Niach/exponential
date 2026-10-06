@@ -414,9 +414,9 @@ describe(`createWidgetSubmission notifications + solo auto-assign`, () => {
   })
 })
 
-// SLOP-4: ONE submit path. The reporter's words arrive as `message` (or
-// as the legacy `title` + `description` of cached pre-SLOP-4 bundles) and
-// are escaped ONCE into literal GFM; a reporter who left an email gets the
+// SLOP-4: ONE submit path. The reporter's words arrive as `message` (a host
+// may add a `title` via the loader's submit API) and are escaped ONCE into
+// literal GFM; a reporter who left an email gets the
 // confirmation carrying the magic conversation link, and the response says
 // whether it went out.
 describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
@@ -566,10 +566,10 @@ describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
     expect(h.inserts.some((i) => i.table === issues)).toBe(true)
   })
 
-  it(`a legacy title + description submit still files (title escaped, description from the text)`, async () => {
+  it(`a host-passed title files escaped, the message as the description`, async () => {
     const form = new FormData()
     form.set(`title`, `Button *broken*`)
-    form.set(`description`, `Clicking does nothing.`)
+    form.set(`message`, `Clicking does nothing.`)
 
     await createWidgetSubmission({ config, formData: form, userAgent: null })
 
@@ -577,11 +577,11 @@ describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
     expect(issueInsert()?.values.description).toBe(`Clicking does nothing.`)
   })
 
-  it(`caps a legacy title AFTER escaping so it fits issues.title`, async () => {
+  it(`caps a host-passed title AFTER escaping so it fits issues.title`, async () => {
     const form = new FormData()
     // 500 chars that escape to 1000.
     form.set(`title`, `*`.repeat(500))
-    form.set(`description`, `Clicking does nothing.`)
+    form.set(`message`, `Clicking does nothing.`)
 
     await createWidgetSubmission({ config, formData: form, userAgent: null })
 
@@ -592,15 +592,14 @@ describe(`createWidgetSubmission reporter text + confirmation (SLOP-4)`, () => {
     expect(title).toMatch(/^(\\\*)+…$/)
   })
 
-  it(`message wins over a legacy description when both arrive`, async () => {
+  it(`ignores the retired description field (pre-SLOP-4 bundles expired)`, async () => {
     const form = new FormData()
-    form.set(`message`, `the message`)
     form.set(`description`, `the description`)
+    form.set(`screenshot`, new Blob([`x`], { type: `image/png` }), `s.png`)
 
-    await createWidgetSubmission({ config, formData: form, userAgent: null })
-
-    expect(issueInsert()?.values.title).toBe(`the message`)
-    expect(issueInsert()?.values.description).toBe(`the message`)
+    await expect(
+      createWidgetSubmission({ config, formData: form, userAgent: null })
+    ).rejects.toMatchObject({ status: 400 })
   })
 
   it(`uses the title fallback for a text-less report with only a screenshot`, async () => {

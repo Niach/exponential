@@ -115,11 +115,13 @@ Around 80 tools, all named `exponential_<family>_<verb>`:
   targets an ONLINE device (`devices_list` first) — offline devices are
   refused, never queued. A run may delegate independent work to a second
   run with `sessions_start`; the child reports back into the starter's
-  session. Inside a launcher-started run two more tools register:
-  `sessions_end` (ends the run: unattended runs last, attended ones when asked)
-  and `sessions_ask_parent` (ask the run that started this one). Every
-  launched run also gets a short playbook of these conventions appended to
-  its system prompt.
+  session. Inside a launcher-started run four more tools register:
+  `sessions_end` (ends the run: unattended runs last, attended ones when
+  asked), `sessions_ask_parent` (ask the run that started this one, or the
+  person who owns it), `sessions_results` (the run's report by topic, with
+  screenshots; it becomes the PR body) and `sessions_show` (a picture in the
+  run's transcript while it works). Every launched run also gets a short
+  playbook of these conventions appended to its system prompt.
 - **devices**: `devices_list` shows the user's machines, their online state
   and the agent CLIs each one can run.
 - **report_bug**: file a bug about Exponential itself with its developers.

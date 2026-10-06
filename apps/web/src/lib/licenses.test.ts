@@ -595,6 +595,11 @@ describe(`notice sections`, () => {
     expect(vendored).toContain(`gpui-markdown-editor`)
     expect(vendored).toContain(`Velotype`)
     expect(vendored).toContain(read(`apps/desktop/crates/ui/NOTICE`).trim())
+    // EXP-1196: the cua driver crates ship no licence file in their crate
+    // directories, so the collector's MIT template carries no copyright
+    // line; the curated entry reproduces the repository-root LICENSE.md.
+    expect(vendored).toContain(`cua-driver-sdk`)
+    expect(vendored).toContain(`Copyright (c) 2025 Cua AI, Inc.`)
   })
 
   it(`the desktop records what was patched out`, () => {

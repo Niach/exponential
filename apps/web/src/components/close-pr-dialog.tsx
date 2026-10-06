@@ -77,7 +77,7 @@ export function useClosePr(
       title={closePrCopy.title}
       body={closePrBody(others)}
       actions={[
-        { label: `Cancel` },
+        { label: `Cancel`, role: `cancel` },
         { label: closePrCopy.confirm, role: `destructive`, onSelect: confirm },
       ]}
     />

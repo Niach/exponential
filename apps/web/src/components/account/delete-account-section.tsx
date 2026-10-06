@@ -78,23 +78,16 @@ export function DeleteAccountSection() {
         }}
         busy={deleting}
         className="sm:max-w-lg"
-        // The consequences list below stands IN PLACE of the contract body
-        // (the entry's web `slot`): it adds the subscription facts.
         title={deleteCopy.title}
-        actions={promptActions(deleteCopy, {
-          delete: {
-            busy: deleting,
-            disabled: confirmation !== email,
-            onSelect: () => handleDelete(),
-          },
-        })}
-      >
-        {/* Accurate per-team consequences (REV2-55/REV2-36): a solo team is
-            destroyed WITH its paid plan, while a shared team — and the
-            subscription funding it — survives, because a subscription
-            belongs to the team and not to whoever paid for it. */}
-        <div className="space-y-4">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+        // The consequences list stands IN PLACE of the contract body (the
+        // entry's web `slot`): it adds the subscription facts. Rendered AS
+        // the body so the card announces it.
+        // Accurate per-team consequences (REV2-55/REV2-36): a solo team is
+        // destroyed WITH its paid plan, while a shared team (and the
+        // subscription funding it) survives, because a subscription belongs
+        // to the team and not to whoever paid for it.
+        body={
+          <ul className="list-disc space-y-1 pl-5">
             <li>
               Teams where you are the only member are deleted with all their
               boards, issues and files. If one of them has a paid plan, that
@@ -113,21 +106,29 @@ export function DeleteAccountSection() {
               anonymized.
             </li>
           </ul>
-          <div className="space-y-2">
-            <Label htmlFor="delete-account-confirm">
-              <span>
-                Type <span className="font-semibold">{email}</span> to confirm
-              </span>
-            </Label>
-            <Input
-              id="delete-account-confirm"
-              data-prompt-autofocus
-              value={confirmation}
-              onChange={(e) => setConfirmation(e.target.value)}
-              placeholder={email}
-            />
-            {error && <p className="text-sm text-destructive">{error}</p>}
-          </div>
+        }
+        actions={promptActions(deleteCopy, {
+          delete: {
+            busy: deleting,
+            disabled: confirmation !== email,
+            onSelect: () => handleDelete(),
+          },
+        })}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="delete-account-confirm">
+            <span>
+              Type <span className="font-semibold">{email}</span> to confirm
+            </span>
+          </Label>
+          <Input
+            id="delete-account-confirm"
+            data-prompt-autofocus
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            placeholder={email}
+          />
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       </Prompt>
     </>

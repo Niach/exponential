@@ -153,29 +153,26 @@ describe(`notifications allowAgentMessages (EXP-801)`, () => {
   })
 })
 
-// Compat shim (release train 2026-10-04): desktop <= 0.14.60 still sends the
-// retired support_reply key; it must not reject the whole save.
-describe(`notifications typePrefs (legacy support_reply)`, () => {
-  it(`maps support_reply to reporter_reply and drops unknown keys`, async () => {
+// The type map is a strict partial record of known notification types: a
+// retired or unknown key rejects the save (the legacy support_reply shim
+// retired with the 0.14.61 desktop/CLI floor).
+describe(`notifications typePrefs`, () => {
+  it(`stores a partial record of known types`, async () => {
     await caller().updateEmailPrefs({
-      typePrefs: {
-        issue_comment: false,
-        support_reply: false,
-        not_a_type: true,
-      } as never,
+      typePrefs: { issue_comment: false, reporter_reply: false },
     })
     expect(updateEmailPrefs).toHaveBeenCalledWith(`user-a`, {
       typePrefs: { issue_comment: false, reporter_reply: false },
     })
   })
 
-  it(`lets an explicit reporter_reply win over support_reply`, async () => {
-    await caller().updateEmailPrefs({
-      typePrefs: { support_reply: false, reporter_reply: true } as never,
-    })
-    expect(updateEmailPrefs).toHaveBeenCalledWith(`user-a`, {
-      typePrefs: { reporter_reply: true },
-    })
+  it(`rejects an unknown or retired key`, async () => {
+    for (const typePrefs of [{ not_a_type: true }, { support_reply: false }]) {
+      await expect(
+        caller().updateEmailPrefs({ typePrefs: typePrefs as never })
+      ).rejects.toThrow()
+    }
+    expect(updateEmailPrefs).not.toHaveBeenCalled()
   })
 
   it(`still rejects a non-boolean value`, async () => {

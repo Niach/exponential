@@ -104,8 +104,10 @@ fun GlassPill(
     trailing: (@Composable () -> Unit)? = null,
     opaque: Boolean = false,
     enabled: Boolean = true,
-    /** A call in flight: the glyph slot becomes a spinner, so the pill keeps
-     *  its width and the caller only has to dim it via [enabled]. */
+    /** A call in flight: the glyph slot becomes a spinner (a pill that had
+     *  an [icon] or [leading] keeps its width; one without grows by the
+     *  glyph, as web's does) and the caller only has to dim it via
+     *  [enabled]. */
     loading: Boolean = false,
     /** Monospace for an identifier or a `owner/repo` name (web `font-mono`,
      *  iOS `.monospaced()`). Null keeps the rung's own family. */

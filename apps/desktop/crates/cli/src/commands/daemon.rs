@@ -390,8 +390,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // nothing runs any more; a live sibling's (the desktop app on this
     // machine) are the keep set. Nothing is live in THIS process yet.
     sweep_scratch_dirs(&ctx);
-    // SLOP-3: the retired workflow engine's state documents.
-    coding::settings::remove_legacy_workflow_state(&ctx.data_dir);
     // EXP-773/EXP-886: apply the device's "Keep session history" window
     // (settings.json `sessionRetentionDays`, shared with the desktop app) to
     // stored transcripts and resume records. Unlimited, the default, keeps

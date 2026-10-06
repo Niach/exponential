@@ -325,10 +325,9 @@ export function normalizedWidgetFormToggles(
   }
 }
 
-// SLOP-4: ONE submit shape. `message` is what the panel sends; `title` +
-// `description` are what pre-SLOP-4 cached bundles send — both land as the
-// same escaped reporter text (title derived from the first line when no
-// title came along).
+// SLOP-4: ONE submit shape. `message` is the reporter's text; a host may
+// pass a `title` (the loader's submit API), else it derives from the first
+// line. Both land as escaped reporter text.
 // issues.title is varchar(500), and escaping can double a title's length,
 // so the cap lands AFTER the escape (like titleFromReporterMessage). A cut
 // never leaves a dangling backslash in front of the ellipsis.
@@ -346,7 +345,6 @@ function legacyReporterTitle(raw: string): string {
 const submitFieldsSchema = z.object({
   message: z.string().max(MAX_REPORTER_MESSAGE_CHARS).default(``),
   title: z.string().trim().max(500).default(``),
-  description: z.string().max(MAX_REPORTER_MESSAGE_CHARS).default(``),
   email: z
     .string()
     .trim()
@@ -457,7 +455,6 @@ export async function createWidgetSubmission(args: {
   const fields = submitFieldsSchema.safeParse({
     message: formData.get(`message`) ?? ``,
     title: formData.get(`title`) ?? ``,
-    description: formData.get(`description`) ?? ``,
     email: formData.get(`email`) ?? undefined,
     name: formData.get(`name`) ?? undefined,
     userId: formData.get(`userId`) ?? undefined,
@@ -476,10 +473,9 @@ export async function createWidgetSubmission(args: {
   }
 
   // The reporter's words — UNTRUSTED plain text, escaped ONCE into GFM that
-  // renders literally on every client (lib/reporter-text.ts). `message` wins
-  // over the legacy `description`; a report needs SOME text (a title or a
-  // message) to file as an issue.
-  const reporterText = (fields.data.message || fields.data.description).trim()
+  // renders literally on every client (lib/reporter-text.ts). A report needs
+  // SOME text (a title or a message) to file as an issue.
+  const reporterText = fields.data.message.trim()
   if (!fields.data.title && !reporterText) {
     throw new WidgetRequestError(400, `Invalid submission fields`)
   }

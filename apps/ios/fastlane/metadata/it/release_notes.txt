@@ -1,5 +1,6 @@
-- Avvio: l'app si apre sulla pagina Agent e il pulsante della chat si illumina mentre sei lì
-- Schede: Inbox, My Issues e Drafts si cambiano scorrendo di lato, e lo stesso vale per Actions e Suggestions
-- Reviews: una pull request da un'esecuzione di chat o di azione apre le sue modifiche nell'app
-- Runs: una freccia salta al messaggio più recente e l'elenco delle attività mostra i suoi progressi
-- Nuova issue: un tocco sulla × scarta una bozza
+- Dialoghi: ogni conferma e ogni scelta usa la stessa scheda, e Return non sceglie mai una risposta distruttiva
+- Nuova issue: la × chiede prima di scartare una bozza, e uscire da una bozza con contenuto chiede Create, Keep as draft o Discard
+- Runs: il segno dell'esecuzione apre ogni riga dell'elenco, una riga di strumento in corso mostra solo il titolo e un'esecuzione mostra Working finché l'agente non ha davvero finito
+- Board: il selettore delle board non mostra più il punto degli altri team
+- Account: scollega un metodo di accesso finché resta un altro modo per entrare
+- Dispositivi: il blocco di preparazione dice cosa manca ancora a una macchina, e Computer use si attiva per dispositivo

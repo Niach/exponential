@@ -14,6 +14,19 @@ function names() {
     .map((button) => button.textContent ?? ``)
 }
 
+// Radix attaches its document pointerdown listener on a 0ms timer.
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+/** A node outside the card, i.e. the scrim's side of a pointer-down. */
+function outsideNode() {
+  const node = document.createElement(`div`)
+  document.body.appendChild(node)
+  return node
+}
+
+const button = (label: string) =>
+  screen.getByText(label).closest(`button`) as HTMLButtonElement
+
 describe(`Prompt`, () => {
   it(`is an alert dialog with the title, the body and the actions in order`, () => {
     render(
@@ -291,6 +304,117 @@ describe(`Prompt`, () => {
     expect(screen.getByText(`Cancel`).className).not.toContain(`bg-primary`)
     fireEvent.click(screen.getByText(`Cancel`))
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it(`a pointer-down on the scrim takes the cancel path`, async () => {
+    const onOpenChange = vi.fn()
+    const onDismiss = vi.fn()
+    render(
+      <Prompt
+        open
+        onOpenChange={onOpenChange}
+        onDismiss={onDismiss}
+        title="Remove device?"
+        actions={[
+          { label: `Cancel`, role: `cancel` },
+          { label: `Remove`, role: `destructive`, onSelect: () => {} },
+        ]}
+      />
+    )
+    await tick()
+    fireEvent.pointerDown(outsideNode())
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it(`the prompt-level busy locks the row, Esc and the scrim`, async () => {
+    const onOpenChange = vi.fn()
+    const onDismiss = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <Prompt
+        open
+        busy
+        onOpenChange={onOpenChange}
+        onDismiss={onDismiss}
+        title="Delete team?"
+        actions={[
+          { label: `Cancel`, role: `cancel` },
+          { label: `Delete`, role: `destructive`, onSelect },
+        ]}
+      />
+    )
+    await tick()
+    expect(button(`Cancel`).disabled).toBe(true)
+    expect(button(`Delete`).disabled).toBe(true)
+    fireEvent.click(button(`Delete`))
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByRole(`alertdialog`), { key: `Escape` })
+    fireEvent.pointerDown(outsideNode())
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole(`alertdialog`)).toBeTruthy()
+  })
+
+  it(`Tab stays trapped inside the card`, () => {
+    render(
+      <Prompt
+        open
+        onOpenChange={() => {}}
+        title="Stop this run?"
+        actions={[
+          { label: `Cancel`, role: `cancel` },
+          { label: `Stop`, role: `destructive`, onSelect: () => {} },
+        ]}
+      />
+    )
+    const dialog = screen.getByRole(`alertdialog`)
+    expect(document.activeElement).toBe(button(`Cancel`))
+    // The trap acts at the edges (between them the browser moves focus,
+    // which jsdom does not): Tab on the last answer wraps to the first,
+    // Shift+Tab on the first wraps to the last. Focus never leaves the card.
+    button(`Stop`).focus()
+    fireEvent.keyDown(dialog, { key: `Tab` })
+    expect(document.activeElement).toBe(button(`Cancel`))
+    fireEvent.keyDown(dialog, { key: `Tab`, shiftKey: true })
+    expect(document.activeElement).toBe(button(`Stop`))
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+
+  it(`re-enables the row after an async answer rejects`, async () => {
+    let reject: (error: Error) => void = () => {}
+    const onOpenChange = vi.fn()
+    render(
+      <Prompt
+        open
+        onOpenChange={onOpenChange}
+        title="Merge PR #9?"
+        actions={[
+          { label: `Cancel`, role: `cancel` },
+          {
+            label: `Merge`,
+            role: `primary`,
+            onSelect: () =>
+              new Promise<void>((_, r) => {
+                reject = r
+              }),
+          },
+        ]}
+      />
+    )
+    fireEvent.click(button(`Merge`))
+    expect(button(`Merge`).disabled).toBe(true)
+    expect(button(`Cancel`).disabled).toBe(true)
+    expect(button(`Merge`).querySelector(`[data-prompt-spinner]`)).not.toBeNull()
+    await act(async () => {
+      reject(new Error(`refused`))
+    })
+    // The refusal is the site's to report; the card stays open and live.
+    expect(button(`Merge`).disabled).toBe(false)
+    expect(button(`Cancel`).disabled).toBe(false)
+    expect(button(`Merge`).querySelector(`[data-prompt-spinner]`)).toBeNull()
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(screen.getByRole(`alertdialog`)).toBeTruthy()
   })
 
   it(`a content-slot field marked data-prompt-autofocus takes focus first`, () => {

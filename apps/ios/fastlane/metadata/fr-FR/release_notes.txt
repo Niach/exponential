@@ -1,5 +1,6 @@
-- Démarrage : l'app s'ouvre sur la page Agent, et le bouton de chat s'allume tant que vous y êtes
-- Onglets : Inbox, My Issues et Drafts se changent d'un balayage latéral, tout comme Actions et Suggestions
-- Reviews : une pull request issue d'une exécution de chat ou d'action ouvre ses modifications dans l'app
-- Runs : une flèche saute au message le plus récent et la liste des tâches affiche sa progression
-- Nouvelle issue : un seul toucher sur le × supprime un brouillon
+- Dialogues : chaque confirmation et chaque choix utilise la même carte, et Return ne choisit jamais une réponse destructive
+- Nouvelle issue : le × demande avant de supprimer un brouillon, et quitter un brouillon avec du contenu propose Create, Keep as draft ou Discard
+- Runs : la marque de l'exécution ouvre chaque ligne de liste, une ligne d'outil en cours n'affiche que son titre, et une exécution affiche Working jusqu'à ce que l'agent ait vraiment fini
+- Boards : le sélecteur de board n'affiche plus le point des autres équipes
+- Compte : dissociez une méthode de connexion tant qu'un autre accès reste disponible
+- Appareils : le bloc de préparation indique ce qui manque encore à une machine, et Computer use s'active par appareil
