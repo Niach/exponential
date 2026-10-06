@@ -197,7 +197,7 @@ pub fn users_set_timezone(
 /// The server's refusal when a removal would leave no way in — byte-equal to
 /// `LAST_SIGN_IN_METHOD_MESSAGE` (apps/web/src/lib/auth/sign-in-methods.ts).
 pub const LAST_SIGN_IN_METHOD_MESSAGE: &str =
-    "This is your only way to sign in. Add another method before removing it.";
+    "This is your only way to sign in. Add another method first, or delete your account.";
 
 /// `users.signInMethods` output.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -711,7 +711,7 @@ mod tests {
     fn unlink_refusal_carries_the_server_message() {
         let (base, _captured) = one_shot_server(
             412,
-            r#"{"error":{"message":"This is your only way to sign in. Add another method before removing it.","code":-32600,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
+            r#"{"error":{"message":"This is your only way to sign in. Add another method first, or delete your account.","code":-32600,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
         let err = unlink_sign_in_method(&client(&base), "google").unwrap_err();
         assert_eq!(err.user_message(), LAST_SIGN_IN_METHOD_MESSAGE);

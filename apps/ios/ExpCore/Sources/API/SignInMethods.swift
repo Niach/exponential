@@ -129,7 +129,7 @@ public struct SignInMethods: Decodable, Sendable, Equatable {
 
     /// The ONE refusal copy the server sends for the last way in.
     public static let lastWayInMessage =
-        "This is your only way to sign in. Add another method before removing it."
+        "This is your only way to sign in. Add another method first, or delete your account."
 }
 
 /// `users.mintSignInLinkTicket`: the single-use ticket the link-mode browser
