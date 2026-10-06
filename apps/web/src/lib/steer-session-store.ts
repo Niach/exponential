@@ -235,8 +235,8 @@ export type ActivityEvent =
       id: string
       agentType: string
       /** EXP-850 §3/§4: the workflow card this agent belongs to (the spawning
-       *  `Workflow` call's id). Its edges nest under that card and never open
-       *  a steerable tab. Absent on an ordinary subagent. */
+       *  `Workflow` call's id). Its edges nest under that card; EXP-1225: its
+       *  rows are its own tab's. Absent on an ordinary subagent. */
       workflowId?: string
       /** EXP-847: the spawning Agent tool call's `description` (else its
        *  `name`) — what the chips and the top bar say; `agentType` stays the

@@ -2363,8 +2363,8 @@ pub struct SubagentSummary {
     /// while the first was still running. Rendered as an amber warning row
     /// that SURVIVES the card collapsing.
     pub duplicate: bool,
-    /// EXP-850 §4: the workflow this agent belongs to. Such an agent is never
-    /// a steerable tab — it nests under the workflow card instead.
+    /// EXP-850 §4: the workflow this agent belongs to — its edges nest under
+    /// the workflow card. EXP-1225: it is a tab like any other subagent.
     pub workflow_id: Option<String>,
 }
 
@@ -2431,15 +2431,14 @@ pub fn subagent_tool_summary(items: &[&FeedItem]) -> Option<String> {
 /// focused one even once it is done — a completion never yanks the reader out
 /// of a conversation they are reading; the tab goes when they click away.
 /// Completed runs stay readable through their inline group row in Main.
+/// EXP-1225: a workflow's agents are tabs by the same rule — their lanes are
+/// the engine's synthesized rows; the workflow card only summarises them.
 pub fn visible_subagent_tabs(
     agents: &[SubagentSummary],
     selected: Option<&str>,
 ) -> Vec<SubagentSummary> {
     agents
         .iter()
-        // EXP-850 §4: a workflow's agents are never tabs — they render inside
-        // the workflow card and are not steerable.
-        .filter(|agent| agent.workflow_id.is_none())
         .filter(|agent| !agent.done || Some(agent.subagent_id.as_str()) == selected)
         .cloned()
         .collect()
@@ -4854,8 +4853,8 @@ mod exp850_tests {
     }
 
     /// EXP-856: the duplicate edge is a MARKER row that survives the card
-    /// collapsing, it never becomes the row's caption, and a workflow agent is
-    /// never offered as a steerable tab.
+    /// collapsing and it never becomes the row's caption; EXP-1225: the
+    /// workflow agent is a tab by the ordinary running/selected rule.
     #[test]
     fn a_duplicate_edge_is_a_marker_under_its_card() {
         let mut feed = SteerFeed::new();
@@ -4884,9 +4883,10 @@ mod exp850_tests {
         assert_eq!(agents[0].title.as_deref(), Some("slowpoke"));
         // The lifecycle detail wins over the warning's sentence.
         assert_eq!(agents[0].detail.as_deref(), Some("ok"));
-        // §4: a workflow's agents are never tabs.
+        // EXP-1225: a workflow's agent is a tab like any subagent — done, it
+        // leaves the strip unless it is the one being read.
         assert!(visible_subagent_tabs(&agents, None).is_empty());
-        assert!(visible_subagent_tabs(&agents, Some("a55b7012793deae02")).is_empty());
+        assert_eq!(visible_subagent_tabs(&agents, Some("a55b7012793deae02")).len(), 1);
     }
 }
 

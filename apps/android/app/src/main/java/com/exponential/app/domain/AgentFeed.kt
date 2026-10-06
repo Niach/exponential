@@ -237,7 +237,7 @@ sealed interface AgentFeedItem {
         val toolCalls: Int? = null,
         val title: String? = null,
         /** EXP-850 (S4): this agent belongs to that workflow card — its edges
-         *  nest under the card and it is never offered as a steerable tab. */
+         *  nest under the card; EXP-1225: it is a tab like any subagent. */
         val workflowId: String? = null,
         override val seq: Long? = null,
     ) : AgentFeedItem
@@ -943,8 +943,8 @@ sealed interface AgentFeedRow {
          *  marker that carried one. Null = no publisher said. */
         val title: String? = null,
         /** EXP-850 (S4): the workflow this agent belongs to. Such a run is
-         *  never a steerable tab and never a loose transcript row — it renders
-         *  inside its workflow card. */
+         *  never a loose transcript row — its card summarises it; EXP-1225:
+         *  its rows are its own tab's. */
         val workflowId: String? = null,
     ) : AgentFeedRow
 }
@@ -1347,14 +1347,6 @@ private fun nestWorkflowRows(
     }
 }
 
-/** EXP-850 (S3/S4): the workflow's own rows, for the card to render — its
- *  agents' runs (in feed order) and the duplicate warnings it collected. */
-fun workflowAgentRuns(
-    feed: List<AgentFeedItem>,
-    workflowId: String,
-): List<AgentFeedRow.SubagentRun> =
-    collectSubagents(feed).filter { it.workflowId == workflowId }
-
 /** EXP-856: the duplicate warnings belonging to [workflowId] — rendered under
  *  its card, and kept there even when the card is collapsed. */
 fun workflowDuplicates(
@@ -1396,9 +1388,9 @@ fun visibleSubagentTabs(
     agents: List<AgentFeedRow.SubagentRun>,
     selected: String?,
 ): List<AgentFeedRow.SubagentRun> =
-    // EXP-850 (S3): a workflow's agents are never tabs and never steerable —
-    // they are read inside the workflow card that owns them.
-    agents.filter { it.workflowId == null && (!it.completed || it.subagentId == selected) }
+    // EXP-1225: a workflow's agents are tabs by the same rule — their lanes are
+    // the engine's synthesized rows; the workflow card only summarises them.
+    agents.filter { !it.completed || it.subagentId == selected }
 
 /** The step a stepper card should show: the first one still waiting on this
  *  client, or null once every step is answered — the card then renders the

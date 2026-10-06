@@ -122,11 +122,6 @@ const WORKING_TICK: Duration = Duration::from_secs(1);
 /// ease-in-out, ×4.
 pub(crate) const WORKING_PULSE: Duration = Duration::from_millis(1400);
 
-/// EXP-850 §3: the fold key of one workflow agent's nested events.
-fn agent_fold_key(workflow_id: &str, index: u32) -> String {
-    format!("{workflow_id}#{index}")
-}
-
 /// EXP-850 §3: an orphan card row's content identity — its ROW id is an
 /// index (the cards are keyed positionally at the tail), so the workflow it
 /// actually shows rides the fingerprint instead.
@@ -482,9 +477,6 @@ pub(crate) struct SteerSessionView {
     /// EXP-916: the edited-files cards whose `{n} more` half is unfolded,
     /// keyed by the card (its first member's id).
     expanded_cards: HashSet<FeedItemId>,
-    /// EXP-850 §3: the workflow agents whose nested events are unfolded,
-    /// keyed `{workflow id}#{agent index}`.
-    expanded_agents: HashSet<String>,
     /// EXP-856: the duplicate edges this view has already raised an OS
     /// notification for — one per agent id, however often the edge repeats.
     duplicates_notified: HashSet<String>,
@@ -735,7 +727,6 @@ impl SteerSessionView {
             task_list_scroll: ScrollHandle::new(),
             duplicates: Vec::new(),
             expanded_cards: HashSet::new(),
-            expanded_agents: HashSet::new(),
             duplicates_notified: HashSet::new(),
             expanded_extras: HashSet::new(),
             pruned_before: 0,
@@ -2917,9 +2908,6 @@ impl SteerSessionView {
                 self.workflow_duplicates(&workflow.id).len().hash(&mut hasher);
                 for agent in &workflow.agents {
                     agent.state.as_str().hash(&mut hasher);
-                    self.expanded_agents
-                        .contains(&agent_fold_key(&workflow.id, agent.index))
-                        .hash(&mut hasher);
                 }
             }
         }
@@ -4240,7 +4228,7 @@ impl SteerSessionView {
                 .cloned();
             return match orphan {
                 Some(workflow) => {
-                    let card = self.render_workflow_card(&workflow, window, cx);
+                    let card = self.render_workflow_card(&workflow, cx);
                     self.transcript_row(ix, card)
                 }
                 None => self.transcript_row(ix, self.render_working_row(cx)),
@@ -4392,7 +4380,7 @@ impl SteerSessionView {
             // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
-                Some(workflow) => self.render_workflow_card(&workflow, window, cx),
+                Some(workflow) => self.render_workflow_card(&workflow, cx),
                 None => self.render_tool_item(item, self.tool_row_mode(item), cx),
             },
             FeedKind::Permission { tool, detail } => {
@@ -5387,7 +5375,6 @@ impl SteerSessionView {
     fn render_workflow_card(
         &self,
         workflow: &steer::WorkflowState,
-        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -5473,7 +5460,7 @@ impl SteerSessionView {
             column = column.child(strip);
         }
         for agent in &workflow.agents {
-            column = column.child(self.render_workflow_agent(workflow, agent, window, cx));
+            column = column.child(self.render_workflow_agent(agent, cx));
         }
         // §4: the duplicate warnings belong to the card, and stay when its
         // agent rows fold away.
@@ -5500,13 +5487,11 @@ impl SteerSessionView {
         column.into_any_element()
     }
 
-    /// §3 — one agent row of a workflow card, unfolding into the nested
-    /// events that agent produced when it produced any.
+    /// §3 — one agent row of a workflow card: its SUMMARY line. EXP-1225:
+    /// the agent's own rows live in its subagent tab, never folded in here.
     fn render_workflow_agent(
         &self,
-        workflow: &steer::WorkflowState,
         agent: &steer::WorkflowAgent,
-        window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -5516,19 +5501,8 @@ impl SteerSessionView {
             steer::WorkflowAgentState::Done => muted,
             steer::WorkflowAgentState::Error => cx.theme().danger,
         };
-        let nested = agent
-            .agent_id
-            .as_deref()
-            .map(|id| crate::session_rows::nested_agent_items(self.feed.items(), id))
-            .unwrap_or_default();
-        let key = agent_fold_key(&workflow.id, agent.index);
-        let expandable = !nested.is_empty();
-        let expanded = expandable && self.expanded_agents.contains(&key);
         let meta = crate::workflow_card::agent_meta(agent);
         let detail = crate::workflow_card::agent_detail(agent);
-        // EXP-963: the row's own matter — the chevron and the fold behaviour
-        // ride the shared disclosure header, and only when it opens onto
-        // something.
         let mut content = h_flex()
             .flex_1()
             .min_w_0()
@@ -5565,63 +5539,16 @@ impl SteerSessionView {
                     .child(SharedString::from(detail)),
             );
         }
-        let row = if expandable {
-            let key = key.clone();
-            tool_text(disclosure_header(
-                ("steer-workflow-agent", agent.index as usize),
-                expanded,
-                ChevronSide::Leading,
-                content,
-                cx,
-            ))
-            // The card's own indent and its tighter agent-row gap; every
-            // other chrome decision stays the shared header's.
-            .pl_2()
-            .gap_1p5()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                if !this.expanded_agents.insert(key.clone()) {
-                    this.expanded_agents.remove(&key);
-                }
-                cx.notify();
-            }))
-            .into_any_element()
-        } else {
-            // A queued agent has produced nothing yet: a plain line.
-            tool_text(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .pl_2()
-                    .text_color(muted)
-                    .child(content),
-            )
-            .into_any_element()
-        };
-        let mut column = v_flex().w_full().min_w_0().child(row);
-        if expanded {
-            let items = self.feed.items();
-            for ix in nested {
-                let Some(item) = items.get(ix) else {
-                    continue;
-                };
-                column = column.child(
-                    div()
-                        .pl_5()
-                        .py_0p5()
-                        .child(match &item.kind {
-                            // EXP-895: a workflow card is a DIGEST — its rows
-                            // are headlines, and the evidence hangs off the
-                            // transcript row instead.
-                            FeedKind::Tool { .. } => {
-                                self.render_tool_item(item, ToolRowMode::Nested, cx)
-                            }
-                            _ => self.render_item(item, &HashSet::new(), window, cx),
-                        }),
-                );
-            }
-        }
-        column.into_any_element()
+        tool_text(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .pl_2()
+                .text_color(muted)
+                .child(content),
+        )
+        .into_any_element()
     }
 
     /// §4 — the amber duplicate warning: the wire's own sentence, verbatim.

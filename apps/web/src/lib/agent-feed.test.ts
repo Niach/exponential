@@ -2706,7 +2706,7 @@ describe(`EXP-927: agents leave the strip, the task list joins it (§2c)`, () =>
   })
 })
 
-describe(`workflow agents are never tabs (§3/§4)`, () => {
+describe(`workflow agents are tabs like any subagent (§3/§4, EXP-1225)`, () => {
   const marker = (over: Record<string, unknown>) => ({
     kind: `subagent`,
     agentType: `general-purpose`,
@@ -2724,17 +2724,32 @@ describe(`workflow agents are never tabs (§3/§4)`, () => {
     ).toEqual(new Map([[`a1`, `toolu_w`]]))
   })
 
-  it(`the tab strip drops them`, () => {
-    const agents = collectSubagents([
-      marker({ subagentId: `a1`, workflowId: `toolu_w`, title: `alpha:one` }),
+  it(`the tab strip keeps them, by the same running/selected rule`, () => {
+    // The engine synthesizes a workflow agent's lane (EXP-1225): its edges,
+    // one settled row per tool, its result as narration.
+    const feed = [
+      marker({ subagentId: `a1`, workflowId: `toolu_w`, title: `alpha:one`, agentType: `agent` }),
       marker({ subagentId: `a2`, title: `explore` }),
-    ])
+      { kind: `tool`, subagentId: `a1`, name: `Bash`, detail: `echo one` },
+      { kind: `narration`, subagentId: `a1`, text: `ok` },
+    ]
+    const agents = collectSubagents(feed)
     expect(agents.map((a) => a.workflowId)).toEqual([`toolu_w`, undefined])
+    expect(agents[0].toolCount).toBe(1)
     expect(visibleSubagentTabs(agents, null).map((a) => a.subagentId)).toEqual([
+      `a1`,
       `a2`,
     ])
-    // Not even while it is the selected tab: a workflow agent is not steerable.
-    expect(visibleSubagentTabs(agents, `a1`).map((a) => a.subagentId)).toEqual([
+    // Done, it leaves the strip — unless it is the tab being read.
+    const done = collectSubagents([
+      ...feed,
+      marker({ subagentId: `a1`, workflowId: `toolu_w`, status: `completed`, agentType: `agent` }),
+    ])
+    expect(visibleSubagentTabs(done, null).map((a) => a.subagentId)).toEqual([
+      `a2`,
+    ])
+    expect(visibleSubagentTabs(done, `a1`).map((a) => a.subagentId)).toEqual([
+      `a1`,
       `a2`,
     ])
   })

@@ -54,7 +54,24 @@ success() {
 }
 
 replay() {
-    [ -f "$1" ] && cat "$1"
+    [ -f "$1" ] && play "$1"
+}
+
+# A recorded turn, frame by frame. A `@@SLEEP <seconds>` line is not a frame:
+# it is the CLI's own latency at that point (EXP-1224: the gap between a
+# background agent's notification and the continuation it wakes), so a test
+# can tell an edge published IN that gap from one published after it.
+play() {
+    if grep -q '^@@SLEEP ' "$1"; then
+        while IFS= read -r frame || [ -n "$frame" ]; do
+            case "$frame" in
+                '@@SLEEP '*) sleep "${frame#@@SLEEP }" ;;
+                *) printf '%s\n' "$frame" ;;
+            esac
+        done < "$1"
+    else
+        cat "$1"
+    fi
 }
 
 turn=0
@@ -98,7 +115,7 @@ while IFS= read -r line; do
         *'"type":"user"'*)
             turn=$((turn + 1))
             if [ -f "$dir/turn$turn.jsonl" ]; then
-                cat "$dir/turn$turn.jsonl"
+                play "$dir/turn$turn.jsonl"
             else
                 replay "$dir/turn.jsonl"
             fi

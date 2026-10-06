@@ -45,7 +45,6 @@ import com.exponential.app.domain.splitWorkflowToolRows
 import com.exponential.app.domain.waitingLabel
 import com.exponential.app.domain.workflowAgentMetrics
 import com.exponential.app.domain.workflowAgentNote
-import com.exponential.app.domain.workflowAgentRuns
 import com.exponential.app.domain.workflowDuplicates
 import com.exponential.app.domain.workflowFor
 import com.exponential.app.domain.workflowPhaseCounts
@@ -2076,7 +2075,7 @@ class AgentFeedTest {
     }
 
     @Test
-    fun `a workflow agent is never a subagent tab`() {
+    fun `a workflow agent is a subagent tab like any other`() {
         val state = ActivityFeedState()
             .applying(
                 event(
@@ -2088,9 +2087,18 @@ class AgentFeedTest {
         val agents = collectSubagents(state.feed)
         assertEquals(listOf("a1", "plain"), agents.map { it.subagentId })
         assertEquals("wf-1", agents.first().workflowId)
-        assertEquals(listOf("plain"), visibleSubagentTabs(agents, null).map { it.subagentId })
-        // Not even while focused: a workflow agent is not steerable.
-        assertEquals(listOf("plain"), visibleSubagentTabs(agents, "a1").map { it.subagentId })
+        // EXP-1225: its rows live in its tab, by the ordinary running rule.
+        assertEquals(listOf("a1", "plain"), visibleSubagentTabs(agents, null).map { it.subagentId })
+        val done = collectSubagents(
+            state.applying(
+                event(
+                    """{"kind":"subagent","id":"a1","agentType":"agent","status":"completed",""" +
+                        """"title":"alpha:one","workflowId":"wf-1"}""",
+                ),
+            ).feed,
+        )
+        assertEquals(listOf("plain"), visibleSubagentTabs(done, null).map { it.subagentId })
+        assertEquals(listOf("a1", "plain"), visibleSubagentTabs(done, "a1").map { it.subagentId })
     }
 
     @Test
@@ -2116,8 +2124,11 @@ class AgentFeedTest {
         // that is left at the top level.
         assertEquals(1, rows.size)
         assertEquals("wf-1", ((rows.single() as AgentFeedRow.Single).item as AgentFeedItem.Tool).callId)
-        assertEquals(listOf("a1"), workflowAgentRuns(state.feed, "wf-1").map { it.subagentId })
-        assertEquals(1, workflowAgentRuns(state.feed, "wf-1").single().items.size)
+        // EXP-1225: the agent's run (and its row) is its TAB's.
+        val run = collectSubagents(state.feed).single()
+        assertEquals("wf-1", run.workflowId)
+        assertEquals(1, run.items.size)
+        assertEquals(listOf("a1"), visibleSubagentTabs(listOf(run), null).map { it.subagentId })
         assertEquals(1, workflowDuplicates(state.feed, "wf-1").size)
         // No card for it (its frame never arrived): the warning and the run
         // keep their ordinary rows rather than vanishing.

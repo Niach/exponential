@@ -87,7 +87,7 @@ pub const SETTLED_TOOLS_MAX: usize = 256;
 pub use crate::local::{
     BACKGROUND_TASKS_META_KEY, COMPACTION_TRIGGER_META_KEY, INJECTED_PROMPT_META_KEY,
     SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
-    TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
+    TURN_META_KEY, TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
 
 /// Everything the mapper needs that is constant for a session.
@@ -241,6 +241,20 @@ pub struct Mapper {
     /// EXP-848: the turn slot as last published. Deduped like the others — a
     /// second `ended` for the same turn says nothing.
     turn_state: steer::TurnState,
+    /// EXP-1224: who holds the turn slot open. The HOST's prompt (opened by
+    /// [`Mapper::set_turn`] when it sends one, closed by [`Mapper::on_stop`])
+    /// and the AGENT's own continuation (claude runs a turn nobody prompted
+    /// after a background task's notification: [`TURN_META_KEY`], or the
+    /// output-while-ended fallback) each hold it; the slot reads `ended` only
+    /// once neither does. Before this, a prompt's completion ended the turn
+    /// while the continuation it raced kept streaming, and every client read
+    /// the working run as "Done".
+    prompt_turn_open: bool,
+    continuation_open: bool,
+    /// EXP-1224: the session is LIVE — the host seeded the slot. Before the
+    /// seed every update is history (a `session/load` replay), and history
+    /// must never move the turn slot.
+    turn_live: bool,
     /// EXP-850 §5: the current turn's start (unix ms) and the tokens it has
     /// produced, plus when the growing count was last republished — the ONE
     /// exception to the slot's identical-edge dedupe.
@@ -479,6 +493,9 @@ impl Mapper {
             last_rate_limit: None,
             agent_title: None,
             turn_state: steer::TurnState::default(),
+            prompt_turn_open: false,
+            continuation_open: false,
+            turn_live: false,
             turn_started_at: None,
             turn_tokens: 0,
             turn_tokens_published_at: None,
@@ -540,12 +557,32 @@ impl Mapper {
         {
             self.emit_workflow(workflow, out);
         }
+        // EXP-1224: the agent's own turn edge (claude's continuation), read
+        // BEFORE the token count it may ride beside, so a count for the new
+        // turn lands on the new turn.
+        if let Some(state) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(TURN_META_KEY))
+            .and_then(|turn| turn.get("state"))
+            .and_then(Value::as_str)
+        {
+            match state {
+                "started" => self.on_agent_turn(steer::TurnState::Started, out),
+                "ended" => self.on_agent_turn(steer::TurnState::Ended, out),
+                _ => {}
+            }
+        }
         if let Some(tokens) = notification
             .meta
             .as_ref()
             .and_then(|meta| meta.get(TURN_TOKENS_META_KEY))
             .and_then(Value::as_u64)
         {
+            // EXP-1224 (C): thinking tokens are model output.
+            if tokens > 0 {
+                self.reopen_on_output(out);
+            }
             self.note_turn_tokens(tokens, out);
         }
         // EXP-1051: the context-layout slot, on the same carrier as the
@@ -608,6 +645,11 @@ impl Mapper {
                 }
             }
             SessionUpdate::AgentMessageChunk(chunk) => {
+                // EXP-1224 (C): narration is model output, main lane or a
+                // subagent's.
+                if !chunk_text(chunk).trim().is_empty() {
+                    self.reopen_on_output(out);
+                }
                 self.flush_user(out);
                 self.flush_thought(out);
                 if let Some(flushed) =
@@ -623,6 +665,7 @@ impl Mapper {
                 if text.trim().is_empty() {
                     return;
                 }
+                self.reopen_on_output(out);
                 self.flush_user(out);
                 self.flush_message(out);
                 if let Some(flushed) = self.thought.push(message_id(chunk), chunk_subagent, &text) {
@@ -630,6 +673,8 @@ impl Mapper {
                 }
             }
             SessionUpdate::ToolCall(call) => {
+                // EXP-1224 (C): so is a tool call.
+                self.reopen_on_output(out);
                 self.on_tool_call(call, notification.meta.as_ref(), out)
             }
             SessionUpdate::ToolCallUpdate(update) => self.on_tool_call_update(update, out),
@@ -973,9 +1018,30 @@ impl Mapper {
     /// reason itself never reaches the wire.
     pub fn on_stop(&mut self, stop: StopReason, out: &mut MapOut) {
         self.flush_all(out);
-        if matches!(stop, StopReason::Cancelled) {
+        let cancelled = matches!(stop, StopReason::Cancelled);
+        if cancelled {
             self.on_cancel(out);
         }
+        self.prompt_turn_open = false;
+        // EXP-1224 (B): the agent already opened a turn of its own after this
+        // prompt's `result` (claude's continuation on a background task's
+        // notification, which races the prompt's answer). The prompt is
+        // done; the agent is NOT — the slot stays `started` until the
+        // continuation's own end. A Stop ends both: the interrupt kills the
+        // continuation with the prompt.
+        if self.continuation_open && !cancelled {
+            if out.needs_input.is_none() && self.pending_asks() == 0 {
+                out.needs_input = Some(false);
+            }
+            return;
+        }
+        self.continuation_open = false;
+        self.close_turn(out);
+    }
+
+    /// The turn slot's closing half, shared by a prompt's completion and the
+    /// end of the agent's own continuation (EXP-1224).
+    fn close_turn(&mut self, out: &mut MapOut) {
         // EXP-969: an agent cannot be compacting BETWEEN turns, so the turn
         // end closes a fold whose own `ended` edge never came (a manual
         // `/compact` that lands no `compact_boundary`). The host's queue gate
@@ -992,7 +1058,7 @@ impl Mapper {
             emit(out, ActivityEvent::user_message(text), None);
         }
         out.idle = Some(true);
-        self.set_turn(steer::TurnState::Ended, false, out);
+        self.move_turn(steer::TurnState::Ended, false, out);
         if out.needs_input.is_none() && self.pending_asks() == 0 {
             out.needs_input = Some(false);
         }
@@ -1002,7 +1068,73 @@ impl Mapper {
     /// nothing), except for `seed`, which publishes unconditionally — the
     /// session start plants `ended` so a viewer that joins before the first
     /// prompt reads the slot instead of assuming.
+    ///
+    /// EXP-1224: this is the HOST's lever. `started` = a prompt went out (the
+    /// slot is held for it until [`Mapper::on_stop`]); `ended` = a hard close
+    /// (the seed, the session loop ending) that also drops the agent's own
+    /// continuation. The seed is also the moment the session turns live:
+    /// only from here on may agent output re-open an ended slot.
     pub fn set_turn(&mut self, state: steer::TurnState, seed: bool, out: &mut MapOut) {
+        match state {
+            steer::TurnState::Started => self.prompt_turn_open = true,
+            steer::TurnState::Ended => {
+                self.prompt_turn_open = false;
+                self.continuation_open = false;
+            }
+        }
+        if seed {
+            self.turn_live = true;
+        }
+        self.move_turn(state, seed, out);
+    }
+
+    /// EXP-1224: the agent opened (`started`) or closed (`ended`) a turn of
+    /// its own — the adapter's [`TURN_META_KEY`].
+    fn on_agent_turn(&mut self, state: steer::TurnState, out: &mut MapOut) {
+        match state {
+            steer::TurnState::Started => {
+                self.continuation_open = true;
+                if self.turn_state == steer::TurnState::Ended {
+                    out.idle = Some(false);
+                    self.move_turn(steer::TurnState::Started, false, out);
+                }
+            }
+            steer::TurnState::Ended => {
+                if !self.continuation_open {
+                    return;
+                }
+                self.continuation_open = false;
+                // A prompt the host sent meanwhile still holds the slot;
+                // its own completion closes it.
+                if !self.prompt_turn_open && self.turn_state == steer::TurnState::Started {
+                    self.flush_all(out);
+                    self.close_turn(out);
+                }
+            }
+        }
+    }
+
+    /// EXP-1224 (C): the backstop for a continuation the adapter never
+    /// announced — the agent PRODUCED something (a thought, narration, a tool
+    /// call, a thinking-token count) while the slot reads `ended`, so it is
+    /// working: the slot re-opens as an agent-held turn, closed by the
+    /// adapter's next turn end. Claude only: it is the agent that continues
+    /// on its own and whose adapter closes such a turn at its next `result`;
+    /// a codex turn ends at `turn/completed` and nothing would ever close a
+    /// re-opened one. Never before the session is live: a `session/load`
+    /// replay streams history through here.
+    fn reopen_on_output(&mut self, out: &mut MapOut) {
+        if !self.turn_live
+            || self.turn_state != steer::TurnState::Ended
+            || self.config.agent != steer::SessionAgent::Claude
+        {
+            return;
+        }
+        self.on_agent_turn(steer::TurnState::Started, out);
+    }
+
+    /// Move the slot itself, deduped (see [`Mapper::set_turn`]).
+    fn move_turn(&mut self, state: steer::TurnState, seed: bool, out: &mut MapOut) {
         if !seed && self.turn_state == state {
             return;
         }
@@ -1219,6 +1351,13 @@ impl Mapper {
     /// An adapter's subagent edge (`_meta`, see [`SubagentEdge`]).
     pub fn on_subagent(&mut self, edge: &SubagentEdge, out: &mut MapOut) {
         let id = steer::truncate(&edge.id, ID_MAX);
+        // EXP-1225: a lane's last words go out BEFORE the edge that closes
+        // it (a workflow agent's result preview arrives one frame ahead of
+        // its completed edge, and a coalesced paragraph would otherwise trail
+        // the end of its own lane).
+        if edge.status == SubagentEdgeStatus::Completed {
+            self.flush_scope(Some(&id), out);
+        }
         let agent_type = match edge.status {
             SubagentEdgeStatus::Started => {
                 let agent_type = self.clean(&edge.agent_type, AGENT_TYPE_MAX);
@@ -5549,5 +5688,285 @@ mod exp850_tests {
                 "workflowId": "toolu_017Lh63mYhRJ3MrA4A1PXytt",
             })
         );
+    }
+}
+
+/// EXP-1224: the agent's own turns. Claude continues on its own after a
+/// `result` whenever a background task's notification is pending — a turn no
+/// prompt opened. The slot must read `started` for it, or every client shows
+/// the working run as "Done".
+#[cfg(test)]
+mod exp1224_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        SessionId, SessionInfoUpdate, SessionNotification, ToolCall as AcpToolCall, ToolCallId,
+        TextContent, UsageUpdate,
+    };
+    use serde_json::json;
+
+    fn mapper_for(agent: steer::SessionAgent) -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent,
+            session_seed: "sess-1".to_string(),
+        })
+    }
+
+    /// A LIVE claude session: the host seeded the slot, as `host.rs` does
+    /// once `session/new` answered.
+    fn live() -> Mapper {
+        let mut mapper = mapper_for(steer::SessionAgent::Claude);
+        mapper.set_turn(steer::TurnState::Ended, true, &mut MapOut::default());
+        mapper
+    }
+
+    fn notify(update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    fn slot(key: &str, value: Value) -> SessionNotification {
+        notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()))
+            .meta(json!({ key: value }).as_object().cloned().expect("an object"))
+    }
+
+    fn agent_turn(state: &str) -> SessionNotification {
+        slot(TURN_META_KEY, json!({ "state": state }))
+    }
+
+    fn text(text: &str) -> ContentChunk {
+        ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
+    }
+
+    fn turns(out: &MapOut) -> Vec<steer::TurnState> {
+        out.wire
+            .iter()
+            .filter_map(|event| match event {
+                ActivityEvent::Turn { state, .. } => Some(*state),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A prompted turn that has already answered: the slot reads `ended`.
+    fn after_a_prompt() -> Mapper {
+        let mut mapper = live();
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        mapper.on_stop(StopReason::EndTurn, &mut MapOut::default());
+        mapper
+    }
+
+    #[test]
+    fn the_agents_own_turn_opens_and_closes_the_slot() {
+        let mut mapper = after_a_prompt();
+        let mut started = MapOut::default();
+        mapper.on_update(&agent_turn("started"), &mut started);
+        assert_eq!(turns(&started), vec![steer::TurnState::Started]);
+        assert_eq!(started.idle, Some(false), "the run is busy again");
+
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+        // A second end says nothing.
+        let mut again = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut again);
+        assert!(turns(&again).is_empty(), "{:?}", again.wire);
+        assert_eq!(again.idle, None);
+    }
+
+    /// (C) narration while the slot reads `ended` re-opens it — main lane
+    /// and subagent lane alike.
+    #[test]
+    fn narration_while_ended_reopens_the_turn() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("still here"))), &mut out);
+        assert_eq!(turns(&out), vec![steer::TurnState::Started]);
+        assert_eq!(out.idle, Some(false));
+        // The turn edge goes out BEFORE the row that re-opened it.
+        assert!(matches!(out.wire.first(), Some(ActivityEvent::Turn { .. })), "{:?}", out.wire);
+        // The adapter's next turn end closes it.
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+
+        // A subagent's narration counts too.
+        let mut lane = MapOut::default();
+        let scoped = notify(SessionUpdate::AgentMessageChunk(text("lane work"))).meta(
+            json!({ SUBAGENT_ID_META_KEY: "toolu_agent" }).as_object().cloned().expect("meta"),
+        );
+        mapper.on_update(&scoped, &mut lane);
+        assert_eq!(turns(&lane), vec![steer::TurnState::Started]);
+    }
+
+    /// (C) thinking tokens and a tool call are model output too.
+    #[test]
+    fn thinking_tokens_and_tool_calls_while_ended_reopen_the_turn() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(50)), &mut out);
+        assert_eq!(turns(&out).first(), Some(&steer::TurnState::Started), "{:?}", out.wire);
+        assert_eq!(out.idle, Some(false));
+
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(AcpToolCall::new(ToolCallId::new("t1"), "Read"))),
+            &mut out,
+        );
+        assert_eq!(turns(&out), vec![steer::TurnState::Started]);
+    }
+
+    /// (C) state slots are NOT output: usage, the rate-limit slot, the
+    /// background-task strip and the user's own echo leave it ended.
+    #[test]
+    fn usage_and_state_slots_while_ended_do_not_reopen() {
+        let mut mapper = after_a_prompt();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::UsageUpdate(UsageUpdate::new(1_000, 200_000))),
+            &mut out,
+        );
+        mapper.on_update(
+            &slot(RATE_LIMIT_META_KEY, json!({ "status": "allowed_warning", "resetsAt": 1 })),
+            &mut out,
+        );
+        mapper.on_update(&slot(BACKGROUND_TASKS_META_KEY, json!([])), &mut out);
+        mapper.on_update(&notify(SessionUpdate::UserMessageChunk(text("echo"))), &mut out);
+        // An empty thought (a signature-only block) is no output either.
+        mapper.on_update(&notify(SessionUpdate::AgentThoughtChunk(text(" "))), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_ne!(out.idle, Some(false));
+    }
+
+    /// (B) the continuation opened after the prompt's `result` but BEFORE the
+    /// prompt's answer reached the host: the prompt's completion must not
+    /// end the turn the agent is still running.
+    #[test]
+    fn a_prompt_done_after_a_continuation_opened_keeps_the_turn() {
+        let mut mapper = live();
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        let mut opened = MapOut::default();
+        mapper.on_update(&agent_turn("started"), &mut opened);
+        assert!(turns(&opened).is_empty(), "already started: {:?}", opened.wire);
+
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert!(turns(&done).is_empty(), "the prompt's end is not the turn's: {:?}", done.wire);
+        assert_eq!(done.idle, None, "the run stays busy");
+
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+    }
+
+    /// A prompt the host sent during a continuation holds the slot past the
+    /// continuation's own end.
+    #[test]
+    fn a_prompt_sent_during_a_continuation_outlives_its_end() {
+        let mut mapper = after_a_prompt();
+        mapper.on_update(&agent_turn("started"), &mut MapOut::default());
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert!(turns(&ended).is_empty(), "{:?}", ended.wire);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
+    }
+
+    /// EXP-1224 review: a turn the mapper re-opened off output (C) that a
+    /// prompt is then sent into closes at the adapter's `ended` once the
+    /// prompt is done — whichever of the two reaches the mapper first. And
+    /// that `ended` never ends a prompt that is still running.
+    #[test]
+    fn a_prompt_sent_into_a_reopened_turn_ends_with_the_adapters_ended() {
+        let reopened_with_a_prompt = || {
+            let mut mapper = after_a_prompt();
+            let mut out = MapOut::default();
+            mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
+            assert_eq!(turns(&out), vec![steer::TurnState::Started]);
+            mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+            mapper
+        };
+
+        // The prompt's answer first: the reopened slot outlives it…
+        let mut mapper = reopened_with_a_prompt();
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert!(turns(&done).is_empty(), "{:?}", done.wire);
+        // …until the adapter's `ended`.
+        let mut ended = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut ended);
+        assert_eq!(turns(&ended), vec![steer::TurnState::Ended]);
+        assert_eq!(ended.idle, Some(true));
+
+        // The adapter's `ended` first: the live prompt keeps the slot, and
+        // its own answer closes it.
+        let mut mapper = reopened_with_a_prompt();
+        let mut early = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut early);
+        assert!(turns(&early).is_empty(), "never ends a live prompt: {:?}", early.wire);
+        assert_eq!(early.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
+    }
+
+    /// The agent's `ended` with nothing of its own open is a no-op, prompt
+    /// running or not: the adapter publishes one after every settled prompt.
+    #[test]
+    fn an_agent_ended_with_no_continuation_open_is_a_no_op() {
+        let mut mapper = live();
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        let mut out = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_eq!(out.idle, None);
+        let mut done = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut done);
+        assert_eq!(turns(&done), vec![steer::TurnState::Ended]);
+        let mut after = MapOut::default();
+        mapper.on_update(&agent_turn("ended"), &mut after);
+        assert!(turns(&after).is_empty(), "{:?}", after.wire);
+        assert_eq!(after.idle, None);
+    }
+
+    /// A Stop ends the continuation with the prompt: the interrupt kills
+    /// both.
+    #[test]
+    fn a_stop_ends_the_continuation_too() {
+        let mut mapper = live();
+        mapper.set_turn(steer::TurnState::Started, false, &mut MapOut::default());
+        mapper.on_update(&agent_turn("started"), &mut MapOut::default());
+        let mut stopped = MapOut::default();
+        mapper.on_stop(StopReason::Cancelled, &mut stopped);
+        assert_eq!(turns(&stopped), vec![steer::TurnState::Ended]);
+        assert_eq!(stopped.idle, Some(true));
+    }
+
+    /// History never moves the slot: before the seed every update is a
+    /// `session/load` replay.
+    #[test]
+    fn a_replay_never_reopens_the_turn() {
+        let mut mapper = mapper_for(steer::SessionAgent::Claude);
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("history"))), &mut out);
+        mapper.on_update(&slot(TURN_TOKENS_META_KEY, json!(50)), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
+        assert_eq!(out.idle, None);
+    }
+
+    /// Only claude continues on its own; a codex turn ends at
+    /// `turn/completed` and nothing would ever close a re-opened one.
+    #[test]
+    fn a_codex_session_never_reopens_on_output() {
+        let mut mapper = mapper_for(steer::SessionAgent::Codex);
+        mapper.set_turn(steer::TurnState::Ended, true, &mut MapOut::default());
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
+        assert!(turns(&out).is_empty(), "{:?}", out.wire);
     }
 }

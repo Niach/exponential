@@ -190,7 +190,6 @@ import com.exponential.app.domain.runningWorkflow
 import com.exponential.app.domain.stripBackgroundTasks
 import com.exponential.app.domain.taskListSummary
 import com.exponential.app.domain.waitingLabel
-import com.exponential.app.domain.workflowAgentRuns
 import com.exponential.app.domain.workflowDuplicates
 import com.exponential.app.domain.workflowPhaseCounts
 import com.exponential.app.domain.workflowPhaseSummary
@@ -2176,7 +2175,6 @@ private fun ActivityFeed(
                                     }
                                     else -> WorkflowCard(
                                         workflow = workflow,
-                                        agentRuns = workflowAgentRuns(feed, workflow.id),
                                         duplicates = workflowDuplicates(feed, workflow.id),
                                     )
                                 }
@@ -2238,7 +2236,6 @@ private fun ActivityFeed(
                     TranscriptRow(TranscriptGap.Tool) {
                         WorkflowCard(
                             workflow = workflow,
-                            agentRuns = workflowAgentRuns(feed, workflow.id),
                             duplicates = workflowDuplicates(feed, workflow.id),
                         )
                     }
@@ -2777,14 +2774,12 @@ private fun DuplicateAgentRow(item: AgentFeedItem.DuplicateAgent) {
  * Collapsed it is the name, the shared caption ([WorkflowCaption], the ×4
  * sentence) and any duplicate warnings; expanded it adds the description, the
  * phase strip with per-phase counts, one row per agent and the summary once it
- * is finished. A workflow's agents are never conversation tabs (they are not
- * steerable), so their nested events are read right here: an agent row with
- * anything under it opens into that agent's own rows.
+ * is finished. It SUMMARISES its agents; EXP-1225: their rows live in their
+ * own conversation tabs, never folded in here.
  */
 @Composable
 private fun WorkflowCard(
     workflow: WorkflowState,
-    agentRuns: List<AgentFeedRow.SubagentRun>,
     duplicates: List<AgentFeedItem.DuplicateAgent>,
 ) {
     var expanded by rememberSaveable(workflow.id) { mutableStateOf(true) }
@@ -2876,12 +2871,7 @@ private fun WorkflowCard(
                     }
                 }
             }
-            agents.forEach { agent ->
-                WorkflowAgentRow(
-                    agent = agent,
-                    run = agentRuns.firstOrNull { it.subagentId == agent.agentId },
-                )
-            }
+            agents.forEach { agent -> WorkflowAgentRow(agent) }
             workflow.summary?.takeIf { !workflow.isRunning }?.let { summary ->
                 Text(
                     summary,
@@ -2930,14 +2920,11 @@ private fun WorkflowStatusGlyph(status: String) {
 
 /**
  * EXP-850 (S3): one agent of a workflow — its label, its state, what it cost
- * and what it is on (or produced, or failed with). With nested events under it
- * the row opens into them; a workflow agent is never a tab, so this is where
- * its transcript is read.
+ * and what it is on (or produced, or failed with). EXP-1225: a summary line;
+ * the agent's own rows are read in its conversation tab.
  */
 @Composable
-private fun WorkflowAgentRow(agent: WorkflowAgent, run: AgentFeedRow.SubagentRun?) {
-    var expanded by remember(agent.agentId) { mutableStateOf(false) }
-    val items = run?.items.orEmpty()
+private fun WorkflowAgentRow(agent: WorkflowAgent) {
     val metrics = remember(agent) { workflowAgentMetrics(agent) }
     val note = remember(agent) { workflowAgentNote(agent) }
     Column(
@@ -2947,9 +2934,7 @@ private fun WorkflowAgentRow(agent: WorkflowAgent, run: AgentFeedRow.SubagentRun
             .testTag("workflow-agent-row"),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (items.isNotEmpty()) Modifier.clickable { expanded = !expanded } else Modifier),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2971,14 +2956,6 @@ private fun WorkflowAgentRow(agent: WorkflowAgent, run: AgentFeedRow.SubagentRun
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (items.isNotEmpty()) {
-                Icon(
-                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    modifier = Modifier.size(12.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
         }
         if (note != null) {
             Text(
@@ -2993,11 +2970,6 @@ private fun WorkflowAgentRow(agent: WorkflowAgent, run: AgentFeedRow.SubagentRun
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 20.dp),
             )
-        }
-        if (expanded) {
-            Column(modifier = Modifier.padding(start = 20.dp)) {
-                items.forEach { SubagentItemRow(it, nested = true) }
-            }
         }
     }
 }

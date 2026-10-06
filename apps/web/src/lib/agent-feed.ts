@@ -1065,8 +1065,8 @@ export interface SubagentSummary {
   done: boolean
   detail?: string
   toolCount: number
-  /** EXP-850 §3/§4: this agent belongs to a workflow card — it is never a
-   *  steerable tab and its rows nest under that card. */
+  /** EXP-850 §3/§4: this agent belongs to a workflow card, which summarises
+   *  it. EXP-1225: it is a tab like any other subagent — its rows live there. */
   workflowId?: string
   /** EXP-856: a SECOND copy of this agent started while the first was still
    *  running — the amber warning row's sentence, verbatim off the wire. */
@@ -1125,11 +1125,9 @@ export function visibleSubagentTabs(
   agents: readonly SubagentSummary[],
   selected: string | null
 ): SubagentSummary[] {
-  return agents.filter(
-    // EXP-850 §3: a workflow's agents are never tabs and are never steerable
-    // — they live inside the workflow card.
-    (a) => a.workflowId === undefined && (!a.done || a.subagentId === selected)
-  )
+  // EXP-1225: a workflow's agents are tabs too (their lanes are the engine's
+  // synthesized rows); the workflow card only summarises them.
+  return agents.filter((a) => !a.done || a.subagentId === selected)
 }
 
 /** What a subagent group row displays (EXP-350) — one place for the label /
@@ -2401,7 +2399,8 @@ export function nestedWorkflowId(
 }
 
 /** EXP-856 §4: the subagents that belong to a workflow, by id — their edges
- *  nest under the card and never open a steerable tab. */
+ *  nest under the card instead of standing as group rows (EXP-1225: their
+ *  rows are their tab's). */
 export function workflowSubagentIds(
   feed: readonly { kind: string; subagentId?: string; workflowId?: string }[]
 ): Map<string, string> {

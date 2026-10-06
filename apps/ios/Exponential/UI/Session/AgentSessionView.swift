@@ -966,8 +966,7 @@ struct AgentSessionView: View {
         if let workflow: AgentWorkflow = model?.workflow(for: callId) {
             AgentWorkflowCardRow(
                 workflow: workflow,
-                runFor: workflowAgentRun,
-                context: markdownContext
+                runFor: workflowAgentRun
             )
         } else if let diff, !diff.isEmpty {
             // EXP-916: a call outside an edited-files card may still CARRY a
