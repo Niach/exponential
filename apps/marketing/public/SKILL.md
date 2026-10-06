@@ -116,7 +116,7 @@ Around 80 tools, all named `exponential_<family>_<verb>`:
   refused, never queued. A run may delegate independent work to a second
   run with `sessions_start`; the child reports back into the starter's
   session. Inside a launcher-started run two more tools register:
-  `sessions_end` (the run's own close-out summary, unattended runs only)
+  `sessions_end` (ends the run: unattended runs last, attended ones when asked)
   and `sessions_ask_parent` (ask the run that started this one). Every
   launched run also gets a short playbook of these conventions appended to
   its system prompt.
