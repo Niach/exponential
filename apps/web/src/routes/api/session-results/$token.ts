@@ -25,6 +25,11 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 // because of that race. Membership is not re-checked either — the same
 // reasoning as the EXP-704 download token.
 //
+// FEED-75: the object store may throttle the put (Hetzner: `503 SlowDown`).
+// `lib/storage` waits that out; past its retries the route answers 503 +
+// Retry-After, and the curl line the tools hand out carries `--retry` so
+// the same command lands on its own once the window moves on.
+//
 // The write is a jsonb read-modify-write, so it runs inside a transaction
 // that takes `FOR UPDATE` on the coding_sessions row: two pictures published
 // concurrently by the same run would otherwise lose one another. EXP-1172:

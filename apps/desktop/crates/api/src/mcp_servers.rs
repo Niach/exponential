@@ -125,19 +125,70 @@ impl McpConnection {
     }
 }
 
+/// FEED-73: the caller's connection as `mcpServers.setShared` returns it —
+/// [`McpConnection`] plus whether it is shared with the team's action runs.
+/// (The flag lives beside [`McpConnection`], never in it, so the existing
+/// exhaustive literals of that struct keep compiling.)
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpSharedConnection {
+    #[serde(flatten)]
+    pub connection: McpConnection,
+    #[serde(default)]
+    pub shared: bool,
+}
+
 /// `mcpServers.list` entry: the config, the caller's connection and how many
 /// of the team's members have connected.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "RawListEntry")]
 pub struct McpServerListEntry {
-    #[serde(flatten)]
     pub config: McpServerConfig,
-    #[serde(default)]
     pub connection: McpConnection,
-    #[serde(default)]
     pub connected_count: u32,
-    #[serde(default)]
     pub member_count: u32,
+    /// FEED-73: the CALLER shares their connection with the team's action
+    /// runs (the wire's `connection.shared`, lifted here).
+    pub shared: bool,
+    /// FEED-73: how many members share their connection with action runs.
+    pub shared_count: u32,
+    pub shared_user_ids: Vec<String>,
+    pub connected_user_ids: Vec<String>,
+}
+
+/// The `mcpServers.list` row as the wire spells it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawListEntry {
+    #[serde(flatten)]
+    config: McpServerConfig,
+    #[serde(default)]
+    connection: McpSharedConnection,
+    #[serde(default)]
+    connected_count: u32,
+    #[serde(default)]
+    member_count: u32,
+    #[serde(default)]
+    shared_count: u32,
+    #[serde(default)]
+    shared_user_ids: Vec<String>,
+    #[serde(default)]
+    connected_user_ids: Vec<String>,
+}
+
+impl From<RawListEntry> for McpServerListEntry {
+    fn from(raw: RawListEntry) -> Self {
+        Self {
+            config: raw.config,
+            connection: raw.connection.connection,
+            connected_count: raw.connected_count,
+            member_count: raw.member_count,
+            shared: raw.connection.shared,
+            shared_count: raw.shared_count,
+            shared_user_ids: raw.shared_user_ids,
+            connected_user_ids: raw.connected_user_ids,
+        }
+    }
 }
 
 /// `mcpServers.list({teamId})`.
@@ -306,6 +357,23 @@ pub fn disconnect(trpc: &TrpcClient, server_id: &str) -> Result<(), ApiError> {
     ok_mutation(trpc, "mcpServers.disconnect", &ServerInput { server_id })
 }
 
+/// FEED-73: `mcpServers.setShared` — share (or stop sharing) the caller's
+/// own connection with the team's action runs. Returns the caller's
+/// connection as stored.
+pub fn set_shared(
+    trpc: &TrpcClient,
+    server_id: &str,
+    shared: bool,
+) -> Result<McpSharedConnection, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        server_id: &'a str,
+        shared: bool,
+    }
+    trpc.mutation("mcpServers.setShared", &Input { server_id, shared })
+}
+
 /// `mcpServers.test` output: an MCP `initialize` (+ `tools/list`) against an
 /// http server with the caller's credential.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -362,6 +430,42 @@ pub struct McpLaunchServer {
     /// Secret stdio: the declared env var.
     #[serde(default)]
     pub env: Vec<McpNamedValue>,
+    /// FEED-73: whose credential this entry acts as; `None` for an
+    /// `auth: none` server. A shared entry (`shared: true`) is ANOTHER
+    /// member's connection, named `<server>-as-<handle>`.
+    #[serde(default)]
+    pub actor: Option<McpActor>,
+}
+
+/// FEED-73: the member a resolved launch entry acts as.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpActor {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub name: String,
+    /// Another member's SHARED connection (vs the launcher's own).
+    #[serde(default)]
+    pub shared: bool,
+}
+
+/// FEED-73: one team member's standing on one picked server, for an ACTION
+/// run's roster (`[]` for every other run).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpMember {
+    #[serde(default)]
+    pub server_id: String,
+    #[serde(default)]
+    pub server_name: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub name: String,
+    /// `self` | `shared` | `connected` | `not_connected` | `unavailable`.
+    #[serde(default)]
+    pub state: String,
 }
 
 impl McpLaunchServer {
@@ -394,11 +498,17 @@ pub struct McpLaunchResolution {
     /// cannot be refreshed"). Never a secret.
     #[serde(default)]
     pub warnings: Vec<String>,
+    /// FEED-73: an action run's per-server member roster.
+    #[serde(default)]
+    pub members: Vec<McpMember>,
 }
 
 /// `mcpServers.resolveForLaunch` — the caller's OWN credentials for
 /// `server_ids`, OAuth tokens refreshed server-side when expiring. Handle the
-/// result like a password.
+/// result like a password. `None` omits `serverIds`: the server resolves the
+/// run row's whole persisted pick (FEED-73: a real action run's pick is the
+/// action's own list, unknown here), plus, for action runs, one entry per
+/// member who SHARED their connection.
 ///
 /// EXP-1140: the call names the run it is for (`session_id` = the
 /// `coding_sessions` row `codingSessions.start` just created, sent as
@@ -408,13 +518,14 @@ pub struct McpLaunchResolution {
 /// server-side pick trim comes back `skipped`, never an error.
 pub fn resolve_for_launch(
     trpc: &TrpcClient,
-    server_ids: &[String],
+    server_ids: Option<&[String]>,
     session_id: &str,
 ) -> Result<McpLaunchResolution, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
-        server_ids: &'a [String],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        server_ids: Option<&'a [String]>,
     }
     trpc.mutation_in_session("mcpServers.resolveForLaunch", &Input { server_ids }, session_id)
 }
@@ -434,7 +545,7 @@ mod tests {
     fn list_parses_the_callers_connection_and_counts() {
         let (base, rx) = one_shot_server(
             200,
-            r#"{"result":{"data":[{"id":"s1","teamId":"t","name":"Linear","auth":"oauth","createdById":"u","connection":{"status":"expired","expiresAt":"2026-09-09T10:00:00.000Z","error":null},"connectedCount":2,"memberCount":5},{"id":"s2","name":"Docs"}]}}"#,
+            r#"{"result":{"data":[{"id":"s1","teamId":"t","name":"Linear","auth":"oauth","createdById":"u","connection":{"status":"expired","expiresAt":"2026-09-09T10:00:00.000Z","error":null,"shared":true},"connectedCount":2,"memberCount":5,"sharedCount":1,"sharedUserIds":["u2"],"connectedUserIds":["u","u2"]},{"id":"s2","name":"Docs"}]}}"#,
         );
         let rows = list(&client(&base), "t").expect("ok");
         assert!(rx.recv().unwrap().contains("GET /api/trpc/mcpServers.list?input="));
@@ -443,6 +554,11 @@ mod tests {
         assert!(!rows[0].connection.is_ready());
         assert_eq!(rows[0].connected_count, 2);
         assert_eq!(rows[0].member_count, 5);
+        assert_eq!(rows[0].shared_count, 1);
+        assert_eq!(rows[0].shared_user_ids, vec!["u2".to_string()]);
+        assert_eq!(rows[0].connected_user_ids, vec!["u".to_string(), "u2".to_string()]);
+        assert!(rows[0].shared);
+        assert!(!rows[1].shared && rows[1].shared_count == 0);
         // A thinner row defaults to "not connected".
         assert_eq!(rows[1].connection.status, "not_connected");
     }
@@ -492,10 +608,10 @@ mod tests {
     fn resolve_for_launch_parses_and_never_prints_a_value() {
         let (base, rx) = one_shot_server(
             200,
-            r#"{"result":{"data":{"servers":[{"id":"s1","name":"Linear","transport":"http","url":"https://mcp.linear.app/mcp","command":null,"args":[],"headers":[{"name":"Authorization","value":"Bearer at-secret"}],"env":[]}],"skipped":[{"id":"s2","name":"Sentry","reason":"not connected"}],"warnings":["w"]}}}"#,
+            r#"{"result":{"data":{"servers":[{"id":"s1","name":"Linear","transport":"http","url":"https://mcp.linear.app/mcp","command":null,"args":[],"headers":[{"name":"Authorization","value":"Bearer at-secret"}],"env":[],"actor":{"userId":"u1","name":"Danny","shared":false}},{"id":"s1","name":"linear-as-chris","transport":"http","url":"https://mcp.linear.app/mcp","headers":[{"name":"Authorization","value":"Bearer chris-secret"}],"actor":{"userId":"u2","name":"Chris","shared":true}},{"id":"s3","name":"Docs","actor":null}],"skipped":[{"id":"s2","name":"Sentry","reason":"not connected"}],"warnings":["w"],"members":[{"serverId":"s1","serverName":"linear","userId":"u1","name":"Danny","state":"self"},{"serverId":"s1","serverName":"linear","userId":"u4","name":"Max","state":"not_connected"}]}}}"#,
         );
         let ids = vec!["s1".to_string(), "s2".to_string()];
-        let resolved = resolve_for_launch(&client(&base), &ids, "sess-1").expect("ok");
+        let resolved = resolve_for_launch(&client(&base), Some(&ids), "sess-1").expect("ok");
         let request = rx.recv().unwrap();
         assert!(request.contains("POST /api/trpc/mcpServers.resolveForLaunch"));
         assert!(request.contains(r#"{"serverIds":["s1","s2"]}"#));
@@ -507,9 +623,52 @@ mod tests {
         assert_eq!(resolved.servers[0].headers[0].value, "Bearer at-secret");
         assert_eq!(resolved.skipped[0].reason, "not connected");
         assert_eq!(resolved.warnings, vec!["w".to_string()]);
+        assert_eq!(
+            resolved.servers[0].actor,
+            Some(McpActor { user_id: "u1".into(), name: "Danny".into(), shared: false })
+        );
+        assert_eq!(resolved.servers[1].name, "linear-as-chris");
+        assert_eq!(resolved.servers[1].id, "s1");
+        assert!(resolved.servers[1].actor.as_ref().is_some_and(|a| a.shared && a.name == "Chris"));
+        assert_eq!(resolved.servers[2].actor, None);
+        assert_eq!(resolved.members.len(), 2);
+        assert_eq!(resolved.members[1].state, "not_connected");
+        assert_eq!(resolved.members[1].server_name, "linear");
         let printed = format!("{resolved:?}");
         assert!(!printed.contains("at-secret"), "{printed}");
+        assert!(!printed.contains("chris-secret"), "{printed}");
         assert!(printed.contains("Authorization"), "{printed}");
+    }
+
+    /// FEED-73: `None` omits `serverIds` (the row's own pick); an older
+    /// server's response without `members`/`actor` still parses.
+    #[test]
+    fn resolve_for_launch_without_ids_omits_the_pick() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"servers":[{"id":"s1","name":"Docs"}],"skipped":[],"warnings":[]}}}"#,
+        );
+        let resolved = resolve_for_launch(&client(&base), None, "sess-9").expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.resolveForLaunch"));
+        assert!(request.ends_with("\r\n\r\n{}"), "{request}");
+        assert!(!request.contains("serverIds"), "{request}");
+        assert!(request.to_ascii_lowercase().contains("x-exp-session-id: sess-9"));
+        assert!(resolved.members.is_empty());
+        assert_eq!(resolved.servers[0].actor, None);
+    }
+
+    #[test]
+    fn set_shared_posts_the_flag_and_parses_the_connection() {
+        let (base, rx) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"status":"connected","expiresAt":null,"error":null,"shared":true}}}"#,
+        );
+        let connection = set_shared(&client(&base), "s1", true).expect("ok");
+        let request = rx.recv().unwrap();
+        assert!(request.contains("POST /api/trpc/mcpServers.setShared"));
+        assert!(request.contains(r#"{"serverId":"s1","shared":true}"#));
+        assert!(connection.shared && connection.connection.is_ready());
     }
 
     /// The create wire is `{teamId, ...fields}` — a flattened field set, so

@@ -102,6 +102,12 @@ use crate::transcript_rows::{
     self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE,
 };
 
+/// EXP-1175 — the thread list's synthetic keys: items are keyed by index,
+/// the reply above every item, the pending cards above the reply (the list
+/// sync's one requirement is an ascending key vector).
+const THREAD_REPLY_ID: FeedItemId = 1 << 40;
+const THREAD_CARD_BASE: FeedItemId = 1 << 41;
+
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
 const CLAMP_CHARS: usize = 600;
@@ -537,6 +543,19 @@ pub(crate) struct SteerSessionView {
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
     working: bool,
+    /// EXP-1175: the Run face's THREAD — its own virtualised list (tail
+    /// following like the transcript), the keys it was last told, the parsed
+    /// `results` and the pending cards it draws after the reply.
+    thread_list: ListState,
+    thread_keys: Vec<RowKey>,
+    thread: domain::session_results::SessionThread,
+    thread_cards: Vec<FeedRowSpec>,
+    /// EXP-1175: the status row reads `Building on … · <elapsed>`, so the
+    /// working tick repaints it while the run's display state is working.
+    status_ticking: bool,
+    /// EXP-1175: [`Self::show_work`] as of this frame's render — what the
+    /// cx-less projection ([`Self::active_subagent`]) reads.
+    show_work_cached: bool,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -749,6 +768,16 @@ impl SteerSessionView {
             row_keys: Vec::new(),
             active: HashSet::new(),
             working: false,
+            thread_list: {
+                let list = ListState::new(0, ListAlignment::Top, FEED_OVERDRAW);
+                list.set_follow_mode(FollowMode::Tail);
+                list
+            },
+            thread_keys: Vec::new(),
+            thread: Default::default(),
+            thread_cards: Vec::new(),
+            status_ticking: false,
+            show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -1321,6 +1350,80 @@ impl SteerSessionView {
             // `ListState` is a shared handle: hinting a clone hints the list.
             let _ = self.list.clone().with_uniform_item_height(FEED_ROW_HINT);
         }
+    }
+
+    /// EXP-1175 — the thread's projection, refreshed every frame after
+    /// [`Self::sync_list`] (whose main-transcript rows it reads the pending
+    /// cards from): the parsed `results`, then the same [`plan_list_sync`]
+    /// diff the transcript applies, so a changed row re-measures.
+    fn sync_thread(&mut self) {
+        use std::hash::{Hash as _, Hasher as _};
+        let hash = |value: &dyn Fn(&mut std::hash::DefaultHasher)| {
+            let mut hasher = std::hash::DefaultHasher::new();
+            value(&mut hasher);
+            hasher.finish()
+        };
+        self.thread = domain::session_results::session_thread(
+            self.row.as_ref().and_then(|row| row.results.as_ref()),
+        );
+        let items = self.feed.items();
+        self.thread_cards = if self.answerable_run() {
+            self.rows
+                .iter()
+                .filter(|spec| crate::session_rows::row_is_pending(spec, items))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.thread_cards.sort_by_key(FeedRowSpec::id);
+        let mut keys: Vec<RowKey> = Vec::with_capacity(self.thread.items.len() + 1);
+        for (ix, item) in self.thread.items.iter().enumerate() {
+            let fingerprint = hash(&|hasher| match item {
+                domain::session_results::ThreadItem::Text { topic, text } => {
+                    (ix == 0, topic, text).hash(hasher)
+                }
+                domain::session_results::ThreadItem::Picture(entry) => {
+                    (ix == 0, &entry.attachment_id, entry.width, entry.height).hash(hasher);
+                    (&entry.label, &entry.caption).hash(hasher)
+                }
+            });
+            keys.push(RowKey { id: ix as FeedItemId, fingerprint });
+        }
+        if let Some(reply) = self.thread.reply.as_ref() {
+            let first = keys.is_empty();
+            keys.push(RowKey {
+                id: THREAD_REPLY_ID,
+                fingerprint: hash(&|hasher| (first, reply).hash(hasher)),
+            });
+        }
+        for spec in &self.thread_cards {
+            let id = spec.id();
+            let fingerprint = transcript_rows::row_fingerprint(
+                spec,
+                items,
+                self.expanded_groups.contains(&id),
+                |item| self.item_facets(item),
+            );
+            let fingerprint = transcript_rows::fold_gap(fingerprint, if keys.is_empty() { 0. } else { 1. });
+            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec));
+            keys.push(RowKey { id: THREAD_CARD_BASE + id, fingerprint });
+        }
+        let ops = plan_list_sync(&self.thread_keys, &keys);
+        for op in ops {
+            match op {
+                ListOp::Splice { range, count } => self.thread_list.splice(range, count),
+                ListOp::Remeasure(range) => self.thread_list.remeasure_items(range),
+            }
+        }
+        self.thread_keys = keys;
+    }
+
+    /// EXP-1175 — the viewer's Show work switch: per signed-in USER
+    /// ([`crate::ui_prefs::show_work`]), `EXP_DEV_SHOW_WORK=1` forcing it on
+    /// for the capture lane.
+    fn show_work(&self, cx: &App) -> bool {
+        crate::screens::dev_show_work() || crate::ui_prefs::show_work(&show_work_user(cx))
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -2963,7 +3066,7 @@ impl SteerSessionView {
             cx.background_executor().timer(WORKING_TICK).await;
             if this
                 .update(cx, |this, cx| {
-                    if this.working_now() {
+                    if this.working_now() || this.status_ticking {
                         cx.notify();
                     }
                 })
@@ -3363,18 +3466,6 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// …and the same row when the run left nothing to replay (its workspace,
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
-
-/// The confirm copy, byte-identical to the web `useKillSession` dialog.
-pub(crate) fn kill_description(device_label: Option<&str>) -> String {
-    let on_device = match device_label {
-        Some(label) if !label.is_empty() => format!(" on {label}"),
-        _ => String::new(),
-    };
-    format!(
-        "This stops the agent{on_device} and ends the session. \
-         Uncommitted work in the worktree is kept, but the agent stops immediately."
-    )
-}
 
 /// `steer.killSession` off the gpui foreground. Shared with the Devices
 /// screen's per-row kill.
@@ -4081,6 +4172,137 @@ fn ask_body_text(cx: &App) -> gpui::Div {
 // ---------------------------------------------------------------------------
 
 impl SteerSessionView {
+    /// EXP-1175 — the Run face's status row, over the thread or the
+    /// transcript alike ([`crate::run_rows::run_status_row`]): the run mark,
+    /// `runRowCaption` in its tone, the newest tool call muted under it (live
+    /// runs only) and the Show work / Hide work switch.
+    fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        use crate::run_rows::{self, RunRowState, RunStatusMark};
+        let row = self.row.as_ref()?;
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let facts = run_rows::running_run_facts(row, None, None, now_ms / 1_000, cx);
+        let ended = self.session_over();
+        // EXP-1175: the viewer's own signals (a pending card on a live run,
+        // the working predicate) fold over the synced display state.
+        let awaiting_input = self.answerable_run() && !self.active.is_empty();
+        let working = self.working_now();
+        let state = run_rows::run_row_state(
+            facts.paused,
+            ended,
+            awaiting_input,
+            working,
+            facts.display,
+        );
+        // The mark follows the same state, so it never disagrees with the
+        // caption beside it.
+        let mark = match state {
+            RunRowState::Ended => RunStatusMark::Ended,
+            RunRowState::Paused => RunStatusMark::Live(None),
+            RunRowState::NeedsInput => {
+                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::NeedsInput))
+            }
+            RunRowState::Working => RunStatusMark::Live(
+                (working || facts.working).then_some(crate::queries::CodingSessionDisplay::Working),
+            ),
+            RunRowState::Review => {
+                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Review))
+            }
+            RunRowState::Done => RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Done)),
+        };
+        let device = facts
+            .device_label
+            .as_deref()
+            .or(row.device_label.as_deref())
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .unwrap_or("Desktop");
+        let (caption, tone) = run_rows::run_row_caption(
+            state,
+            device,
+            run_rows::stamp_ms(run_rows::run_started_at(row)),
+            run_rows::stamp_ms(run_rows::past_run_ended_at(row)),
+            now_ms,
+        );
+        self.status_ticking = state == RunRowState::Working;
+        let tool_line = (!ended)
+            .then(|| steer::feed::last_tool_line(self.feed.items()))
+            .flatten()
+            .map(SharedString::from);
+        let entity = cx.entity().downgrade();
+        let element = run_rows::run_status_row(
+            run_rows::RunStatusRowSpec {
+                id: SharedString::from("steer-run-status-row"),
+                agent: facts.agent,
+                mark,
+                caption: SharedString::from(caption),
+                tone,
+                tool_line,
+                show_work,
+                on_toggle: Some(Box::new(move |_, window, cx| {
+                    crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
+                    let _ = entity.update(cx, |_, cx| cx.notify());
+                    window.refresh();
+                })),
+            },
+            cx,
+        );
+        Some(work_column_row(element).into_any_element())
+    }
+
+    /// EXP-1175 — the Run face's default body: the published results in
+    /// publish order, the Summary as the agent's reply LAST, then every
+    /// pending card through the transcript's own renderer. A run with
+    /// nothing in it yet shows the transcript's placeholders.
+    fn render_thread(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        if self.thread_keys.is_empty() && self.feed.is_empty() {
+            return self.render_feed(cx);
+        }
+        let list = list(
+            self.thread_list.clone(),
+            cx.processor(|this, ix: usize, window, cx| this.render_thread_row(ix, window, cx)),
+        )
+        .pt_2()
+        .pb(px(crate::surface::COMPOSER_EDGE_FADE_H - 8.));
+        crate::scroll_pane::v_list_pane(list, &self.thread_list).into_any_element()
+    }
+
+    fn render_thread_row(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        use domain::session_results::ThreadItem;
+        let count = self.thread.items.len();
+        let replies = usize::from(self.thread.reply.is_some());
+        let element = if let Some(item) = self.thread.items.get(ix).cloned() {
+            match item {
+                ThreadItem::Text { topic, text } => {
+                    let view = self.prose(SharedString::from(format!("steer-thread-text-{ix}")), text);
+                    thread_text_row(topic, self.with_issue_chips(view, cx), cx)
+                }
+                ThreadItem::Picture(entry) => self.inline_tile(
+                    &entry,
+                    SharedString::from(format!("steer-thread-picture-{ix}")),
+                    cx,
+                ),
+            }
+        } else if ix < count + replies {
+            let reply = self.thread.reply.clone().unwrap_or_default();
+            self.render_narration(SharedString::from("steer-thread-reply"), reply, cx)
+        } else {
+            match self.thread_cards.get(ix - count - replies).cloned() {
+                Some(spec) => {
+                    let row = spec.resolve(self.feed.items());
+                    self.render_row(&row, false, &self.active, window, cx)
+                }
+                None => div().into_any_element(),
+            }
+        };
+        let gap = if ix == 0 { px(0.) } else { px(transcript::GAP_BLOCK) };
+        work_column_row(element).pt(gap).into_any_element()
+    }
+
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         if self.feed.is_empty() {
@@ -4270,6 +4492,21 @@ impl SteerSessionView {
         }
     }
 
+    /// The agent's prose: its mark beside the chat-rhythm markdown. EXP-1175:
+    /// the thread's reply draws through the same row.
+    fn render_narration(&self, key: SharedString, text: String, cx: &App) -> AnyElement {
+        narration_row(self.with_issue_chips(self.prose(key, text), cx), cx)
+    }
+
+    /// The transcript's prose view. EXP-698: the feed reads at the chat
+    /// rhythm, and its inline code takes the semantic tint.
+    fn prose(&self, key: SharedString, text: String) -> crate::markdown::MarkdownView {
+        crate::markdown::MarkdownView::new(key, text)
+            .chat(true)
+            .selectable(true)
+            .images(self.images.clone())
+    }
+
     fn render_item(
         &self,
         item: &FeedItem,
@@ -4279,35 +4516,11 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
-            FeedKind::Narration { text, .. } => h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_start()
-                .child(
-                    div().mt(px(3.)).flex_shrink_0().child(
-                        Icon::new(registry::CODING_ASSISTANT)
-                            .xsmall()
-                            .text_color(muted.opacity(0.6)),
-                    ),
-                )
-                .child(
-                    body_text(div()).flex_1().min_w_0().child(
-                        self.with_issue_chips(
-                            crate::markdown::MarkdownView::new(
-                                SharedString::from(format!("steer-narration-{}", item.id)),
-                                text.clone(),
-                            )
-                            // EXP-698: the feed reads at the chat rhythm, and
-                            // its inline code takes the semantic tint.
-                            .chat(true)
-                            .selectable(true)
-                            .images(self.images.clone()),
-                            cx,
-                        ),
-                    ),
-                )
-                .into_any_element(),
+            FeedKind::Narration { text, .. } => self.render_narration(
+                SharedString::from(format!("steer-narration-{}", item.id)),
+                text.clone(),
+                cx,
+            ),
             // EXP-724: a message that IS a catalog command reads as a
             // compact pill, not a chat bubble — the agent was steered, not
             // spoken to.
@@ -4747,6 +4960,22 @@ impl SteerSessionView {
             self.row.as_ref().and_then(|row| row.results.as_ref()),
             attachment_id,
         )?;
+        Some(self.inline_tile(
+            &entry,
+            SharedString::from(format!("steer-exp-picture-{}", id as usize)),
+            cx,
+        ))
+    }
+
+    /// EXP-1172 — one published picture as the transcript's inline tile.
+    /// EXP-1175: the thread's pictures draw through it too.
+    fn inline_tile(
+        &self,
+        entry: &domain::session_results::SessionResultEntry,
+        id: SharedString,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        use domain::session_results as results;
         // The transcript column's content box (the work column, narrowed by
         // a pane too small for it, inside the work gutter) minus the row's
         // `pl_5` indent. The unmeasured first frame takes the full column.
@@ -4757,18 +4986,18 @@ impl SteerSessionView {
             crate::work_header::WORK_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER;
         let height = results::session_result_tile_height_fitting_from(
-            std::slice::from_ref(&entry),
+            std::slice::from_ref(entry),
             column - 20.,
             results::SESSION_INLINE_TILE_HEIGHT,
         );
-        Some(crate::session_results::tile(
-            &entry,
+        crate::session_results::tile(
+            entry,
             height,
-            SharedString::from(format!("steer-exp-picture-{}", id as usize)),
-            results::session_result_tile_caption(&entry).to_string(),
+            id,
+            results::session_result_tile_caption(entry).to_string(),
             &self.images,
             cx,
-        ))
+        )
     }
 
     /// One tool call's row plus whatever hangs off it.
@@ -6444,6 +6673,10 @@ impl SteerSessionView {
     /// still visible (web `activeAgent`): a done subagent's tab lingers
     /// exactly as long as it stays focused, then Main takes over.
     fn active_subagent(&self) -> Option<String> {
+        // EXP-1175: the thread has no subagent tabs — Main projects.
+        if !self.show_work_cached {
+            return None;
+        }
         let focused = self.focused_subagent.as_deref()?;
         // EXP-884: the derived summaries, not a walk of the run per call.
         steer::feed::visible_subagent_tabs(&self.subagents, Some(focused))
@@ -6801,12 +7034,15 @@ impl SteerSessionView {
     /// repaint when they differ (the button would otherwise linger).
     fn render_jump_to_bottom(
         &self,
+        list: &ListState,
+        has_rows: bool,
         composer_visible: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let following = self.list.is_following_tail();
-        let shown = !self.feed.is_empty() && !following;
-        let list = self.list.clone();
+        let following = list.is_following_tail();
+        let shown = has_rows && !following;
+        let target = list.clone();
+        let list = list.clone();
         let entity_id = cx.entity_id();
         let probe = gpui::canvas(
             move |_, _, cx| {
@@ -6832,9 +7068,9 @@ impl SteerSessionView {
                 .justify_center()
                 .child(crate::controls::jump_to_bottom_button(
                     "steer-jump-to-bottom",
-                    cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.list.set_follow_mode(FollowMode::Tail);
-                        this.list.scroll_to_end();
+                    cx.listener(move |_, _: &ClickEvent, _window, cx| {
+                        target.set_follow_mode(FollowMode::Tail);
+                        target.scroll_to_end();
                         cx.notify();
                     }),
                     cx,
@@ -7367,6 +7603,15 @@ pub(crate) fn split_image_markers(text: &str, count: usize) -> Vec<MarkerSegment
         .collect()
 }
 
+/// EXP-1175 — the key the Show work preference is remembered under: the
+/// signed-in USER id, `default` with none.
+fn show_work_user(cx: &App) -> String {
+    sync::Store::try_global(cx)
+        .and_then(|_| crate::queries::active_account(cx))
+        .map(|account| account.user_id)
+        .unwrap_or_else(|| "default".to_string())
+}
+
 /// EXP-909 — the account a run hosted HERE is spending, as the launcher
 /// recorded it (`runs.json`): `system` for the ambient login, a profile id
 /// otherwise. `None` when this machine has no record of the run at all — and
@@ -7540,6 +7785,43 @@ fn banner_block(content: AnyElement) -> gpui::Div {
 /// The conversation TABS and every strip block (task list, tasks and waits,
 /// the queue bar) wrap their CONTENT in this too. Only the backgrounds
 /// still span the panel.
+/// The agent's prose row: its mark beside the markdown (EXP-1175: the
+/// thread's reply too).
+pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_start()
+        .child(
+            div().mt(px(3.)).flex_shrink_0().child(
+                Icon::new(registry::CODING_ASSISTANT)
+                    .xsmall()
+                    .text_color(muted.opacity(0.6)),
+            ),
+        )
+        .child(body_text(div()).flex_1().min_w_0().child(view))
+        .into_any_element()
+}
+
+/// EXP-1175 — a thread text item: the topic as an 11px muted caption over
+/// the report's markdown.
+pub(crate) fn thread_text_row(
+    topic: String,
+    view: crate::markdown::MarkdownView,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(div().text_2xs().text_color(muted).child(topic))
+        .child(body_text(div()).w_full().min_w_0().child(view))
+        .into_any_element()
+}
+
 fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()
@@ -7906,11 +8188,20 @@ impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
+        // EXP-1175: the Show work switch decides the body; the cx-less
+        // projection reads it off the view.
+        let show_work = self.show_work(cx);
+        self.show_work_cached = show_work;
         self.sync_list(cx);
+        self.sync_thread();
         self.sync_card_focus(window, cx);
-        // EXP-789: the subagent strip sits between the header and the feed.
-        let strip = self.render_subagent_strip(cx);
-        let feed = self.render_feed(cx);
+        // EXP-789: the subagent strip sits between the header and the feed
+        // (EXP-1175: the transcript's only).
+        let strip = show_work.then(|| self.render_subagent_strip(cx)).flatten();
+        // EXP-1175: the status row tops both bodies; the body is the thread
+        // unless Show work is on, then the full transcript in the same slot.
+        let status_row = self.render_status_row(show_work, cx);
+        let feed = if show_work { self.render_feed(cx) } else { self.render_thread(cx) };
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
         // EXP-724: between the banners and the composer, exactly where the
@@ -7946,9 +8237,18 @@ impl Render for SteerSessionView {
             None => self.render_results_pane(window, cx),
         };
         let width_probe = self.view_width.clone();
-        let jump = pane
-            .is_none()
-            .then(|| self.render_jump_to_bottom(composer_visible, cx));
+        let jump = pane.is_none().then(|| {
+            if show_work {
+                self.render_jump_to_bottom(&self.list, !self.feed.is_empty(), composer_visible, cx)
+            } else {
+                self.render_jump_to_bottom(
+                    &self.thread_list,
+                    !self.thread_keys.is_empty(),
+                    composer_visible,
+                    cx,
+                )
+            }
+        });
         let conversation = pane.is_none().then(|| {
             v_flex()
                 .flex_1()
@@ -7957,6 +8257,7 @@ impl Render for SteerSessionView {
                 .min_h_0()
                 .overflow_hidden()
                 .children(strip)
+                .children(status_row)
                 // EXP-1162: the transcript fades out over the bottom edge
                 // strip into whatever sits under it (the composer band lost
                 // its hairline for it).
@@ -8547,17 +8848,6 @@ mod tests {
         assert!(!clampable(&"line\n".repeat(CLAMP_LINES - 1)));
     }
 
-    #[test]
-    fn the_kill_copy_names_the_device_only_when_there_is_one() {
-        assert!(kill_description(Some("macbook")).starts_with(
-            "This stops the agent on macbook and ends the session."
-        ));
-        assert!(kill_description(None)
-            .starts_with("This stops the agent and ends the session."));
-        assert!(kill_description(Some("")).starts_with(
-            "This stops the agent and ends the session."
-        ));
-    }
 
     /// EXP-724: the `/clear` confirm is the same four strings on
     /// web, iOS, Android and here. `Cancel` is [`AlertSpec`]'s own footer

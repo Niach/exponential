@@ -39,6 +39,30 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
     return .success(data)
 }
 
+/// EXP-1231: what the page's store watch reads — the draft row's presence and
+/// an issue created from it (`issues.draft_id`), wherever that happened.
+private struct DraftWatch: Equatable, Sendable {
+    let present: Bool
+    let createdIssueId: String?
+}
+
+/// EXP-1231: the store watch's task, cancellable from the nonisolated
+/// `deinit` (a `@MainActor` model's own state is unreachable there).
+private final class DraftWatchHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+
+    func set(_ task: Task<Void, Never>?) {
+        lock.lock()
+        let old = self.task
+        self.task = task
+        lock.unlock()
+        old?.cancel()
+    }
+
+    func cancel() { set(nil) }
+}
+
 /// EXP-1170 — the New issue page's model: a DRAFT (`issue_drafts` row, id
 /// minted by the opener at tap time) edited in the issue face's layout.
 ///
@@ -51,6 +75,12 @@ private func readDraftFileBytes(from url: URL) -> Result<Data, DraftFileReadFail
 /// content: chips alone never create a row; a page left with its content
 /// emptied deletes the row it had. A sub-issue draft (`parentId`) never
 /// writes (EXP-1097/1130).
+///
+/// EXP-1231 CONCURRENCY: the same draft may be open on other clients. The
+/// model watches its row in the local store (`IssueDraftPage.fate`): an issue
+/// carrying this draft id = created elsewhere, a seen row gone for
+/// `discardedGraceMs` with no such issue = discarded elsewhere. Either stops
+/// every write and publishes `consumedElsewhere` for the page to act on.
 @MainActor
 @Observable
 final class IssueDraftViewModel {
@@ -94,6 +124,17 @@ final class IssueDraftViewModel {
     private(set) var loadFailed = false
     @ObservationIgnored private(set) var issueRefAugmentor: IssueRefAugmentor?
 
+    /// EXP-1231: how another client consumed this draft.
+    enum Consumed: Equatable {
+        /// The issue it became: the page replaces itself with it.
+        case created(issueId: String)
+        /// Discarded: the page toasts and leaves.
+        case discarded
+    }
+
+    /// EXP-1231: set once another client consumed the draft; the page acts.
+    private(set) var consumedElsewhere: Consumed?
+
     // MARK: Plumbing
 
     @ObservationIgnored private var deps: AppDependencies?
@@ -119,6 +160,8 @@ final class IssueDraftViewModel {
     /// The newest upsert failed (cleared by the next one that lands):
     /// `flushForKeep` reads it.
     @ObservationIgnored private var lastWriteFailed = false
+    /// The newest failed upsert was the server refusing a consumed draft.
+    @ObservationIgnored private var lastWriteConsumed = false
 
     /// The autosave machine: nothing pending, a debounced save waiting, or a
     /// save loop running (`dirtyAgain` = run once more when it lands).
@@ -131,11 +174,32 @@ final class IssueDraftViewModel {
     @ObservationIgnored private var saveState: SaveState = .idle
     @ObservationIgnored private var saveLoopTask: Task<Void, Never>?
 
+    // MARK: Concurrency (EXP-1231)
+
+    private let watchHandle = DraftWatchHandle()
+    /// The latest store reading, re-judged whenever the page's own state
+    /// changes (a failed Create, coming back on screen).
+    @ObservationIgnored private var lastWatch: DraftWatch?
+    /// The row was in the local store during this page's life (its own
+    /// mirrored upsert counts). A row never seen is never "gone".
+    @ObservationIgnored private var rowSeen = false
+    /// The seen row is gone: no write while the grace runs (one could
+    /// resurrect a discarded draft).
+    @ObservationIgnored private var holdWrites = false
+    @ObservationIgnored private var graceTask: Task<Void, Never>?
+    /// Concluded while the page was off screen (a route pushed over it):
+    /// published when it is back, so its exit never pops the wrong screen.
+    @ObservationIgnored private var deferredConsumed: Consumed?
+
     init(draftId: String, boardId: String, statusId: String?, parentId: String?) {
         self.draftId = draftId
         self.boardId = boardId
         self.initialStatusId = statusId
         self.parentId = parentId
+    }
+
+    deinit {
+        watchHandle.cancel()
     }
 
     // MARK: - Derived
@@ -239,6 +303,7 @@ final class IssueDraftViewModel {
         self.deps = deps
         self.accountId = accountId
         configureEditor()
+        startWatching()
         Task { await load() }
     }
 
@@ -520,7 +585,7 @@ final class IssueDraftViewModel {
         lastWriteFailed = false
         await flush()
         if lastWriteFailed {
-            if error == nil { error = "Couldn't save the draft." }
+            if error == nil, !lastWriteConsumed { error = "Couldn't save the draft." }
             return false
         }
         return true
@@ -546,7 +611,7 @@ final class IssueDraftViewModel {
     /// (or an upload needs the row), delete an emptied row on the way out,
     /// nothing otherwise.
     private func writeOnce() async {
-        guard writesDraft, !finished, !blockedByCreate, let deps else { return }
+        guard writesDraft, !finished, !blockedByCreate, !holdWrites, let deps else { return }
         guard hasContent || ensureRequested else {
             // Only a KNOWN-empty draft is deleted: an attachment list that
             // never loaded may still hold files.
@@ -571,7 +636,10 @@ final class IssueDraftViewModel {
         } catch {
             ensureRequested = false
             lastWriteFailed = true
-            if !leaving { self.error = error.userFacingMessage }
+            // EXP-1231: CONFLICT = the draft was consumed elsewhere (created
+            // or discarded); the store watch carries the page out, no toast.
+            lastWriteConsumed = error.trpcErrorCode == "CONFLICT"
+            if !leaving, !lastWriteConsumed { self.error = error.userFacingMessage }
         }
     }
 
@@ -612,6 +680,8 @@ final class IssueDraftViewModel {
 
     private func deleteLocalRow() async {
         rowExists = false
+        // EXP-1231: this page's own delete is never "discarded elsewhere".
+        rowSeen = false
         guard let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
         let key = draftId
         _ = try? await pool.write { db in try IssueDraftEntity.deleteOne(db, key: key) }
@@ -640,8 +710,14 @@ final class IssueDraftViewModel {
     /// The page is on screen again (a route pushed over it was popped):
     /// editing resumes, so the next write is a plain save again.
     func resume() {
+        if let deferred = deferredConsumed {
+            deferredConsumed = nil
+            consumedElsewhere = deferred
+            return
+        }
         guard !finished else { return }
         leaving = false
+        judgeFate()
     }
 
     /// Discard draft: drop the row (server + local) if there is one. The
@@ -656,6 +732,7 @@ final class IssueDraftViewModel {
             task.cancel()
             saveState = .idle
         }
+        stopWatching()
         guard writesDraft else { return }
         let inFlight = saveLoopTask
         Task {
@@ -826,6 +903,7 @@ final class IssueDraftViewModel {
                 labelIds: validLabelIds
             )
             // The server dropped the draft row; drop the local mirror too.
+            stopWatching()
             await deleteLocalRow()
             creating = false
             return created.id
@@ -835,7 +913,102 @@ final class IssueDraftViewModel {
             // The draft lives on: edits typed during the failed create save.
             finished = false
             saveNow()
+            // EXP-1231: whatever the store saw meanwhile is judged now.
+            judgeFate()
             return nil
+        }
+    }
+
+    // MARK: - Concurrency (EXP-1231)
+
+    /// Watch this draft's row and any issue made from it in the local store.
+    /// A sub-issue draft writes no row: nothing to watch.
+    private func startWatching() {
+        guard writesDraft, let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let draftId = draftId
+        let observation = ValueObservation.tracking { db -> DraftWatch in
+            let present = try IssueDraftEntity.exists(db, key: draftId)
+            let createdIssueId = try IssueEntity
+                .filter(Column("draft_id") == draftId)
+                .select(Column("id"), as: String.self)
+                .fetchOne(db)
+            return DraftWatch(present: present, createdIssueId: createdIssueId)
+        }
+        .removeDuplicates()
+        watchHandle.set(Task { [weak self] in
+            do {
+                for try await watch in observation.values(in: pool) {
+                    guard let self else { return }
+                    self.observe(watch)
+                }
+            } catch {}
+        })
+    }
+
+    private func stopWatching() {
+        watchHandle.cancel()
+        graceTask?.cancel()
+        graceTask = nil
+    }
+
+    private func observe(_ watch: DraftWatch) {
+        lastWatch = watch
+        if watch.present { rowSeen = true }
+        judgeFate()
+    }
+
+    private var fate: IssueDraftPage.Fate {
+        guard let lastWatch else { return .open }
+        return IssueDraftPage.fate(
+            seen: rowSeen, present: lastWatch.present, createdIssueId: lastWatch.createdIssueId
+        )
+    }
+
+    /// Apply the store's verdict. Never while the page's own Create is in
+    /// flight or after its own Create/Discard. Off screen (`leaving`) a
+    /// creation still stops every write but is published only once the page
+    /// is back; a gone row waits for the page to be back.
+    private func judgeFate() {
+        guard writesDraft, !finished, !creating else { return }
+        switch fate {
+        case let .created(issueId):
+            conclude(.created(issueId: issueId))
+        case .gone:
+            guard !leaving else { return }
+            holdWrites = true
+            guard graceTask == nil else { return }
+            graceTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(IssueDraftPage.discardedGraceMs)))
+                guard !Task.isCancelled, let self else { return }
+                self.graceTask = nil
+                guard !self.finished, !self.creating, !self.leaving, self.fate == .gone else { return }
+                self.conclude(.discarded)
+            }
+        case .open:
+            graceTask?.cancel()
+            graceTask = nil
+            if holdWrites {
+                // The row is back (a resync, this page's own racing write):
+                // editing resumes, and edits held meanwhile save.
+                holdWrites = false
+                saveNow()
+            }
+        }
+    }
+
+    /// Consumed elsewhere: nothing is ever written again, and the page acts
+    /// (now, or once it is back on screen).
+    private func conclude(_ consumed: Consumed) {
+        finished = true
+        if case let .scheduled(task) = saveState {
+            task.cancel()
+            saveState = .idle
+        }
+        stopWatching()
+        if leaving {
+            deferredConsumed = consumed
+        } else {
+            consumedElsewhere = consumed
         }
     }
 

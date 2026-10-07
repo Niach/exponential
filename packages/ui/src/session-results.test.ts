@@ -287,3 +287,22 @@ describe(`session results guide fixture`, () => {
     expect(isSummaryTopic(`Summary of nav`)).toBe(false)
   })
 })
+
+// EXP-1175: the Run face's thread, the fixture's `thread` cases ×4.
+import { sessionThread } from "./session-results"
+
+describe(`session thread`, () => {
+  for (const c of fixture.thread.cases) {
+    it(c.name, () => {
+      const thread = sessionThread(c.raw)
+      expect({
+        items: thread.items.map((item) =>
+          item.kind === `text`
+            ? { kind: `text`, topic: item.topic, text: item.text }
+            : { kind: `picture`, attachmentId: item.entry.attachmentId }
+        ),
+        reply: thread.reply,
+      }).toEqual(c.expected)
+    })
+  }
+})

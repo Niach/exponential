@@ -1129,3 +1129,27 @@ fn the_workflow_fixture_maps_to_the_two_new_slots_and_a_wait_row() {
         engine::LocalFeedEvent::ToolCall { kind: engine::ToolCardKind::Wait, .. }
     )));
 }
+
+/// FEED-73: a team MCP call's `as <name>` rides the tool row's `detail`
+/// (the adapter's `_meta` beats the detail the mapper would derive), under
+/// the call's own title; a call without the meta keeps the derived detail.
+#[test]
+fn a_team_mcp_actor_meta_is_the_tool_rows_detail() {
+    let wire = wire("mcp_actor.jsonl");
+    let row = |id: &str| {
+        wire.iter()
+            .find(|event| event["kind"] == "tool" && event["id"] == id)
+            .unwrap_or_else(|| panic!("a tool row for {id}: {wire:?}"))
+            .clone()
+    };
+    let chris = row("tc-chris");
+    assert_eq!(chris["name"], json!("mcp__linear_as_chris__create_comment"));
+    assert_eq!(chris["detail"], json!("as Chris"));
+    let danny = row("tc-danny");
+    assert_eq!(danny["name"], json!("mcp.linear.create_comment"));
+    assert_eq!(danny["detail"], json!("as Danny"));
+    assert_eq!(
+        row("tc-plain"),
+        json!({ "kind": "tool", "name": "mcp__linear__create_comment", "id": "tc-plain", "toolKind": "other" })
+    );
+}

@@ -397,6 +397,16 @@ fun WorkScreen(
             prState = issue?.prState ?: it.prState,
         )
     }
+    // EXP-1175: the Run face status row's display state — the same rule,
+    // ungated (the row itself tells paused and ended apart).
+    val runDisplayState = shownSession?.let {
+        codingSessionDisplayState(
+            status = it.status,
+            needsInput = it.needsInput || awaitingInput,
+            agentBusy = it.agentBusy,
+            prState = issue?.prState ?: it.prState,
+        )
+    }
     // EXP-1150: Start coding once the shown run ended for good.
     val offerStart = sessionEnded && ownShown && resumeTarget == null && issueId != null &&
         readiness?.visible == true
@@ -733,6 +743,7 @@ fun WorkScreen(
                                 onOpenIssue = onOpenIssue,
                                 trailingBarSlot = runTrailing,
                                 mergeBarSlot = runMergeSlot,
+                                runState = runDisplayState,
                                 // EXP-1154: the transcript card's Open Results
                                 // means the run's REPORT, never the PR body.
                                 onOpenResults = if (WorkFaceKind.Results in faces && resultGroups.isNotEmpty()) {

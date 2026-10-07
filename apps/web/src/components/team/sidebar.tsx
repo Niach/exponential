@@ -375,9 +375,31 @@ export function TeamSidebar({
                   >
                     <SidebarGroup>
                       <SidebarGroupContent>
-                        {/* Nav order ×4 with the IDE rail: Inbox, Devices,
-                            Reviews, Agent, Actions, Drafts (while any). */}
+                        {/* Nav order ×4 with the IDE rail (EXP-1229): Agent,
+                            Inbox, Devices, Reviews, Actions, Drafts (while any). */}
                         <SidebarMenu>
+                          {/* EXP-818: the Agent page — the composer over the
+                              caller's past runs (the IDE rail's Agent entry).
+                              EXP-1120: no live-run dot — live runs already list
+                              in the sidebar's Running section. */}
+                          <SidebarMenuItem>
+                            <SidebarMenuButton
+                              asChild
+                              density="compact"
+                              className={cn(
+                                // A pinned action is driving the composer: its
+                                // row owns the highlight (EXP-862).
+                                agentPage &&
+                                  composerActionId !== null &&
+                                  `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
+                              )}
+                            >
+                              <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
+                                <NavAgentIcon className="h-4 w-4" />
+                                <span>Agent</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
@@ -410,28 +432,6 @@ export function TeamSidebar({
                               />
                             </SidebarMenuItem>
                           )}
-                          {/* EXP-818: the Agent page — the composer over the
-                              caller's past runs (the IDE rail's Agent entry).
-                              EXP-1120: no live-run dot — live runs already list
-                              in the sidebar's Running section. */}
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              asChild
-                              density="compact"
-                              className={cn(
-                                // A pinned action is driving the composer: its
-                                // row owns the highlight (EXP-862).
-                                agentPage &&
-                                  composerActionId !== null &&
-                                  `data-[status=active]:bg-transparent data-[status=active]:font-normal data-[status=active]:text-sidebar-foreground`
-                              )}
-                            >
-                              <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
-                                <NavAgentIcon className="h-4 w-4" />
-                                <span>Agent</span>
-                              </Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
                           {/* Actions (authoring; the composer's action
                               chip RUNS one) and the Drafts pile (EXP-878,
                               while any) are root entries, as on desktop. */}

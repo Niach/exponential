@@ -75,7 +75,9 @@ export async function patchPullDescription(opts: {
       }
       throw new TRPCError({
         code: `INTERNAL_SERVER_ERROR`,
-        message: `GitHub update failed: ${err.message}`,
+        // FEED-74: the status is the first diagnosis; the message is GitHub's
+        // own (never empty — `empty response body (request …)` on a bare 500).
+        message: `GitHub update failed (HTTP ${err.status}): ${err.message}`,
       })
     }
     throw err

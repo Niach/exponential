@@ -90,6 +90,21 @@ val MIGRATION_80_81: Migration = object : Migration(80, 81) {
     }
 }
 
+/**
+ * v82 (EXP-1231): `issues.draft_id`, the draft an issue was created from. The
+ * nullable column lands empty, so the issues shape refetches (its offset
+ * resets) and already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_81_82: Migration = object : Migration(81, 82) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `issues` ADD COLUMN `draft_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'issues'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

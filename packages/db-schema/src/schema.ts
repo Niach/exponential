@@ -509,10 +509,22 @@ export const issues = pgTable(
     // edge every client derives is `child.pr_base_branch == lower.branch`
     // within one repository. NULL = the board's default branch / no PR.
     prBaseBranch: text(`pr_base_branch`),
+    // EXP-1231: the issue DRAFT this issue was created from (`issues.create
+    // ({ draftId })` consumed that `issue_drafts` row in the same
+    // transaction). No FK: the draft row is gone by the time this is
+    // written. SYNCED, so a draft page still open on another client sees
+    // "created elsewhere" and lands on this issue instead of resurrecting
+    // the draft; `issueDrafts.upsert` refuses a consumed id.
+    draftId: uuid(`draft_id`),
     ...timestamps,
   },
   (table) => [
     index(`idx_issues_board_status`).on(table.boardId, table.status),
+    // EXP-1231: "was this draft already created?" — the upsert guard and
+    // the clients' created-elsewhere lookup. Partial — most issues have none.
+    index(`idx_issues_draft_id`)
+      .on(table.draftId)
+      .where(sql`draft_id IS NOT NULL`),
     index(`idx_issues_team`).on(table.teamId),
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_creator`).on(table.creatorId),
@@ -2321,6 +2333,12 @@ export const mcpCredentials = pgTable(
     issuer: text(),
     clientId: text(`client_id`),
     error: text(),
+    // FEED-73: the member's own toggle (`mcpServers.setShared`). A shared
+    // credential is spent by every run of an ACTION in this team whose list
+    // (`actions.mcp_server_ids`) names the server, as an extra
+    // `<server>-as-<member>` entry. Disconnect and a server retarget delete
+    // the row, so a reconnect starts unshared.
+    shared: boolean().notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -2448,6 +2466,15 @@ export const actions = pgTable(
     // reads them off the shape and self-starts; there is no server scheduler.
     triggers: jsonb()
       .$type<ActionTrigger[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // FEED-73: the team MCP servers EVERY run of this action uses (trigger,
+    // remote and composer starts alike; `codingSessions.start` copies it onto
+    // the run, ignoring the launch pick). SERVER-ONLY like `body`: behind the
+    // shape's columns allowlist, `actions.get` returns it. Members' shared
+    // connections resolve as extra `<server>-as-<member>` entries.
+    mcpServerIds: jsonb(`mcp_server_ids`)
+      .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/prompts.json"
 import {
   deleteAccountPrompt,
+  deleteActionPrompt,
   deleteFilePrompt,
   deleteIssuePrompt,
   deleteIssuesPrompt,
@@ -66,6 +67,7 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
     titleNoDevice: () => resumeRunPrompt(null),
   },
   "delete-trigger": { title: () => deleteTriggerPrompt() },
+  "delete-action": { title: () => deleteActionPrompt(`{name}`) },
   "remove-device": { title: () => removeDevicePrompt(`{name}`) },
   "delete-team": { title: () => deleteTeamPrompt(`{name}`) },
   "trash-board": { title: () => trashBoardPrompt(`{name}`) },
@@ -192,7 +194,6 @@ describe(`prompts (contract fixture)`, () => {
 describe(`web-only prompts`, () => {
   it(`follow the same rules: one question, focus never destructive`, () => {
     const copies = [
-      WEB_PROMPTS.deleteAction(`Triage`),
       WEB_PROMPTS.updateDevice(`Mac`),
       WEB_PROMPTS.sweepImages(2),
       WEB_PROMPTS.deleteWidget(`Site`),

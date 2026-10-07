@@ -254,6 +254,10 @@ pub(crate) struct DraftEditor {
     /// A write failure was already toasted; quiet until a write succeeds
     /// (offline autosave must not toast every keystroke).
     failing: bool,
+    /// EXP-1231: the synced row went (discarded elsewhere?) and the page is
+    /// waiting out the grace: nothing is written — no save, no leave, no
+    /// ensuring upsert — until [`Self::hold`] lets go (the row came back).
+    held: bool,
 }
 
 impl EventEmitter<DraftEditorEvent> for DraftEditor {}
@@ -287,6 +291,7 @@ impl DraftEditor {
             creating: false,
             window,
             failing: false,
+            held: false,
         };
         if from_existing {
             this.load_files(cx);
@@ -358,7 +363,7 @@ impl DraftEditor {
     /// one. A snapshot identical to the latest one is a repaint, not an edit,
     /// and leaves the running timer alone.
     pub(crate) fn schedule_save(&mut self, snapshot: DraftSave, cx: &mut gpui::Context<Self>) {
-        if !self.identity.owed || self.creating {
+        if !self.identity.owed || self.creating || self.held {
             return;
         }
         if self.latest.as_ref() == Some(&snapshot) {
@@ -382,7 +387,7 @@ impl DraftEditor {
     /// written without content, nor twice for the same snapshot.
     pub(crate) fn save_now(&mut self, snapshot: DraftSave, cx: &mut gpui::Context<Self>) {
         self.debounce = None;
-        if !self.identity.owed || self.creating {
+        if !self.identity.owed || self.creating || self.held {
             return;
         }
         self.latest = Some(snapshot.clone());
@@ -406,6 +411,9 @@ impl DraftEditor {
         self.debounce = None;
         if self.creating {
             return LeaveAction::Nothing; // the create deletes the row (or, failing, re-saves)
+        }
+        if self.held {
+            return LeaveAction::Nothing; // EXP-1231: the row may be consumed elsewhere
         }
         self.latest = Some(snapshot.clone());
         let action = leave_action(
@@ -454,6 +462,22 @@ impl DraftEditor {
         self.debounce = None;
         self.writes.clear_queued();
         self.uploads.clear();
+    }
+
+    /// EXP-1231: hold (or release) every write while the page waits out the
+    /// `discardedGraceMs` grace of a synced row that went. A release writes
+    /// nothing itself — the page saves its current state after it.
+    pub(crate) fn hold(&mut self, held: bool, cx: &mut gpui::Context<Self>) {
+        if self.held == held {
+            return;
+        }
+        self.held = held;
+        if held {
+            self.debounce = None;
+            self.writes.clear_queued();
+        } else {
+            self.pump_uploads(cx);
+        }
     }
 
     /// The create failed: autosave resumes, and the page's current state is
@@ -562,7 +586,11 @@ impl DraftEditor {
                 log::warn!("[ui] issueDrafts.upsert({}) failed: {err}", self.identity.id);
                 // Let the next save retry the same snapshot.
                 self.last_written = None;
-                if !self.failing {
+                // EXP-1231: CONFLICT = the server refusing a draft another
+                // client already created or discarded. No "could not save":
+                // the shape delivers the issue (or the row's absence) and the
+                // page follows it.
+                if !self.failing && !err.is_conflict() {
                     self.toast(format!("Could not save the draft: {}", err.user_message()), cx);
                 }
             }
@@ -661,7 +689,12 @@ impl DraftEditor {
     /// does not, ONE upsert of the latest snapshot goes through the write
     /// queue, and its completion pumps again.
     fn pump_uploads(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.uploading || self.uploads.is_empty() || !self.identity.owed || self.creating {
+        if self.uploading
+            || self.uploads.is_empty()
+            || !self.identity.owed
+            || self.creating
+            || self.held
+        {
             return;
         }
         let Some(transport) = crate::queries::attachment_transport(cx) else {

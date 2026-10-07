@@ -126,7 +126,7 @@ describe(`mintSignedAttachmentUpload (EXP-929)`, () => {
     expect(result.uploadUrl.startsWith(`https://x.test/api/attachment-uploads/`)).toBe(
       true
     )
-    expect(result.curl).toBe(`curl -sS -T 'shot.png' "${result.uploadUrl}"`)
+    expect(result.curl).toBe(`curl -sS --retry 4 -T 'shot.png' "${result.uploadUrl}"`)
     const expires = Date.parse(result.expiresAt)
     expect(expires).toBeGreaterThanOrEqual(before + 10 * 60 * 1000)
     expect(expires).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000)
@@ -152,7 +152,7 @@ describe(`mintSignedAttachmentUpload (EXP-929)`, () => {
       ...mintInput,
       filename: `Danny's $shot (1).png`,
     })
-    expect(result.curl.startsWith(`curl -sS -T 'Danny'\\''s $shot (1).png' "`)).toBe(
+    expect(result.curl.startsWith(`curl -sS --retry 4 -T 'Danny'\\''s $shot (1).png' "`)).toBe(
       true
     )
   })

@@ -2,7 +2,7 @@ import { z } from "zod"
 import { and, eq, inArray } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, issueDrafts, issueStatuses } from "@/db/schema"
+import { attachments, issueDrafts, issues, issueStatuses } from "@/db/schema"
 import { getBoardTeamId, resolveTeamAccess } from "@/lib/team-membership"
 import {
   dateOnlySchema,
@@ -33,6 +33,14 @@ import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 //    `/api/attachments/{id}` URLs, and every one of them must belong to THIS
 //    draft. That is the same round-trip guard `issues.update` applies, moved
 //    one step earlier.
+//  * EXP-1231: a draft CONSUMED by a create is gone for good. The same draft
+//    may be open on several clients at once (another tab, another device);
+//    the client that creates from it wins, and the created issue carries the
+//    draft's id (`issues.draft_id`). An upsert naming a consumed id — the
+//    other page's autosave or leave write racing the create — is refused
+//    (CONFLICT) rather than written, or it would resurrect a draft the
+//    issue already IS. Those pages see the issue through the shape and land
+//    on it (`lib/issue-drafts.ts` `draftFate`).
 
 const draftIdSchema = z.string().uuid()
 
@@ -86,6 +94,20 @@ export const issueDraftsRouter = router({
             message: `The status must belong to this team`,
           })
         }
+      }
+
+      // EXP-1231: consumed by a create already? Then this write is a stale
+      // page's, and the row must stay gone.
+      const [consumedBy] = await ctx.db
+        .select({ identifier: issues.identifier })
+        .from(issues)
+        .where(eq(issues.draftId, input.id))
+        .limit(1)
+      if (consumedBy) {
+        throw new TRPCError({
+          code: `CONFLICT`,
+          message: `This draft was already created as ${consumedBy.identifier}`,
+        })
       }
 
       const origin = ctx.request.url

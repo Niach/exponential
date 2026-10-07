@@ -135,8 +135,10 @@ export async function mintSignedAttachmentUpload(
     uploadUrl,
     expiresAt: expiresAt.toISOString(),
     // `-T` PUTs the file as the raw body with its Content-Length; the route
-    // takes the type from the token, so no header is needed.
-    curl: `curl -sS -T ${shellQuote(input.filename)} "${uploadUrl}"`,
+    // takes the type from the token, so no header is needed. `--retry`
+    // (FEED-75) re-sends on a 503 the store's throttling leaves behind,
+    // honouring its Retry-After; nothing lands server-side before success.
+    curl: `curl -sS --retry 4 -T ${shellQuote(input.filename)} "${uploadUrl}"`,
   }
 }
 

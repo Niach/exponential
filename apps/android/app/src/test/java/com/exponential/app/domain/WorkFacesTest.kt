@@ -276,4 +276,63 @@ class WorkFacesTest {
             )
         }
     }
+
+    // ── EXP-1175: the Run face's status row (`run-row.json`, ×4) ─────────────
+    private val runRowFixture = kotlinx.serialization.json.Json
+        .parseToJsonElement(contractFixtureJson("run-row.json")).jsonObject
+
+    @Test
+    fun `labels the Show work switch off the fixture`() {
+        assertEquals(runRowFixture["showWorkLabel"]!!.jsonPrimitive.content, showWorkLabel(false))
+        assertEquals(runRowFixture["hideWorkLabel"]!!.jsonPrimitive.content, showWorkLabel(true))
+        assertEquals(runRowFixture["showWorkDefault"]!!.jsonPrimitive.content.toBoolean(), SHOW_WORK_DEFAULT)
+    }
+
+    @Test
+    fun `every fixture captions case reads the expected caption and tone`() {
+        val cases = runRowFixture["captions"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun str(obj: JsonObject, key: String): String? =
+            obj[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = str(case, "name")
+            val state = RunRowState.entries.first { it.wire == str(case, "state") }
+            val caption = runRowCaption(
+                state = state,
+                device = str(case, "device")!!,
+                startedAt = str(case, "startedAt"),
+                endedAt = str(case, "endedAt"),
+                nowMs = WireTimestamps.parseEpochMs(str(case, "now")!!)!!,
+            )
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, str(expected, "text"), caption.text)
+            assertEquals(name, str(expected, "tone"), caption.tone.wire)
+        }
+    }
+
+    @Test
+    fun `every fixture states case resolves the row state`() {
+        val cases = runRowFixture["states"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        val displays = mapOf(
+            "working" to CodingSessionDisplayState.Working,
+            "needs_input" to CodingSessionDisplayState.NeedsInput,
+            "review" to CodingSessionDisplayState.Review,
+            "done" to CodingSessionDisplayState.Done,
+        )
+        for (element in cases) {
+            val case = element.jsonObject
+            fun flag(key: String) = case[key]!!.jsonPrimitive.content.toBoolean()
+            val name = case["name"]!!.jsonPrimitive.content
+            val state = runRowState(
+                paused = flag("paused"),
+                ended = flag("ended"),
+                awaitingInput = flag("awaitingInput"),
+                working = flag("working"),
+                display = displays.getValue(case["display"]!!.jsonPrimitive.content),
+            )
+            assertEquals(name, case["expected"]!!.jsonPrimitive.content, state.wire)
+        }
+    }
 }

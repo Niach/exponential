@@ -897,6 +897,7 @@ export const codingSessionsRouter = router({
             id: actions.id,
             teamId: actions.teamId,
             name: actions.name,
+            mcpServerIds: actions.mcpServerIds,
           })
           .from(actions)
           .where(eq(actions.id, input.actionId))
@@ -919,10 +920,13 @@ export const codingSessionsRouter = router({
           ctx.session.user.id,
           input
         )
+        // FEED-73: the ACTION owns its MCP list — trigger, remote and
+        // composer starts (and resumes) all run with it; the launch pick is
+        // ignored. Still confined to the team (a server removed since drops).
         const mcpServerIds = await resolveMcpServerIds(
           ctx.db,
           action.teamId,
-          input.mcpServerIds
+          action.mcpServerIds ?? []
         )
 
         const [session] = await ctx.db

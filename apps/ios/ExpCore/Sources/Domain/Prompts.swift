@@ -271,6 +271,20 @@ public enum Prompts {
         public static func copy() -> PromptCopy { entry.copy() }
     }
 
+    public enum DeleteAction {
+        public static let entry = destructive(
+            "delete-action",
+            texts: [
+                "title": "Delete \"{name}\"?",
+                "body": "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+            ],
+            params: ["name"], answer: "delete", label: "Delete"
+        )
+        public static func copy(name: String) -> PromptCopy {
+            entry.copy(["name": name])
+        }
+    }
+
     public enum RemoveDevice {
         public static let entry = destructive(
             "remove-device",
@@ -470,7 +484,7 @@ public enum Prompts {
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
         MergeIssuePr.entry, MergeRunPr.entry, StopRun.entry, ResumeRun.entry,
-        DeleteTrigger.entry, RemoveDevice.entry, DeleteTeam.entry, TrashBoard.entry,
+        DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, DeleteTeam.entry, TrashBoard.entry,
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,

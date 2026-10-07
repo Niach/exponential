@@ -69,6 +69,7 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.exponential.app.data.ShowWorkPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -153,6 +154,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val store: SteerConnectionStore,
     private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
+    private val showWorkPreference: ShowWorkPreference,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -516,6 +518,20 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId
+
+    /** EXP-1175: the viewer's Show work preference — the Run face shows the
+     *  full transcript instead of the thread. Read synchronously first so the
+     *  face's first frame is already right. */
+    val showWork: StateFlow<Boolean> = showWorkPreference.observe(auth.activeAccountId)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            showWorkPreference.read(auth.activeAccountId.value),
+        )
+
+    fun setShowWork(on: Boolean) {
+        showWorkPreference.set(auth.activeAccountId.value, on)
+    }
 
     /**
      * EXP-773: the machine a Resume of this ENDED run would go to, or null

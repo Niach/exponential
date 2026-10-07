@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   ISSUE_DRAFT_AUTOSAVE_MS,
   ISSUE_DRAFT_COPY,
+  ISSUE_DRAFT_DISCARDED_GRACE_MS,
   canCreateDraft,
   draftExitPrompt,
   draftOriginFrom,
@@ -32,11 +33,17 @@ describe(`issue draft page (contract fixture)`, () => {
         keep: `Save draft`,
         create: `Create issue`,
       },
+      // EXP-1231: the toast when another client discarded the draft.
+      discardedElsewhere: `Draft discarded elsewhere`,
     })
   })
 
   it(`carries the autosave debounce`, () => {
     expect(ISSUE_DRAFT_AUTOSAVE_MS).toBe(800)
+  })
+
+  it(`carries the discarded-elsewhere grace (EXP-1231)`, () => {
+    expect(ISSUE_DRAFT_DISCARDED_GRACE_MS).toBe(3000)
   })
 })
 

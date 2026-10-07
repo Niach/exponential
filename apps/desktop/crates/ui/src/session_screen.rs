@@ -799,7 +799,6 @@ impl SessionScreenView {
                 CodingAction::Stop {
                     session_id: self.session_id.clone(),
                     local,
-                    device_label,
                 },
                 None,
                 crate::work_header::header_action_size(false),

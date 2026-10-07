@@ -108,6 +108,8 @@ pub mod options;
 pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;
+// EXP-1230: every confirm/choice prompt's words + roles, fixture-locked ×4.
+pub mod prompts;
 pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;

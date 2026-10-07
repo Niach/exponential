@@ -307,6 +307,7 @@ mod tests {
                 headers: vec![("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string())],
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
+                actor: None,
             },
             McpServerWire {
                 id: "srv-2".to_string(),
@@ -318,6 +319,7 @@ mod tests {
                 headers: Vec::new(),
                 token_env: None,
                 env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+                actor: None,
             },
             McpServerWire {
                 id: "srv-3".to_string(),
@@ -328,6 +330,7 @@ mod tests {
                 headers: Vec::new(),
                 token_env: None,
                 env: Vec::new(),
+                actor: None,
             },
         ];
         let rendered =

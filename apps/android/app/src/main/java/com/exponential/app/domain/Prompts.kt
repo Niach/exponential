@@ -205,6 +205,20 @@ object Prompts {
         fun prompt() = spec.render("title", "body")
     }
 
+    object DeleteAction {
+        val spec = destructiveSpec(
+            "delete-action",
+            mapOf(
+                "title" to "Delete \"{name}\"?",
+                "body" to "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+            ),
+            listOf("name"),
+            "delete",
+            "Delete",
+        )
+        fun prompt(name: String) = spec.render("title", "body", "name" to name)
+    }
+
     object RemoveDevice {
         val spec = destructiveSpec(
             "remove-device",
@@ -396,7 +410,7 @@ object Prompts {
     val all: Map<String, Spec> by lazy {
         listOf(
             DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
-            MergeRunPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, RemoveDevice.spec,
+            MergeRunPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,

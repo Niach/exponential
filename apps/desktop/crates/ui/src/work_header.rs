@@ -560,9 +560,8 @@ pub(crate) enum CodingAction {
     Stop {
         session_id: String,
         /// This process hosts the run (the in-process kill); otherwise the
-        /// relay's `killSession` reaches the machine named by `device_label`.
+        /// relay's `killSession` reaches its machine.
         local: bool,
-        device_label: Option<String>,
     },
     /// My newest run ended and a machine can take it back up.
     Resume {
@@ -666,7 +665,6 @@ pub(crate) fn coding_action(
         return CodingAction::Stop {
             session_id: target.id.clone(),
             local,
-            device_label,
         };
     }
     // EXP-888: a sweep end is not an end — never offer Resume on it, that
@@ -767,7 +765,6 @@ pub(crate) fn issue_coding_action(
             Some(session_id) => CodingAction::Stop {
                 session_id,
                 local: true,
-                device_label: None,
             },
             None => CodingAction::Start,
         };
@@ -825,7 +822,6 @@ pub(crate) fn coding_action_button(
         CodingAction::Stop {
             session_id,
             local,
-            device_label,
         } => Some(
             crate::session_screen::stop_session_pill("work-stop", size, cx)
                 .on_click(move |_, window, cx| {
@@ -841,7 +837,6 @@ pub(crate) fn coding_action_button(
                         .flatten();
                     crate::session_bar::prompt_kill_session(
                         host,
-                        device_label.clone(),
                         session_id.clone(),
                         window,
                         cx,
@@ -2438,7 +2433,6 @@ mod tests {
             CodingAction::Stop {
                 session_id: "s1".into(),
                 local: false,
-                device_label: Some("Mac".into()),
             }
         );
         let local = coding_action(Some(&row), Some("me"), NOW, true, None, None);

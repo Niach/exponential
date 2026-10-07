@@ -1166,7 +1166,6 @@ impl RailView {
         let kill = (!run.paused).then(|| {
             (
                 run.local.clone(),
-                run.device_label.clone().map(|label| label.to_string()),
                 session_id.clone(),
             )
         });
@@ -1204,10 +1203,9 @@ impl RailView {
         // button — the session lists' own grammar.
         match kill {
             None => row_el.into_any_element(),
-            Some((local, device_label, session_id)) => row_el
+            Some((local, session_id)) => row_el
                 .context_menu(move |menu, _window, cx| {
                     let local = local.clone();
-                    let device_label = device_label.clone();
                     let session_id = session_id.clone();
                     menu.item(
                         crate::controls::danger_menu_item(
@@ -1219,7 +1217,6 @@ impl RailView {
                         .on_click(move |_, window, cx| {
                             crate::session_bar::prompt_kill_session(
                                 local.clone(),
-                                device_label.clone(),
                                 session_id.clone(),
                                 window,
                                 cx,

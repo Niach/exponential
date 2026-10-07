@@ -56,6 +56,10 @@ import {
   ContextRing,
   SessionInlineResultTile,
   SessionResultsView,
+  SessionThreadView,
+  sessionThread,
+  RunStatusRow,
+  type RunMarkState,
   parseSessionResultGroups,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
@@ -78,8 +82,13 @@ import {
   faceDots,
   toggleFaceDots,
   START_CODING_LABEL,
+  runRowCaption,
+  runRowState as resolveRunRowState,
+  showWorkLabel,
+  type RunRowState,
   type WorkFaceKind,
 } from "@/lib/work-faces"
+import { setShowWork, useShowWork } from "@/lib/show-work-pref"
 import { publishReviewFiles } from "@/lib/review-files-slot"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
@@ -137,6 +146,7 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
+  lastToolLine,
   liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
@@ -151,6 +161,7 @@ import {
   rateLimitBanner,
   rateLimitDetail,
   rowClass,
+  rowIsPendingCard,
   sessionIsWorking,
   subagentLabel,
   subagentIdOf,
@@ -219,7 +230,9 @@ import { IssueChip } from "@/components/issue-chip"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import {
+  sessionDisplayState,
+} from "@/lib/coding-session-display"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -502,6 +515,13 @@ export function AgentSessionView({
    *  subagent id focuses that agent's stream. Falls back to Main whenever the
    *  id vanishes from the feed (an `activity_reset` replay). */
   const [agentTab, setAgentTab] = useState<string | null>(null)
+  /** EXP-1175: the Run face opens as the THREAD (status row + published
+   *  results); Show work swaps in the full transcript in place. Per user. */
+  const showWork = useShowWork(currentUserId)
+  // The thread has ONE conversation: hiding the work drops a subagent tab.
+  useEffect(() => {
+    if (!showWork) setAgentTab(null)
+  }, [showWork])
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -558,14 +578,23 @@ export function AgentSessionView({
     // needsInput re-pins when the EXP-389 "Working…" footer toggles (its
     // other inputs — phase, the feed-derived question set — are covered);
     // the compaction strip (EXP-724) takes height the same way.
-  }, [feed, atBottom, phase.kind, session.needsInput, compactingNow])
+    // EXP-1175: the thread grows as results publish.
+  }, [
+    feed,
+    atBottom,
+    phase.kind,
+    session.needsInput,
+    compactingNow,
+    session.results,
+  ])
 
-  // Switching conversation tabs re-pins to the newest event (EXP-356).
+  // Switching conversation tabs re-pins to the newest event (EXP-356); so
+  // does swapping the thread and the transcript (EXP-1175).
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
     setAtBottom(true)
-  }, [agentTab])
+  }, [agentTab, showWork])
 
   /** EXP-895: the run's live `git diff` through the ONE parser — the same
    *  `DiffFile[]` the review page and the tool cards render. */
@@ -893,6 +922,45 @@ export function AgentSessionView({
   const resultGroups = useMemo(
     () => parseSessionResultGroups(session.results),
     [session.results]
+  )
+  /** EXP-1175: the Run face's default body — the same results in publish
+   *  order, the Summary text last as the reply. */
+  const thread = useMemo(
+    () => sessionThread(session.results),
+    [session.results]
+  )
+  const threadEmpty = thread.items.length === 0 && thread.reply === null
+  /** EXP-1175: the status row over the thread / transcript — fixture
+   *  `run-row.json` ×4. */
+  const runRowState: RunRowState = resolveRunRowState({
+    paused,
+    ended: sessionEnded,
+    awaitingInput,
+    working,
+    display: sessionDisplayState(session, mergeProps?.prState ?? null),
+  })
+  // The mark follows the SAME state: a paused run wears the bare mark.
+  const runRowMarkState: RunMarkState | undefined =
+    runRowState === `paused` ? undefined : runRowState
+  const runRowNow = useNow(runRowState === `working` ? 1000 : 30_000)
+  const runRow = runRowCaption({
+    state: runRowState,
+    device: device.label || session.deviceLabel || `Desktop`,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt ?? session.updatedAt,
+    now: runRowNow,
+  })
+  const runToolLine = live ? lastToolLine(feed) : null
+  /** EXP-1175: while the thread shows, only the pending plan/question cards
+   *  of the transcript render — through the SAME rows. */
+  /** The empty-feed placeholders (connecting / paused / waiting): the
+   *  transcript's while it has no rows; the thread's only while it is empty
+   *  too and no card waits. */
+  const feedPlaceholder =
+    feed.length === 0 && (showWork || (threadEmpty && !cardPending))
+  const pendingCardRows = useMemo(
+    () => (cardPending ? rows.filter(rowIsPendingCard) : []),
+    [cardPending, rows]
   )
 
   /** EXP-877: the faces this work tab offers — `Issue` when the run links
@@ -1273,6 +1341,204 @@ export function AgentSessionView({
     </>
   )
 
+  /** One transcript row — the full transcript maps every row through it,
+   *  the thread (EXP-1175) only its pending plan/question cards, so a card
+   *  keeps its autofocus, hotkeys and anchor text in both. `list` is the
+   *  sequence the row sits in (its gap reads the row before it). */
+  const renderTranscriptRow = (
+    row: (typeof rows)[number],
+    index: number,
+    list: readonly (typeof rows)[number][]
+  ): ReactNode => {
+    // EXP-787: the rhythm is the ladder, not a uniform gap —
+    // each row carries the space ABOVE it, chosen from the row
+    // before it. The key stays the row id; the wrapper only
+    // holds that padding.
+    const gap = transcriptGapClass(
+      index === 0 ? null : rowClass(list[index - 1]),
+      rowClass(row)
+    )
+    const wrap = (content: ReactNode) => (
+      <div
+        key={row.kind === `single` ? row.item.id : row.id}
+        className={gap}
+      >
+        {content}
+      </div>
+    )
+    // EXP-916: a run of consecutive edits IS the transcript's
+    // edited-files card — the same `FileDiffCard` stack every
+    // Changes surface draws, inline, never a jump away.
+    if (row.kind === `edits`) {
+      return wrap(
+        <EditsCardRow
+          items={
+            row.items as Extract<FeedItem, { kind: `tool` }>[]
+          }
+          liveRowId={liveRowId ?? null}
+        />
+      )
+    }
+    // EXP-948: a run of the SAME Exponential tool is its own
+    // captioned row — ours are never folded away as "N other
+    // tools".
+    if (row.kind === `expRun`) {
+      return wrap(
+        <ExpToolGroupRow
+          items={
+            row.items as Extract<FeedItem, { kind: `tool` }>[]
+          }
+        />
+      )
+    }
+    if (row.kind === `toolRun`) {
+      return wrap(
+        <ToolGroupRow
+          items={
+            row.items as Extract<FeedItem, { kind: `tool` }>[]
+          }
+          liveTail={
+            liveRowId !== undefined &&
+            row.items[row.items.length - 1]?.id === liveRowId
+          }
+        />
+      )
+    }
+    if (row.kind === `subagent`) {
+      // EXP-850 §3: a workflow's agents live INSIDE its card,
+      // never as a loose group row in the transcript — but
+      // ONLY when this client HOLDS that card (EXP-856): an
+      // edge tagged with a workflow whose frame never arrived
+      // keeps its ordinary row, warning and all. A file card
+      // anchored here still renders (§12): the turn it closes
+      // happened whether or not its row is drawn.
+      if (
+        nestedWorkflowId(
+          { subagentId: row.subagentId },
+          workflowAgents,
+          workflows
+        )
+      ) {
+        return null
+      }
+      return wrap(<SubagentGroupRow items={row.items} />)
+    }
+    if (row.kind === `ask`) {
+      return wrap(
+        <AskStepperCard
+          items={row.items as QuestionItem[]}
+          activeIds={questionIds}
+          canAnswer={canAnswer}
+          answerStates={answerStates}
+          onAnswer={answerQuestion}
+          pendingId={pendingCard?.id ?? null}
+          onSend={sendMessage}
+        />
+      )
+    }
+    const item = row.item
+    switch (item.kind) {
+      case `narration`:
+        return wrap(<NarrationBubble text={item.text} />)
+      case `tool`: {
+        // EXP-850 §3: the `Workflow` call renders as its CARD
+        // (same id), so the call's own settle folds in and no
+        // second row is ever drawn. A card this client has not
+        // received yet falls back to the plain tool row.
+        const workflow = item.workflowId
+          ? workflows.get(item.workflowId)
+          : undefined
+        if (workflow) {
+          return wrap(
+            <WorkflowCard
+              workflow={workflow}
+              duplicates={workflowDuplicates.get(workflow.id)}
+              className={TRANSCRIPT_TOOL_TEXT}
+            />
+          )
+        }
+        // EXP-916: such a call may still CARRY a patch (an
+        // edit tagged with a workflow). The card is the only
+        // place a patch renders now, so a one-member card
+        // draws it rather than a row that drops it.
+        if (item.diff) {
+          return wrap(
+            <EditsCardRow
+              items={[item]}
+              liveRowId={liveRowId ?? null}
+            />
+          )
+        }
+        return wrap(
+          <ToolRow
+            item={item}
+            flush
+            live={item.id === liveRowId}
+          />
+        )
+      }
+      case `user_message`: {
+        // EXP-724: a steered slash command renders as a
+        // compact pill, not as a chat bubble of prose.
+        const command = parseSteerCommand(
+          item.text,
+          agentCommands
+        )
+        return wrap(
+          command ? (
+            <CommandRow
+              name={command.command.name}
+              args={command.args}
+            />
+          ) : (
+            <UserMessageBubble text={item.text} />
+          )
+        )
+      }
+      case `compaction`:
+        return wrap(<CompactionRow />)
+      case `api_error`:
+        return wrap(
+          <ApiErrorRow
+            message={item.message}
+            errorType={item.errorType}
+          />
+        )
+      case `permission`:
+        return wrap(
+          <PermissionRow
+            tool={item.tool}
+            detail={item.detail}
+            active={
+              live && item.id === feed[feed.length - 1]?.id
+            }
+          />
+        )
+      case `subagent`:
+        // Same rule as the group row above: nested only when
+        // the card that would hold it exists.
+        if (
+          nestedWorkflowId(item, workflowAgents, workflows)
+        ) {
+          return null
+        }
+        return wrap(<SubagentGroupRow items={[item]} />)
+      case `question`:
+        return wrap(
+          <QuestionCard
+            item={item}
+            active={questionIds.has(item.id)}
+            canAnswer={canAnswer}
+            answerState={answerStates[answerKey(item)]}
+            onAnswer={answerQuestion}
+            hotkeys={pendingCard?.id === item.id}
+            onSend={sendMessage}
+          />
+        )
+    }
+    return null
+  }
+
   return (
     <OpenResultsContext.Provider value={openResults}>
     <SessionResultsRawContext.Provider value={session.results}>
@@ -1454,7 +1720,7 @@ export function AgentSessionView({
       >
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
-          {visibleTabs.length > 0 && (
+          {showWork && visibleTabs.length > 0 && (
             // EXP-927: in the transcript's reading column, like the strips
             // below — never the panel's full width.
             <div className="shrink-0 py-1" data-testid="session-agent-tabs">
@@ -1481,6 +1747,22 @@ export function AgentSessionView({
             </div>
             </div>
           )}
+          {/* EXP-1175: the ONE status row — the run mark, the caption, the
+              last tool line and the Show work toggle — over the thread or
+              the transcript, in the reading column. */}
+          <div className="shrink-0 pt-6">
+            <RunStatusRow
+              className={TRANSCRIPT_COLUMN}
+              agent={session.agent}
+              markState={runRowMarkState}
+              caption={runRow.text}
+              tone={runRow.tone}
+              toolLine={runToolLine}
+              showWork={showWork}
+              toggleLabel={showWorkLabel(showWork)}
+              onToggle={() => setShowWork(currentUserId, !showWork)}
+            />
+          </div>
           {/* The activity feed (bottom-anchored, follow-scroll) */}
           <div className="relative min-h-0 flex-1">
             <div
@@ -1503,7 +1785,7 @@ export function AgentSessionView({
                 isMobile && FACE_BODY_TOUCH_CLASS
               )}
             >
-              {feed.length === 0 && paused ? (
+              {feedPlaceholder && paused ? (
                 <CenteredState>
                   <UiDeviceOfflineIcon className="size-5 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
@@ -1513,7 +1795,7 @@ export function AgentSessionView({
                     {pausedBody}
                   </span>
                 </CenteredState>
-              ) : feed.length === 0 &&
+              ) : feedPlaceholder &&
                 (phase.kind === `connecting` ||
                   phase.kind === `starting` ||
                   phase.kind === `history_pending`) ? (
@@ -1529,7 +1811,7 @@ export function AgentSessionView({
                         : `Connecting…`}
                   </span>
                 </CenteredState>
-              ) : feed.length === 0 && live && !latestDiff ? (
+              ) : feedPlaceholder && live && !latestDiff ? (
                 <CenteredState>
                   <span className="text-sm text-muted-foreground">
                     Waiting for activity…
@@ -1540,6 +1822,36 @@ export function AgentSessionView({
                     an update.
                   </span>
                 </CenteredState>
+              ) : !showWork ? (
+                /* EXP-1175: the THREAD — the run's published results in
+                   publish order, the Summary as the reply, then any
+                   pending plan/question card through the transcript's own
+                   rows. No Load earlier, no Working… footer: the status row
+                   above is the indicator. */
+                <div
+                  ref={setContentRef}
+                  className={cn(
+                    `flex min-h-full flex-col py-2`,
+                    !isMobile && `pb-10`,
+                    TRANSCRIPT_COLUMN
+                  )}
+                >
+                  <SessionThreadView
+                    className="pt-0"
+                    thread={thread}
+                    attachmentSrc={(id) => `/api/attachments/${id}`}
+                    renderText={renderResultText}
+                    renderReply={(text) => <NarrationBubble text={text} />}
+                  >
+                    {pendingCardRows.length > 0 ? (
+                      <div>
+                        {pendingCardRows.map((row, index) =>
+                          renderTranscriptRow(row, index, pendingCardRows)
+                        )}
+                      </div>
+                    ) : null}
+                  </SessionThreadView>
+                </div>
               ) : activeAgent !== null ? (
                 <div
                   ref={setContentRef}
@@ -1577,194 +1889,9 @@ export function AgentSessionView({
                       </Button>
                     </div>
                   ) : null}
-                  {rows.map((row, index) => {
-                    // EXP-787: the rhythm is the ladder, not a uniform gap —
-                    // each row carries the space ABOVE it, chosen from the row
-                    // before it. The key stays the row id; the wrapper only
-                    // holds that padding.
-                    const gap = transcriptGapClass(
-                      index === 0 ? null : rowClass(rows[index - 1]),
-                      rowClass(row)
-                    )
-                    const wrap = (content: ReactNode) => (
-                      <div
-                        key={row.kind === `single` ? row.item.id : row.id}
-                        className={gap}
-                      >
-                        {content}
-                      </div>
-                    )
-                    // EXP-916: a run of consecutive edits IS the transcript's
-                    // edited-files card — the same `FileDiffCard` stack every
-                    // Changes surface draws, inline, never a jump away.
-                    if (row.kind === `edits`) {
-                      return wrap(
-                        <EditsCardRow
-                          items={
-                            row.items as Extract<FeedItem, { kind: `tool` }>[]
-                          }
-                          liveRowId={liveRowId ?? null}
-                        />
-                      )
-                    }
-                    // EXP-948: a run of the SAME Exponential tool is its own
-                    // captioned row — ours are never folded away as "N other
-                    // tools".
-                    if (row.kind === `expRun`) {
-                      return wrap(
-                        <ExpToolGroupRow
-                          items={
-                            row.items as Extract<FeedItem, { kind: `tool` }>[]
-                          }
-                        />
-                      )
-                    }
-                    if (row.kind === `toolRun`) {
-                      return wrap(
-                        <ToolGroupRow
-                          items={
-                            row.items as Extract<FeedItem, { kind: `tool` }>[]
-                          }
-                          liveTail={
-                            liveRowId !== undefined &&
-                            row.items[row.items.length - 1]?.id === liveRowId
-                          }
-                        />
-                      )
-                    }
-                    if (row.kind === `subagent`) {
-                      // EXP-850 §3: a workflow's agents live INSIDE its card,
-                      // never as a loose group row in the transcript — but
-                      // ONLY when this client HOLDS that card (EXP-856): an
-                      // edge tagged with a workflow whose frame never arrived
-                      // keeps its ordinary row, warning and all. A file card
-                      // anchored here still renders (§12): the turn it closes
-                      // happened whether or not its row is drawn.
-                      if (
-                        nestedWorkflowId(
-                          { subagentId: row.subagentId },
-                          workflowAgents,
-                          workflows
-                        )
-                      ) {
-                        return null
-                      }
-                      return wrap(<SubagentGroupRow items={row.items} />)
-                    }
-                    if (row.kind === `ask`) {
-                      return wrap(
-                        <AskStepperCard
-                          items={row.items as QuestionItem[]}
-                          activeIds={questionIds}
-                          canAnswer={canAnswer}
-                          answerStates={answerStates}
-                          onAnswer={answerQuestion}
-                          pendingId={pendingCard?.id ?? null}
-                          onSend={sendMessage}
-                        />
-                      )
-                    }
-                    const item = row.item
-                    switch (item.kind) {
-                      case `narration`:
-                        return wrap(<NarrationBubble text={item.text} />)
-                      case `tool`: {
-                        // EXP-850 §3: the `Workflow` call renders as its CARD
-                        // (same id), so the call's own settle folds in and no
-                        // second row is ever drawn. A card this client has not
-                        // received yet falls back to the plain tool row.
-                        const workflow = item.workflowId
-                          ? workflows.get(item.workflowId)
-                          : undefined
-                        if (workflow) {
-                          return wrap(
-                            <WorkflowCard
-                              workflow={workflow}
-                              duplicates={workflowDuplicates.get(workflow.id)}
-                              className={TRANSCRIPT_TOOL_TEXT}
-                            />
-                          )
-                        }
-                        // EXP-916: such a call may still CARRY a patch (an
-                        // edit tagged with a workflow). The card is the only
-                        // place a patch renders now, so a one-member card
-                        // draws it rather than a row that drops it.
-                        if (item.diff) {
-                          return wrap(
-                            <EditsCardRow
-                              items={[item]}
-                              liveRowId={liveRowId ?? null}
-                            />
-                          )
-                        }
-                        return wrap(
-                          <ToolRow
-                            item={item}
-                            flush
-                            live={item.id === liveRowId}
-                          />
-                        )
-                      }
-                      case `user_message`: {
-                        // EXP-724: a steered slash command renders as a
-                        // compact pill, not as a chat bubble of prose.
-                        const command = parseSteerCommand(
-                          item.text,
-                          agentCommands
-                        )
-                        return wrap(
-                          command ? (
-                            <CommandRow
-                              name={command.command.name}
-                              args={command.args}
-                            />
-                          ) : (
-                            <UserMessageBubble text={item.text} />
-                          )
-                        )
-                      }
-                      case `compaction`:
-                        return wrap(<CompactionRow />)
-                      case `api_error`:
-                        return wrap(
-                          <ApiErrorRow
-                            message={item.message}
-                            errorType={item.errorType}
-                          />
-                        )
-                      case `permission`:
-                        return wrap(
-                          <PermissionRow
-                            tool={item.tool}
-                            detail={item.detail}
-                            active={
-                              live && item.id === feed[feed.length - 1]?.id
-                            }
-                          />
-                        )
-                      case `subagent`:
-                        // Same rule as the group row above: nested only when
-                        // the card that would hold it exists.
-                        if (
-                          nestedWorkflowId(item, workflowAgents, workflows)
-                        ) {
-                          return null
-                        }
-                        return wrap(<SubagentGroupRow items={[item]} />)
-                      case `question`:
-                        return wrap(
-                          <QuestionCard
-                            item={item}
-                            active={questionIds.has(item.id)}
-                            canAnswer={canAnswer}
-                            answerState={answerStates[answerKey(item)]}
-                            onAnswer={answerQuestion}
-                            hotkeys={pendingCard?.id === item.id}
-                            onSend={sendMessage}
-                          />
-                        )
-                    }
-                  })}
+                  {rows.map((row, index) =>
+                    renderTranscriptRow(row, index, rows)
+                  )}
                   {/* EXP-850 §3: a card whose `Workflow` tool row is not in
                       the rendered window still has to be seen — it lands at
                       the tail as a row of its own rather than taking its
@@ -1988,6 +2115,9 @@ export function AgentSessionView({
                   // EXP-877: the context meter lives in the composer's tool
                   // row.
                   usageSlot={usageSlot}
+                  // EXP-1175: a run that waits on you with no card to answer
+                  // takes the keyboard straight to the composer.
+                  autoFocus={session.needsInput}
                 />
               </div>
             </div>

@@ -66,6 +66,7 @@ function makeIssue(overrides: Partial<Issue>): Issue {
     prMergedAt: null,
     prBaseBranch: null,
     estimate: null,
+    draftId: null,
     sortOrder: 0,
     status: `backlog`,
     statusId: null,

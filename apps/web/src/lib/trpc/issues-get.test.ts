@@ -120,6 +120,7 @@ const SHAPE_COLUMNS = [
   `prMergedAt`,
   `prBaseBranch`,
   `estimate`,
+  `draftId`,
   `createdAt`,
   `updatedAt`,
 ]

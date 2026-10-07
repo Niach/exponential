@@ -204,6 +204,25 @@ fun IssueDraftScreen(
         afterCreate = null
         if (held != null) held() else onCreated(id)
     }
+    // EXP-1231: another client consumed this draft. The page's OWN exits,
+    // like its Create: no leave prompt, no LeaveGuard, and the model is
+    // already sealed + left, so the dispose flush / leave write nothing.
+    val consumedElsewhere by viewModel.consumedElsewhere.collectAsStateWithLifecycle()
+    LaunchedEffect(consumedElsewhere) {
+        val consumed = consumedElsewhere ?: return@LaunchedEffect
+        viewModel.consumeConsumed()
+        heldLeave = null
+        afterCreate = null
+        discardConfirmOpen = false
+        when (consumed) {
+            // Created elsewhere: this page becomes that issue, no prompt, no toast.
+            is IssueDraftViewModel.Consumed.Created -> onCreated(consumed.issueId)
+            IssueDraftViewModel.Consumed.Discarded -> {
+                toaster.info(IssueDraftPage.DISCARDED_ELSEWHERE)
+                onBack()
+            }
+        }
+    }
     // A failed create stays on the page (its error toasts) and drops the
     // held navigation.
     LaunchedEffect(state.creating) {

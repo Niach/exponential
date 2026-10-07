@@ -3,7 +3,8 @@ package com.exponential.app.domain
 /**
  * EXP-1170: the New issue PAGE, one view ×4 (web `issue-draft-page.ts`, iOS
  * `IssueDraftPage`, desktop `domain::issue_draft`). Copy + the autosave
- * debounce are locked against `issue-draft.json` (`IssueDraftPageTest`).
+ * debounce are locked against `issue-draft.json` (`IssueDraftPageTest`), as
+ * are EXP-1231's concurrency copy + grace.
  */
 object IssueDraftPage {
     const val HEADER = "New issue"
@@ -22,6 +23,9 @@ object IssueDraftPage {
     const val LEAVE_CREATE = "Create issue"
     const val LEAVE_KEEP = "Save draft"
     const val LEAVE_DISCARD = "Discard"
+
+    // EXP-1231: the toast when another client discarded this draft (`copy.discardedElsewhere`).
+    const val DISCARDED_ELSEWHERE = "Draft discarded elsewhere"
 
     /** Quiet time after the last title/description edit before the autosave. */
     const val AUTOSAVE_DEBOUNCE_MS = 800L
@@ -87,5 +91,37 @@ object IssueDraftPage {
         createEnabled && LeaveChoice.Create in choices -> LeaveChoice.Create
         LeaveChoice.Keep in choices -> LeaveChoice.Keep
         else -> null
+    }
+
+    /**
+     * EXP-1231: how long a SEEN draft row may be missing (with no issue
+     * carrying its id) before the page concludes it was discarded elsewhere
+     * (`concurrency.discardedGraceMs`). A row back within it resumes editing.
+     */
+    const val DISCARDED_GRACE_MS = 3000L
+
+    /** EXP-1231: what the synced store says about this page's draft. */
+    sealed interface Fate {
+        /** Still editable (or never synced yet). */
+        data object Open : Fate
+
+        /** Created elsewhere: replace the page with [issueId]'s detail, no prompt, no toast. */
+        data class Created(val issueId: String) : Fate
+
+        /** The seen row is gone with no issue: discarded elsewhere once the grace passes. */
+        data object Gone : Fate
+    }
+
+    /**
+     * EXP-1231 (×4: web `issue-draft-page.ts`, iOS, desktop). [createdIssueId]
+     * = an issue whose `draft_id` is this draft (proof it was created,
+     * wherever); [seen] = the row was observed in the local store during this
+     * page's life; [present] = it is there now. Created wins; a row never seen
+     * is never Gone (a new page whose first write has not landed stays open).
+     */
+    fun fate(seen: Boolean, present: Boolean, createdIssueId: String?): Fate = when {
+        createdIssueId != null -> Fate.Created(createdIssueId)
+        seen && !present -> Fate.Gone
+        else -> Fate.Open
     }
 }

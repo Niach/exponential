@@ -1413,8 +1413,14 @@ impl ChatScreenView {
     }
 
     /// The launch options as picked. A RESUME never re-enters plan mode.
+    /// FEED-73: a real action's run takes the action's own MCP list
+    /// (server-side), never the composer's pick.
     fn options(&self, cx: &App) -> LaunchOptions {
-        self.launch_ref().options(self.resume_active(cx), cx)
+        let mut options = self.launch_ref().options(self.resume_active(cx), cx);
+        if chat_launch::subject_owns_mcp_servers(&self.subject_kind()) {
+            options.mcp_server_ids.clear();
+        }
+        options
     }
 
     // ── send ──────────────────────────────────────────────────────────────
@@ -2670,8 +2676,10 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let mcp = self.mcp_options();
+        let mcp_owned = chat_launch::subject_owns_mcp_servers(&self.subject_kind());
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
+            launch.set_mcp_owned_by_subject(mcp_owned);
         }
 
         let blocker = self.launch_blocker(cx);

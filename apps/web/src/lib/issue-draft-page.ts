@@ -22,6 +22,11 @@ export const ISSUE_DRAFT_COPY = fixture.copy
 /** Quiet time after the last title/description edit before the draft is written. */
 export const ISSUE_DRAFT_AUTOSAVE_MS = fixture.autosave.debounceMs
 
+/** EXP-1231: how long a draft row that vanished from the shape (with no issue
+ *  created from it) may stay gone before the page concludes it was discarded
+ *  elsewhere. A row that returns within it resumes editing. */
+export const ISSUE_DRAFT_DISCARDED_GRACE_MS = fixture.concurrency.discardedGraceMs
+
 /** The draft page's search params: the board it files onto, the group
  *  status a "+" seeded, and the `?from=` origin (`lib/detail-origin.ts`). */
 export interface IssueDraftSearch {

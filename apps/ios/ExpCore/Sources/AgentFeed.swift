@@ -1630,6 +1630,36 @@ public enum AgentFeed {
         return id
     }
 
+    /// EXP-1175: the Run face status row's muted second line — the NEWEST
+    /// tool item (anything after it is ignored). An Exponential MCP tool reads
+    /// its `ExpToolDisplay` caption for its settled state plus its subject
+    /// (settled: the single preview ref's title, else identifier, else the
+    /// preview's title/identifier, else the call's detail; unsettled: the
+    /// detail), any other tool its name and detail; joined by one space, a
+    /// missing part dropped. nil without a tool item. Fixture `run-row.json`
+    /// `toolLines` (×4: web `lastToolLine`).
+    public static func lastToolLine(_ feed: [AgentFeedItem]) -> String? {
+        for item in feed.reversed() {
+            guard case let .tool(_, name, detail, _, _, _, settled, _, _, preview, _) = item
+            else { continue }
+            var head: String? = name
+            var subject = detail
+            if let exp = ExpToolDisplay.resolve(toolName: name) {
+                head = exp.caption(settled: settled)
+                if settled {
+                    let ref = preview?.refs.count == 1 ? preview?.refs.first : nil
+                    subject = ref?.title ?? ref?.identifier ?? preview?.title
+                        ?? preview?.identifier ?? detail
+                }
+            }
+            return [head, subject]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
+        return nil
+    }
+
     /// §9: pending cards last, everything else in place. Pure and mirrored ×4.
     public static func pendingCardsLast(_ rows: [AgentFeedRow]) -> [AgentFeedRow] {
         var settled: [AgentFeedRow] = []

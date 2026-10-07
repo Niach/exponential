@@ -30,6 +30,7 @@ use sync::Store;
 use domain::rows::Label;
 
 use crate::controls::{glass_input, WebControl as _};
+use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 
 use super::{section, parse_hex_color, spawn_trpc};
@@ -64,7 +65,6 @@ pub struct LabelsPane {
     /// typed text against — comparing against the LIVE row would let a stale
     /// input write a remote rename back.
     synced_names: HashMap<String, String>,
-    confirming_delete: Option<String>,
     creating: bool,
     new_name: Entity<InputState>,
     new_color: String,
@@ -93,7 +93,6 @@ impl LabelsPane {
             cx.observe_in(&nav, window, |this, _, window, cx| {
                 // Team switch: per-row inputs (and any inline errors) belong
                 // to the old scope.
-                this.confirming_delete = None;
                 this.create_error = None;
                 this.row_error = None;
                 this.sync_inputs(window, cx);
@@ -123,7 +122,6 @@ impl LabelsPane {
             name_inputs: HashMap::new(),
             input_subs: HashMap::new(),
             synced_names: HashMap::new(),
-            confirming_delete: None,
             creating: false,
             new_name,
             new_color: LABEL_COLORS[6].to_string(),
@@ -363,7 +361,6 @@ impl LabelsPane {
     ) -> impl IntoElement {
         let color = label.color.clone().unwrap_or_default();
         let swatch_color = parse_hex_color(&color).unwrap_or(cx.theme().muted_foreground);
-        let confirming = self.confirming_delete.as_deref() == Some(label.id.as_str());
         let label_id = label.id.clone();
         let team_id = label.team_id.clone();
 
@@ -444,61 +441,33 @@ impl LabelsPane {
             );
         }
 
-        if confirming {
-            let del_team = team_id.clone();
-            let del_label = label_id.clone();
-            row = row.child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Delete?"),
-                    )
-                    .child(
-                        crate::controls::ghost_icon_button(
-                            row_id("label-delete-confirm", &label.id),
-                            Icon::new(registry::UI_CHECK).text_color(cx.theme().danger),
-                            cx,
-                        )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let team_id = del_team.clone();
-                                let label_id = del_label.clone();
-                                this.confirming_delete = None;
-                                spawn_trpc(cx, "labels.delete", move |trpc| {
-                                    api::labels::labels_delete(trpc, &team_id, &label_id)
-                                });
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        crate::controls::ghost_icon_button(
-                            row_id("label-delete-cancel", &label.id),
-                            Icon::new(registry::UI_CLOSE),
-                            cx,
-                        )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.confirming_delete = None;
-                                cx.notify();
-                            })),
-                    ),
-            );
-        } else {
-            let confirm_id = label_id.clone();
-            row = row.child(
-                crate::controls::ghost_icon_button(
-                    row_id("label-delete", &label.id),
-                    Icon::new(registry::UI_DELETE),
-                    cx,
+        // EXP-1230: the delete confirms with the prompts fixture's
+        // `delete-label` (it was an inline "Delete?" check/cross pair).
+        let name = label.name.clone();
+        row = row.child(
+            crate::controls::ghost_icon_button(
+                row_id("label-delete", &label.id),
+                Icon::new(registry::UI_DELETE),
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                let team_id = team_id.clone();
+                let label_id = label_id.clone();
+                let spec = AlertSpec::from_prompt(
+                    "Delete label",
+                    &domain::prompts::delete_label(&name),
                 )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.confirming_delete = Some(confirm_id.clone());
-                        cx.notify();
-                    })),
-            );
-        }
+                .on_ok(move |_, cx| {
+                    let team_id = team_id.clone();
+                    let label_id = label_id.clone();
+                    spawn_trpc(cx, "labels.delete", move |trpc| {
+                        api::labels::labels_delete(trpc, &team_id, &label_id)
+                    });
+                    true
+                });
+                native_dialog::open_alert(window, cx, spec);
+            }),
+        );
 
         // Web LabelRow: the error line renders under the row (inside its
         // border box on web; a stacked line here).

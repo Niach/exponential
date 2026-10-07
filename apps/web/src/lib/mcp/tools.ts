@@ -3905,7 +3905,7 @@ export function registerExponentialTools(
           return ok({
             uploadUrl,
             expiresAt: expiresAt.toISOString(),
-            curl: `curl -sS -F file=@screenshot.png "${uploadUrl}"`,
+            curl: `curl -sS --retry 4 -F file=@screenshot.png "${uploadUrl}"`,
             topic,
             label,
             ...(prSync === `synced` ? { pr: `synced` } : {}),
@@ -4033,7 +4033,7 @@ export function registerExponentialTools(
             id: attachmentId,
             uploadUrl,
             expiresAt: expiresAt.toISOString(),
-            curl: `curl -sS -F file=@${path} "${uploadUrl}"`,
+            curl: `curl -sS --retry 4 -F file=@${path} "${uploadUrl}"`,
             topic,
             results: resultsSummary(published),
           })
@@ -5370,7 +5370,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_create`,
     {
-      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId targets that repo's trunk clone; icon = a curated icon name; inputs = pick fields (repo/board/pr/icon) injected into the prompt; promptPlaceholder = the composer's hint for the requester's free text.`,
+      description: `Create a team action (owner only). body = the markdown prompt an agent runs locally; repositoryId = its repo; icon = a curated icon name; inputs = pick fields (repo/board/pr/icon) for the prompt; promptPlaceholder = the composer's hint.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString,
@@ -5381,6 +5381,9 @@ export function registerExponentialTools(
         body: z.string().min(1),
         inputs: actionInputsSchema.optional(),
         promptPlaceholder: z.string().max(200).nullable().optional(),
+        // FEED-73: undescribed (create is always-loaded, 10k budget);
+        // actions_update says what it is, the router caps it at 16.
+        mcpServerIds: z.array(uuidString).optional(),
       }),
     },
     async (input) => {
@@ -5397,7 +5400,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs and triggers: whole-array replace (send every trigger you keep, with its id). A trigger = {deviceId, enabled?, agent?, account?, model?, effort?} plus {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}; the device runs it itself. account = an agent profile id on that device (needs agent). An enabled trigger needs every input optional.`,
+      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs and triggers: whole-array replace (send every trigger you keep, with its id). A trigger = {deviceId, enabled?, agent?, account?, model?, effort?} plus {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id there (needs agent). An enabled trigger needs every input optional. mcpServerIds = MCP servers its runs use; shared ones join as <server>-as-<member>.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -5410,6 +5413,9 @@ export function registerExponentialTools(
         // Loose for the MCP context budget; the strict schema validates
         // below (and again in the router — single source).
         triggers: z.array(z.record(z.string(), z.unknown())).optional(),
+        // FEED-73: whole-array replace; the router caps it at 16 and keeps
+        // it in-team (described in the tool sentence for the budget).
+        mcpServerIds: z.array(uuidString).optional(),
         sortOrder: z.number().finite().optional(),
       }),
     },
@@ -5689,7 +5695,7 @@ export function registerExponentialTools(
     `exponential_mcp_servers_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's MCP servers (Linear, Sentry, ...) that coding runs can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed) and connectUrl: the settings page where you (a person) connect it. Team members only.`,
+      description: `List a team's MCP servers (Linear, Sentry, ...) that coding runs can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed), who connected and who shared it with the team's action runs, and connectUrl: the settings page where you (a person) connect it. Team members only. Members who haven't shared their connection can be asked with exponential_notifications_send.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
@@ -5710,6 +5716,9 @@ export function registerExponentialTools(
             connection: row.connection,
             connectedCount: row.connectedCount,
             memberCount: row.memberCount,
+            sharedCount: row.sharedCount,
+            sharedUserIds: row.sharedUserIds,
+            connectedUserIds: row.connectedUserIds,
             connectUrl: row.auth === `none` ? null : mcpConnectUrl(slug, row.id),
           }))
         )

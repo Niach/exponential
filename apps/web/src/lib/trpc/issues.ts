@@ -914,6 +914,9 @@ export const issuesRouter = router({
             dueDate: input.dueDate ?? null,
             estimate: input.estimate ?? null,
             completedAt,
+            // EXP-1231: the draft this create CONSUMES (its row goes below),
+            // synced so a page still showing it elsewhere lands here.
+            draftId: input.draftId && draftOwned ? input.draftId : null,
             creatorId: ctx.session.user.id,
           })
           .returning()
@@ -2215,7 +2218,7 @@ export const issuesRouter = router({
             }
             throw new TRPCError({
               code: `INTERNAL_SERVER_ERROR`,
-              message: `GitHub retarget failed: ${err.message}`,
+              message: `GitHub retarget failed (HTTP ${err.status}): ${err.message}`,
             })
           }
           throw err
@@ -2353,7 +2356,7 @@ export const issuesRouter = router({
           if (!(err instanceof GitHubMergeError && err.status === 422)) {
             throw new TRPCError({
               code: `BAD_GATEWAY`,
-              message: `GitHub retarget failed: ${err instanceof Error ? err.message : `unknown error`}`,
+              message: `GitHub retarget failed${err instanceof GitHubMergeError ? ` (HTTP ${err.status})` : ``}: ${err instanceof Error ? err.message : `unknown error`}`,
             })
           }
         }

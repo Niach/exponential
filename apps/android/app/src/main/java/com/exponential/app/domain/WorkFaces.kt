@@ -274,3 +274,89 @@ fun codingAction(
         canStart = canStart,
     )
 }
+
+// ── EXP-1175: the Run face's status row + Show work ─────────────────────────
+// The Run face opens as the THREAD: one status row (the agent's run mark as
+// the spinner, this caption, the last tool line muted, `Show work` on the
+// right) over the run's published results in publish order ([sessionThread]),
+// pending plan/question cards still in place. Show work swaps the thread for
+// the full transcript IN PLACE; the choice is remembered per user. Fixture
+// `packages/domain-contract/fixtures/run-row.json` (×4, web `work-faces.ts`).
+
+/** The viewer's Show work preference before they ever touched it. */
+const val SHOW_WORK_DEFAULT = false
+const val SHOW_WORK_LABEL = "Show work"
+const val HIDE_WORK_LABEL = "Hide work"
+
+/** The row's trailing button: what pressing it DOES next. */
+fun showWorkLabel(showWork: Boolean): String = if (showWork) HIDE_WORK_LABEL else SHOW_WORK_LABEL
+
+/** The ×4 display state plus the two the row alone tells apart: a paused
+ *  (offline host) run and an ended one. [wire] = the fixture's spelling. */
+enum class RunRowState(val wire: String) {
+    Working("working"),
+    NeedsInput("needs_input"),
+    Paused("paused"),
+    Review("review"),
+    Done("done"),
+    Ended("ended"),
+}
+
+/** The caption's colour, by NAME — the UI maps it onto the session row's
+ *  status-line colours. [wire] = the fixture's spelling. */
+enum class RunRowTone(val wire: String) { Muted("muted"), Amber("amber"), Emerald("emerald"), Sky("sky") }
+
+data class RunRowCaption(val text: String, val tone: RunRowTone)
+
+/**
+ * The row's state: the VIEWER's live signals folded over the synced ×4
+ * display state, so the row never contradicts the Run tab's mark — paused
+ * (offline host) first, then ended, then NeedsInput when the viewer sees a
+ * pending plan/question ([awaitingInput]) or the display state says so, then
+ * Working when the viewer's working predicate ([working] = `agentWorking`) or
+ * the display state says so, else the display state (Review | Done).
+ * Fixture `run-row.json` `states` (×4).
+ */
+fun runRowState(
+    paused: Boolean,
+    ended: Boolean,
+    awaitingInput: Boolean,
+    working: Boolean,
+    display: CodingSessionDisplayState,
+): RunRowState = when {
+    paused -> RunRowState.Paused
+    ended -> RunRowState.Ended
+    awaitingInput || display == CodingSessionDisplayState.NeedsInput -> RunRowState.NeedsInput
+    working || display == CodingSessionDisplayState.Working -> RunRowState.Working
+    display == CodingSessionDisplayState.Review -> RunRowState.Review
+    else -> RunRowState.Done
+}
+
+private fun runRowStamp(value: String?): Long? = value?.let { WireTimestamps.parseEpochMs(it) }
+
+/**
+ * The status row's first line and tone: `Building on <device> · <elapsed>`
+ * while it works (now − start), `Ended on <device> · <elapsed>` once it is
+ * over (end − start; the caller passes `ended_at`, else `updated_at`), else
+ * the session list row's words. The elapsed part is the working caption's
+ * ladder ([formatDurationMs]) and drops when a stamp is missing or unparsable.
+ */
+fun runRowCaption(
+    state: RunRowState,
+    device: String,
+    startedAt: String?,
+    endedAt: String?,
+    nowMs: Long,
+): RunRowCaption = when (state) {
+    RunRowState.Paused -> RunRowCaption("Paused · $device", RunRowTone.Muted)
+    RunRowState.NeedsInput -> RunRowCaption("Needs input · $device", RunRowTone.Amber)
+    RunRowState.Review -> RunRowCaption("Ready for review · $device", RunRowTone.Emerald)
+    RunRowState.Done -> RunRowCaption("Done · $device", RunRowTone.Sky)
+    RunRowState.Working, RunRowState.Ended -> {
+        val verb = if (state == RunRowState.Working) "Building on" else "Ended on"
+        val start = runRowStamp(startedAt)
+        val end = if (state == RunRowState.Working) nowMs else runRowStamp(endedAt)
+        val elapsed = if (start != null && end != null) " · ${formatDurationMs(end - start)}" else ""
+        RunRowCaption("$verb $device$elapsed", RunRowTone.Muted)
+    }
+}

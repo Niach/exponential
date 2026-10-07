@@ -20,7 +20,7 @@ use gpui::{
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -283,25 +283,19 @@ impl BoardDetailPane {
         self.ensure_repos(team_id, cx);
     }
 
-    /// The trash confirm (EXP-288: honest 48h-soft-delete copy — the server
-    /// keeps a trashed board restorable from the WEB settings for 48h, then
-    /// hard-deletes it with all its issues).
+    /// The trash confirm: the prompts fixture's `trash-board` (EXP-1230; the
+    /// server keeps a trashed board restorable from the WEB settings for 48h,
+    /// then hard-deletes it with all its issues, EXP-288).
     fn open_trash_dialog(
         board_id: String,
         board_name: String,
         window: &mut Window,
         cx: &mut gpui::App,
     ) {
-        let spec = AlertSpec::new(
+        let spec = AlertSpec::from_prompt(
             "Move board to trash",
-            format!(
-                "Move {board_name} to the trash? It is kept for 48 hours \
-                 (owners can restore it from Archived boards on the web), \
-                 then permanently deleted with all its issues."
-            ),
-            "Move to trash",
+            &domain::prompts::trash_board(&board_name),
         )
-        .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let board_id = board_id.clone();
             spawn_trpc(cx, "boards.delete", move |trpc| {

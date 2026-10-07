@@ -44,6 +44,10 @@ export const ISSUE_COLUMNS = [
   // EXP-630: story points (nullable integer). Appended = one benign
   // shape-identity rotation; old native builds drop it.
   `estimate`,
+  // EXP-1231: the draft this issue was created from — an open draft page on
+  // another client lands on this issue instead of resurrecting the row.
+  // Appended = one benign rotation; old native builds drop it.
+  `draft_id`,
   `created_at`,
   `updated_at`,
 ]

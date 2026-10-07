@@ -2849,3 +2849,17 @@ describe(`nestedWorkflowId`, () => {
     expect(nestedWorkflowId({}, agents, held)).toBeNull()
   })
 })
+
+// EXP-1175: the status row's last tool line, fixture-locked ×4.
+import runRowFixture from "@exp/domain-contract/fixtures/run-row.json"
+import { lastToolLine } from "./agent-feed"
+
+describe(`lastToolLine`, () => {
+  for (const c of runRowFixture.toolLines) {
+    it(c.name, () => {
+      expect(lastToolLine(c.feed as Parameters<typeof lastToolLine>[0])).toBe(
+        c.expected
+      )
+    })
+  }
+})

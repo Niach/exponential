@@ -16,6 +16,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // so this needs no CLIENT_MIN_VERSION bump — same shape as the coding-sessions
 // `action_id`/`action_name` addition. SLOP-2: `triggers` (the action's
 // schedule/event triggers, each with its runner) rides the same way.
+// FEED-73: `mcp_server_ids` (the action's own MCP list) is EXCLUDED like
+// `body` — server-only, read via `actions.get`; never add it here.
 const ACTION_COLUMNS = [
   `id`,
   `team_id`,

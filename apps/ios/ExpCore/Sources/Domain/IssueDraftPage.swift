@@ -19,6 +19,11 @@ public enum IssueDraftPage {
     /// One coalesced `issueDrafts.upsert` this long after the last
     /// title/description edit.
     public static let autosaveDebounceMs: Double = 800
+    /// EXP-1231: the toast when another client discarded this draft.
+    public static let discardedElsewhere = "Draft discarded elsewhere"
+    /// EXP-1231: a seen row gone this long with no issue made from it =
+    /// discarded elsewhere (a row back within it = a resync; editing resumes).
+    public static let discardedGraceMs: Double = 3000
 
     /// EXP-1212: the close button on a draft WITH content asks first.
     public enum DiscardConfirm {
@@ -114,5 +119,25 @@ public enum IssueDraftPage {
     /// title (or while a create is already in flight).
     public static func leaveCreateEnabled(title: String, creating: Bool = false) -> Bool {
         !creating && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// EXP-1231: what the synced store says about this page's draft.
+    public enum Fate: Equatable, Sendable {
+        /// Still a draft (or not synced yet): keep editing.
+        case open
+        /// An issue carries this draft's id: created elsewhere, open it.
+        case created(issueId: String)
+        /// The row this page saw is gone (discarded elsewhere once the grace
+        /// passes with no issue made from it).
+        case gone
+    }
+
+    /// EXP-1231: `createdIssueId` = an issue whose `draft_id` is this draft
+    /// (proof it was created, wherever); `seen` = the row was observed in the
+    /// local store during this page's life; `present` = it is there now.
+    /// Created wins over everything; a row never seen is never gone.
+    public static func fate(seen: Bool, present: Bool, createdIssueId: String?) -> Fate {
+        if let createdIssueId { return .created(issueId: createdIssueId) }
+        return seen && !present ? .gone : .open
     }
 }

@@ -1305,7 +1305,12 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
 /// persisted ids, to its owner or host, so this runs AFTER the row exists
 /// (a Disabled launch never fetches a credential) and never for the agent's
 /// own key.
-fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String], session_id: &str) -> ResolvedMcp {
+///
+/// FEED-73: `None` = the row's whole persisted pick, asked of the server
+/// without naming ids (a REAL action run: `codingSessions.start` set its
+/// pick from the action's own list, which this launcher never saw), plus
+/// the members' shared connections and the roster for the note.
+fn resolve_mcp_servers(deps: &CodingDeps, ids: Option<&[String]>, session_id: &str) -> ResolvedMcp {
     let resolved = crate::mcp_servers::resolve(&deps.trpc, ids, session_id);
     for warning in &resolved.warnings {
         log::warn!("{warning}");
@@ -1783,7 +1788,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     )?;
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
-    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    let mut team_mcp = resolve_mcp_servers(deps, Some(&options.mcp_server_ids), &session.id);
     let run_label = match req {
         PrepareRequest::Issue(issue_req) => issue_req.issue_identifier.clone(),
         PrepareRequest::Batch(batch_req) => format!(
@@ -2073,6 +2078,9 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
         Some(rendered.as_str()),
         None,
     );
+    // FEED-73: the team-MCP delegation note rides AFTER the measured
+    // layers (the team layer stays the team prompt's bytes).
+    let system_append = with_delegation_note(system_append, &team_mcp);
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: account_pick.clone(),
@@ -2567,7 +2575,10 @@ fn prepare_action(
     )?;
     // EXP-792/1140: the team MCP server pick, resolved FOR the row just
     // created (unconnected or unpicked ones are skipped, never a blocker).
-    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    // FEED-73: a REAL action's pick is the action's own list, set
+    // server-side, so the resolve names no ids; builtins keep the launch's.
+    let pick = req.kind.is_builtin().then_some(options.mcp_server_ids.as_slice());
+    let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
     let run_label = match &req.kind {
         ActionRunKind::Chat => "Chat".to_string(),
         _ => req.action_name.clone(),
@@ -2743,6 +2754,9 @@ fn prepare_action(
         rendered.as_deref(),
         None,
     );
+    // FEED-73: the team-MCP delegation note rides AFTER the measured
+    // layers (the team layer stays the team prompt's bytes).
+    let system_append = with_delegation_note(system_append, &team_mcp);
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: account_pick.clone(),
@@ -3378,7 +3392,10 @@ fn prepare_resume_run(
     // EXP-792/1140: the RECORDED team MCP server pick, re-resolved now
     // (fresh tokens) FOR the continuation row it was just persisted on;
     // unconnected or unpicked ones are skipped, never a blocker.
-    let mut team_mcp = resolve_mcp_servers(deps, &options.mcp_server_ids, &session.id);
+    // FEED-73: a real action's resume keeps the row's own pick (the
+    // action's list plus shared connections): no ids named.
+    let pick = (record.kind != RunKind::Team).then_some(options.mcp_server_ids.as_slice());
+    let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
     let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &record.display_name());
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
@@ -3570,6 +3587,9 @@ fn prepare_resume_run(
             .then(|| record.context_base())
             .flatten(),
     );
+    // FEED-73: the team-MCP delegation note rides AFTER the measured
+    // layers (the team layer stays the team prompt's bytes).
+    let system_append = with_delegation_note(system_append, &team_mcp);
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         account_pick: None,
@@ -3608,6 +3628,16 @@ fn prepare_resume_run(
         codex_resume_id,
         launch_hold,
     }))
+}
+
+/// FEED-73 — `append` plus, when the run acts through team MCP servers with
+/// a member roster (an ACTION run), the [`crate::mcp_servers::
+/// delegation_note`], blank-line separated. Unchanged otherwise.
+fn with_delegation_note(append: String, team_mcp: &ResolvedMcp) -> String {
+    match crate::mcp_servers::delegation_note(&team_mcp.members, &team_mcp.servers) {
+        Some(note) => format!("{}\n\n{note}", append.trim_end()),
+        None => append,
+    }
 }
 
 /// EXP-1025 — the system-prompt append for ONE launch: the run playbook plus
@@ -4963,7 +4993,15 @@ mod tests {
     #[test]
     fn prepare_action_trigger_rides_the_start_and_the_prompt() {
         let dir = temp_dir("action-trigger");
-        let (base, captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        // FEED-73: a REAL action run resolves the row's own MCP pick, ids
+        // unnamed (the action's list is set server-side).
+        let (base, captured) = canned_server_recording(vec![
+            (200, START_ACTION_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
+            ),
+        ]);
         let worktrees = Arc::new(FakeWorktrees {
             worktree: dir.0.join("unused"),
             seen: Default::default(),
@@ -5000,9 +5038,81 @@ mod tests {
         );
 
         let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert_eq!(requests.len(), 2, "{requests:?}");
         assert!(requests[0].contains(r#""startedReason":"schedule""#));
         assert!(requests[0].contains(r#""automationId":"auto-1""#));
+        assert!(requests[1].contains("POST /api/trpc/mcpServers.resolveForLaunch"));
+        assert!(!requests[1].contains("serverIds"), "{}", requests[1]);
+        assert!(requests[1].ends_with("\r\n\r\n{}"), "{}", requests[1]);
+    }
+
+    /// FEED-73: an action run whose resolve carries a member roster gets the
+    /// delegation note at the END of its `system_append`, after the layers
+    /// were measured — `context_layers.team` stays the team prompt's bytes.
+    #[test]
+    fn an_action_run_with_a_roster_appends_the_delegation_note() {
+        let dir = temp_dir("action-mcp-note");
+        let resolve = serde_json::json!({"result":{"data":{
+            "servers":[
+                {"id":"s-lin","name":"linear","transport":"http","url":"https://l/mcp",
+                 "headers":[{"name":"Authorization","value":"Bearer at-danny"}],
+                 "actor":{"userId":"u1","name":"Danny","shared":false}},
+                {"id":"s-lin","name":"linear-as-chris","transport":"http","url":"https://l/mcp",
+                 "headers":[{"name":"Authorization","value":"Bearer at-chris"}],
+                 "actor":{"userId":"u2","name":"Chris","shared":true}}
+            ],
+            "skipped":[],"warnings":[],
+            "members":[
+                {"serverId":"s-lin","serverName":"linear","userId":"u1","name":"Danny","state":"self"},
+                {"serverId":"s-lin","serverName":"linear","userId":"u2","name":"Chris","state":"shared"},
+                {"serverId":"s-lin","serverName":"linear","userId":"u3","name":"Max","state":"not_connected"}
+            ]
+        }}})
+        .to_string();
+        let team_prompt = r#"{"result":{"data":{"agentPrompt":"Always write tests."}}}"#;
+        let (base, captured) = canned_server_recording(vec![
+            (200, START_ACTION_OK.to_string()),
+            (200, resolve),
+            (200, team_prompt.to_string()),
+        ]);
+        let deps = make_deps(
+            &base,
+            &dir.0,
+            Arc::new(FakeWorktrees {
+                worktree: dir.0.join("unused"),
+                seen: Default::default(),
+            }),
+        );
+        let prepared = match prepare(&PrepareRequest::Action(action_request()), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let append = &prepared.acp.system_append;
+        let note = "## Team MCP connections\n\
+linear = your connection (Danny). linear_as_chris = acts as Chris (shared).\n\
+Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them with exponential_notifications_send.";
+        assert!(append.ends_with(&format!("\n\n{note}")), "{append}");
+        let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
+        assert!(before.contains("Always write tests."), "{before}");
+        let unnoted = crate::skill::system_append_with(Some("Always write tests."), false);
+        assert_eq!(before, unnoted.trim_end());
+        assert_eq!(
+            prepared.acp.context_layers.team_bytes,
+            context_layout::team_bytes(&unnoted)
+        );
+        assert!(prepared.acp.context_layers.team_bytes.is_some());
+        let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["linear", "linear_as_chris"]);
+        assert_eq!(
+            prepared.acp.servers[1].actor.as_ref().map(|a| a.name.as_str()),
+            Some("Chris")
+        );
+        let requests = captured.lock().unwrap();
+        let resolve = requests
+            .iter()
+            .find(|request| request.contains("mcpServers.resolveForLaunch"))
+            .expect("resolved");
+        assert!(!resolve.contains("serverIds"), "{resolve}");
     }
 
     /// EXP-257: action runs honor the full claude option set — plan mode ON
@@ -7657,6 +7767,7 @@ mod tests {
                 headers: vec![("Authorization".to_string(), "Bearer ${EXP_MCP_TOKEN_1}".to_string())],
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
+                actor: None,
             },
             McpServerWire {
                 id: "srv-2".to_string(),
@@ -7668,6 +7779,7 @@ mod tests {
                 headers: Vec::new(),
                 token_env: None,
                 env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+                actor: None,
             },
         ]
     }
@@ -7680,6 +7792,7 @@ mod tests {
                 ("GITHUB_TOKEN".to_string(), "ghp_typed_value_2".to_string()),
             ],
             warnings: Vec::new(),
+            members: Vec::new(),
         }
     }
 
@@ -7735,7 +7848,7 @@ mod tests {
                 seen: Default::default(),
             }),
         );
-        let resolved = resolve_mcp_servers(&deps, &["srv-9".to_string()], "sess-1");
+        let resolved = resolve_mcp_servers(&deps, Some(&["srv-9".to_string()]), "sess-1");
         assert!(resolved.servers.is_empty() && resolved.env.is_empty());
         assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
         let requests = captured.lock().unwrap();
@@ -7749,7 +7862,7 @@ mod tests {
         );
         // An empty pick makes no call at all.
         drop(requests);
-        assert_eq!(resolve_mcp_servers(&deps, &[], "sess-1"), ResolvedMcp::default());
+        assert_eq!(resolve_mcp_servers(&deps, Some(&[]), "sess-1"), ResolvedMcp::default());
         assert_eq!(captured.lock().unwrap().len(), 1);
     }
 
@@ -7873,7 +7986,11 @@ mod tests {
             .iter()
             .find(|request| request.contains("mcpServers.resolveForLaunch"))
             .expect("the resume re-resolved its pick");
-        assert!(resolve.contains(r#"{"serverIds":["srv-9"]}"#), "{resolve}");
+        // FEED-73: a REAL action's resume names no ids — the server resolves
+        // the continuation row's own pick (the action's list + shares).
+        assert_eq!(resume_record(&dir.0, "sess-x").kind, crate::run_registry::RunKind::Team);
+        assert!(!resolve.contains("serverIds"), "{resolve}");
+        assert!(resolve.ends_with("\r\n\r\n{}"), "{resolve}");
         assert!(
             resolve.to_ascii_lowercase().contains("x-exp-session-id: sess-new"),
             "{resolve}"

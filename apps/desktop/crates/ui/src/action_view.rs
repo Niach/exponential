@@ -29,7 +29,7 @@ use gpui::{
     Subscription, Task, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::Button,
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -374,7 +374,8 @@ impl ActionView {
         self.write_triggers(trigger_editor::triggers_without(&current, trigger_id), cx);
     }
 
-    /// Destructive native actions confirm first (the machines Remove pattern).
+    /// Destructive native actions confirm first: the prompts fixture's
+    /// `delete-trigger` (EXP-1230).
     fn prompt_delete_trigger(
         &mut self,
         trigger_id: String,
@@ -382,12 +383,7 @@ impl ActionView {
         cx: &mut gpui::Context<Self>,
     ) {
         let view = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            "Delete trigger?",
-            "It stops firing. Past runs stay in Runs.".to_string(),
-            "Delete",
-        )
-        .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger())
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
                 view.update(cx, |this, cx| this.delete_trigger(&trigger_id, cx));
@@ -397,9 +393,9 @@ impl ActionView {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// The web delete dialog's copy behind the shared alert window. The page
-    /// leaves for the list once the synced row is gone
-    /// ([`Self::on_actions_changed`]).
+    /// The prompts fixture's `delete-action` (EXP-1230) behind the shared
+    /// alert window. The page leaves for the list once the synced row is
+    /// gone ([`Self::on_actions_changed`]).
     fn prompt_delete_action(
         &mut self,
         action_id: String,
@@ -407,15 +403,7 @@ impl ActionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let spec = AlertSpec::new(
-            "Delete action",
-            format!(
-                "Delete \"{name}\"? Live runs keep going and keep their label; \
-                 this cannot be undone."
-            ),
-            "Delete",
-        )
-        .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt("Delete action", &domain::prompts::delete_action(&name))
         .on_ok(move |_, cx| {
             crate::actions_view::spawn_action_delete(cx, action_id.clone());
             true

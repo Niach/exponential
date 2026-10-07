@@ -250,6 +250,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("pr_merged_at", .text)
                 // EXP-630: story points; the team's scale renders them.
                 t.column("estimate", .integer)
+                // EXP-1231: the draft the issue was created from.
+                t.column("draft_id", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -2246,6 +2248,29 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
+        // v63 (EXP-1231 draft concurrency): `issues.draft_id`, the draft an
+        // issue was created from. Synced (it joined the issues shape's columns
+        // allowlist) so every open draft page can see its draft was created
+        // elsewhere and replace itself with that issue. The v40 pattern: a
+        // guarded additive ALTER, and the issues offset resets only when the
+        // column was added (a fresh v1 store already declares it and has
+        // nothing synced), so already-synced rows re-arrive carrying it.
+        migrator.registerMigration("v63_issue_draft_id") { db in
+            guard try db.tableExists("issues") else { return }
+            let existing = Set(try db.columns(in: "issues").map(\.name))
+            guard !existing.contains("draft_id") else { return }
+            try db.alter(table: "issues") { t in
+                t.add(column: "draft_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'issues'
                     """)
             }
         }

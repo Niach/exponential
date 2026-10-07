@@ -22,6 +22,7 @@ const mockState = vi.hoisted(() => ({
   probe: vi.fn(),
   create: vi.fn(),
   connect: vi.fn(),
+  setShared: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   assign: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
       setSecret: { mutate: vi.fn() },
       disconnect: { mutate: vi.fn() },
       test: { mutate: vi.fn() },
+      setShared: { mutate: mockState.setShared },
     },
   },
 }))
@@ -69,9 +71,12 @@ const server = (
   createdById: `u1`,
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
-  connection: { status, expiresAt: null, error: null },
+  connection: { status, expiresAt: null, error: null, shared: false },
   connectedCount: status === `connected` ? 1 : 0,
   memberCount: 3,
+  sharedCount: 0,
+  sharedUserIds: [],
+  connectedUserIds: [],
   ...extra,
 })
 
@@ -278,5 +283,66 @@ describe(`TeamMcpServersSection`, () => {
     await waitFor(() =>
       expect(mockState.assign).toHaveBeenCalledWith(`https://sentry.io/oauth`)
     )
+  })
+
+  // FEED-73: sharing a connection with the team, like a shared device.
+  it(`counts shared connections and pills the viewer's own shared one`, async () => {
+    mockState.list.mockResolvedValue([
+      server(`linear`, `oauth`, `connected`, {
+        connection: { status: `connected`, expiresAt: null, error: null, shared: true },
+        connectedCount: 2,
+        sharedCount: 1,
+      }),
+      server(`sentry`, `oauth`, `connected`),
+    ])
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`linear`)
+
+    expect(rowOf(`linear`).textContent).toContain(`2 of 3 connected · 1 shared`)
+    expect(rowOf(`linear`).textContent).toContain(`Shared`)
+    expect(rowOf(`sentry`).textContent).toContain(`1 of 3 connected`)
+    expect(rowOf(`sentry`).textContent).not.toContain(`shared`)
+    expect(rowOf(`sentry`).textContent).not.toContain(`Shared`)
+  })
+
+  it(`flips the Connected menu's share item and sends it`, async () => {
+    mockState.list.mockResolvedValue([server(`sentry`, `oauth`, `connected`)])
+    mockState.setShared.mockResolvedValue({ status: `connected`, shared: true })
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`sentry`)
+
+    fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    const share = await screen.findByRole(`menuitem`, { name: `Share with team` })
+    expect(screen.queryByRole(`menuitem`, { name: `Stop sharing` })).toBeNull()
+
+    mockState.list.mockResolvedValue([
+      server(`sentry`, `oauth`, `connected`, {
+        connection: { status: `connected`, expiresAt: null, error: null, shared: true },
+        sharedCount: 1,
+      }),
+    ])
+    fireEvent.click(share)
+    await waitFor(() =>
+      expect(mockState.setShared).toHaveBeenCalledWith(
+        { serverId: `sentry`, shared: true },
+        expect.anything()
+      )
+    )
+    await waitFor(() =>
+      expect(rowOf(`sentry`).textContent).toContain(`1 shared`)
+    )
+    expect(mockState.toastSuccess).toHaveBeenCalledWith(`Shared sentry with the team`)
+
+    fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    expect(
+      await screen.findByRole(`menuitem`, { name: `Stop sharing` })
+    ).toBeTruthy()
+    expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
   })
 })

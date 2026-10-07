@@ -450,4 +450,26 @@ final class SessionResultsTests: XCTestCase {
             XCTAssertEqual(entry.tileCaption, expected["tileCaption"] as? String, name)
         }
     }
+
+    // MARK: EXP-1175 — the Run face's thread (`thread` cases ×4).
+
+    func testReadsTheSessionThreadPerTheFixture() throws {
+        let block = try XCTUnwrap(try fixture()["thread"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let expected = try XCTUnwrap(testCase["expected"] as? [String: Any], name)
+            let thread = sessionThread(try rawString(testCase["raw"]))
+            let items: [[String: String]] = thread.items.map { item in
+                switch item {
+                case let .text(topic, text): return ["kind": "text", "topic": topic, "text": text]
+                case let .picture(entry): return ["kind": "picture", "attachmentId": entry.attachmentId]
+                }
+            }
+            let expectedItems = try XCTUnwrap(expected["items"] as? [[String: String]], name)
+            XCTAssertEqual(items, expectedItems, name)
+            XCTAssertEqual(thread.reply, expected["reply"] as? String, name)
+        }
+    }
 }

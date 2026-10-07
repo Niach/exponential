@@ -32,6 +32,8 @@ import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import { entry as deviceReadiness } from "./device-readiness.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
+import { entry as runStatusRow } from "./run-status-row.tsx"
+import { entry as sessionThread } from "./session-thread.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -66,6 +68,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   deviceReadiness,
   resultsGuide,
   mcpAppViews,
+  runStatusRow,
+  sessionThread,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {
