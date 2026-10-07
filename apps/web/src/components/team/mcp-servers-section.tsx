@@ -6,7 +6,10 @@
 // A row = name, where it lives, "N of M connected" and ONE action for the
 // viewer: Connect (OAuth: `mcpServers.connect` → the provider's consent page
 // → the server-side callback → back here with `?mcp=connected|failed`), Set
-// key (an API-key server), or Connected (menu: Test connection, Disconnect).
+// key (an API-key server), or Connected (menu: Test connection, Share with
+// team / Stop sharing, Disconnect). FEED-73: a member may SHARE their own
+// connection with the team (like a shared device) — the row then counts
+// "K shared" and wears a "Shared" pill for the viewer whose connection it is.
 // Adding a server starts from a catalog tile or a pasted URL; the server
 // probes it to detect the sign-in kind, so the owner only confirms a name.
 // Everything technical (auth override, transport, header/env names, scopes)
@@ -62,6 +65,7 @@ import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   draftFromServer,
+  sharedSummary,
   EMPTY_MCP_SERVER_DRAFT,
   isNavigableAuthorizeUrl,
   UNSAFE_AUTHORIZE_URL_MESSAGE,
@@ -94,6 +98,7 @@ const DisconnectIcon = conceptIcon(`ui-clear`)
 const BackIcon = conceptIcon(`ui-back`)
 const CloseIcon = conceptIcon(`ui-close`)
 const LoadingIcon = conceptIcon(`ui-loading`)
+const ShareIcon = conceptIcon(`ui-share`)
 
 /** A settings deep link's one-shot requests (the route strips them once
  * handed over): `?connect=<id>` starts a connect, `?mcp=…` is the OAuth
@@ -118,7 +123,7 @@ export function TeamMcpServersSection({
   request?: McpSettingsRequest
   onRequestConsumed?: () => void
 }) {
-  const { servers, error, refresh } = useMcpServers(teamId)
+  const { servers, error, refresh, setShared } = useMcpServers(teamId)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
   const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)
@@ -169,6 +174,22 @@ export function TeamMcpServersSection({
       toast.error(`Could not disconnect`, {
         description: trpcErrorMessage(err, `Try again.`),
       })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const share = async (server: McpServerRow) => {
+    const next = !server.connection.shared
+    setPending(server.id)
+    try {
+      if (await setShared(server.id, next)) {
+        toast.success(
+          next
+            ? `Shared ${server.name} with the team`
+            : `Stopped sharing ${server.name}`
+        )
+      }
     } finally {
       setPending(null)
     }
@@ -383,6 +404,7 @@ export function TeamMcpServersSection({
               onConnect={() => void connect(server)}
               onDisconnect={() => void disconnect(server)}
               onTest={() => void test(server)}
+              onToggleShared={() => void share(server)}
               onReplaceKey={() => setKeyTarget(server)}
               onEdit={() => {
                 setDialogError(null)
@@ -655,6 +677,7 @@ function ServerRow({
   onConnect,
   onDisconnect,
   onTest,
+  onToggleShared,
   onReplaceKey,
   onEdit,
   onRemove,
@@ -665,6 +688,7 @@ function ServerRow({
   onConnect: () => void
   onDisconnect: () => void
   onTest: () => void
+  onToggleShared: () => void
   onReplaceKey: () => void
   onEdit: () => void
   onRemove: () => void
@@ -685,6 +709,7 @@ function ServerRow({
               Default
             </Pill>
           )}
+          {server.connection.shared && <Pill size="sm">Shared</Pill>}
         </div>
         {/* Phones drop the host beside the count; the name identifies it. */}
         <div className="flex min-w-0 text-xs text-muted-foreground">
@@ -700,7 +725,7 @@ function ServerRow({
           {needsSignIn && (
             <span className="shrink-0 whitespace-pre">
               <span className="max-sm:hidden">{` · `}</span>
-              {`${server.connectedCount} of ${server.memberCount} connected`}
+              {sharedSummary(server)}
             </span>
           )}
         </div>
@@ -711,6 +736,7 @@ function ServerRow({
         onConnect={onConnect}
         onDisconnect={onDisconnect}
         onTest={onTest}
+        onToggleShared={onToggleShared}
         onReplaceKey={onReplaceKey}
       />
       {isOwner && (
@@ -747,6 +773,7 @@ function ConnectionAction({
   onConnect,
   onDisconnect,
   onTest,
+  onToggleShared,
   onReplaceKey,
 }: {
   server: McpServerRow
@@ -754,6 +781,7 @@ function ConnectionAction({
   onConnect: () => void
   onDisconnect: () => void
   onTest: () => void
+  onToggleShared: () => void
   onReplaceKey: () => void
 }) {
   const { status, error } = server.connection
@@ -796,7 +824,11 @@ function ConnectionAction({
               Replace key
             </DropdownMenuItem>
           )}
-          {(http || server.auth === `secret`) && <DropdownMenuSeparator />}
+          <DropdownMenuItem onSelect={onToggleShared}>
+            <ShareIcon />
+            {server.connection.shared ? `Stop sharing` : `Share with team`}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
             <DisconnectIcon />
             Disconnect

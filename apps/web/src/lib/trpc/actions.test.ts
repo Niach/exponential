@@ -564,3 +564,82 @@ describe(`actions.update — triggers (SLOP-2)`, () => {
     expect(updates[0]!.description).toBe(`Mine`)
   })
 })
+
+// FEED-73: the action owns its MCP list — server-only like `body`, written
+// through create/update (in-team ids only), echoed by the writes and `get`,
+// never by `list`.
+describe(`actions — mcpServerIds (FEED-73)`, () => {
+  const SERVER_A = `44444444-4444-4444-8444-444444444444`
+  const SERVER_B = `55555555-5555-4555-8555-555555555555`
+
+  it(`create persists the in-team list, de-duplicated, and echoes it`, async () => {
+    // assertMcpServersInTeam, then the sortOrder probe.
+    selectResults.push([{ id: SERVER_A }, { id: SERVER_B }], [])
+    const { action } = await caller.create({
+      teamId: TEAM_ID,
+      name: `Triage`,
+      body: `x`,
+      mcpServerIds: [SERVER_A, SERVER_B, SERVER_A],
+    })
+    expect(inserts[0]!.mcpServerIds).toEqual([SERVER_A, SERVER_B])
+    expect(action).toMatchObject({ mcpServerIds: [SERVER_A, SERVER_B] })
+  })
+
+  it(`create defaults to an empty list without a query`, async () => {
+    selectResults.push([])
+    await caller.create({ teamId: TEAM_ID, name: `Plain`, body: `x` })
+    expect(inserts[0]!.mcpServerIds).toEqual([])
+  })
+
+  it(`create refuses a foreign (or vanished) server id`, async () => {
+    selectResults.push([{ id: SERVER_A }])
+    const error = await rejectionOf(
+      caller.create({
+        teamId: TEAM_ID,
+        name: `Triage`,
+        body: `x`,
+        mcpServerIds: [SERVER_A, SERVER_B],
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`update replaces the list (empty clears it), refuses foreign ids`, async () => {
+    selectResults.push(
+      [{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }],
+      [{ id: SERVER_B }]
+    )
+    const { action } = await caller.update({ id: ACTION_ID, mcpServerIds: [SERVER_B] })
+    expect(updates[0]).toEqual({ mcpServerIds: [SERVER_B] })
+    expect(action).toMatchObject({ mcpServerIds: [SERVER_B] })
+
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }])
+    await caller.update({ id: ACTION_ID, mcpServerIds: [] })
+    expect(updates[1]).toEqual({ mcpServerIds: [] })
+
+    selectResults.push(
+      [{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }],
+      []
+    )
+    const error = await rejectionOf(
+      caller.update({ id: ACTION_ID, mcpServerIds: [SERVER_A] })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect(updates).toHaveLength(2)
+  })
+
+  it(`a partial update leaves the list alone`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }])
+    await caller.update({ id: ACTION_ID, description: `d` })
+    expect(updates[0]).not.toHaveProperty(`mcpServerIds`)
+  })
+
+  it(`get returns it`, async () => {
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, body: `x`, mcpServerIds: [SERVER_A] },
+    ])
+    const { action } = await caller.get({ id: ACTION_ID })
+    expect(action.mcpServerIds).toEqual([SERVER_A])
+  })
+})

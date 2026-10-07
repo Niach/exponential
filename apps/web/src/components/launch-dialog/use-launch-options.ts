@@ -100,7 +100,12 @@ export interface LaunchOptions {
    * switch) and the account in one go. */
   setAccountKey: (key: string) => void
   /** The capability-clamped payload for `steer.startSession`. */
-  buildOptions: (args?: { resume?: boolean }) => CodingLaunchPrefs
+  buildOptions: (args?: {
+    resume?: boolean
+    /** FEED-73: the subject (a real action) owns the run's MCP list, so the
+     * pick never rides out. */
+    omitMcp?: boolean
+  }) => CodingLaunchPrefs
 }
 
 export function useLaunchOptions({
@@ -318,7 +323,10 @@ export function useLaunchOptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, availableAgentsKey, agent])
 
-  const buildOptions = ({ resume = false }: { resume?: boolean } = {}) => ({
+  const buildOptions = ({
+    resume = false,
+    omitMcp = false,
+  }: { resume?: boolean; omitMcp?: boolean } = {}) => ({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
@@ -334,7 +342,10 @@ export function useLaunchOptions({
     ...(resume ? { resume: true } : {}),
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike, and older relays never see the key.
-    ...(mcpServerIds.length > 0 ? { mcpServerIds: [...mcpServerIds] } : {}),
+    // FEED-73: a real action's runs use the ACTION's list (server-set).
+    ...(mcpServerIds.length > 0 && !omitMcp
+      ? { mcpServerIds: [...mcpServerIds] }
+      : {}),
     // EXP-1158: the picked login rides out VERBATIM, `system` included (it
     // NAMES the ambient login; an absent account = the last used one).
     ...(pickedOption && pickedOption.agent === agent

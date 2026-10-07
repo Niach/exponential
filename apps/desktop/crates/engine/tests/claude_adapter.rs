@@ -579,8 +579,20 @@ async fn drive_env(
     permission: PermissionAnswer,
     elicitation: ElicitationAnswer,
 ) -> Run {
-    let adapter = ClaudeAgent::new(spec_env(scenario_dir, work, plan_mode, env))
-        .expect("the adapter builds");
+    drive_spec(spec_env(scenario_dir, work, plan_mode, env), work, prompt, permission, elicitation)
+        .await
+}
+
+/// [`drive_env`] over a ready-made spec, for a test that needs a field the
+/// spec builders do not take (FEED-73: the team MCP `servers`).
+async fn drive_spec(
+    spec: AdapterSpec,
+    work: &Path,
+    prompt: &str,
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+) -> Run {
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
     let elicitations: Arc<Mutex<Vec<CreateElicitationRequest>>> = Arc::new(Mutex::new(Vec::new()));
@@ -982,6 +994,59 @@ async fn replayed_machinery_never_becomes_a_user_message() {
         .filter(|shape| shape.starts_with("user:"))
         .collect();
     assert_eq!(users, vec!["user:and now the migration".to_string()], "{users:?}");
+}
+
+/// FEED-73: a call against a team MCP server carries whose connection it
+/// acts as (`as Chris` for the shared `linear_as_chris` entry, `as Danny`
+/// for the launcher's own) into the tool row's detail; `exponential` and
+/// built-in tools carry none.
+#[tokio::test]
+async fn a_team_mcp_call_names_the_member_it_acts_as() {
+    let _session = one_session_at_a_time();
+    let work = workdir("mcp-actor");
+    let tool_use = |id: &str, name: &str| {
+        format!(
+            r#"{{"type":"assistant","message":{{"model":"claude-opus-5","id":"msg_{id}","type":"message","role":"assistant","content":[{{"type":"tool_use","id":"{id}","name":"{name}","input":{{"title":"x"}}}}],"stop_reason":null,"usage":{{"input_tokens":2,"output_tokens":4}}}},"parent_tool_use_id":null,"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-0000000000{}"}}"#,
+            &id[id.len() - 2..]
+        )
+    };
+    let frames = [
+        r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Bash"],"model":"claude-opus-5[1m]","permissionMode":"bypassPermissions","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#.to_string(),
+        tool_use("toolu_11", "mcp__linear_as_chris__create_comment"),
+        tool_use("toolu_12", "mcp__linear__create_comment"),
+        tool_use("toolu_13", "mcp__exponential__exponential_issues_get"),
+        r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000099","queued_turn_count":0}"#.to_string(),
+    ];
+    let frames: Vec<&str> = frames.iter().map(String::as_str).collect();
+    let scenario = synthetic(&work.0, &frames, &[]);
+    let server = |name: &str, actor: &str, shared: bool| coding::McpServerWire {
+        id: "s-lin".to_string(),
+        name: name.to_string(),
+        transport: coding::McpWireTransport::Http { url: "https://l/mcp".to_string() },
+        headers: Vec::new(),
+        token_env: None,
+        env: Vec::new(),
+        actor: Some(api::mcp_servers::McpActor {
+            user_id: format!("u-{actor}"),
+            name: actor.to_string(),
+            shared,
+        }),
+    };
+    let mut spec = spec_at(&scenario, &work.0, false);
+    spec.servers = vec![server("linear", "Danny", false), server("linear_as_chris", "Chris", true)];
+    let run = drive_spec(spec, &work.0, "Comment.", reject_all(), cancel_elicitations()).await;
+
+    let wire = run.wire();
+    let detail = |id: &str| {
+        wire.iter()
+            .find(|event| event["kind"] == "tool" && event["id"] == id)
+            .unwrap_or_else(|| panic!("a tool row for {id}: {wire:?}"))["detail"]
+            .clone()
+    };
+    assert_eq!(detail("toolu_11"), serde_json::json!("as Chris"));
+    assert_eq!(detail("toolu_12"), serde_json::json!("as Danny"));
+    assert_ne!(detail("toolu_13"), serde_json::json!("as Danny"));
+    assert_ne!(detail("toolu_13"), serde_json::json!("as Chris"));
 }
 
 /// EXP-772: even in PLAN mode an ordinary tool is allowed right here — the

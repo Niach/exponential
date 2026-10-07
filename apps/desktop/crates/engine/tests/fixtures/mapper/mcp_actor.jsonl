@@ -1,0 +1,4 @@
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-chris","title":"mcp__linear_as_chris__create_comment","kind":"other","status":"in_progress","content":[],"locations":[],"rawInput":{"issueId":"LIN-7","body":"Fixed in #42"},"_meta":{"exponentialToolDetail":"as Chris"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call_update","toolCallId":"tc-chris","status":"completed","content":[{"type":"content","content":{"type":"text","text":"{\"id\":\"c1\"}"}}]}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-danny","title":"mcp.linear.create_comment","kind":"other","status":"in_progress","content":[],"locations":[],"rawInput":{"issueId":"LIN-8"},"_meta":{"exponentialToolDetail":"as Danny"}}}
+{"sessionId":"acp-1","update":{"sessionUpdate":"tool_call","toolCallId":"tc-plain","title":"mcp__linear__create_comment","kind":"other","status":"in_progress","content":[],"locations":[],"rawInput":{"issueId":"LIN-9"}}}

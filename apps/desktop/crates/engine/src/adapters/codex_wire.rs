@@ -1513,6 +1513,12 @@ mod tests {
                 ],
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
+                // FEED-73: transcript-only metadata, never rendered.
+                actor: Some(api::mcp_servers::McpActor {
+                    user_id: "u1".to_string(),
+                    name: "Danny".to_string(),
+                    shared: false,
+                }),
             },
             coding::McpServerWire {
                 id: "srv-2".to_string(),
@@ -1524,6 +1530,7 @@ mod tests {
                 headers: Vec::new(),
                 token_env: None,
                 env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+                actor: None,
             },
         ];
         let config = thread_config(Some("https://x/api/mcp"), "sess-1", &servers, &[]);

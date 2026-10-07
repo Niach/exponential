@@ -10,7 +10,7 @@
 //! One list: per server the person's own connection and ONE action —
 //! Connect (the web settings page's connect in the signed-in system browser,
 //! then a 2 s poll of `mcpServers.list` until it reads connected), Set key, or a "Connected"
-//! menu with Test / Replace key / Disconnect. Owners add, edit and remove
+//! menu with Test / Replace key / Share with team (FEED-73) / Disconnect. Owners add, edit and remove
 //! servers through [`super::mcp_server_dialog`] (EXP-810).
 //!
 //! `mcp_servers` is server-only (never an Electric shape), so this is a
@@ -84,9 +84,40 @@ fn row_detail(entry: &McpServerListEntry) -> String {
     };
     let mut detail = vec![target].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>();
     if config.auth != "none" {
-        detail.push(format!("{} of {} connected", entry.connected_count, entry.member_count));
+        detail.push(shared_summary(entry));
     }
     detail.join(" · ")
+}
+
+/// FEED-73 — the row's count segment (web `sharedSummary`, string for
+/// string): `N of M connected · K shared`, the shared part omitted at 0.
+pub(crate) fn shared_summary(entry: &McpServerListEntry) -> String {
+    let connected = format!("{} of {} connected", entry.connected_count, entry.member_count);
+    if entry.shared_count > 0 {
+        format!("{connected} · {} shared", entry.shared_count)
+    } else {
+        connected
+    }
+}
+
+/// FEED-73 — the Connected menu's share item (web `ConnectionAction`), by
+/// whether the viewer's OWN connection is shared.
+fn share_menu_label(shared: bool) -> &'static str {
+    if shared {
+        "Stop sharing"
+    } else {
+        "Share with team"
+    }
+}
+
+/// FEED-73 — the share toggle's toasts (web `share` + `useMcpServers.
+/// setShared`): `Ok` = the success line, `Err` = the failure title.
+fn share_toast(name: &str, shared: bool) -> (String, &'static str) {
+    if shared {
+        (format!("Shared {name} with the team"), "Could not share")
+    } else {
+        (format!("Stopped sharing {name}"), "Could not stop sharing")
+    }
 }
 
 /// What the row's one action is, from the person's own connection (web
@@ -582,6 +613,42 @@ impl McpServersPane {
         open_alert(window, cx, spec);
     }
 
+    /// FEED-73: Share with team / Stop sharing — the person's OWN connection
+    /// offered to (or withdrawn from) the team's action runs, like a shared
+    /// device. The list refetches either way (web `useMcpServers.setShared`).
+    fn toggle_shared(
+        &mut self,
+        config: &McpServerConfig,
+        shared: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        self.pending = Some(config.id.clone());
+        cx.notify();
+        let handle = window.window_handle();
+        let server_id = config.id.clone();
+        let (success, failure) = share_toast(&config.name, shared);
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::mcp_servers::set_shared(&trpc, &server_id, shared) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.pending = None;
+                let note = match result {
+                    Ok(_) => Toast::success(success),
+                    Err(err) => Toast::error(failure).description(err.user_message()),
+                };
+                this.refetch(cx);
+                let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
+            });
+        })
+        .detach();
+    }
+
     // -- owner writes -----------------------------------------------------------
 
     /// Owner-only `mcpServers.remove`. The row goes for the whole TEAM, and
@@ -786,6 +853,7 @@ impl McpServersPane {
                 let pane = cx.entity();
                 let http = config.is_http();
                 let secret = config.auth == "secret";
+                let shared = entry.shared;
                 let target = config.clone();
                 glass_pill_button(
                     SharedString::from(format!("mcp-connected-{}", config.id)),
@@ -826,8 +894,22 @@ impl McpServersPane {
                                 }),
                         );
                     }
-                    if http || secret {
-                        menu = menu.separator();
+                    // FEED-73: share the person's own connection with the
+                    // team (web: always, right before the separator).
+                    {
+                        let (target, pane) = (target.clone(), pane.clone());
+                        menu = menu
+                            .item(
+                                PopupMenuItem::new(share_menu_label(shared))
+                                    .icon(Icon::new(registry::UI_SHARE))
+                                    .on_click(move |_, window, cx| {
+                                        let target = target.clone();
+                                        pane.update(cx, |this, cx| {
+                                            this.toggle_shared(&target, !shared, window, cx)
+                                        });
+                                    }),
+                            )
+                            .separator();
                     }
                     let (target, pane) = (target.clone(), pane.clone());
                     menu.item(
@@ -905,6 +987,14 @@ impl McpServersPane {
             chips = chips.child(self.chip(
                 format!("mcp-default-{}", config.id),
                 "Default".to_string(),
+                cx,
+            ));
+        }
+        // FEED-73: the viewer's own connection is shared with the team.
+        if entry.shared {
+            chips = chips.child(self.chip(
+                format!("mcp-shared-{}", config.id),
+                "Shared".to_string(),
                 cx,
             ));
         }
@@ -1146,7 +1236,33 @@ mod tests {
             },
             connected_count: 2,
             member_count: 5,
+            ..Default::default()
         }
+    }
+
+    /// FEED-73 — web `sharedSummary`, string for string.
+    #[test]
+    fn shared_summary_omits_a_zero_share_count() {
+        let mut row = entry("oauth", "connected");
+        assert_eq!(shared_summary(&row), "2 of 5 connected");
+        row.shared_count = 3;
+        assert_eq!(shared_summary(&row), "2 of 5 connected · 3 shared");
+        assert_eq!(row_detail(&row), "https://mcp.linear.app/mcp · 2 of 5 connected · 3 shared");
+    }
+
+    /// FEED-73 — the Connected menu item and its toasts, web copy verbatim.
+    #[test]
+    fn share_copy_matches_the_web() {
+        assert_eq!(share_menu_label(false), "Share with team");
+        assert_eq!(share_menu_label(true), "Stop sharing");
+        assert_eq!(
+            share_toast("Linear", true),
+            ("Shared Linear with the team".to_string(), "Could not share")
+        );
+        assert_eq!(
+            share_toast("Linear", false),
+            ("Stopped sharing Linear".to_string(), "Could not stop sharing")
+        );
     }
 
     /// The web `MCP_TRANSPORT_LABELS` / `MCP_AUTH_LABELS` vocabularies, and

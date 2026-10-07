@@ -62,7 +62,7 @@ import {
   type LaunchOptions,
 } from "@/components/launch-dialog/use-launch-options"
 import type { TeamAction } from "@/components/action-prompt-form"
-import type { McpServerList } from "@/lib/mcp-servers"
+import { subjectOwnsMcpServers, type McpServerList } from "@/lib/mcp-servers"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced
@@ -791,8 +791,11 @@ export function useLaunchComposer({
       )
       // A stacked start may launch an issue other than the picked one, whose
       // worktree the resume offer never looked at: it always starts fresh.
+      // FEED-73: a real action owns its MCP list (the server sets the run's
+      // pick from it), so the composer's pick never rides a real-action start.
       const options = launch.buildOptions({
         resume: stacked ? false : resumeActive,
+        omitMcp: subjectOwnsMcpServers(subject),
       })
       // The remote hook toasts its own failures and rethrows; a refused start
       // keeps the draft so it can be retried.

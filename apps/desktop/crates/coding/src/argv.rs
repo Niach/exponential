@@ -198,6 +198,10 @@ pub struct McpServerWire {
     pub token_env: Option<String>,
     /// Env NAME → `${VAR}` reference for a `stdio` server's env.
     pub env: Vec<(String, String)>,
+    /// FEED-73: whose connection this entry acts as (the transcript's
+    /// `as <name>` audit). Never rendered into an agent config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<api::mcp_servers::McpActor>,
 }
 
 /// Where a [`McpServerWire`] lives.
@@ -755,6 +759,13 @@ mod tests {
                 ],
                 token_env: Some("EXP_MCP_TOKEN_1".to_string()),
                 env: Vec::new(),
+                // FEED-73: an actor is transcript-only metadata — the
+                // rendered configs below must never carry it.
+                actor: Some(api::mcp_servers::McpActor {
+                    user_id: "u1".to_string(),
+                    name: "Danny".to_string(),
+                    shared: false,
+                }),
             },
             McpServerWire {
                 id: "srv-2".to_string(),
@@ -766,6 +777,7 @@ mod tests {
                 headers: Vec::new(),
                 token_env: None,
                 env: vec![("GITHUB_TOKEN".to_string(), "${GITHUB_TOKEN}".to_string())],
+                actor: None,
             },
         ]
     }
@@ -799,6 +811,16 @@ mod tests {
         );
 
         let full = codex_mcp_servers_toml("http://x/api/mcp", Some("sess-1"), &two_servers());
+        // FEED-73: the actor never changes the rendered config.
+        let actorless: Vec<McpServerWire> = two_servers()
+            .into_iter()
+            .map(|mut server| {
+                server.actor = None;
+                server
+            })
+            .collect();
+        assert_eq!(full, codex_mcp_servers_toml("http://x/api/mcp", Some("sess-1"), &actorless));
+        assert!(!full.contains("Danny") && !full.contains("actor"), "{full}");
         let doc: toml::Value = format!("mcp_servers={full}").parse().expect("valid TOML");
         let table = doc["mcp_servers"].as_table().unwrap();
         assert_eq!(table.len(), 3);
