@@ -200,4 +200,4 @@ Server-only `widget_configs` (public `expw_` key + domain allowlist, `board_id` 
 
 ## Agent context budget (EXP-353/EXP-637)
 
-Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts in): the always-loaded set == `lib/mcp/always-load.ts`, <10k serialized, whole surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k with a self-contained first 512; gated by `lib/mcp/context-budget.test.ts`. `exponential_issues_list` defaults to OPEN work, limit 50/max 1000, descriptions cut at 200 chars. **Compress, never append**: a rule over its rationale, a citation over a list.
+Keep this file under 40k chars. MCP clients DEFER tool defs behind tool search (`_meta["anthropic/alwaysLoad"]` opts in): the always-loaded set == `lib/mcp/always-load.ts`, <10k serialized, whole surface <60k, per-tool <1.8k, `MCP_SERVER_INSTRUCTIONS` <2k with a self-contained first 512; gated by `lib/mcp/context-budget.test.ts`. **Compress, never append**: a rule over its rationale, a citation over a list.
