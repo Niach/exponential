@@ -272,6 +272,7 @@ import {
   SHOW_WORK_DEFAULT,
   SHOW_WORK_LABEL,
   runRowCaption,
+  runRowState,
   showWorkLabel,
   type RunRowState,
 } from "./work-faces"
@@ -296,6 +297,22 @@ describe(`run row`, () => {
           now: c.now,
         })
       ).toEqual(c.expected)
+    })
+  }
+})
+
+describe(`runRowState`, () => {
+  for (const c of runRowFixture.states) {
+    it(c.name, () => {
+      expect(
+        runRowState({
+          paused: c.paused,
+          ended: c.ended,
+          awaitingInput: c.awaitingInput,
+          working: c.working,
+          display: c.display as `needs_input` | `working` | `review` | `done`,
+        })
+      ).toBe(c.expected)
     })
   }
 })

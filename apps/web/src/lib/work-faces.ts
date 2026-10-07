@@ -337,6 +337,26 @@ export type RunRowState =
   | `done`
   | `ended`
 
+/** The row's state: the VIEWER's live signals folded over the synced display
+ *  state (`sessionDisplayState`), so the row never contradicts the Run tab's
+ *  mark — paused first, then ended, then needs input (a pending plan/question
+ *  the viewer sees, or the synced flag), then working (the viewer's working
+ *  predicate, or the synced busy flag), else review | done. Fixture
+ *  `run-row.json` `states` (×4). */
+export function runRowState(input: {
+  paused: boolean
+  ended: boolean
+  awaitingInput: boolean
+  working: boolean
+  display: `needs_input` | `working` | `review` | `done`
+}): RunRowState {
+  if (input.paused) return `paused`
+  if (input.ended) return `ended`
+  if (input.awaitingInput || input.display === `needs_input`) return `needs_input`
+  if (input.working || input.display === `working`) return `working`
+  return input.display
+}
+
 export interface RunRowCaptionInput {
   state: RunRowState
   /** The resolved device label (`device.label || session.deviceLabel || 'Desktop'`). */

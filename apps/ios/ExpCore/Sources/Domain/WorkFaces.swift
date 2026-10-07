@@ -318,6 +318,26 @@ public extension WorkFaces {
         "run_show_work_\(accountId)"
     }
 
+    /// The row's state: the VIEWER's live signals folded over the synced
+    /// display state, so the row never contradicts the Run tab's mark —
+    /// paused (offline host) first, then ended, then needs input when the
+    /// viewer sees a pending plan/question OR the display state says so, then
+    /// working when the viewer's working predicate OR the display state says
+    /// so, else the display state. Fixture `run-row.json` `states` (×4).
+    static func runRowState(
+        paused: Bool,
+        ended: Bool,
+        awaitingInput: Bool,
+        working: Bool,
+        display: CodingSessionDisplayState
+    ) -> RunRowState {
+        if paused { return .paused }
+        if ended { return .ended }
+        if awaitingInput || display == .needsInput { return .needsInput }
+        if working || display == .working { return .working }
+        return display == .review ? .review : .done
+    }
+
     /// The status row's first line and tone: `Building on <device> · <elapsed>`
     /// while it works (now − start), `Ended on <device> · <elapsed>` once it
     /// is over (end − start; the caller passes `ended_at`, else `updated_at`),

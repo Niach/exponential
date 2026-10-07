@@ -141,7 +141,6 @@ import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.OPEN_RESULTS_LABEL
 import com.exponential.app.domain.SESSION_INLINE_TILE_HEIGHT
 import com.exponential.app.domain.sessionResultPicture
-import com.exponential.app.ui.components.runningRowMarkState
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.ThreadItem
 import com.exponential.app.domain.SessionThread
@@ -560,7 +559,13 @@ private fun RunFaceContent(
     // ── EXP-1175: the status row — state, mark, caption, tool line ─────────
     val rowDisplayState = runState ?: CodingSessionDisplayState.Working
     val rowPaused = hostDevice.isPaused(rowDisplayState, session?.status ?: "running")
-    val rowState = runRowState(rowDisplayState, paused = rowPaused, ended = sessionEnded)
+    val rowState = runRowState(
+        paused = rowPaused,
+        ended = sessionEnded,
+        awaitingInput = awaitingInput,
+        working = agentWorking,
+        display = rowDisplayState,
+    )
     // The elapsed clock ticks each second, ONLY while the row reads Building.
     var rowNowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(rowState == RunRowState.Working) {
@@ -579,13 +584,22 @@ private fun RunFaceContent(
     )
     // Only a LIVE run shows what it last touched.
     val rowToolLine = remember(feed, sessionEnded) { if (sessionEnded) null else lastToolLine(feed) }
-    val rowMarkState = runningRowMarkState(rowDisplayState, rowPaused, agentWorking)
+    // The mark reads the SAME row state (web/desktop parity): paused = the
+    // bare mark, ended = dimmed (`ended` below), else that state — the
+    // working mark animates only while the row reads Working.
+    val rowMarkState = when (rowState) {
+        RunRowState.Paused, RunRowState.Ended -> null
+        RunRowState.NeedsInput -> CodingSessionDisplayState.NeedsInput
+        RunRowState.Working -> CodingSessionDisplayState.Working
+        RunRowState.Review -> CodingSessionDisplayState.Review
+        RunRowState.Done -> CodingSessionDisplayState.Done
+    }
     val statusRow: @Composable () -> Unit = {
         ReadingColumn {
             RunStatusRow(
                 agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
                 markState = rowMarkState,
-                ended = sessionEnded,
+                ended = rowState == RunRowState.Ended,
                 caption = rowCaption.text,
                 tone = rowCaption.tone,
                 toolLine = rowToolLine,

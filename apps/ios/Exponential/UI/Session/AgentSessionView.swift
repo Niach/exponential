@@ -588,17 +588,16 @@ struct AgentSessionView: View {
         )
     }
 
-    /// Fixture `run-row.json`: a paused (offline host) run, an ended one,
-    /// else the ×4 display state.
+    /// Fixture `run-row.json` `states`: the viewer's live signals (a pending
+    /// card, its working predicate) folded over the display state.
     private func runRowState(_ model: AgentSessionModel) -> RunRowState {
-        if hostPaused { return .paused }
-        if model.sessionEnded { return .ended }
-        switch displayState(model) {
-        case .working: return .working
-        case .needsInput: return .needsInput
-        case .review: return .review
-        case .done: return .done
-        }
+        WorkFaces.runRowState(
+            paused: hostPaused,
+            ended: model.sessionEnded,
+            awaitingInput: !model.activeQuestionIds.isEmpty,
+            working: model.agentWorking,
+            display: displayState(model)
+        )
     }
 
     private func runStatusRow(_ model: AgentSessionModel) -> some View {

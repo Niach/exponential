@@ -4194,17 +4194,32 @@ impl SteerSessionView {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let facts = run_rows::running_run_facts(row, None, None, now_ms / 1_000, cx);
         let ended = self.session_over();
-        let state = if facts.paused {
-            RunRowState::Paused
-        } else if ended {
-            RunRowState::Ended
-        } else {
-            match facts.display {
-                crate::queries::CodingSessionDisplay::Working => RunRowState::Working,
-                crate::queries::CodingSessionDisplay::NeedsInput => RunRowState::NeedsInput,
-                crate::queries::CodingSessionDisplay::Review => RunRowState::Review,
-                crate::queries::CodingSessionDisplay::Done => RunRowState::Done,
+        // EXP-1175: the viewer's own signals (a pending card on a live run,
+        // the working predicate) fold over the synced display state.
+        let awaiting_input = self.answerable_run() && !self.active.is_empty();
+        let working = self.working_now();
+        let state = run_rows::run_row_state(
+            facts.paused,
+            ended,
+            awaiting_input,
+            working,
+            facts.display,
+        );
+        // The mark follows the same state, so it never disagrees with the
+        // caption beside it.
+        let mark = match state {
+            RunRowState::Ended => RunStatusMark::Ended,
+            RunRowState::Paused => RunStatusMark::Live(None),
+            RunRowState::NeedsInput => {
+                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::NeedsInput))
             }
+            RunRowState::Working => RunStatusMark::Live(
+                (working || facts.working).then_some(crate::queries::CodingSessionDisplay::Working),
+            ),
+            RunRowState::Review => {
+                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Review))
+            }
+            RunRowState::Done => RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Done)),
         };
         let device = facts
             .device_label
@@ -4230,7 +4245,7 @@ impl SteerSessionView {
             run_rows::RunStatusRowSpec {
                 id: SharedString::from("steer-run-status-row"),
                 agent: facts.agent,
-                mark: if ended { RunStatusMark::Ended } else { RunStatusMark::Live(facts.mark) },
+                mark,
                 caption: SharedString::from(caption),
                 tone,
                 tool_line,

@@ -123,16 +123,16 @@ final class StoreScreenshots: XCTestCase {
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // The Run tab flips the SAME screen to its Run face (EXP-1150). Wait
-        // for the FEED, not just the face: it renders "Connecting…" /
-        // "Waiting for activity…" placeholders until the first relay frame
-        // lands.
+        // The Run tab flips the SAME screen to its Run face (EXP-1150).
+        // EXP-1175: the face opens as the THREAD (the status row over the
+        // run's results, the pending question card still in place), so wait
+        // for the status row, which both renderings wear.
         runTab.tap()
-        let agentFeed = app.descendants(matching: .any)
-            .matching(identifier: "agent-feed").firstMatch
+        let statusRow = app.descendants(matching: .any)
+            .matching(identifier: "run-status-row").firstMatch
         XCTAssertTrue(
-            agentFeed.waitForExistence(timeout: 60),
-            "The steering feed never appeared — is screenshots:desktop publishing to the relay?"
+            statusRow.waitForExistence(timeout: 60),
+            "The Run face never appeared — is screenshots:desktop publishing to the relay?"
         )
         // An EMPTY feed still renders the container (a dropped relay socket
         // leaves the view "Reconnecting…" with nothing in it), so the tag alone

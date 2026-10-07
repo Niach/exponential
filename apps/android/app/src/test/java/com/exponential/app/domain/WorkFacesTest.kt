@@ -310,4 +310,29 @@ class WorkFacesTest {
             assertEquals(name, str(expected, "tone"), caption.tone.wire)
         }
     }
+
+    @Test
+    fun `every fixture states case resolves the row state`() {
+        val cases = runRowFixture["states"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        val displays = mapOf(
+            "working" to CodingSessionDisplayState.Working,
+            "needs_input" to CodingSessionDisplayState.NeedsInput,
+            "review" to CodingSessionDisplayState.Review,
+            "done" to CodingSessionDisplayState.Done,
+        )
+        for (element in cases) {
+            val case = element.jsonObject
+            fun flag(key: String) = case[key]!!.jsonPrimitive.content.toBoolean()
+            val name = case["name"]!!.jsonPrimitive.content
+            val state = runRowState(
+                paused = flag("paused"),
+                ended = flag("ended"),
+                awaitingInput = flag("awaitingInput"),
+                working = flag("working"),
+                display = displays.getValue(case["display"]!!.jsonPrimitive.content),
+            )
+            assertEquals(name, case["expected"]!!.jsonPrimitive.content, state.wire)
+        }
+    }
 }

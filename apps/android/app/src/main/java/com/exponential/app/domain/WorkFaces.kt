@@ -308,17 +308,28 @@ enum class RunRowTone(val wire: String) { Muted("muted"), Amber("amber"), Emeral
 
 data class RunRowCaption(val text: String, val tone: RunRowTone)
 
-/** The row's state off the ×4 display state: an ended run first, then a
- *  paused one (offline host), else the display state. */
-fun runRowState(display: CodingSessionDisplayState, paused: Boolean, ended: Boolean): RunRowState = when {
-    ended -> RunRowState.Ended
+/**
+ * The row's state: the VIEWER's live signals folded over the synced ×4
+ * display state, so the row never contradicts the Run tab's mark — paused
+ * (offline host) first, then ended, then NeedsInput when the viewer sees a
+ * pending plan/question ([awaitingInput]) or the display state says so, then
+ * Working when the viewer's working predicate ([working] = `agentWorking`) or
+ * the display state says so, else the display state (Review | Done).
+ * Fixture `run-row.json` `states` (×4).
+ */
+fun runRowState(
+    paused: Boolean,
+    ended: Boolean,
+    awaitingInput: Boolean,
+    working: Boolean,
+    display: CodingSessionDisplayState,
+): RunRowState = when {
     paused -> RunRowState.Paused
-    else -> when (display) {
-        CodingSessionDisplayState.Working -> RunRowState.Working
-        CodingSessionDisplayState.NeedsInput -> RunRowState.NeedsInput
-        CodingSessionDisplayState.Review -> RunRowState.Review
-        CodingSessionDisplayState.Done -> RunRowState.Done
-    }
+    ended -> RunRowState.Ended
+    awaitingInput || display == CodingSessionDisplayState.NeedsInput -> RunRowState.NeedsInput
+    working || display == CodingSessionDisplayState.Working -> RunRowState.Working
+    display == CodingSessionDisplayState.Review -> RunRowState.Review
+    else -> RunRowState.Done
 }
 
 private fun runRowStamp(value: String?): Long? = value?.let { WireTimestamps.parseEpochMs(it) }

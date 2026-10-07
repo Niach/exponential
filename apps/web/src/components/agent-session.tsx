@@ -83,6 +83,7 @@ import {
   toggleFaceDots,
   START_CODING_LABEL,
   runRowCaption,
+  runRowState as resolveRunRowState,
   showWorkLabel,
   type RunRowState,
   type WorkFaceKind,
@@ -230,7 +231,6 @@ import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
 import {
-  runningRowMarkState,
   sessionDisplayState,
 } from "@/lib/coding-session-display"
 
@@ -932,17 +932,16 @@ export function AgentSessionView({
   const threadEmpty = thread.items.length === 0 && thread.reply === null
   /** EXP-1175: the status row over the thread / transcript — fixture
    *  `run-row.json` ×4. */
-  const runRowState: RunRowState = paused
-    ? `paused`
-    : sessionEnded
-      ? `ended`
-      : sessionDisplayState(session, mergeProps?.prState ?? null)
-  const runRowMarkState: RunMarkState | undefined = sessionEnded
-    ? `ended`
-    : runningRowMarkState(
-        sessionDisplayState(session, mergeProps?.prState ?? null),
-        { paused, working }
-      )
+  const runRowState: RunRowState = resolveRunRowState({
+    paused,
+    ended: sessionEnded,
+    awaitingInput,
+    working,
+    display: sessionDisplayState(session, mergeProps?.prState ?? null),
+  })
+  // The mark follows the SAME state: a paused run wears the bare mark.
+  const runRowMarkState: RunMarkState | undefined =
+    runRowState === `paused` ? undefined : runRowState
   const runRowNow = useNow(runRowState === `working` ? 1000 : 30_000)
   const runRow = runRowCaption({
     state: runRowState,
@@ -1751,7 +1750,7 @@ export function AgentSessionView({
           {/* EXP-1175: the ONE status row — the run mark, the caption, the
               last tool line and the Show work toggle — over the thread or
               the transcript, in the reading column. */}
-          <div className="shrink-0">
+          <div className="shrink-0 pt-6">
             <RunStatusRow
               className={TRANSCRIPT_COLUMN}
               agent={session.agent}

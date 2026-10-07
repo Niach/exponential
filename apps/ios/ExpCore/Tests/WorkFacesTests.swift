@@ -278,6 +278,25 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(WorkFaces.showWorkDefaultsKey(accountId: "u1"), "run_show_work_u1")
     }
 
+    func testDerivesTheRunRowStatePerTheFixture() throws {
+        let cases = try XCTUnwrap(try runRowFixture()["states"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let display = try XCTUnwrap(
+                CodingSessionDisplayState(rawValue: try XCTUnwrap(testCase["display"] as? String)), name
+            )
+            let state = WorkFaces.runRowState(
+                paused: try XCTUnwrap(testCase["paused"] as? Bool, name),
+                ended: try XCTUnwrap(testCase["ended"] as? Bool, name),
+                awaitingInput: try XCTUnwrap(testCase["awaitingInput"] as? Bool, name),
+                working: try XCTUnwrap(testCase["working"] as? Bool, name),
+                display: display
+            )
+            XCTAssertEqual(state.rawValue, testCase["expected"] as? String, name)
+        }
+    }
+
     func testCaptionsTheRunRowPerTheFixture() throws {
         let cases = try XCTUnwrap(try runRowFixture()["captions"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

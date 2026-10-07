@@ -308,6 +308,37 @@ pub(crate) enum RunRowState {
     Ended,
 }
 
+/// EXP-1175 — the status row's state: the VIEWER's live signals folded over
+/// the synced display state, so the row never contradicts the Run tab's
+/// mark. Paused first, then ended, then needs input (a pending card the
+/// viewer sees, or the synced flag), then working (the viewer's working
+/// predicate, or the synced state), else review/done. Fixture `run-row.json`
+/// `states` (×4).
+pub(crate) fn run_row_state(
+    paused: bool,
+    ended: bool,
+    awaiting_input: bool,
+    working: bool,
+    display: CodingSessionDisplay,
+) -> RunRowState {
+    if paused {
+        return RunRowState::Paused;
+    }
+    if ended {
+        return RunRowState::Ended;
+    }
+    if awaiting_input || display == CodingSessionDisplay::NeedsInput {
+        return RunRowState::NeedsInput;
+    }
+    if working || display == CodingSessionDisplay::Working {
+        return RunRowState::Working;
+    }
+    match display {
+        CodingSessionDisplay::Review => RunRowState::Review,
+        _ => RunRowState::Done,
+    }
+}
+
 /// EXP-1175 — a timestamp column as epoch ms; unparsable = `None`.
 pub(crate) fn stamp_ms(value: Option<&str>) -> Option<i64> {
     value
@@ -1104,6 +1135,44 @@ mod tests {
             };
             assert_eq!(text, case["expected"]["text"].as_str().unwrap(), "{name}");
             assert_eq!(tone, case["expected"]["tone"].as_str().unwrap(), "{name}");
+        }
+    }
+
+    /// EXP-1175 — fixture `run-row.json` `states` ×4.
+    #[test]
+    fn run_row_state_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/run-row.json"
+        ))
+        .unwrap();
+        let cases = fixture["states"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let flag = |key: &str| case[key].as_bool().unwrap();
+            let display = match case["display"].as_str().unwrap() {
+                "working" => CodingSessionDisplay::Working,
+                "needs_input" => CodingSessionDisplay::NeedsInput,
+                "review" => CodingSessionDisplay::Review,
+                "done" => CodingSessionDisplay::Done,
+                other => panic!("unknown display {other}"),
+            };
+            let state = run_row_state(
+                flag("paused"),
+                flag("ended"),
+                flag("awaitingInput"),
+                flag("working"),
+                display,
+            );
+            let actual = match state {
+                RunRowState::Working => "working",
+                RunRowState::NeedsInput => "needs_input",
+                RunRowState::Paused => "paused",
+                RunRowState::Review => "review",
+                RunRowState::Done => "done",
+                RunRowState::Ended => "ended",
+            };
+            assert_eq!(actual, case["expected"].as_str().unwrap(), "{name}");
         }
     }
 
