@@ -371,3 +371,52 @@ export function sessionResultTileHeightFitting(
   if (widest <= availableWidth) return base
   return Math.max(1, Math.floor((base * availableWidth) / widest))
 }
+
+// EXP-1175: the Run face's THREAD — what the run published, in the order it
+// published it, with the Summary text as the agent's reply at the end.
+// Fixture `session-results.json` `thread` (×4).
+
+export type SessionThreadItem =
+  | { kind: `text`; topic: string; text: string }
+  | { kind: `picture`; entry: SessionResultEntry }
+
+export interface SessionThread {
+  items: SessionThreadItem[]
+  /** The Summary topic's text (its first non-blank one), drawn LAST as the
+   *  agent's reply; null without one. */
+  reply: string | null
+}
+
+/**
+ * Array (publish) order, the group reader's tolerance and 60-picture cap: a
+ * picture is an item where it sits; a topic's FIRST non-blank text is an item
+ * where it sits (a later text of the same topic is dropped); the Summary
+ * topic's text is `reply`, never an item, while pictures filed under Summary
+ * stay in the stream.
+ */
+export function sessionThread(raw: unknown): SessionThread {
+  const items: SessionThreadItem[] = []
+  const seenText = new Set<string>()
+  let reply: string | null = null
+  let pictures = 0
+  for (const record of records(raw)) {
+    const entry = picture(record)
+    if (entry) {
+      if (pictures >= MAX_SESSION_RESULTS) continue
+      pictures += 1
+      items.push({ kind: `picture`, entry })
+      continue
+    }
+    const topic = text(record.topic)
+    const body = text(record.text)
+    if (!topic || !body) continue
+    if (isSummaryTopic(topic)) {
+      if (reply === null) reply = body
+      continue
+    }
+    if (seenText.has(topic)) continue
+    seenText.add(topic)
+    items.push({ kind: `text`, topic, text: body })
+  }
+  return { items, reply }
+}

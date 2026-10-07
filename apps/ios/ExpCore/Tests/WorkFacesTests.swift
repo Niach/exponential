@@ -253,4 +253,67 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertFalse(holds(.changes, available: [.issue, .changes], runs: false, issue: false))
         XCTAssertFalse(holds(.changes, shown: .issue, runs: false, issue: false))
     }
+
+    // MARK: EXP-1175 — the run row (`run-row.json`), mirrors web `run row`.
+
+    private func runRowFixture() throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/run-row.json")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        return try XCTUnwrap(json as? [String: Any])
+    }
+
+    func testLabelsTheShowWorkSwitchOffTheFixture() throws {
+        let fixture = try runRowFixture()
+        XCTAssertEqual(WorkFaces.showWorkText, fixture["showWorkLabel"] as? String)
+        XCTAssertEqual(WorkFaces.hideWorkText, fixture["hideWorkLabel"] as? String)
+        XCTAssertEqual(WorkFaces.showWorkDefault, fixture["showWorkDefault"] as? Bool)
+        XCTAssertEqual(WorkFaces.showWorkLabel(false), fixture["showWorkLabel"] as? String)
+        XCTAssertEqual(WorkFaces.showWorkLabel(true), fixture["hideWorkLabel"] as? String)
+        XCTAssertEqual(WorkFaces.showWorkDefaultsKey(accountId: "u1"), "run_show_work_u1")
+    }
+
+    func testDerivesTheRunRowStatePerTheFixture() throws {
+        let cases = try XCTUnwrap(try runRowFixture()["states"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let display = try XCTUnwrap(
+                CodingSessionDisplayState(rawValue: try XCTUnwrap(testCase["display"] as? String)), name
+            )
+            let state = WorkFaces.runRowState(
+                paused: try XCTUnwrap(testCase["paused"] as? Bool, name),
+                ended: try XCTUnwrap(testCase["ended"] as? Bool, name),
+                awaitingInput: try XCTUnwrap(testCase["awaitingInput"] as? Bool, name),
+                working: try XCTUnwrap(testCase["working"] as? Bool, name),
+                display: display
+            )
+            XCTAssertEqual(state.rawValue, testCase["expected"] as? String, name)
+        }
+    }
+
+    func testCaptionsTheRunRowPerTheFixture() throws {
+        let cases = try XCTUnwrap(try runRowFixture()["captions"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let state = try XCTUnwrap(RunRowState(rawValue: try XCTUnwrap(testCase["state"] as? String)), name)
+            let expected = try XCTUnwrap(testCase["expected"] as? [String: Any], name)
+            let now = try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(testCase["now"] as? String)), name)
+            let caption = WorkFaces.runRowCaption(
+                state: state,
+                device: try XCTUnwrap(testCase["device"] as? String),
+                startedAt: testCase["startedAt"] as? String,
+                endedAt: testCase["endedAt"] as? String,
+                now: now
+            )
+            XCTAssertEqual(caption.text, expected["text"] as? String, name)
+            XCTAssertEqual(caption.tone.rawValue, expected["tone"] as? String, name)
+        }
+    }
 }

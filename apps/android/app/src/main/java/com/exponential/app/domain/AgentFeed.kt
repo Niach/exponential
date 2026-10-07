@@ -1028,6 +1028,36 @@ fun liveToolRowId(feed: List<AgentFeedItem>): Long? {
     return if (last is AgentFeedItem.Tool && !last.settled) last.id else null
 }
 
+/** EXP-1175: the Run face status row's muted second line — the NEWEST tool
+ *  item of the feed (whatever follows it is ignored), as ONE line: an
+ *  Exponential MCP tool reads its contract caption for its settled state and
+ *  its subject (settled: the single preview ref's title, else identifier,
+ *  else the preview's title/identifier, else the call's detail; unsettled:
+ *  the detail), any other tool its name and detail; joined by one space, a
+ *  missing part dropped. Null without a tool item. Fixture `run-row.json`
+ *  `toolLines` (×4, web `lastToolLine`). */
+fun lastToolLine(feed: List<AgentFeedItem>): String? {
+    val item = feed.lastOrNull { it is AgentFeedItem.Tool } as? AgentFeedItem.Tool ?: return null
+    val exp = ExpToolDisplay.forName(item.name, item.settled)
+    var head: String? = item.name
+    var subject: String? = item.detail
+    if (exp != null) {
+        head = exp.caption
+        if (item.settled) {
+            val ref = item.preview?.refs?.singleOrNull()
+            subject = ref?.title
+                ?: ref?.identifier
+                ?: item.preview?.title
+                ?: item.preview?.identifier
+                ?: item.detail
+        }
+    }
+    return listOfNotNull(head, subject)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString(" ")
+}
+
 /** Render-time projection of the flat feed — a pure function: the feed itself
  *  (and [activeQuestionIds] over it) is never restructured.
  *  - a subagent's markers and its tagged tool calls collapse into ONE row by

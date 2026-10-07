@@ -1,3 +1,4 @@
+import type { RunMarkState } from "@exp/ui"
 import type { CodingSession } from "@/db/schema"
 import { relativeTime } from "@/components/comment-rows/format"
 
@@ -26,6 +27,18 @@ export function sessionDisplayState(
   if (session.agentBusy) return `working`
   const prOpen = prState !== `merged` && prState !== `closed`
   return session.status === `in_review` && prOpen ? `review` : `done`
+}
+
+/** EXP-1208: a live row's mark state — the ×4 display state, except that a
+ *  paused run (offline host) wears the bare mark and only a row that is
+ *  WORKING animates (EXP-848: `sessionRowIsWorking`, never `running` alone). */
+export function runningRowMarkState(
+  state: SessionDisplayState,
+  { paused, working }: { paused: boolean; working: boolean }
+): RunMarkState | undefined {
+  if (paused) return undefined
+  if (state === `working`) return working ? `working` : undefined
+  return state
 }
 
 /** EXP-848: whether a row animates — the agent is executing a turn right now

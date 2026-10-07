@@ -48,7 +48,7 @@ pub(crate) fn pending_last(rows: &mut Vec<FeedRowSpec>, items: &[FeedItem]) {
 /// Whether a row holds a question card still waiting on the reader — not
 /// resolved and not dismissed (`steer::active_question_ids`' rule, applied per
 /// ROW so an ask group moves as one).
-fn row_is_pending(row: &FeedRowSpec, items: &[FeedItem]) -> bool {
+pub(crate) fn row_is_pending(row: &FeedRowSpec, items: &[FeedItem]) -> bool {
     row.item_indices()
         .iter()
         .filter_map(|&ix| items.get(ix))

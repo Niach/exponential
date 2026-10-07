@@ -133,6 +133,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`session-tree`]: `Lists & rows`,
   [`results-guide`]: `Lists & rows`,
   [`mcp-app-views`]: `Lists & rows`,
+  [`run-status-row`]: `Lists & rows`,
+  [`session-thread`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
 }

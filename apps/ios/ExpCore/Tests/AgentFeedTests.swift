@@ -1056,6 +1056,52 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertNil(AgentFeed.liveToolRowId([tool(1, false), .userMessage(id: 2, text: "stop")]))
     }
 
+    // EXP-1175: the Run face status row's muted second line, fixture
+    // `run-row.json` `toolLines` (×4: web `lastToolLine`).
+    func testLastToolLinePerTheRunRowFixture() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/run-row.json")
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        )
+        let cases = try XCTUnwrap(json["toolLines"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let rows = try XCTUnwrap(testCase["feed"] as? [[String: Any]], name)
+            let feed: [AgentFeedItem] = rows.enumerated().map { index, row in
+                if row["kind"] as? String == "tool" {
+                    let preview = (row["preview"] as? [String: Any]).map { preview in
+                        AgentToolPreview(
+                            identifier: preview["identifier"] as? String,
+                            title: preview["title"] as? String,
+                            refs: (preview["refs"] as? [[String: Any]] ?? []).map {
+                                EntityRef(
+                                    kind: $0["kind"] as? String ?? "issue",
+                                    id: $0["id"] as? String ?? "",
+                                    identifier: $0["identifier"] as? String,
+                                    title: $0["title"] as? String
+                                )
+                            }
+                        )
+                    }
+                    return .tool(
+                        id: index, name: row["name"] as? String ?? "",
+                        detail: row["detail"] as? String, subagentId: nil,
+                        settled: row["settled"] as? Bool ?? false, preview: preview
+                    )
+                }
+                return .narration(id: index, text: row["text"] as? String ?? "")
+            }
+            XCTAssertEqual(AgentFeed.lastToolLine(feed), testCase["expected"] as? String, name)
+        }
+    }
+
     func testToolUpdateForAnUnknownIdIsDroppedAndTheNewestRowWins() {
         let feed: [AgentFeedItem] = [
             .tool(id: 1, name: "Edit", detail: nil, subagentId: nil, callId: "tc-1"),
