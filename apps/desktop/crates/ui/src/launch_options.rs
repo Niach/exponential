@@ -879,6 +879,10 @@ pub(crate) struct LaunchOptionsSection {
     /// depend on the device pick, which moves), and re-seeding there would
     /// undo the person's ticks under their cursor.
     mcp_seeded: bool,
+    /// FEED-73: the subject brings its OWN MCP list (a real action — the
+    /// server sets the run's pick from it), so the row hides and no pick
+    /// rides the launch. The pick itself is kept for the next subject.
+    mcp_owned_by_subject: bool,
     /// EXP-747 B7: the agent account PROFILE the run signs in as on the
     /// target machine (`system` = its ambient login); `None` = unnamed, the
     /// machine's last used login (EXP-1158).
@@ -913,6 +917,7 @@ impl LaunchOptionsSection {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
+            mcp_owned_by_subject: false,
             // Settled just below against what the machine reports.
             account: None,
         };
@@ -929,6 +934,13 @@ impl LaunchOptionsSection {
     pub(crate) fn set_mcp_servers(&mut self, servers: Vec<McpServerOption>) {
         seed_or_clamp_mcp(&mut self.mcp_seeded, &mut self.mcp_selected, &servers);
         self.mcp_servers = servers;
+    }
+
+    /// FEED-73: whether the composer's subject owns its MCP list
+    /// ([`crate::chat_launch::subject_owns_mcp_servers`]). Safe on every
+    /// render.
+    pub(crate) fn set_mcp_owned_by_subject(&mut self, owned: bool) {
+        self.mcp_owned_by_subject = owned;
     }
 
     /// Forget the seed: the owner switched TEAM, so the next non-empty list
@@ -1157,7 +1169,12 @@ impl LaunchOptionsSection {
             // EXP-792/747 B7: the run's own picks, no longer hardcoded — the
             // launcher resolves the ids against the device's secret store
             // and the account against its profile dirs.
-            mcp_server_ids: self.mcp_selected.clone(),
+            // FEED-73: never for a subject that owns its list.
+            mcp_server_ids: if self.mcp_owned_by_subject {
+                Vec::new()
+            } else {
+                self.mcp_selected.clone()
+            },
             account: self.account.clone(),
         }
     }
@@ -1233,7 +1250,12 @@ impl LaunchOptionsSection {
                 .supports_subagent_model()
                 .then(|| selected(&self.subagent_model, cx)),
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
-            mcp_servers: self.mcp_servers.clone(),
+            // FEED-73: no row for a subject that owns its list.
+            mcp_servers: if self.mcp_owned_by_subject {
+                Vec::new()
+            } else {
+                self.mcp_servers.clone()
+            },
             mcp_selected: self.mcp_selected.clone(),
         }
     }

@@ -17,6 +17,7 @@ import {
   storedTriggers,
 } from "@/lib/action-trigger-rules"
 import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
+import { assertMcpServersInTeam } from "@/lib/mcp-servers-guard"
 import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CHAT_ID,
@@ -59,6 +60,18 @@ const wireColumns = {
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
 }
+
+// FEED-73: the write paths also echo the action's MCP list. It is
+// SERVER-ONLY like `body` (never in the shape, never in `list`); `get`
+// returns the whole row, so it carries it too.
+const detailColumns = {
+  ...wireColumns,
+  mcpServerIds: actions.mcpServerIds,
+}
+
+// FEED-73: the team MCP servers every run of the action uses. Whole-array
+// replace; ids must be rows of the action's team (mcp-servers-guard.ts).
+const mcpServerIdsSchema = z.array(z.string().uuid()).max(16)
 
 // NUL bytes are valid JSON/zod strings but unstorable in Postgres text
 // (22P05) — reject them up front so a crafted input 400s instead of 500ing.
@@ -215,6 +228,7 @@ export const actionsRouter = router({
         body: bodySchema,
         inputs: actionInputsSchema.optional(),
         promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
+        mcpServerIds: mcpServerIdsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -223,6 +237,8 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, input.teamId)
       }
+      const mcpServerIds =
+        (await assertMcpServersInTeam(input.mcpServerIds, input.teamId)) ?? []
 
       // EXP-707: actions are Electric-synced, so every write returns a txId
       // sync barrier like the other synced-table routers.
@@ -249,12 +265,13 @@ export const actionsRouter = router({
             body: input.body,
             inputs: input.inputs ?? [],
             promptPlaceholder: input.promptPlaceholder || null,
+            mcpServerIds,
             sortOrder: nextSortOrder,
           })
           .onConflictDoNothing({
             target: [actions.teamId, actions.name],
           })
-          .returning(wireColumns)
+          .returning(detailColumns)
 
         if (!action) throw duplicateNameError(input.name)
         return { action, txId }
@@ -275,6 +292,7 @@ export const actionsRouter = router({
         // SLOP-2: whole-array replace, like inputs. A trigger keeps its id
         // when the action already holds it; a new one gets a server id.
         triggers: actionTriggersSchema.optional(),
+        mcpServerIds: mcpServerIdsSchema.optional(),
         sortOrder: z.number().finite().optional(),
       })
     )
@@ -289,6 +307,10 @@ export const actionsRouter = router({
       if (input.repositoryId) {
         await assertRepoInTeam(input.repositoryId, existing.teamId)
       }
+      const mcpServerIds =
+        input.mcpServerIds === undefined
+          ? undefined
+          : ((await assertMcpServersInTeam(input.mcpServerIds, existing.teamId)) ?? [])
       const triggers =
         input.triggers === undefined
           ? undefined
@@ -339,13 +361,14 @@ export const actionsRouter = router({
         updates.promptPlaceholder = input.promptPlaceholder || null
       }
       if (triggers !== undefined) updates.triggers = triggers
+      if (mcpServerIds !== undefined) updates.mcpServerIds = mcpServerIds
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
       // Nothing to change — return the current row (drizzle rejects an empty
       // .set()).
       if (Object.keys(updates).length === 0) {
         const [action] = await ctx.db
-          .select(wireColumns)
+          .select(detailColumns)
           .from(actions)
           .where(eq(actions.id, input.id))
           .limit(1)
@@ -365,7 +388,7 @@ export const actionsRouter = router({
             .update(actions)
             .set(updates)
             .where(eq(actions.id, input.id))
-            .returning(wireColumns)
+            .returning(detailColumns)
           if (!action) {
             throw new TRPCError({
               code: `NOT_FOUND`,

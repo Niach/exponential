@@ -12,7 +12,11 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
 
 import {
   connectionFor,
+  delegateEntryName,
+  delegateHandle,
+  memberRoster,
   resolveForLaunch,
+  resolveSharedForLaunch,
   storeOauthTokens,
   storeSecret,
 } from "@/lib/mcp-oauth/credentials"
@@ -88,13 +92,21 @@ describe(`connectionFor`, () => {
       status: `connected`,
       expiresAt: past.toISOString(),
       error: null,
+      shared: false,
     })
     expect(connectionFor(oauth, row({ accessToken: `a` }, { expiresAt: past }), NOW).status).toBe(`expired`)
     expect(connectionFor(oauth, row({ accessToken: `a`, refreshToken: `r` }, { error: `invalid_grant` }), NOW)).toEqual({
       status: `error`,
       expiresAt: null,
       error: `invalid_grant`,
+      shared: false,
     })
+  })
+
+  it(`carries the member's shared flag (FEED-73)`, () => {
+    expect(connectionFor(oauth, row({ accessToken: `a` }, { shared: true }), NOW).shared).toBe(true)
+    expect(connectionFor(oauth, null, NOW).shared).toBe(false)
+    expect(connectionFor({ auth: `none` }, row({ accessToken: `a` }, { shared: true })).shared).toBe(false)
   })
 
   it(`an undecryptable row (rotated secret) reads as not connected`, () => {
@@ -124,8 +136,11 @@ describe(`resolveForLaunch`, () => {
     expect(result.servers).toEqual([
       expect.objectContaining({ id: OAUTH, transport: `http`, url: MCP_URL, headers: [{ name: `Authorization`, value: `Bearer at-0` }], env: [] }),
       expect.objectContaining({ id: SECRET_HTTP, headers: [{ name: `X-Api-Key`, value: `key-1` }] }),
-      expect.objectContaining({ id: OPEN, headers: [], env: [] }),
+      expect.objectContaining({ id: OPEN, headers: [], env: [], actor: null }),
     ])
+    // FEED-73: credentialed entries name whose credential they spend.
+    expect(result.servers[0]!.actor).toEqual({ userId: `actor`, name: ``, shared: false })
+    expect(result.members).toEqual([])
     expect(result.skipped).toEqual([
       { id: SECRET_STDIO, name: `pg`, reason: `not connected` },
       expect.objectContaining({ id: `99999999-9999-4999-8999-999999999999` }),
@@ -249,5 +264,124 @@ describe(`resolveForLaunch`, () => {
     )
     expect(later.servers).toEqual([])
     expect(later.skipped[0]!.reason).toMatch(/expired/)
+  })
+})
+
+describe(`delegateHandle (FEED-73)`, () => {
+  it(`slugs the name's first word, lowercased, diacritics folded`, () => {
+    expect(delegateHandle(`Chris Doe`, `c@x.io`, new Set())).toBe(`chris`)
+    expect(delegateHandle(`  Jörg  Müller`, null, new Set())).toBe(`jorg`)
+    expect(delegateHandle(`O'Brien`, null, new Set())).toBe(`o-brien`)
+    expect(delegateHandle(`__Ann__`, null, new Set())).toBe(`ann`)
+  })
+
+  it(`falls back to the email local part, then to member`, () => {
+    expect(delegateHandle(``, `Dana.Smith@example.com`, new Set())).toBe(`dana-smith`)
+    expect(delegateHandle(`李`, `li@example.com`, new Set())).toBe(`li`)
+    expect(delegateHandle(null, null, new Set())).toBe(`member`)
+  })
+
+  it(`cuts to 12 chars and uniques with -2, -3 within the cap`, () => {
+    expect(delegateHandle(`Bartholomewxyz`, null, new Set())).toBe(`bartholomewx`)
+    const taken = new Set<string>()
+    expect(delegateHandle(`Chris A`, null, taken)).toBe(`chris`)
+    expect(delegateHandle(`Chris B`, null, taken)).toBe(`chris-2`)
+    expect(delegateHandle(`Chris C`, null, taken)).toBe(`chris-3`)
+    const long = new Set<string>()
+    expect(delegateHandle(`Bartholomewxyz`, null, long)).toBe(`bartholomewx`)
+    expect(delegateHandle(`Bartholomewxyz`, null, long)).toBe(`bartholome-2`)
+  })
+
+  it(`caps the whole entry name at 30 chars by trimming the handle`, () => {
+    expect(delegateEntryName(`linear`, `Chris`, null, new Set())).toBe(`linear-as-chris`)
+    const name = delegateEntryName(`a-very-long-server-name`, `Christopher`, null, new Set())
+    expect(name).toBe(`a-very-long-server-name-as-chr`)
+    expect(name.length).toBe(30)
+  })
+})
+
+describe(`resolveSharedForLaunch + memberRoster (FEED-73)`, () => {
+  const seedShares = () => {
+    const cred = (serverId: string, userId: string, payload: object, over: Record<string, unknown> = {}) => ({
+      id: `c-${serverId}-${userId}`,
+      serverId,
+      userId,
+      teamId: TEAM,
+      ciphertext: encryptCredential(payload, credentialAad(serverId, userId)),
+      expiresAt: null,
+      issuer: null,
+      clientId: null,
+      error: null,
+      shared: true,
+      ...over,
+    })
+    db = createFakeDb({
+      mcp_servers: db.rows(`mcp_servers`),
+      team_members: [`actor`, `chris`, `chris2`, `dana`, `eve`].map((userId) => ({ teamId: TEAM, userId })),
+      users: [
+        { id: `actor`, name: `Actor Person`, email: `actor@x.io` },
+        { id: `chris`, name: `Chris Doe`, email: `chris@x.io` },
+        { id: `chris2`, name: `Chris Roe`, email: `chris2@x.io` },
+        { id: `dana`, name: `Dana`, email: `dana@x.io` },
+        { id: `eve`, name: `Eve`, email: `eve@x.io` },
+        { id: `gone`, name: `Gone`, email: `gone@x.io` },
+      ],
+      mcp_credentials: [
+        // The caller's own share never doubles as an extra.
+        cred(OAUTH, `actor`, { accessToken: `own` }),
+        cred(OAUTH, `chris`, { accessToken: `chris-tok` }),
+        cred(OAUTH, `chris2`, { accessToken: `chris2-tok` }),
+        // Shared but expired with no refresh: unavailable, never skipped.
+        cred(OAUTH, `dana`, { accessToken: `dana-tok` }, { expiresAt: new Date(NOW.getTime() - 1000) }),
+        // Connected, not shared.
+        cred(OAUTH, `eve`, { accessToken: `eve-tok` }, { shared: false }),
+        // A departed member's share never resolves.
+        cred(OAUTH, `gone`, { accessToken: `gone-tok` }),
+        cred(SECRET_HTTP, `chris`, { value: `chris-key` }),
+        // stdio shares never resolve for another member.
+        cred(SECRET_STDIO, `chris`, { value: `postgres://chris` }),
+      ],
+    })
+  }
+
+  it(`resolves other members' shares as <server>-as-<member> entries with actors`, async () => {
+    seedShares()
+    const shares = await resolveSharedForLaunch(db, {
+      teamId: TEAM,
+      serverIds: [OAUTH, SECRET_HTTP, SECRET_STDIO, OPEN],
+      excludeUserId: `actor`,
+      now: NOW,
+    })
+    expect(shares.servers.map((entry) => [entry.id, entry.name, entry.actor])).toEqual([
+      [OAUTH, `linear-as-chris`, { userId: `chris`, name: `Chris Doe`, shared: true }],
+      [OAUTH, `linear-as-chris-2`, { userId: `chris2`, name: `Chris Roe`, shared: true }],
+      [SECRET_HTTP, `grafana-as-chris`, { userId: `chris`, name: `Chris Doe`, shared: true }],
+    ])
+    expect(shares.servers[0]!.headers).toEqual([{ name: `Authorization`, value: `Bearer chris-tok` }])
+    expect(shares.servers[2]!.headers).toEqual([{ name: `X-Api-Key`, value: `chris-key` }])
+    expect(JSON.stringify(shares.servers)).not.toMatch(/own|eve-tok|gone-tok|postgres/)
+    expect([...(shares.unavailable.get(OAUTH) ?? [])]).toEqual([`dana`])
+
+    const roster = await memberRoster(db, {
+      teamId: TEAM,
+      serverIds: [OAUTH, SECRET_STDIO, OPEN],
+      selfUserId: `actor`,
+      sharedResolved: shares.resolved,
+      unavailable: shares.unavailable,
+      now: NOW,
+    })
+    const states = roster.map((member) => `${member.serverName}:${member.name}:${member.state}`)
+    expect(states).toEqual([
+      `linear:Actor Person:self`,
+      `linear:Chris Doe:shared`,
+      `linear:Chris Roe:shared`,
+      `linear:Dana:unavailable`,
+      `linear:Eve:connected`,
+      `pg:Actor Person:self`,
+      `pg:Chris Doe:connected`,
+      `pg:Chris Roe:not_connected`,
+      `pg:Dana:not_connected`,
+      `pg:Eve:not_connected`,
+    ])
   })
 })

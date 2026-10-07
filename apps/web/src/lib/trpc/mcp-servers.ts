@@ -11,7 +11,9 @@
 // caller's OWN values (on a shared device: the device owner's) for the
 // servers its live run picked, named by `X-Exp-Session-Id` (EXP-1140); an
 // unconnected or unpicked one is skipped with a reason, never a launch
-// blocker.
+// blocker. FEED-73: a member may SHARE their connection (`setShared`); an
+// ACTION run then also gets one `<server>-as-<member>` entry per other
+// member's shared connection to a picked http server, like device sharing.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
@@ -41,7 +43,9 @@ import {
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   connectionFor,
+  memberRoster,
   resolveForLaunch,
+  resolveSharedForLaunch,
   storeSecret,
   type McpConnection,
 } from "@/lib/mcp-oauth/credentials"
@@ -53,16 +57,22 @@ import { probeMcpServer, testMcpServer } from "@/lib/mcp-oauth/mcp-client"
 
 export type { McpConnection, McpConnectionStatus } from "@/lib/mcp-oauth/credentials"
 export type {
+  McpActor,
+  McpMember,
   ResolvedMcpLaunch,
   ResolvedMcpServer,
 } from "@/lib/mcp-oauth/credentials"
 
 /** One `mcpServers.list` row: the registry row plus the CALLER's connection
- * and how many current members connected. */
+ * (with their `shared` flag) and which current members connected / shared
+ * (FEED-73: shared = shared AND connected; ids sorted). */
 export type McpServerListRow = McpServer & {
   connection: McpConnection
   connectedCount: number
   memberCount: number
+  sharedCount: number
+  sharedUserIds: string[]
+  connectedUserIds: string[]
 }
 
 const nameSchema = z.string().trim().min(1).max(MAX_MCP_SERVER_NAME)
@@ -251,6 +261,7 @@ export const mcpServersRouter = router({
             ciphertext: mcpCredentials.ciphertext,
             expiresAt: mcpCredentials.expiresAt,
             error: mcpCredentials.error,
+            shared: mcpCredentials.shared,
           })
           .from(mcpCredentials)
           .where(
@@ -272,18 +283,33 @@ export const mcpServersRouter = router({
         )
         // A departed member's row lingers until they rejoin or the server
         // goes; it never counts.
-        const connectedCount = credentials.filter(
+        const connected = credentials.filter(
           (entry) =>
             entry.serverId === row.id &&
             memberIds.has(entry.userId) &&
             connectionFor(row, entry, now).status === `connected`
-        ).length
+        )
+        // A none-auth server needs no connect: every member counts, and
+        // there is nothing to share.
+        const connectedUserIds =
+          row.auth === `none`
+            ? [...memberIds].sort()
+            : connected.map((entry) => entry.userId).sort()
+        const sharedUserIds =
+          row.auth === `none`
+            ? []
+            : connected
+                .filter((entry) => entry.shared === true)
+                .map((entry) => entry.userId)
+                .sort()
         return {
           ...row,
           connection: connectionFor(row, mine, now),
-          // A none-auth server needs no connect: every member counts.
-          connectedCount: row.auth === `none` ? memberIds.size : connectedCount,
+          connectedCount: connectedUserIds.length,
           memberCount: memberIds.size,
+          sharedCount: sharedUserIds.length,
+          sharedUserIds,
+          connectedUserIds,
         }
       })
     }),
@@ -500,6 +526,33 @@ export const mcpServersRouter = router({
       return { ok: true as const }
     }),
 
+  // FEED-73: share (or stop sharing) the caller's OWN connection with the
+  // team's action runs. Only a connected row may be shared; disconnecting
+  // or a server retarget deletes the row, so a reconnect starts unshared.
+  setShared: authedProcedure
+    .input(z.object({ serverId: z.string().uuid(), shared: z.boolean() }))
+    .mutation(async ({ ctx, input }): Promise<McpConnection> => {
+      await assertNotAgentKey(ctx)
+      const server = await loadMemberServer(ctx, input.serverId)
+      const userId = ctx.session.user.id
+      const [row] = await ctx.db
+        .select()
+        .from(mcpCredentials)
+        .where(
+          and(eq(mcpCredentials.serverId, server.id), eq(mcpCredentials.userId, userId))
+        )
+        .limit(1)
+      if (!row || connectionFor(server, row).status !== `connected`) {
+        throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Connect first` })
+      }
+      const [updated] = await ctx.db
+        .update(mcpCredentials)
+        .set({ shared: input.shared, updatedAt: new Date() })
+        .where(eq(mcpCredentials.id, row.id))
+        .returning()
+      return connectionFor(server, updated ?? { ...row, shared: input.shared })
+    }),
+
   // MCP initialize + tools/list with the caller's credential (refreshed
   // like a launch would). http servers only: a stdio server runs on a
   // machine, never here.
@@ -549,12 +602,19 @@ export const mcpServersRouter = router({
   //     its `expu_` key and GitHub token);
   //   - only the row's persisted pick (`mcp_server_ids`) resolves; anything
   //     else comes back `skipped` (never a blocker: a resume's recorded list
-  //     may name a server removed since);
+  //     may name a server removed since); `serverIds` omitted = the whole
+  //     pick;
   //   - the agent's OWN key (`kind: agent`, lib/auth/api-key-kind.ts) is
   //     refused outright, so a prompt-injected agent cannot mint itself a
   //     row with a wider pick and read it back.
+  //
+  // FEED-73 — an ACTION run (`action_id` set; its pick is the action's own
+  // list) also gets every OTHER current member's SHARED connection to a
+  // picked http server as an extra `<server>-as-<member>` entry carrying
+  // them as `actor`, plus `members`: the roster of who is in, who is not.
+  // Any other run: no extras, `members: []`.
   resolveForLaunch: authedProcedure
-    .input(z.object({ serverIds: z.array(z.string().uuid()).max(16) }))
+    .input(z.object({ serverIds: z.array(z.string().uuid()).max(16).optional() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       if (await isAgentApiKeySession(ctx.db, ctx.session)) {
@@ -578,6 +638,7 @@ export const mcpServersRouter = router({
           teamId: codingSessions.teamId,
           status: codingSessions.status,
           mcpServerIds: codingSessions.mcpServerIds,
+          actionId: codingSessions.actionId,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, sessionId))
@@ -594,16 +655,41 @@ export const mcpServersRouter = router({
       }
       await assertTeamMember(userId, run.teamId)
       const picked = new Set(run.mcpServerIds ?? [])
-      const serverIds = input.serverIds.filter((id) => picked.has(id))
-      const resolved = await resolveForLaunch(ctx.db, {
-        userId,
-        teamIds: [run.teamId],
-        serverIds,
-      })
-      for (const id of new Set(input.serverIds)) {
+      const requested = input.serverIds ?? [...picked]
+      const serverIds = requested.filter((id) => picked.has(id))
+      const now = new Date()
+      const resolved = await resolveForLaunch(
+        ctx.db,
+        {
+          userId,
+          teamIds: [run.teamId],
+          serverIds,
+          actorName: ctx.session.user.name,
+        },
+        now
+      )
+      for (const id of new Set(requested)) {
         if (!picked.has(id)) {
           resolved.skipped.push({ id, name: id, reason: `not picked for this run` })
         }
+      }
+      if (run.actionId) {
+        const shares = await resolveSharedForLaunch(ctx.db, {
+          teamId: run.teamId,
+          serverIds,
+          excludeUserId: userId,
+          now,
+        })
+        resolved.servers.push(...shares.servers)
+        resolved.warnings.push(...shares.warnings)
+        resolved.members = await memberRoster(ctx.db, {
+          teamId: run.teamId,
+          serverIds,
+          selfUserId: userId,
+          sharedResolved: shares.resolved,
+          unavailable: shares.unavailable,
+          now,
+        })
       }
       return resolved
     }),

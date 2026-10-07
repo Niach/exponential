@@ -168,6 +168,11 @@ pub struct Action {
     /// owns the tolerant read. Always empty on a builtin.
     #[serde(default, deserialize_with = "tolerant_triggers")]
     pub triggers: Vec<serde_json::Value>,
+    /// FEED-73: the team MCP servers this action's runs get (`actions.get`
+    /// only; the shape does not carry it). A real action run's pick is
+    /// THIS list, set server-side by `codingSessions.start`.
+    #[serde(default)]
+    pub mcp_server_ids: Vec<String>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
@@ -241,6 +246,9 @@ struct CreateInput<'a> {
     /// is `.nullable().optional()`, an omitted field leaves it NULL).
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_placeholder: Option<&'a str>,
+    /// FEED-73: the action's team MCP servers; skipped when `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mcp_server_ids: Option<&'a [String]>,
 }
 
 /// `actions.create` — mutation, owner-only. The server appends to the end of
@@ -254,6 +262,30 @@ pub fn create(
     body: &str,
     prompt_placeholder: Option<&str>,
 ) -> Result<Action, ApiError> {
+    create_with_mcp_servers(
+        trpc,
+        team_id,
+        name,
+        description,
+        repository_id,
+        body,
+        prompt_placeholder,
+        None,
+    )
+}
+
+/// [`create`] plus FEED-73's `mcpServerIds` (`None` omits the field).
+#[allow(clippy::too_many_arguments)]
+pub fn create_with_mcp_servers(
+    trpc: &TrpcClient,
+    team_id: &str,
+    name: &str,
+    description: Option<&str>,
+    repository_id: Option<&str>,
+    body: &str,
+    prompt_placeholder: Option<&str>,
+    mcp_server_ids: Option<&[String]>,
+) -> Result<Action, ApiError> {
     let response: ActionResponse = trpc.mutation(
         "actions.create",
         &CreateInput {
@@ -263,6 +295,7 @@ pub fn create(
             repository_id,
             body,
             prompt_placeholder,
+            mcp_server_ids,
         },
     )?;
     Ok(response.action)
@@ -306,6 +339,10 @@ pub struct ActionUpdate {
     /// leave one out to delete it. `None` omits the field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggers: Option<Vec<serde_json::Value>>,
+    /// FEED-73: the action's team MCP servers as a whole-array replace.
+    /// `None` omits the field; `Some(vec![])` clears it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_server_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -367,6 +404,8 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
             .and_then(serde_json::Value::as_array)
             .cloned()
             .unwrap_or_default(),
+        // The shape does not carry it; `get` does.
+        mcp_server_ids: Vec::new(),
         sort_order: row.sort_order.unwrap_or_default(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
@@ -413,6 +452,7 @@ pub fn builtin_create_action(team_id: &str) -> Action {
         // page's old Create-action special case, now the builtin's field).
         prompt_placeholder: Some(BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER.to_string()),
         triggers: Vec::new(),
+        mcp_server_ids: Vec::new(),
         sort_order: 1e9,
         created_at: None,
         updated_at: None,
@@ -447,6 +487,7 @@ pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
         }],
         prompt_placeholder: None,
         triggers: Vec::new(),
+        mcp_server_ids: Vec::new(),
         sort_order: 1e9 + 1.0,
         created_at: None,
         updated_at: None,
@@ -481,6 +522,7 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
         }],
         prompt_placeholder: None,
         triggers: Vec::new(),
+        mcp_server_ids: Vec::new(),
         sort_order: 1e9 + 2.0,
         created_at: None,
         updated_at: None,
@@ -525,6 +567,7 @@ pub fn builtin_tidy_up_action(team_id: &str) -> Action {
         ],
         prompt_placeholder: Some(TIDY_UP_PROMPT_PLACEHOLDER.to_string()),
         triggers: Vec::new(),
+        mcp_server_ids: Vec::new(),
         sort_order: 1e9 + 4.0,
         created_at: None,
         updated_at: None,
@@ -585,6 +628,8 @@ mod tests {
         );
         let action = get(&client(&base), "act-1").unwrap();
         assert_eq!(action.body, "fresh body");
+        // A pre-FEED-73 server's row reads as no MCP servers.
+        assert!(action.mcp_server_ids.is_empty());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/actions.get?input="));
     }
@@ -610,6 +655,39 @@ mod tests {
         assert!(!request.contains(r#""description""#));
         assert!(!request.contains(r#""repositoryId""#));
         assert!(!request.contains(r#""promptPlaceholder""#));
+        assert!(!request.contains(r#""mcpServerIds""#));
+    }
+
+    /// FEED-73: the action's MCP servers ride `get`, `create` and `update`
+    /// under `mcpServerIds`, and stay off the wire when `None`.
+    #[test]
+    fn mcp_server_ids_round_trip() {
+        let row: Action = serde_json::from_str(
+            r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"x","mcpServerIds":["s1","s2"]}"#,
+        )
+        .unwrap();
+        assert_eq!(row.mcp_server_ids, vec!["s1".to_string(), "s2".to_string()]);
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it","mcpServerIds":["s1"]}}}}"#,
+        );
+        let ids = vec!["s1".to_string()];
+        let action = create_with_mcp_servers(
+            &client(&base), "team-1", "Groom", None, None, "do it", None, Some(&ids),
+        )
+        .unwrap();
+        assert_eq!(action.mcp_server_ids, ids);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""mcpServerIds":["s1"]"#), "{request}");
+
+        let mut update = ActionUpdate::new("act-1");
+        assert!(!serde_json::to_string(&update).unwrap().contains("mcpServerIds"));
+        update.mcp_server_ids = Some(Vec::new());
+        assert_eq!(
+            serde_json::to_string(&update).unwrap(),
+            r#"{"id":"act-1","mcpServerIds":[]}"#
+        );
     }
 
     /// EXP-825: the composer hint rides `actions.create` under its camelCase

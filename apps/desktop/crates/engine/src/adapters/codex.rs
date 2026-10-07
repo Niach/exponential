@@ -370,10 +370,25 @@ struct Shared {
 /// The item table. A value of its own so the whole notification → update
 /// mapping is a function of (items, method, params) and can be unit-tested
 /// without an app-server.
+///
+/// FEED-73: the second half = config key → `as <name>` for every team MCP
+/// server acting as a member ([`super::mcp_actor_details`]), fixed at
+/// session construction, so an `mcpToolCall` card names whose connection
+/// it spent.
 #[derive(Default)]
-struct Items(Mutex<HashMap<String, ItemView>>);
+struct Items(Mutex<HashMap<String, ItemView>>, HashMap<String, String>);
 
 impl Items {
+    fn with_actors(actors: HashMap<String, String>) -> Items {
+        Items(Mutex::default(), actors)
+    }
+
+    /// The `as <name>` detail for an MCP server's config key, if it acts
+    /// as a member.
+    fn actor(&self, server: &str) -> Option<&str> {
+        self.1.get(server).map(String::as_str)
+    }
+
     fn seen_deltas(&self, id: &str) -> bool {
         self.0
             .lock()
@@ -471,6 +486,7 @@ impl ConnectTo<Client> for CodexAgent {
                 usage,
             } = self;
             let cwd = spec.cwd.clone();
+            let actors = super::mcp_actor_details(&spec.servers);
             let shared = Arc::new(Shared {
                 spec,
                 server: connection.server.clone(),
@@ -480,7 +496,7 @@ impl ConnectTo<Client> for CodexAgent {
                 turns: Mutex::new(Turns::default()),
                 wake: Notify::new(),
                 config: Mutex::new(Config::default()),
-                items: Items::default(),
+                items: Items::with_actors(actors),
                 answered: Mutex::new(HashSet::new()),
                 in_flight: Mutex::new(HashMap::new()),
                 pending_errors: Mutex::new(Vec::new()),
@@ -1917,12 +1933,27 @@ fn item_updates(
         "commandExecution" => command_updates(items, id, item, completed, status),
         "fileChange" => file_change_updates(items, id, item, completed, status),
         "mcpToolCall" => {
+            let server = item.get("server").and_then(Value::as_str).unwrap_or("?");
             let title = format!(
-                "mcp.{}.{}",
-                item.get("server").and_then(Value::as_str).unwrap_or("?"),
+                "mcp.{server}.{}",
                 item.get("tool").and_then(Value::as_str).unwrap_or("?")
             );
-            surface(items, id, item, completed, status, ToolKind::Other, title, Vec::new())
+            let updates =
+                surface(items, id, item, completed, status, ToolKind::Other, title, Vec::new());
+            // FEED-73: a team MCP server acting as a member names them on
+            // the card (`as Chris`) — the transcript's audit.
+            match items.actor(server) {
+                Some(actor) => updates
+                    .into_iter()
+                    .map(|update| match update {
+                        SessionUpdate::ToolCall(call) => {
+                            SessionUpdate::ToolCall(call.meta(super::detail_meta(actor)))
+                        }
+                        other => other,
+                    })
+                    .collect(),
+                None => updates,
+            }
         }
         "dynamicToolCall" => {
             let title = item
@@ -2813,6 +2844,37 @@ mod tests {
             patch.fields.raw_output,
             Some(json!({ "formatted_output": "3 passed", "exit_code": 0 }))
         );
+    }
+
+    /// FEED-73: an `mcpToolCall` against a team server that acts as a
+    /// member carries `as <name>` in its card's `_meta`; `exponential` and an
+    /// actor-less server carry none.
+    #[test]
+    fn an_mcp_tool_call_names_the_member_it_acts_as() {
+        let items = Items::with_actors(HashMap::from([
+            ("linear".to_string(), "as Danny".to_string()),
+            ("linear_as_chris".to_string(), "as Chris".to_string()),
+        ]));
+        let started = |id: &str, server: &str| {
+            json!({
+                "turnId": "turn_1",
+                "item": { "id": id, "type": "mcpToolCall", "server": server,
+                          "tool": "create_comment", "arguments": {}, "status": "inProgress" },
+            })
+        };
+        let detail = |update: SessionUpdate| {
+            let SessionUpdate::ToolCall(call) = update else {
+                panic!("expected a tool call");
+            };
+            call.meta
+                .and_then(|meta| meta.get(crate::local::TOOL_DETAIL_META_KEY).cloned())
+        };
+        let chris = only(feed_updates(&items, "item/started", &started("i1", "linear_as_chris")));
+        assert_eq!(detail(chris), Some(json!("as Chris")));
+        let danny = only(feed_updates(&items, "item/started", &started("i2", "linear")));
+        assert_eq!(detail(danny), Some(json!("as Danny")));
+        let own = only(feed_updates(&items, "item/started", &started("i3", "exponential")));
+        assert_eq!(detail(own), None);
     }
 
     #[test]

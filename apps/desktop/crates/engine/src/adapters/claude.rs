@@ -3600,14 +3600,18 @@ impl ClaudeSession {
                     .raw_input(input),
             ))
         } else {
-            SessionUpdate::ToolCall(
-                ToolCall::new(ToolCallId::new(id), info.title)
-                    .kind(info.kind)
-                    .status(ToolCallStatus::InProgress)
-                    .content(info.content)
-                    .locations(info.locations)
-                    .raw_input(input),
-            )
+            let mut call = ToolCall::new(ToolCallId::new(id), info.title)
+                .kind(info.kind)
+                .status(ToolCallStatus::InProgress)
+                .content(info.content)
+                .locations(info.locations)
+                .raw_input(input);
+            // FEED-73: a call against a team MCP server reads whose
+            // connection it acts as (`as Chris`) — the transcript's audit.
+            if let Some(actor) = super::claude_tool_actor(&self.spec.servers, &name) {
+                call = call.meta(super::detail_meta(&actor));
+            }
+            SessionUpdate::ToolCall(call)
         };
         match wait {
             Some(detail) => {

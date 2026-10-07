@@ -38,6 +38,7 @@ import {
 import { contract } from "@exp/domain-contract"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
+import { subjectOwnsMcpServers } from "@/lib/mcp-servers"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,
@@ -106,7 +107,11 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     hint: healthBadgeLabel(option.health) ?? undefined,
     limits: option.limits,
   }))
-  const showMcp = model.mcpServers !== null && model.mcpServers.length > 0
+  // FEED-73: a real action brings its own MCP list, so no picker for it.
+  const showMcp =
+    model.mcpServers !== null &&
+    model.mcpServers.length > 0 &&
+    !subjectOwnsMcpServers(subject)
   // EXP-1030: the machines as THE device picker's rows (kind glyph + name,
   // EXP-432's owner suffix on a teammate's shared server).
   const deviceRows = candidateDevices.map((candidate) => ({

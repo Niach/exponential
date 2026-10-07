@@ -88,6 +88,7 @@ const TABLE_DEFAULTS: Record<string, () => Row> = {
     issuer: null,
     clientId: null,
     error: null,
+    shared: false,
   }),
   mcp_oauth_clients: () => ({
     clientSecretCiphertext: null,

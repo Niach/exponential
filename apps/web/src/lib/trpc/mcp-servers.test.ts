@@ -417,10 +417,11 @@ describe(`mcpServers.list — connection statuses`, () => {
       ],
       mcp_credentials: [
         { serverId: SERVER, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER, `actor`)), expiresAt: LATER, error: null },
-        { serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)), expiresAt: LATER, error: null },
+        { serverId: SERVER, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)), expiresAt: LATER, error: null, shared: true },
         // A departed member's credential never counts.
-        { serverId: SERVER, userId: `gone`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `c` }, credentialAad(SERVER, `gone`)), expiresAt: LATER, error: null },
-        { serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER_B, `actor`)), expiresAt: null, error: `invalid_grant` },
+        { serverId: SERVER, userId: `gone`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `c` }, credentialAad(SERVER, `gone`)), expiresAt: LATER, error: null, shared: true },
+        // Shared but broken: never counted as shared.
+        { serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER_B, `actor`)), expiresAt: null, error: `invalid_grant`, shared: true },
         { serverId: SECRET, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(SECRET, `mate`)), expiresAt: null, error: null },
       ],
     })
@@ -431,21 +432,31 @@ describe(`mcpServers.list — connection statuses`, () => {
     expect(rows.map((row) => row.name)).toEqual([`Linear`, `Sentry`, `Grafana`, `Docs`])
     const byName = new Map(rows.map((row) => [row.name, row]))
     expect(byName.get(`Linear`)).toMatchObject({
-      connection: { status: `connected`, expiresAt: LATER.toISOString(), error: null },
+      connection: { status: `connected`, expiresAt: LATER.toISOString(), error: null, shared: false },
       connectedCount: 2,
       memberCount: 3,
+      // FEED-73: who shared (connected current members only) and who connected.
+      sharedCount: 1,
+      sharedUserIds: [`mate`],
+      connectedUserIds: [`actor`, `mate`],
     })
     expect(byName.get(`Sentry`)).toMatchObject({
-      connection: { status: `error`, error: `invalid_grant` },
+      connection: { status: `error`, error: `invalid_grant`, shared: true },
       connectedCount: 0,
+      sharedCount: 0,
+      sharedUserIds: [],
+      connectedUserIds: [],
     })
     expect(byName.get(`Grafana`)).toMatchObject({
-      connection: { status: `not_connected` },
+      connection: { status: `not_connected`, shared: false },
       connectedCount: 1,
+      connectedUserIds: [`mate`],
     })
     expect(byName.get(`Docs`)).toMatchObject({
       connection: { status: `not_needed` },
       connectedCount: 3,
+      sharedCount: 0,
+      connectedUserIds: [`actor`, `mate`, `third`],
     })
     expect(JSON.stringify(rows)).not.toContain(`ciphertext`)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
@@ -670,6 +681,7 @@ describe(`mcpServers — agent-key refusals`, () => {
       agent.connect({ serverId: SERVER }),
       agent.setSecret({ serverId: SERVER, value: `v` }),
       agent.disconnect({ serverId: SERVER }),
+      agent.setShared({ serverId: SERVER, shared: true }),
       agent.probe({ teamId: TEAM, url: `https://x.example.com` }),
     ]
     for (const write of writes) {
@@ -819,5 +831,155 @@ describe(`isReservedMcpEnvName`, () => {
     for (const name of [`PG_URL`, `GITHUB_TOKEN`, `LINEAR_API_KEY`, `PATHS`, `HOMEBREW_X`, `EXPO_TOKEN`]) {
       expect(isReservedMcpEnvName(name), name).toBe(false)
     }
+  })
+})
+
+describe(`mcpServers.setShared (FEED-73)`, () => {
+  const LATER = new Date(Date.now() + 3600_000)
+  const seed = (credentials: Record<string, unknown>[]) => {
+    db = createFakeDb({
+      mcp_servers: [serverRow(), serverRow({ id: SERVER_B, name: `Docs`, auth: `none` })],
+      mcp_credentials: credentials,
+    })
+  }
+  const own = (over: Record<string, unknown> = {}) => ({
+    id: `c-actor`,
+    serverId: SERVER,
+    userId: `actor`,
+    teamId: TEAM,
+    ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER, `actor`)),
+    expiresAt: LATER,
+    error: null,
+    shared: false,
+    ...over,
+  })
+
+  it(`toggles the caller's own connected row and returns the connection`, async () => {
+    seed([own(), { ...own(), id: `c-mate`, userId: `mate`, ciphertext: encryptCredential({ accessToken: `b` }, credentialAad(SERVER, `mate`)) }])
+    const on = await callerFor().setShared({ serverId: SERVER, shared: true })
+    expect(on).toMatchObject({ status: `connected`, shared: true })
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
+    const rows = db.rows(`mcp_credentials`)
+    expect(rows.find((row) => row.userId === `actor`)!.shared).toBe(true)
+    // Never someone else's row.
+    expect(rows.find((row) => row.userId === `mate`)!.shared).toBe(false)
+    const off = await callerFor().setShared({ serverId: SERVER, shared: false })
+    expect(off.shared).toBe(false)
+  })
+
+  it(`refuses without a connected row of the caller's`, async () => {
+    seed([own({ error: `invalid_grant` })])
+    for (const call of [
+      callerFor().setShared({ serverId: SERVER, shared: true }),
+      callerFor(`mate`).setShared({ serverId: SERVER, shared: true }),
+      callerFor().setShared({ serverId: SERVER_B, shared: true }),
+    ]) {
+      const error = await rejectionOf(call)
+      expect(error.code).toBe(`PRECONDITION_FAILED`)
+      expect(error.message).toBe(`Connect first`)
+    }
+    expect(db.rows(`mcp_credentials`)[0]!.shared).toBe(false)
+  })
+
+  it(`is member-gated`, async () => {
+    seed([own()])
+    h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
+    const error = await rejectionOf(callerFor().setShared({ serverId: SERVER, shared: true }))
+    expect(error.code).toBe(`FORBIDDEN`)
+    expect(db.rows(`mcp_credentials`)[0]!.shared).toBe(false)
+  })
+})
+
+describe(`mcpServers.resolveForLaunch — action runs spend shared connections (FEED-73)`, () => {
+  const RUN = `99999999-9999-4999-8999-999999999999`
+  const ACTION = `88888888-8888-4888-8888-888888888888`
+  const STDIO = `11111111-1111-4111-8111-333333333333`
+  const cred = (userId: string, serverId: string, payload: object, shared = true) => ({
+    id: `c-${userId}-${serverId}`,
+    serverId,
+    userId,
+    teamId: TEAM,
+    ciphertext: encryptCredential(payload, credentialAad(serverId, userId)),
+    expiresAt: null,
+    error: null,
+    shared,
+  })
+  const seed = (run: Record<string, unknown>) => {
+    db = createFakeDb({
+      mcp_servers: [
+        serverRow({ url: MCP_URL }),
+        serverRow({ id: SERVER_B, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
+        serverRow({ id: STDIO, name: `pg`, transport: `stdio`, url: null, command: `npx`, auth: `secret`, envNames: [`PG_URL`] }),
+      ],
+      team_members: [`actor`, `chris`, `dana`].map((userId) => ({ teamId: TEAM, userId })),
+      users: [
+        { id: `actor`, name: `Actor`, email: `actor@x.io` },
+        { id: `chris`, name: `Chris Doe`, email: `chris@x.io` },
+        { id: `dana`, name: `Dana`, email: `dana@x.io` },
+      ],
+      mcp_credentials: [
+        cred(`actor`, SERVER, { accessToken: `own-tok` }),
+        cred(`chris`, SERVER, { accessToken: `chris-tok` }),
+        cred(`dana`, SERVER, { accessToken: `dana-tok` }, false),
+        cred(`chris`, STDIO, { value: `postgres://chris` }),
+      ],
+      coding_sessions: [
+        {
+          id: RUN,
+          userId: `actor`,
+          hostUserId: null,
+          teamId: TEAM,
+          status: `running`,
+          mcpServerIds: [SERVER, SERVER_B, STDIO],
+          actionId: ACTION,
+          ...run,
+        },
+      ],
+    })
+  }
+  const inRun = () => callerFor(`actor`, { sessionId: RUN })
+
+  it(`returns own entries plus other members' shared http ones, with actors and a roster`, async () => {
+    seed({})
+    // serverIds omitted = the row's whole pick.
+    const result = await inRun().resolveForLaunch({})
+    expect(result.servers.map((entry) => [entry.id, entry.name, entry.actor])).toEqual([
+      [SERVER, `Linear`, { userId: `actor`, name: `Actor`, shared: false }],
+      [SERVER, `Linear-as-chris`, { userId: `chris`, name: `Chris Doe`, shared: true }],
+    ])
+    expect(result.servers[1]!.headers).toEqual([{ name: `Authorization`, value: `Bearer chris-tok` }])
+    // Never the caller's own row twice, never an unshared one, never a stdio share.
+    expect(JSON.stringify(result.servers)).not.toMatch(/dana-tok|postgres/)
+    expect(result.skipped).toEqual([
+      { id: SERVER_B, name: `Grafana`, reason: `not connected` },
+      { id: STDIO, name: `pg`, reason: `not connected` },
+    ])
+    expect(result.members.map((member) => `${member.serverName}:${member.userId}:${member.state}`)).toEqual([
+      `Grafana:actor:self`,
+      `Grafana:chris:not_connected`,
+      `Grafana:dana:not_connected`,
+      `Linear:actor:self`,
+      `Linear:chris:shared`,
+      `Linear:dana:connected`,
+      `pg:actor:self`,
+      `pg:chris:connected`,
+      `pg:dana:not_connected`,
+    ])
+  })
+
+  it(`an explicit serverIds list narrows the pick and still skips unpicked ids`, async () => {
+    seed({ mcpServerIds: [SERVER] })
+    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+    expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`, `Linear-as-chris`])
+    expect(result.skipped).toEqual([{ id: SERVER_B, name: SERVER_B, reason: `not picked for this run` }])
+    expect(result.members.every((member) => member.serverId === SERVER)).toBe(true)
+  })
+
+  it(`a non-action run gets no extras and an empty roster`, async () => {
+    seed({ actionId: null })
+    const result = await inRun().resolveForLaunch({})
+    expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`])
+    expect(result.members).toEqual([])
+    expect(JSON.stringify(result)).not.toContain(`chris-tok`)
   })
 })

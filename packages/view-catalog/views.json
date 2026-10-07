@@ -1179,7 +1179,7 @@
       "id": "action-page",
       "group": "actions",
       "title": "Action",
-      "blurb": "One action as a page: its prompt (name, icon, repository, the markdown body the agent runs), its triggers and its runs.",
+      "blurb": "One action as a page: its prompt (name, icon, repository, MCP servers, the markdown body the agent runs), its triggers and its runs. The MCP servers list offers only team MCPs (no sign-in, or a member's shared connection) and every run of the action uses it.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/actions/$actionId",
@@ -1829,7 +1829,7 @@
       "id": "settings-mcp-servers",
       "group": "settings",
       "title": "Settings · MCP servers",
-      "blurb": "The team's MCP servers: one row per server with where it lives, how many members connected, and the viewer's one action (Connect, Set key, Connected, or No sign-in needed). Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
+      "blurb": "The team's MCP servers: one row per server with where it lives, how many members connected and shared, a Shared pill when the viewer shares theirs, and the viewer's one action (Connect, Set key, Connected with Share with team / Stop sharing, or No sign-in needed). Each member connects their own account once; the server holds the credential. Owners add from a catalog or a pasted URL, with the technical fields behind Advanced.",
       "order": 20,
       "web": {
         "route": "/t/$teamSlug/settings/mcp-servers",

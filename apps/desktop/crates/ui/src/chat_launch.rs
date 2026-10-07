@@ -28,6 +28,14 @@ pub(crate) enum SubjectKind {
     Action { id: String },
 }
 
+/// FEED-73 — a REAL action subject brings its own MCP list (the server sets
+/// the run's pick from it), so the composer neither offers the picker nor
+/// sends a pick (web `subjectOwnsMcpServers`). Builtins, issues and chats
+/// keep the caller's pick.
+pub(crate) fn subject_owns_mcp_servers(subject: &SubjectKind) -> bool {
+    matches!(subject, SubjectKind::Action { id } if !api::actions::is_builtin_action_id(id))
+}
+
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
 /// element above the (now secondary) text field: `Run` beside an action's
 /// chip, `Implement` beside the issue chips, `Ask the agent` with no subject
@@ -336,6 +344,18 @@ pub(crate) fn batch_request(
 mod tests {
     use super::*;
     use coding::CodingAgent;
+
+    /// FEED-73 — web `subjectOwnsMcpServers`: only a REAL action owns it.
+    #[test]
+    fn only_a_real_action_subject_owns_its_mcp_servers() {
+        let action = |id: &str| SubjectKind::Action { id: id.to_string() };
+        assert!(subject_owns_mcp_servers(&action("4f1c0f5e-action-row")));
+        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_CHAT_ID)));
+        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_CREATE_ACTION_ID)));
+        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_FIX_CONFLICTS_ID)));
+        assert!(!subject_owns_mcp_servers(&SubjectKind::Chat));
+        assert!(!subject_owns_mcp_servers(&SubjectKind::Issues { count: 2 }));
+    }
 
     fn options() -> LaunchOptions {
         LaunchOptions {

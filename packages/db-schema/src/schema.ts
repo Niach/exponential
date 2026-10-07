@@ -2333,6 +2333,12 @@ export const mcpCredentials = pgTable(
     issuer: text(),
     clientId: text(`client_id`),
     error: text(),
+    // FEED-73: the member's own toggle (`mcpServers.setShared`). A shared
+    // credential is spent by every run of an ACTION in this team whose list
+    // (`actions.mcp_server_ids`) names the server, as an extra
+    // `<server>-as-<member>` entry. Disconnect and a server retarget delete
+    // the row, so a reconnect starts unshared.
+    shared: boolean().notNull().default(false),
     ...timestamps,
   },
   (table) => [
@@ -2460,6 +2466,15 @@ export const actions = pgTable(
     // reads them off the shape and self-starts; there is no server scheduler.
     triggers: jsonb()
       .$type<ActionTrigger[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // FEED-73: the team MCP servers EVERY run of this action uses (trigger,
+    // remote and composer starts alike; `codingSessions.start` copies it onto
+    // the run, ignoring the launch pick). SERVER-ONLY like `body`: behind the
+    // shape's columns allowlist, `actions.get` returns it. Members' shared
+    // connections resolve as extra `<server>-as-<member>` entries.
+    mcpServerIds: jsonb(`mcp_server_ids`)
+      .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),

@@ -198,3 +198,30 @@ describe(`useLaunchOptions account`, () => {
     expect(result.current.agent).toBe(`codex`)
   })
 })
+
+// FEED-73: a real action owns its run's MCP list (the server sets it on
+// start), so the composer's pick never rides out for one.
+describe(`useLaunchOptions MCP pick`, () => {
+  const mcpServers = [
+    {
+      id: `linear`,
+      enabledByDefault: true,
+      connection: { status: `connected` },
+    },
+  ] as never
+
+  it(`sends the pick, and omits it when the subject owns the list`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [device],
+        teamId: `team-feed-73`,
+        mcpServers,
+      })
+    )
+    expect(result.current.buildOptions().mcpServerIds).toEqual([`linear`])
+    expect(
+      result.current.buildOptions({ omitMcp: true }).mcpServerIds
+    ).toBeUndefined()
+  })
+})

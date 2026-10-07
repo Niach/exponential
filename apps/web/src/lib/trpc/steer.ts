@@ -16,7 +16,6 @@ import {
   codingSessions,
   devices as devicesTable,
   issues,
-  mcpServers,
   repositories,
   teamMembers,
   type Device,
@@ -40,6 +39,7 @@ import {
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
+import { assertMcpServersInTeam as assertMcpServersInTeamGuard } from "@/lib/mcp-servers-guard"
 import { mintStartId, recordStartFailure } from "@/lib/start-failures"
 import {
   resolveStartPrompt,
@@ -653,33 +653,10 @@ export const steerRouter = router({
         })
       }
 
-      // EXP-792: every picked MCP server must be a row of the subject's team.
-      // Duplicates collapse; the count check refuses a foreign or vanished
-      // id without naming which (the caller's own picker rendered the list).
-      const assertMcpServersInTeam = async (
-        teamId: string
-      ): Promise<string[] | undefined> => {
-        if (!input.mcpServerIds || input.mcpServerIds.length === 0) {
-          return undefined
-        }
-        const ids = [...new Set(input.mcpServerIds)]
-        const { db } = await import(`@/db/connection`)
-        const rows = await db
-          .select({ id: mcpServers.id })
-          .from(mcpServers)
-          .where(
-            and(inArray(mcpServers.id, ids), eq(mcpServers.teamId, teamId))
-          )
-          .limit(ids.length)
-        const found = new Set(rows.map((row) => row.id))
-        if (ids.some((id) => !found.has(id))) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `One of the picked MCP servers is not in this team (removed?)`,
-          })
-        }
-        return ids
-      }
+      // EXP-792: every picked MCP server must be a row of the subject's team
+      // (lib/mcp-servers-guard.ts).
+      const assertMcpServersInTeam = (teamId: string) =>
+        assertMcpServersInTeamGuard(input.mcpServerIds, teamId)
 
       const targetDeviceColumns = {
         agents: devicesTable.agents,

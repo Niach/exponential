@@ -654,6 +654,30 @@ describe(`codingSessions.start — agent (EXP-484)`, () => {
 })
 
 describe(`codingSessions.start — action path (EXP-253)`, () => {
+  // FEED-73: the action owns its MCP list; the launch's own pick is ignored.
+  it(`copies the action's MCP list onto the run, ignoring the input pick`, async () => {
+    const owned = `77777777-7777-4777-8777-777777777777`
+    const removed = `88888888-8888-4888-8888-888888888888`
+    const picked = `66666666-6666-4666-8666-666666666666`
+    selectResults.push(
+      [{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, mcpServerIds: [owned, removed] }],
+      // resolveMcpServerIds: the in-team rows (one removed since).
+      [{ id: owned }]
+    )
+
+    await caller.start({ actionId: ACTION_ID, mcpServerIds: [picked] })
+
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values.mcpServerIds).toEqual([owned])
+    expect(whereShape(selectWheres[1])).toEqual([
+      `col:id`,
+      owned,
+      removed,
+      `col:team_id`,
+      TEAM_ID,
+    ])
+  })
+
   it(`inserts batch-shaped plus actionId + the server-resolved name snapshot`, async () => {
     selectResults.push([
       { id: ACTION_ID, teamId: TEAM_ID, name: `Code review` },

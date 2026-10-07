@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
 import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
@@ -10,10 +10,15 @@ import {
   Combobox,
   GlassGroup,
   Input,
+  McpServerPicker,
+  PickerTrigger,
+  pickerSummary,
   Textarea,
 } from "@exp/ui"
 import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
+import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { isTeamMcp } from "@/lib/mcp-servers"
 
 // The Prompt part of an action's page (EXP-253; a dialog until SLOP-2) —
 // owner-only writes (the server enforces it; a non-owner gets the same form
@@ -22,6 +27,9 @@ import { trpc } from "@/lib/trpc-client"
 // The body is the GFM prompt an agent session executes on a member's device —
 // synced rows exclude it (EXP-268), so the form fetches it via tRPC
 // `actions.get` when the action changes.
+// FEED-73: the action's MCP servers ride the same fetch/save path — every run
+// of the action connects to THIS list (the server sets it on start), and only
+// team MCPs (no sign-in, or a member's shared connection) can be on it.
 
 /** One action as the clients list them: a synced (body-less) row or the
  * client-constructed builtin. */
@@ -78,6 +86,19 @@ export function ActionPromptForm({
   const [error, setError] = useState<string | null>(null)
   // The body as last loaded or saved — Save lights up once a field differs.
   const [savedBody, setSavedBody] = useState(``)
+  // FEED-73: the action's MCP list (row ids), loaded with the body. Ids the
+  // picker does not list (a server no longer shared) are kept, not dropped.
+  const [mcpServerIds, setMcpServerIds] = useState<string[]>([])
+  const [savedMcpServerIds, setSavedMcpServerIds] = useState<string[]>([])
+  const { servers } = useMcpServers(action.teamId)
+  const teamMcps = useMemo(
+    () => (servers ?? []).filter(isTeamMcp),
+    [servers]
+  )
+  const listedMcp = (id: string) => teamMcps.some((server) => server.id === id)
+  const pickedMcps = teamMcps.filter((server) =>
+    mcpServerIds.includes(server.id)
+  )
 
   // Seed the fields when the ACTION changes (never on a resync of the same
   // one: that would wipe what is being typed); the body comes from tRPC.
@@ -89,6 +110,8 @@ export function ActionPromptForm({
     setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
     setBody(``)
     setSavedBody(``)
+    setMcpServerIds([])
+    setSavedMcpServerIds([])
     setBodyLoading(true)
     setSubmitting(false)
     setNameError(null)
@@ -100,6 +123,8 @@ export function ActionPromptForm({
         if (!active) return
         setBody(res.action.body)
         setSavedBody(res.action.body)
+        setMcpServerIds([...res.action.mcpServerIds])
+        setSavedMcpServerIds([...res.action.mcpServerIds])
         setBodyLoading(false)
       })
       .catch((err) => {
@@ -113,13 +138,17 @@ export function ActionPromptForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action.id])
 
+  const mcpDirty =
+    mcpServerIds.length !== savedMcpServerIds.length ||
+    mcpServerIds.some((id) => !savedMcpServerIds.includes(id))
   const dirty =
     name.trim() !== action.name ||
     description.trim() !== (action.description ?? ``) ||
     promptPlaceholder.trim() !== (action.promptPlaceholder ?? ``) ||
     repoValue !== (action.repositoryId ?? NO_REPO) ||
     icon !== ((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name) ||
-    body !== savedBody
+    body !== savedBody ||
+    mcpDirty
   const canSubmit =
     dirty && Boolean(name.trim()) && Boolean(body.trim()) && !bodyLoading
 
@@ -140,10 +169,12 @@ export function ActionPromptForm({
           body,
           promptPlaceholder:
             promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
+          ...(mcpDirty ? { mcpServerIds } : {}),
         },
         { context: { skipErrorToast: true } }
       )
       setSavedBody(body)
+      setSavedMcpServerIds(mcpServerIds)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (
@@ -234,6 +265,46 @@ export function ActionPromptForm({
             With a repository the run clones it first; without one the agent
             works in a scratch directory.
           </p>
+
+          {teamMcps.length > 0 && (
+            <GlassGroup>
+              <McpServerPicker
+                servers={teamMcps.map((server) => ({
+                  id: server.id,
+                  name: server.name,
+                  url: server.url,
+                  command: server.command,
+                }))}
+                // Only listed rows are pickable; ids it cannot list ride along.
+                value={pickedMcps.map((server) => server.id)}
+                onChange={(next) =>
+                  setMcpServerIds([
+                    ...mcpServerIds.filter((id) => !listedMcp(id)),
+                    ...next,
+                  ])
+                }
+                disabled={readOnly || bodyLoading}
+                search={teamMcps.length > 6}
+                width="md"
+                trigger={
+                  <PickerTrigger
+                    variant="row"
+                    label="MCP servers"
+                    value={
+                      pickedMcps.length > 0
+                        ? pickerSummary(
+                            pickedMcps.map((server) => server.name),
+                            `None`
+                          )
+                        : undefined
+                    }
+                    placeholder="None"
+                    disabled={readOnly || bodyLoading}
+                  />
+                }
+              />
+            </GlassGroup>
+          )}
         </div>
 
         <GlassGroup>

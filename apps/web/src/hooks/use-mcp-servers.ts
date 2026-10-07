@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
+import { toast } from "@exp/ui"
 import type { McpServerList } from "@/lib/mcp-servers"
 
 export interface McpServersQuery {
@@ -15,6 +16,10 @@ export interface McpServersQuery {
   servers: McpServerList | null
   error: string | null
   refresh: () => Promise<void>
+  /** FEED-73: share (or stop sharing) the caller's OWN connection to a server
+   * with the team, like a shared device. Toasts a failure, refetches the
+   * list either way; resolves true on success. */
+  setShared: (serverId: string, shared: boolean) => Promise<boolean>
 }
 
 export function useMcpServers(
@@ -64,5 +69,25 @@ export function useMcpServers(
     }
   }, [teamId, enabled])
 
-  return { servers, error, refresh }
+  const setShared = useCallback(
+    async (serverId: string, shared: boolean) => {
+      try {
+        await trpc.mcpServers.setShared.mutate(
+          { serverId, shared },
+          { context: { skipErrorToast: true } }
+        )
+        return true
+      } catch (err) {
+        toast.error(shared ? `Could not share` : `Could not stop sharing`, {
+          description: trpcErrorMessage(err, `Try again.`),
+        })
+        return false
+      } finally {
+        await refresh()
+      }
+    },
+    [refresh]
+  )
+
+  return { servers, error, refresh, setShared }
 }
