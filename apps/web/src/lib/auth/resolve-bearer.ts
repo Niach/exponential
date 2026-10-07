@@ -6,9 +6,21 @@ import {
   touchUserClientPlatform,
 } from "@/lib/client-platforms"
 import { authDbFailureCount } from "@/lib/auth/db-failure-signal"
+import {
+  apiKeySessionMetadata,
+  type ApiKeyScope,
+} from "@/lib/auth/api-key-kind"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 type Session = Awaited<ReturnType<typeof auth.api.getSession>>
+
+// FEED-76: what a credential resolved to — the session AND, when the request
+// rode a SCOPED `expu_` key, the team/board scope that key was minted with.
+export interface ResolvedCredential {
+  session: Session
+  /** Non-null only behind a scoped personal key (lib/auth/api-key-kind.ts). */
+  keyScope: ApiKeyScope | null
+}
 
 // REV2-7: short-TTL cache for TOKEN-credentialed sessions only. The cookie
 // strip below (bearerOnlyHeaders) deliberately bypasses Better Auth's 5-min
@@ -26,17 +38,19 @@ type Session = Awaited<ReturnType<typeof auth.api.getSession>>
 //   FAILURE is a rejected promise (SessionResolveError, below) — TtlPromiseCache
 //   evicts rejected entries on settle, so a transient DB blip is never cached
 //   either; both cost exactly one lookup per call.
-// - The cached Session object is SHARED across callers — treat it as
-//   read-only (all current callers do).
+// - The cached credential (Session + key scope) is SHARED across callers —
+//   treat it as read-only (all current callers do). FEED-76: the scoped-key
+//   lookup (one PK probe on `apikeys`, only for `expu_` credentials) rides
+//   the same entry, so a key costs one getSession + one probe per TTL.
 // - Revocation bound: revokePersonalApiKey / account deletion clear the cache
 //   in-process; anything else (e.g. a mobile bearer sign-out's server-side
 //   session row death) rides the 30s TTL — well inside the 5-min cookieCache
 //   precedent web sessions already live with.
 const SESSION_CACHE_TTL_MS = 30_000
-const sessionCache = new TtlPromiseCache<Session>({
+const sessionCache = new TtlPromiseCache<ResolvedCredential>({
   ttlMs: SESSION_CACHE_TTL_MS,
   maxEntries: 2_000,
-  retain: (session) => Boolean(session?.user),
+  retain: (resolved) => Boolean(resolved.session?.user),
 })
 
 export function invalidateSessionCache(): void {
@@ -47,35 +61,76 @@ export function invalidateSessionCache(): void {
 // attachment/image routes). Resolves a request to a session, accepting:
 //   - the session cookie (web) and `Authorization: Bearer <sessionToken>` (mobile)
 //     via the bearer plugin, and
-//   - `Authorization: Bearer expu_...` personal api keys (apiKey plugin).
+//   - `Authorization: Bearer expu_...` UNSCOPED personal api keys (apiKey plugin).
 // Human MCP clients' OAuth2 access tokens are deliberately NOT accepted here:
 // those tokens are consent-scoped to selected teams/boards, and only
 // the MCP tool layer enforces that scope — so /api/mcp is the only endpoint
-// that resolves them (see lib/mcp/scope.ts).
+// that resolves them (see lib/mcp/scope.ts). FEED-76: a SCOPED personal key
+// is the same kind of credential and reads as unauthenticated here too; only
+// /api/mcp resolves it (resolveMcpCredential) and confines it to its scope.
 export async function resolveSession(request: Request): Promise<Session> {
-  const session = await resolveSessionCore(request)
-  // EXP-759: the ONE place every authenticated API request passes (tRPC, all
-  // shape proxies, attachments) — record which client made it. Runs on cache
-  // hits too (the request is always in hand); throttled + fire-and-forget
-  // inside, never awaited, never throws.
-  const userId = session?.user?.id
-  if (userId) {
-    const client = deriveClientPlatform(request)
-    if (client) touchUserClientPlatform(db, { userId, ...client })
-  }
-  return session
+  const resolved = await resolveCredentialCore(request)
+  if (resolved.keyScope) return null
+  touchClientPlatform(request, resolved.session)
+  return resolved.session
 }
 
-async function resolveSessionCore(request: Request): Promise<Session> {
+// /api/mcp's chokepoint: the session PLUS the key scope it must be confined
+// to (`keyScope` null = the user's full membership).
+export async function resolveMcpCredential(
+  request: Request
+): Promise<ResolvedCredential> {
+  const resolved = await resolveCredentialCore(request)
+  touchClientPlatform(request, resolved.session)
+  return resolved
+}
+
+// EXP-759: the ONE place every authenticated API request passes (tRPC, all
+// shape proxies, attachments, MCP) — record which client made it. Runs on
+// cache hits too (the request is always in hand); throttled + fire-and-forget
+// inside, never awaited, never throws.
+function touchClientPlatform(request: Request, session: Session): void {
+  const userId = session?.user?.id
+  if (!userId) return
+  const client = deriveClientPlatform(request)
+  if (client) touchUserClientPlatform(db, { userId, ...client })
+}
+
+// Matches the apiKey plugin's `customAPIKeyGetter` (lib/auth/index.ts): the
+// only two header forms that can resolve to an `expu_` key row. A mobile
+// session bearer never pays the scope probe.
+function carriesApiKey(authorization: string | null, apiKey: string | null) {
+  return Boolean(apiKey) || /^Bearer\s+expu_/i.test(authorization ?? ``)
+}
+
+async function resolveCredentialCore(
+  request: Request
+): Promise<ResolvedCredential> {
   const authorization = request.headers.get(`authorization`)
   const apiKey = request.headers.get(`x-api-key`)
   if (!authorization && !apiKey) {
-    return getSessionBearerOnly(request)
+    // Cookie-only: never an api key (the plugin reads only the two token
+    // headers), so no scope probe and no caching — cookieCache covers it.
+    return { session: await getSessionBearerOnly(request), keyScope: null }
   }
   const cacheKey = createHash(`sha256`)
     .update(`${authorization ?? ``}\0${apiKey ?? ``}`)
     .digest(`base64url`)
-  return sessionCache.get(cacheKey, () => getSessionBearerOnly(request))
+  return sessionCache.get(cacheKey, async () => {
+    const session = await getSessionBearerOnly(request)
+    if (!session?.user || !carriesApiKey(authorization, apiKey)) {
+      return { session, keyScope: null }
+    }
+    let metadata
+    try {
+      metadata = await apiKeySessionMetadata(db, session)
+    } catch (err) {
+      throw new SessionResolveError(`Session lookup failed (api key scope)`, {
+        cause: err,
+      })
+    }
+    return { session, keyScope: metadata?.scope ?? null }
+  })
 }
 
 // Thrown when the session lookup itself FAILED (DB down, auth backend blip) —

@@ -1,15 +1,26 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
-import { Button, Checkbox, Label, Switch, AuthFormShell } from "@exp/ui"
+import {
+  AuthFormShell,
+  Button,
+  EMPTY_SCOPE_SELECTION,
+  ScopePicker,
+  effectiveScopeSelection,
+  hasScopeSelection,
+  type ScopePickerTeam,
+  type ScopeSelection,
+} from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize
 // endpoint lands here (prompt=consent is forced server-side) with a
 // consent_code; "Allow" persists the team/board grant and completes
 // the better-auth consent, which returns the MCP client's callback URL.
+// The team/board control is `@exp/ui` ScopePicker — the same one the
+// Create-API-key dialog shows (FEED-76).
 
 interface ConsentSearch {
   consent_code?: string
@@ -37,28 +48,17 @@ export const Route = createFileRoute(`/auth/consent`)({
   },
 })
 
-interface ScopeTeam {
-  id: string
-  name: string
-  slug: string
-  boards: Array<{ id: string; name: string; prefix: string; icon: string | null }>
-}
-
 function ConsentPage() {
   const { consent_code: consentCode, client_id: clientId } = Route.useSearch()
 
   const [clientName, setClientName] = useState<string | null>(null)
-  const [tree, setTree] = useState<Array<ScopeTeam> | null>(null)
+  const [tree, setTree] = useState<Array<ScopePickerTeam> | null>(null)
   const [loadError, setLoadError] = useState(``)
   const [error, setError] = useState(``)
   const [pending, setPending] = useState<`allow` | `deny` | null>(null)
 
-  const [allTeams, setAllTeams] = useState(true)
-  const [selectedTeams, setSelectedTeams] = useState<Set<string>>(
-    () => new Set()
-  )
-  const [selectedBoards, setSelectedBoards] = useState<Set<string>>(
-    () => new Set()
+  const [selection, setSelection] = useState<ScopeSelection>(
+    EMPTY_SCOPE_SELECTION
   )
 
   useEffect(() => {
@@ -84,33 +84,21 @@ function ConsentPage() {
     }
   }, [clientId])
 
-  const hasSelection =
-    allTeams || selectedTeams.size > 0 || selectedBoards.size > 0
-
-  // Boards inside a fully-selected team are covered by the team
-  // grant — don't send them individually.
-  const effectiveBoardIds = useMemo(() => {
-    if (!tree) return []
-    const covered = new Set(
-      tree
-        .filter((w) => selectedTeams.has(w.id))
-        .flatMap((w) => w.boards.map((p) => p.id))
-    )
-    return [...selectedBoards].filter((id) => !covered.has(id))
-  }, [tree, selectedTeams, selectedBoards])
+  const hasSelection = hasScopeSelection(selection)
 
   const respond = async (accept: boolean) => {
     if (!clientId || !consentCode) return
     setPending(accept ? `allow` : `deny`)
     setError(``)
     try {
+      // Boards inside a fully-selected team are covered by the team
+      // grant — don't send them individually.
+      const scope = effectiveScopeSelection(tree ?? [], selection)
       const { redirectURI } = await trpc.mcpGrants.grantAndConsent.mutate({
         clientId,
         consentCode,
         accept,
-        allTeams,
-        teamIds: allTeams ? [] : [...selectedTeams],
-        boardIds: allTeams ? [] : effectiveBoardIds,
+        ...scope,
       })
       window.location.href = redirectURI
     } catch (e) {
@@ -150,94 +138,12 @@ function ConsentPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3 rounded-md border p-3">
-            <div className="space-y-0.5">
-              <Label htmlFor="all-teams">Everything</Label>
-              <p className="text-xs text-muted-foreground">
-                All teams and boards, including ones created later.
-              </p>
-            </div>
-            <Switch
-              id="all-teams"
-              checked={allTeams}
-              onCheckedChange={(checked) => setAllTeams(checked === true)}
-            />
-          </div>
-
-          {!allTeams && (
-            <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
-              {tree.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  You aren&apos;t a member of any team yet.
-                </p>
-              )}
-              {tree.map((team) => {
-                const wholeTeam = selectedTeams.has(team.id)
-                return (
-                  <div key={team.id} className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id={`ws-${team.id}`}
-                        checked={wholeTeam}
-                        onCheckedChange={(checked) => {
-                          setSelectedTeams((prev) => {
-                            const next = new Set(prev)
-                            if (checked === true) next.add(team.id)
-                            else next.delete(team.id)
-                            return next
-                          })
-                        }}
-                      />
-                      <Label
-                        htmlFor={`ws-${team.id}`}
-                        className="font-medium"
-                      >
-                        {team.name}
-                      </Label>
-                      <span className="text-xs text-muted-foreground">
-                        whole team
-                      </span>
-                    </div>
-                    <div className="ml-6 space-y-1">
-                      {team.boards.map((board) => (
-                        <div key={board.id} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`proj-${board.id}`}
-                            disabled={wholeTeam}
-                            checked={
-                              wholeTeam || selectedBoards.has(board.id)
-                            }
-                            onCheckedChange={(checked) => {
-                              setSelectedBoards((prev) => {
-                                const next = new Set(prev)
-                                if (checked === true) next.add(board.id)
-                                else next.delete(board.id)
-                                return next
-                              })
-                            }}
-                          />
-                          <Label
-                            htmlFor={`proj-${board.id}`}
-                            className="font-normal"
-                          >
-                            {board.name}
-                            <span className="ml-1.5 text-xs text-muted-foreground">
-                              {board.prefix}
-                            </span>
-                          </Label>
-                        </div>
-                      ))}
-                      {team.boards.length === 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          No boards yet.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <ScopePicker
+            tree={tree}
+            value={selection}
+            onChange={setSelection}
+            idPrefix="consent"
+          />
 
           <p className="text-xs text-muted-foreground">
             The client acts as you within the selected scope: reading and

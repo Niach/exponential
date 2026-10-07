@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   apiKeyKindOf,
   apiKeySessionKind,
+  apiKeySessionMetadata,
+  parseApiKeyMetadata,
   assertNotAgentApiKeySession,
   assertNotApiKeySession,
   isAgentApiKeySession,
@@ -21,6 +23,83 @@ describe(`apiKeyKindOf`, () => {
     expect(apiKeyKindOf(undefined)).toBe(`personal`)
     expect(apiKeyKindOf(`not json`)).toBe(`personal`)
     expect(apiKeyKindOf(`"agent"`)).toBe(`personal`)
+  })
+})
+
+// FEED-76: the same metadata carries a scoped key's team/board selection.
+describe(`parseApiKeyMetadata`, () => {
+  it(`reads kind and scope, unscoped when absent`, () => {
+    expect(parseApiKeyMetadata(null)).toEqual({ kind: `personal`, scope: null })
+    expect(parseApiKeyMetadata(`not json`)).toEqual({ kind: `personal`, scope: null })
+    expect(parseApiKeyMetadata(JSON.stringify({ kind: `agent` }))).toEqual({
+      kind: `agent`,
+      scope: null,
+    })
+    expect(
+      parseApiKeyMetadata(
+        JSON.stringify({
+          kind: `personal`,
+          scope: { allTeams: false, teamIds: [`t-1`], boardIds: [`b-1`, `b-2`] },
+        })
+      )
+    ).toEqual({
+      kind: `personal`,
+      scope: { allTeams: false, teamIds: [`t-1`], boardIds: [`b-1`, `b-2`] },
+    })
+  })
+
+  it(`an "everything" scope is no scope`, () => {
+    expect(
+      parseApiKeyMetadata(
+        JSON.stringify({ scope: { allTeams: true, teamIds: [`t-1`], boardIds: [] } })
+      ).scope
+    ).toBeNull()
+  })
+
+  it(`a present but malformed scope fails closed`, () => {
+    const closed = { allTeams: false, teamIds: [], boardIds: [] }
+    expect(parseApiKeyMetadata(JSON.stringify({ scope: `x` })).scope).toEqual(closed)
+    expect(
+      parseApiKeyMetadata(JSON.stringify({ scope: { teamIds: `t-1`, boardIds: [] } })).scope
+    ).toEqual(closed)
+    expect(
+      parseApiKeyMetadata(JSON.stringify({ scope: { teamIds: [`t-1`] } })).scope
+    ).toEqual(closed)
+    expect(
+      parseApiKeyMetadata(JSON.stringify({ scope: { teamIds: [1], boardIds: [] } })).scope
+    ).toEqual(closed)
+  })
+})
+
+describe(`apiKeySessionMetadata`, () => {
+  const db = createFakeDb({
+    apikeys: [
+      {
+        id: `key-scoped`,
+        referenceId: `actor`,
+        metadata: JSON.stringify({
+          kind: `personal`,
+          scope: { allTeams: false, teamIds: [`t-1`], boardIds: [] },
+        }),
+      },
+      { id: `key-plain`, referenceId: `actor`, metadata: null },
+    ],
+  })
+  const session = (id: string | undefined, userId = `actor`) =>
+    ({ user: { id: userId }, session: id ? { id } : undefined }) as never
+
+  it(`returns the caller's own key row parsed, null for a real session`, async () => {
+    expect(await apiKeySessionMetadata(db, session(`key-scoped`))).toEqual({
+      kind: `personal`,
+      scope: { allTeams: false, teamIds: [`t-1`], boardIds: [] },
+    })
+    expect(await apiKeySessionMetadata(db, session(`key-plain`))).toEqual({
+      kind: `personal`,
+      scope: null,
+    })
+    expect(await apiKeySessionMetadata(db, session(`sess-1`))).toBeNull()
+    expect(await apiKeySessionMetadata(db, session(undefined))).toBeNull()
+    expect(await apiKeySessionMetadata(db, session(`key-scoped`, `other`))).toBeNull()
   })
 })
 

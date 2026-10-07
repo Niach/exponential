@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { router, authedProcedure } from "@/lib/trpc"
+import { router, authedProcedure, type Context } from "@/lib/trpc"
 import { accounts, apikeys, passkeys, users } from "@/db/auth-schema"
+import { boards, teams } from "@/db/schema"
 import {
   accountRowFilter,
   assertNotLastWayIn,
@@ -20,10 +21,19 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import {
   AGENT_KEY_MANAGES_KEYS_MESSAGE,
+  AGENT_KEY_SCOPE_MESSAGE,
   API_KEY_KINDS,
   assertNotAgentApiKeySession,
   assertNotApiKeySession,
+  parseApiKeyMetadata,
+  type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
+import { getUserTeamIds } from "@/lib/auth/membership"
+import { boardVisible } from "@/lib/board-visibility"
+import {
+  clampScopeSelection,
+  scopeSelectionInput,
+} from "@/lib/mcp/scope-selection"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
 import {
@@ -38,6 +48,52 @@ import {
 import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm"
 import { truncateAttributionInput } from "@/lib/conversion/attribution"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
+
+/** A scoped key's selection as the list shows it: the granted teams and
+ * boards by name (FEED-76). Unknown teams and trashed/archived boards drop
+ * out, so a key whose every target vanished shows an empty scope, never a
+ * widened one. `null` entries (unscoped keys) stay `null`. */
+export interface ResolvedApiKeyScope {
+  teams: Array<{ id: string; name: string }>
+  boards: Array<{ id: string; name: string; prefix: string }>
+}
+
+async function resolveApiKeyScopes(
+  db: Context[`db`],
+  scopes: Array<ApiKeyScope | null>
+): Promise<Array<ResolvedApiKeyScope | null>> {
+  const teamIds = [...new Set(scopes.flatMap((s) => s?.teamIds ?? []))]
+  const boardIds = [...new Set(scopes.flatMap((s) => s?.boardIds ?? []))]
+  const teamRows =
+    teamIds.length === 0
+      ? []
+      : await db
+          .select({ id: teams.id, name: teams.name })
+          .from(teams)
+          .where(inArray(teams.id, teamIds))
+  const boardRows =
+    boardIds.length === 0
+      ? []
+      : await db
+          .select({ id: boards.id, name: boards.name, prefix: boards.prefix })
+          .from(boards)
+          .where(and(inArray(boards.id, boardIds), boardVisible()))
+  const teamById = new Map(teamRows.map((row) => [row.id, row]))
+  const boardById = new Map(boardRows.map((row) => [row.id, row]))
+  return scopes.map((scope) => {
+    if (!scope) return null
+    return {
+      teams: scope.teamIds.flatMap((id) => {
+        const row = teamById.get(id)
+        return row ? [{ id: row.id, name: row.name }] : []
+      }),
+      boards: scope.boardIds.flatMap((id) => {
+        const row = boardById.get(id)
+        return row ? [{ id: row.id, name: row.name, prefix: row.prefix }] : []
+      }),
+    }
+  })
+}
 
 export const usersRouter = router({
   listByTeamIds: authedProcedure.query(async ({ ctx }) => {
@@ -70,12 +126,19 @@ export const usersRouter = router({
   // person mints in Settings stays `personal`. The agent key itself manages
   // NO keys: minting a `personal` one would be its way around every
   // kind-gated procedure.
+  //
+  // FEED-76: `scope` = the consent screen's team/board selection. Clamped to
+  // membership and stored in the key's metadata; the key then works on
+  // /api/mcp only, confined like an OAuth grant. "Everything" (or no scope)
+  // stores NO scope: an ordinary full key. The agent's key is never scoped
+  // (the launcher needs its full tRPC/shape access).
   mintPersonalApiKey: authedProcedure
     .input(
       z
         .object({
           name: z.string().min(1).max(180).optional(),
           purpose: z.enum(API_KEY_KINDS).optional(),
+          scope: scopeSelectionInput.optional(),
         })
         .optional()
     )
@@ -85,18 +148,44 @@ export const usersRouter = router({
         ctx.session,
         AGENT_KEY_MANAGES_KEYS_MESSAGE
       )
+      const kind = input?.purpose ?? `personal`
+      let scope: ApiKeyScope | null = null
+      if (input?.scope) {
+        if (kind === `agent`) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: AGENT_KEY_SCOPE_MESSAGE,
+          })
+        }
+        const memberTeamIds = new Set(
+          await getUserTeamIds(ctx.session.user.id)
+        )
+        const clamped = await clampScopeSelection(
+          ctx.db,
+          memberTeamIds,
+          input.scope
+        )
+        if (!clamped.allTeams) {
+          scope = {
+            allTeams: false,
+            teamIds: clamped.teamIds,
+            boardIds: clamped.boardIds,
+          }
+        }
+      }
       const created = await auth.api.createApiKey({
         body: {
           name: (input?.name ?? `Personal key`).slice(0, 180),
           userId: ctx.session.user.id,
           expiresIn: null,
           rateLimitEnabled: false,
-          metadata: { kind: input?.purpose ?? `personal` },
+          metadata: scope ? { kind, scope } : { kind },
         },
       })
       // `key` is the RAW credential — returned exactly once (only a hash is
       // stored). The rest is display metadata so the client can render the new
       // row without a follow-up list call.
+      const [resolvedScope] = await resolveApiKeyScopes(ctx.db, [scope])
       return {
         key: created.key,
         id: created.id,
@@ -104,6 +193,7 @@ export const usersRouter = router({
         start: created.start ?? null,
         prefix: created.prefix ?? null,
         createdAt: created.createdAt,
+        scope: resolvedScope ?? null,
       }
     }),
 
@@ -121,11 +211,23 @@ export const usersRouter = router({
         prefix: apikeys.prefix,
         createdAt: apikeys.createdAt,
         lastRequest: apikeys.lastRequest,
+        metadata: apikeys.metadata,
       })
       .from(apikeys)
       .where(eq(apikeys.referenceId, ctx.session.user.id))
       .orderBy(desc(apikeys.createdAt))
-    return { keys: rows }
+    // FEED-76: the stored scope, resolved to names for the row caption; the
+    // raw metadata never leaves the server.
+    const scopes = await resolveApiKeyScopes(
+      ctx.db,
+      rows.map((row) => parseApiKeyMetadata(row.metadata).scope)
+    )
+    return {
+      keys: rows.map(({ metadata: _metadata, ...row }, index) => ({
+        ...row,
+        scope: scopes[index] ?? null,
+      })),
+    }
   }),
 
   // ── Sign-in methods (EXP-1126) ─────────────────────────────────────────────

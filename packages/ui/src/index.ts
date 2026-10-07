@@ -121,6 +121,7 @@ export * from "./status-icons"
 // EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
 export * from "./sub-shell"
 export * from "./switch"
+export * from "./scope-picker"
 export * from "./tabs"
 export * from "./team-avatar"
 export * from "./textarea"

@@ -443,9 +443,10 @@ impl ApiKeysPane {
             )
     }
 
-    /// One row. An API key: name, key prefix, created, last used, Revoke. A
-    /// login session (EXP-1054): hostname (+ "This device" badge), signed
-    /// in, last active, Disconnect — never its token.
+    /// One row. An API key: name (its FEED-76 scope caption beneath), key
+    /// prefix, created, last used, Revoke. A login session (EXP-1054):
+    /// hostname (+ "This device" badge), signed in, last active, Disconnect
+    /// — never its token.
     fn render_row(
         &self,
         row: &PersonalKeyMeta,
@@ -476,6 +477,10 @@ impl ApiKeysPane {
             .as_deref()
             .map(format_created_date)
             .unwrap_or_else(|| "Never".to_string());
+        // FEED-76: "All teams" / "Scoped to …" under an API key's name; a
+        // login session's hidden key is always unscoped, so it wears none.
+        let scope: Option<SharedString> =
+            (!device_row).then(|| api::users::scope_caption(row.scope.as_ref()).into());
 
         // EXP-862: a FLAT list row (web `ListRow`) — no card, no hairline
         // group; the rows stack straight under the section band.
@@ -494,13 +499,27 @@ impl ApiKeysPane {
                     .items_center()
                     .gap_2()
                     .child(
-                        div()
+                        v_flex()
                             .min_w_0()
-                            .text_sm()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(name)),
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(SharedString::from(name)),
+                            )
+                            .children(scope.map(|scope| {
+                                div()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .whitespace_nowrap()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(scope)
+                            })),
                     )
                     .when(this_device, |this| {
                         this.child(
@@ -693,6 +712,7 @@ mod tests {
             prefix: Some("expu_".to_string()),
             created_at: None,
             last_request: None,
+            scope: None,
         }
     }
 
