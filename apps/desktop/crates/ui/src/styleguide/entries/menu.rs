@@ -20,6 +20,12 @@
 //! Delete, then Insert ›) is NOT this component: it lives inside the vendored
 //! `gpui-markdown-editor` and draws that crate's own menu recipe
 //! (`theme.dimensions.menu_*`, dialog colours), as its Insert menu always did.
+//!
+//! EXP-1228: the run view's text menus are not this component either: they are
+//! the OS's own menu (gpui-component `NativeMenu`). The composer's is the
+//! `Textarea` built-in (Cut · Copy · Paste · Select All), and the transcript's
+//! is Copy alone (`steer_viewer::on_feed_context_menu`). An image or media
+//! tile inside the transcript keeps its `PopupMenu` (`controls::claim_right_click`).
 
 use gpui::{div, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Window};
 use gpui_component::{

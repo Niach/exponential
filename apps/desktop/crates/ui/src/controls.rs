@@ -17,7 +17,7 @@ use std::time::Duration;
 use gpui::{
     anchored, bounce, deferred, div, point, prelude::FluentBuilder as _, px, Anchor, Animation,
     AnimationExt as _, AnyElement, App, Div, ElementId, Entity, Focusable as _, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, SharedString, Stateful,
+    InteractiveElement, IntoElement, ParentElement as _, Pixels, SharedString, Stateful,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -535,6 +535,15 @@ pub(crate) fn back_glyph() -> Icon {
 /// `only_controls_constructs_switches`) — construct through this.
 pub(crate) fn web_switch(id: impl Into<gpui::ElementId>) -> gpui_component::switch::Switch {
     gpui_component::switch::Switch::new(id).cursor_pointer()
+}
+
+/// EXP-1228: an element that opens its OWN right-click menu claims the
+/// press, so a surrounding surface's menu (the run transcript's Copy) does
+/// not open on top of it. `.context_menu(…)` registers its handler after
+/// this one and so still fires first; an ancestor's div listener fires last
+/// and never sees the press.
+pub(crate) fn claim_right_click<E: InteractiveElement>(element: E) -> E {
+    element.on_mouse_down(gpui::MouseButton::Right, |_, _, cx| cx.stop_propagation())
 }
 
 /// A DESTRUCTIVE popup-menu item (EXP-697): label AND glyph in the theme's
@@ -1117,5 +1126,76 @@ mod tests {
         use super::CheckState;
         assert_eq!(CheckState::from(true), CheckState::Checked);
         assert_eq!(CheckState::from(false), CheckState::Unchecked);
+    }
+
+    /// EXP-1228: a right press on a tile with its own menu opens that menu
+    /// and never the transcript's around it; unclaimed content falls through
+    /// to the transcript's.
+    fn right_press_in_feed(claimed: bool) -> (bool, bool) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        use gpui::{
+            div, point, px, Context, InteractiveElement as _, IntoElement, MouseButton,
+            ParentElement as _, Render, Styled as _, TestApp, Window,
+        };
+
+        struct Feed {
+            feed_menu: Rc<Cell<bool>>,
+            tile_menu: Rc<Cell<bool>>,
+            claimed: bool,
+        }
+
+        impl Render for Feed {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let feed_menu = self.feed_menu.clone();
+                let tile_menu = self.tile_menu.clone();
+                // Stands in for `.context_menu(…)`: a right-press listener
+                // registered after the tile's own (it paints first).
+                let tile = div().w(px(120.)).h(px(40.)).child(
+                    div()
+                        .size_full()
+                        .on_mouse_down(MouseButton::Right, move |_, _, _| tile_menu.set(true)),
+                );
+                div()
+                    .w(px(400.))
+                    .h(px(200.))
+                    .on_mouse_down(MouseButton::Right, move |_, _, _| feed_menu.set(true))
+                    .child(if self.claimed {
+                        super::claim_right_click(tile).into_any_element()
+                    } else {
+                        tile.into_any_element()
+                    })
+            }
+        }
+
+        let feed_menu = Rc::new(Cell::new(false));
+        let tile_menu = Rc::new(Cell::new(false));
+        let mut app = TestApp::new();
+        let mut window = app.open_window({
+            let feed_menu = feed_menu.clone();
+            let tile_menu = tile_menu.clone();
+            move |_, _| Feed {
+                feed_menu,
+                tile_menu,
+                claimed,
+            }
+        });
+        window.simulate_mouse_down(point(px(20.), px(10.)), MouseButton::Right);
+        (feed_menu.get(), tile_menu.get())
+    }
+
+    #[test]
+    fn a_claimed_tile_keeps_its_menu_and_suppresses_the_feed_menu() {
+        let (feed_menu, tile_menu) = right_press_in_feed(true);
+        assert!(tile_menu, "the tile's own menu must open");
+        assert!(!feed_menu, "the transcript menu must not open over it");
+    }
+
+    #[test]
+    fn unclaimed_content_falls_through_to_the_feed_menu() {
+        let (feed_menu, tile_menu) = right_press_in_feed(false);
+        assert!(tile_menu);
+        assert!(feed_menu, "the transcript menu opens without the claim");
     }
 }
