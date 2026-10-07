@@ -33,6 +33,12 @@
 //! answer replaying the held moves in order. The page owns
 //! no tab, so there is no tab of its own to close; window close and quit are
 //! not held (the release hook above saves).
+//!
+//! EXP-1231: the same draft may be open on another client. The page watches
+//! its synced row and `issues.draft_id` ([`IssueDraftView::check_fate`],
+//! [`domain::issue_draft::draft_fate`]): created elsewhere = the page becomes
+//! that issue at once; a seen row gone for `discardedGraceMs` with no such
+//! issue = "Draft discarded elsewhere" and Back. Writes are held meanwhile.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -41,7 +47,7 @@ use std::rc::Rc;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
     FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -51,7 +57,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use domain::issue_draft::{self as copy, exit_prompt, DraftExit, DraftPrompt};
+use domain::issue_draft::{self as copy, draft_fate, exit_prompt, DraftExit, DraftFate, DraftPrompt};
 use domain::rows::IssueDraftRow;
 
 use crate::controls::WebControl as _;
@@ -216,7 +222,24 @@ struct DraftParts {
     description: Entity<WysiwygDescription>,
     props: Entity<IssueDraft>,
     editor: Entity<DraftEditor>,
+    /// EXP-1231: the row has been observed in the synced `issue_drafts`
+    /// collection during this page's life — only a SEEN row can be "gone"
+    /// (the view's own `written` fallback never counts).
+    seen: bool,
+    /// EXP-1231: the `discardedGraceMs` wait of a seen row that went; dropped
+    /// when it returns, on a re-point and on leave.
+    grace: Option<Task<()>>,
+    /// EXP-1231: the editor's writes are held for the grace.
+    holding: bool,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-1231: how another client consumed the draft this page shows.
+enum Consumed {
+    /// An issue carries the draft id: the page becomes it.
+    Created(String),
+    /// The row stayed gone through the grace: toast and leave.
+    Discarded,
 }
 
 pub(crate) struct IssueDraftView {
@@ -347,6 +370,16 @@ impl IssueDraftView {
             // The Files rows and the chips' option lists read these.
             let statuses = collections.issue_statuses.clone();
             subscriptions.push(cx.observe(&statuses, |_, _, cx| cx.notify()));
+            // EXP-1231: another client may create or discard this draft —
+            // the row and `issues.draft_id` say which.
+            let drafts = collections.issue_drafts.clone();
+            subscriptions.push(cx.observe_in(&drafts, window, |this, _, window, cx| {
+                this.check_fate(window, cx)
+            }));
+            let issues = collections.issues.clone();
+            subscriptions.push(cx.observe_in(&issues, window, |this, _, window, cx| {
+                this.check_fate(window, cx)
+            }));
         }
         // The window closing drops the view without a navigation — the last
         // place every way off the page meets. The leave goes through the
@@ -442,6 +475,9 @@ impl IssueDraftView {
                 self.active = true;
                 self.focused_once = false;
                 self.sync_guard(cx);
+                // EXP-1231: consumed elsewhere while the page was away?
+                // Deferred: this runs inside a navigation.
+                cx.defer_in(window, |this, window, cx| this.check_fate(window, cx));
                 cx.notify();
             }
             return;
@@ -451,12 +487,10 @@ impl IssueDraftView {
         let collections = Store::global(cx).collections().clone();
         // The synced row, else the snapshot this view left the draft with
         // (its write has not synced yet) — either way the draft EXISTS.
-        let row = collections
-            .issue_drafts
-            .read(cx)
-            .get(&draft_id)
-            .cloned()
-            .or_else(|| self.written.get(&draft_id).map(DraftSave::as_row));
+        let synced = collections.issue_drafts.read(cx).get(&draft_id).cloned();
+        // EXP-1231: only the synced collection counts as SEEN.
+        let seen = synced.is_some();
+        let row = synced.or_else(|| self.written.get(&draft_id).map(DraftSave::as_row));
         // The board: the row's own, else the screen's, else (the empty
         // sentinel) the window's active one.
         let board_id = row
@@ -594,6 +628,9 @@ impl IssueDraftView {
             description,
             props,
             editor,
+            seen,
+            grace: None,
+            holding: false,
             _subscriptions: subscriptions,
         });
         if let Some(snapshot) = self.snapshot(cx) {
@@ -608,6 +645,9 @@ impl IssueDraftView {
         self.tray_h.set(None);
         self.body_scroll.set_offset(gpui::Point::default());
         self.sync_guard(cx);
+        // EXP-1231: a draft already created elsewhere opens as its issue.
+        // Deferred: this runs inside a navigation.
+        cx.defer_in(window, |this, window, cx| this.check_fate(window, cx));
         cx.notify();
     }
 
@@ -624,6 +664,11 @@ impl IssueDraftView {
         self.active = false;
         self.pending = None;
         self.sync_guard(cx);
+        // EXP-1231: nothing is concluded for a page that is not up (a return
+        // re-checks).
+        if let Some(parts) = self.parts.as_mut() {
+            parts.grace = None;
+        }
         let Some(snapshot) = self.snapshot(cx) else {
             return;
         };
@@ -635,6 +680,11 @@ impl IssueDraftView {
             }
             Some(LeaveAction::Delete) => {
                 self.written.remove(&id);
+                // EXP-1231: this page deleted the row itself — its absence
+                // on a return is no discard elsewhere.
+                if let Some(parts) = self.parts.as_mut() {
+                    parts.seen = false;
+                }
             }
             Some(LeaveAction::Nothing) | None => {}
         }
@@ -1043,6 +1093,155 @@ impl IssueDraftView {
             }
         }
         purge_draft(&draft_id, window, cx);
+        cx.notify();
+    }
+
+    // -- concurrency (EXP-1231) ------------------------------------------------
+
+    /// EXP-1231: what the synced store says about the draft up — the ONE
+    /// [`draft_fate`] ×4. Created elsewhere = become the issue at once;
+    /// a seen row gone = hold every write and wait `discardedGraceMs`, then
+    /// leave unless it came back; back (or still there) = writes resume.
+    /// Nothing is concluded mid-Create or after the page's own Create/Discard
+    /// (both clear `active`).
+    fn check_fate(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.active || self.creating {
+            return;
+        }
+        let Some(draft_id) = self.parts.as_ref().map(|parts| parts.target.draft_id.clone()) else {
+            return;
+        };
+        let collections = Store::global(cx).collections().clone();
+        let present = collections.issue_drafts.read(cx).get(&draft_id).is_some();
+        let created = collections
+            .issues
+            .read(cx)
+            .iter()
+            .find(|issue| issue.draft_id.as_deref() == Some(draft_id.as_str()))
+            .map(|issue| issue.id.clone());
+        let Some(parts) = self.parts.as_mut() else {
+            return;
+        };
+        if present {
+            parts.seen = true;
+        }
+        match draft_fate(parts.seen, present, created.as_deref()) {
+            DraftFate::Created { issue_id } => {
+                self.on_consumed_elsewhere(Consumed::Created(issue_id), window, cx);
+            }
+            DraftFate::Gone => {
+                if parts.grace.is_some() {
+                    return;
+                }
+                parts.holding = true;
+                let editor = parts.editor.clone();
+                editor.update(cx, |editor, cx| editor.hold(true, cx));
+                let grace = cx.spawn_in(window, async move |this, cx| {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(copy::DISCARDED_GRACE_MS))
+                        .await;
+                    let _ = this.update_in(cx, |this, window, cx| {
+                        if let Some(parts) = this.parts.as_mut() {
+                            parts.grace = None;
+                        }
+                        if !this.active || this.creating || !this.shows(&draft_id) {
+                            return;
+                        }
+                        let collections = Store::global(cx).collections().clone();
+                        let present = collections.issue_drafts.read(cx).get(&draft_id).is_some();
+                        let created = collections
+                            .issues
+                            .read(cx)
+                            .iter()
+                            .find(|issue| issue.draft_id.as_deref() == Some(draft_id.as_str()))
+                            .map(|issue| issue.id.clone());
+                        let seen = this.parts.as_ref().is_some_and(|parts| parts.seen);
+                        match draft_fate(seen, present, created.as_deref()) {
+                            DraftFate::Created { issue_id } => this.on_consumed_elsewhere(
+                                Consumed::Created(issue_id),
+                                window,
+                                cx,
+                            ),
+                            DraftFate::Gone => {
+                                this.on_consumed_elsewhere(Consumed::Discarded, window, cx)
+                            }
+                            DraftFate::Open => this.check_fate(window, cx),
+                        }
+                    });
+                });
+                if let Some(parts) = self.parts.as_mut() {
+                    parts.grace = Some(grace);
+                }
+            }
+            DraftFate::Open => {
+                parts.grace = None;
+                if parts.holding {
+                    // The row came back within the grace (a resync, this
+                    // client's own racing write): editing resumes, and what
+                    // was typed meanwhile is written now.
+                    parts.holding = false;
+                    let editor = parts.editor.clone();
+                    editor.update(cx, |editor, cx| editor.hold(false, cx));
+                    self.save_now(cx);
+                }
+            }
+        }
+    }
+
+    /// EXP-1231: another client consumed the draft. Nothing may write it
+    /// again (the editor is filed), then — while the page still shows it — a
+    /// creation REPLACES the page with the issue (its own Create's exit, no
+    /// prompt, no toast) and a discard toasts and leaves (the `×`'s exit).
+    fn on_consumed_elsewhere(
+        &mut self,
+        consumed: Consumed,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(parts) = self.parts.as_mut() else {
+            return;
+        };
+        parts.grace = None;
+        parts.holding = false;
+        let target = parts.target.clone();
+        parts.editor.clone().update(cx, |editor, _| editor.mark_filed());
+        self.written.remove(&target.draft_id);
+        self.active = false;
+        self.held.borrow_mut().clear();
+        self.keeping = false;
+        self.after_create.clear();
+        self.sync_guard(cx);
+        let still_here = matches!(
+            resolved_screen(&self.nav, cx),
+            Some(Screen::IssueDraft { draft_id: id, .. }) if id == target.draft_id
+        );
+        if still_here {
+            match consumed {
+                Consumed::Created(issue_id) => {
+                    crate::navigation::set_active_board(window, cx, target.board_id.clone());
+                    crate::navigation::navigate_replace(
+                        window,
+                        cx,
+                        Screen::IssueDetail { issue_id },
+                    );
+                }
+                Consumed::Discarded => {
+                    crate::toast::info(copy::DISCARDED_ELSEWHERE, window, cx);
+                    if self.nav.read(cx).can_go_back() {
+                        crate::navigation::go_back(window, cx);
+                    } else {
+                        crate::navigation::navigate(
+                            window,
+                            cx,
+                            Screen::BoardIssues {
+                                board_id: target.board_id.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        purge_draft(&target.draft_id, window, cx);
         cx.notify();
     }
 

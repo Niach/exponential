@@ -426,6 +426,39 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(bare.prBaseBranch)
     }
 
+    // EXP-1231: `draft_id` rides the issues shape: a row off the wire must
+    // round-trip into the v63 column (a draft page watches for it), and a
+    // snapshot that omits the key (an older server) decodes as nil.
+    func testIssueInsertPersistsDraftId() async throws {
+        let json = """
+            {"id":"i-drafted","board_id":"p1","number":"11","identifier":"EXP-11",
+             "title":"From a draft","description":null,"status":"backlog","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"1","completed_at":null,"duplicate_of_id":null,
+             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
+             "pr_base_branch":null,"pr_merged_at":null,"estimate":null,
+             "draft_id":"d-1",
+             "created_at":"2026-10-07T09:00:00Z","updated_at":"2026-10-07T09:00:00Z"}
+            """
+        let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(issue.draftId, "d-1")
+        let message = ShapeMessage<IssueEntity>.insert(key: issueKey("i-drafted"), value: issue)
+        try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
+        XCTAssertEqual(try fetchIssue("i-drafted")?.draftId, "d-1")
+
+        let older = """
+            {"id":"i-undrafted","board_id":"p1","number":"12","identifier":"EXP-12",
+             "title":"Plain","description":null,"status":"backlog","priority":"none",
+             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
+             "sort_order":"2","completed_at":null,"duplicate_of_id":null,
+             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
+             "pr_merged_at":null,
+             "created_at":"2026-10-07T09:00:00Z","updated_at":"2026-10-07T09:00:00Z"}
+            """
+        let bare = try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8))
+        XCTAssertNil(bare.draftId)
+    }
+
     // EXP-630: story points ride the issues shape — `estimate` arrives as
     // Postgres text and must land in the v52 integer column; a snapshot that
     // omits the key (a pre-EXP-630 server) decodes as nil, and an explicit

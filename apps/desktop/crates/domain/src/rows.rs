@@ -244,6 +244,12 @@ pub struct Issue {
     /// before the column existed; `heal_missing_columns` ALTERs it in).
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub estimate: Option<i64>,
+    /// EXP-1231 `issues.draft_id` — the issue draft this issue was created
+    /// from (stamped by `issues.create({draftId})`): an open draft page that
+    /// sees it replaces itself with this issue. `None` otherwise (and on rows
+    /// synced before the column existed; `heal_missing_columns` ALTERs it in).
+    #[serde(default)]
+    pub draft_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

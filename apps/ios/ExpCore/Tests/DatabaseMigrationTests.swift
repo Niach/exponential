@@ -123,7 +123,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
-             "v61_one_path", "v62_device_doctor"]
+             "v61_one_path", "v62_device_doctor",
+             "v63_issue_draft_id"]
         )
     }
 
@@ -173,7 +174,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
-             "v61_one_path", "v62_device_doctor"]
+             "v61_one_path", "v62_device_doctor",
+             "v63_issue_draft_id"]
         )
     }
 
@@ -630,7 +632,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
-             "v61_one_path", "v62_device_doctor"]
+             "v61_one_path", "v62_device_doctor",
+             "v63_issue_draft_id"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -728,7 +731,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v55_workflow_session_membership_events", "v56_workflow_start_on_dropped",
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
-             "v61_one_path", "v62_device_doctor"]
+             "v61_one_path", "v62_device_doctor",
+             "v63_issue_draft_id"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1410,6 +1414,53 @@ final class DatabaseMigrationTests: XCTestCase {
             )
         }
         XCTAssertEqual(reset, true)
+    }
+
+    // v63 (EXP-1231): `issues.draft_id`, the draft an issue was created from.
+    // A store created before it must gain the column via the guarded ALTER
+    // and get the issues offset reset, or a draft page could never see its
+    // draft was created elsewhere; a fresh store already has it from v1.
+    func testIssueDraftIdColumnAddedToExistingStore() throws {
+        let pool = try makePool("issue-draft-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v62_device_doctor")
+        try pool.write { db in
+            // Model the pre-v63 state: today's v1 create already declares it.
+            if try db.columns(in: "issues").contains(where: { $0.name == "draft_id" }) {
+                try db.alter(table: "issues") { t in
+                    t.drop(column: "draft_id")
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('issues', 'h', '0_0', 0, 1)
+                ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                    "needs_refetch" = 0, "is_live" = 1
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let column = try pool.read { db in
+            try db.columns(in: "issues").first { $0.name == "draft_id" }
+        }
+        XCTAssertNotNil(column)
+        XCTAssertFalse(column?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'issues'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    func testFreshStoreHasIssueDraftId() throws {
+        let pool = try makePool("issue-draft-id-fresh")
+        try DatabaseManager.runMigrations(on: pool)
+        XCTAssertTrue(try columnNames(pool, "issues").contains("draft_id"))
     }
 
     func testMigratedSchemaHasSyncTables() throws {

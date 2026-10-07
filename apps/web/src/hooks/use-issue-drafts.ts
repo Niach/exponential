@@ -1,10 +1,10 @@
 import { useMemo } from "react"
 import { useParams } from "@tanstack/react-router"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { issueDraftCollection } from "@/lib/collections"
+import { issueCollection, issueDraftCollection } from "@/lib/collections"
 import { useTeamBoardsWithReady } from "@/hooks/use-team-data"
 import { resolveDraftEntries, type DraftEntry } from "@/lib/issue-drafts"
-import type { IssueDraft } from "@/db/schema"
+import type { Issue, IssueDraft } from "@/db/schema"
 
 // EXP-878: the React surface over the per-user `issue_drafts` shape. The
 // collection only ever holds the caller's rows (static `user_id = me`), so
@@ -51,6 +51,25 @@ export function useIssueDraft(
     [draftId]
   )
   return useMemo(() => ((data ?? [])[0] as IssueDraft | undefined), [data])
+}
+
+/**
+ * EXP-1231: the issue CREATED FROM a draft, if any — `issues.draft_id` is
+ * stamped by `issues.create({ draftId })` in the transaction that deletes
+ * the row. The New issue page watches it: an issue here means the draft was
+ * filed on another client, and the page lands on it.
+ */
+export function useIssueFromDraft(draftId: string | undefined): Issue | undefined {
+  const { data } = useLiveQuery(
+    (query) =>
+      draftId
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => eq(i.draftId, draftId))
+        : undefined,
+    [draftId]
+  )
+  return useMemo(() => ((data ?? [])[0] as Issue | undefined), [data])
 }
 
 /**

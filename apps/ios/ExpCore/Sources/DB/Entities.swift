@@ -245,6 +245,10 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
     /// EXP-630: story points — a point number whatever the team's scale
     /// (`teams.estimation_type` decides how it renders). NULL = no estimate.
     public let estimate: Int?
+    /// EXP-1231: the issue draft this issue was created from (`issues.draft_id`).
+    /// Every open draft page watches for it: an issue carrying its draft id =
+    /// the draft was created elsewhere. NULL for issues not made from a draft.
+    public let draftId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -272,6 +276,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         prBaseBranch: String? = nil,
         prMergedAt: String?,
         estimate: Int? = nil,
+        draftId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -298,6 +303,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         self.prBaseBranch = prBaseBranch
         self.prMergedAt = prMergedAt
         self.estimate = estimate
+        self.draftId = draftId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -318,6 +324,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Sen
         case prBaseBranch = "pr_base_branch"
         case prMergedAt = "pr_merged_at"
         case estimate
+        case draftId = "draft_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -355,6 +362,8 @@ extension IssueEntity: Codable {
         // EXP-630: an integer off the wire as Postgres text, a scalar from
         // tRPC; absent on a pre-rotation snapshot.
         estimate = try container.decodeWireInt(forKey: .estimate)
+        // EXP-1231: absent on a pre-rotation snapshot / an older server.
+        draftId = try container.decodeIfPresent(String.self, forKey: .draftId)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         updatedAt = try container.decode(String.self, forKey: .updatedAt)
     }

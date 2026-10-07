@@ -414,6 +414,9 @@ public struct FetchedIssue: Decodable, Sendable {
     /// EXP-630: story points (`issues.estimate`). Optional, so a server that
     /// predates the column decodes as nil rather than throwing.
     public let estimate: Int?
+    /// EXP-1231: the draft this issue was created from (`issues.draft_id`).
+    /// Optional, so a server that predates the column decodes as nil.
+    public let draftId: String?
     public let createdAt: String
     public let updatedAt: String
 }

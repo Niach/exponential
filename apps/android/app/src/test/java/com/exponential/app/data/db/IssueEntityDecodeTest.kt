@@ -83,4 +83,25 @@ class IssueEntityDecodeTest {
             json.decodeFromString(IssueEntity.serializer(), row(",\n  \"estimate\": null")).estimate,
         )
     }
+
+    // EXP-1231: `draft_id` joined the issues shape allowlist — the draft an
+    // issue was created from. A row carrying it lands it; a row without it
+    // (older server, an issue never drafted) decodes as null.
+
+    @Test
+    fun `a row carrying draft_id lands the draft`() {
+        val entity = json.decodeFromString(
+            IssueEntity.serializer(),
+            row(",\n  \"draft_id\": \"7f1c2a5e-0000-4000-8000-000000000001\""),
+        )
+        assertEquals("7f1c2a5e-0000-4000-8000-000000000001", entity.draftId)
+    }
+
+    @Test
+    fun `a row without draft_id decodes as never drafted`() {
+        assertNull(json.decodeFromString(IssueEntity.serializer(), row("")).draftId)
+        assertNull(
+            json.decodeFromString(IssueEntity.serializer(), row(",\n  \"draft_id\": null")).draftId,
+        )
+    }
 }

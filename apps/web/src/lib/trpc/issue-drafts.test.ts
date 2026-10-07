@@ -28,7 +28,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
 
-import { attachments, issueDrafts, issueStatuses } from "@/db/schema"
+import { attachments, issueDrafts, issues, issueStatuses } from "@/db/schema"
 import { issueDraftsRouter } from "@/lib/trpc/issue-drafts"
 
 const DRAFT = `11111111-1111-4111-8111-111111111111`
@@ -48,6 +48,8 @@ const state = {
   }[],
   statusRows: [] as { teamId: string }[],
   draftRows: [] as { id: string }[],
+  /** EXP-1231: the issue already created from this draft, if any. */
+  consumedBy: [] as { identifier: string }[],
   /** What the upsert's `returning()` yields — empty = somebody else's row. */
   upserted: [{ id: DRAFT }] as { id: string }[],
   /** What the delete's `returning()` yields. */
@@ -72,6 +74,8 @@ function select(fields: Record<string, unknown>) {
       where: () => {
         if (table === issueStatuses) return thenable(state.statusRows)
         if (table === issueDrafts) return thenable(state.draftRows)
+        // EXP-1231: the created-issue probe — `issues.draft_id = id`.
+        if (table === issues) return thenable(state.consumedBy)
         if (table === attachments) {
           // The ownership probe selects `{ id }`; the delete path selects the
           // storage keys.
@@ -139,6 +143,7 @@ beforeEach(() => {
   state.draftAttachments = []
   state.statusRows = []
   state.draftRows = []
+  state.consumedBy = []
   state.upserted = [{ id: DRAFT }]
   state.deleted = [{ id: DRAFT }]
   state.inserted = []
@@ -196,6 +201,18 @@ describe(`issueDrafts.upsert`, () => {
 
   // Somebody else's id: the setWhere makes the UPDATE touch nothing, so
   // `returning` comes back empty and the router refuses rather than pretend.
+  // EXP-1231: the other tab's autosave racing the create that consumed the
+  // draft — the row must stay gone, and the error names the issue.
+  it(`refuses a draft an issue was already created from`, async () => {
+    state.consumedBy = [{ identifier: `EXP-7` }]
+
+    await expect(caller.upsert(input())).rejects.toMatchObject({
+      code: `CONFLICT`,
+      message: `This draft was already created as EXP-7`,
+    })
+    expect(state.inserted).toEqual([])
+  })
+
   it(`refuses an id that belongs to another user`, async () => {
     state.upserted = []
     await expect(caller.upsert(input())).rejects.toThrow(

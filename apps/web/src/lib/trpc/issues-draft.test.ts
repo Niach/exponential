@@ -211,6 +211,9 @@ describe(`issues.create with a draft (EXP-878)`, () => {
     expect(deletedTables).toEqual([issueDrafts])
     // One transaction, so one txId covers insert + reparent + draft delete.
     expect((result as { txId: number }).txId).toBe(42)
+    // EXP-1231: the issue remembers the draft it consumed, so a page still
+    // showing that draft elsewhere lands here.
+    expect(insertedIssues[0]?.draftId).toBe(DRAFT_ID)
   })
 
   // The plain-create guard must not be weakened by the draft path existing:
@@ -296,6 +299,8 @@ describe(`issues.create with a draft (EXP-878)`, () => {
     // else's attachments stolen by the reparent.
     expect(attachmentUpdates).toEqual([])
     expect(deletedTables).toEqual([])
+    // EXP-1231: no row consumed = nothing to point back at.
+    expect(insertedIssues[0]?.draftId).toBeNull()
   })
 
   it(`still applies the image guard when the draft row is missing`, async () => {

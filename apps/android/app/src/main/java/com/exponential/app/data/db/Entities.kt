@@ -115,6 +115,10 @@ data class IssueEntity(
     // badge and the stack merge dialog read it
     // ([com.exponential.app.domain.PrStack]).
     @ColumnInfo(name = "pr_base_branch") @SerialName("pr_base_branch") @JsonNames("prBaseBranch") val prBaseBranch: String? = null,
+    // EXP-1231: the draft this issue was created from (`issues.create({draftId})`
+    // stamps it). An open draft page that sees an issue carrying its draft id
+    // replaces itself with that issue ([com.exponential.app.domain.IssueDraftPage.fate]).
+    @ColumnInfo(name = "draft_id") @SerialName("draft_id") @JsonNames("draftId") val draftId: String? = null,
     @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") override val updatedAt: String,
