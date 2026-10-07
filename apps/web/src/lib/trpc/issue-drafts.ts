@@ -40,9 +40,22 @@ import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 //    other page's autosave or leave write racing the create — is refused
 //    (CONFLICT) rather than written, or it would resurrect a draft the
 //    issue already IS. Those pages see the issue through the shape and land
-//    on it (`lib/issue-drafts.ts` `draftFate`).
+//    on it (`lib/issue-drafts.ts` `draftFate`). The probe runs TWICE: once
+//    up front (the cheap refusal) and once more INSIDE the write transaction
+//    AFTER the upsert — a create committing between the first probe and the
+//    insert would otherwise leave a ZOMBIE row whose id an issue already
+//    carries (every page sees `created` and leaves, the Drafts list shows it
+//    for ever). Under READ COMMITTED each statement sees what committed
+//    before it, so the second probe sees that create, and the throw rolls
+//    the just-written row back.
 
 const draftIdSchema = z.string().uuid()
+
+const consumedConflict = (identifier: string) =>
+  new TRPCError({
+    code: `CONFLICT`,
+    message: `This draft was already created as ${identifier}`,
+  })
 
 export const issueDraftsRouter = router({
   /**
@@ -97,18 +110,14 @@ export const issueDraftsRouter = router({
       }
 
       // EXP-1231: consumed by a create already? Then this write is a stale
-      // page's, and the row must stay gone.
+      // page's, and the row must stay gone. (The fast path; the transaction
+      // below re-probes after its write for the create that races it.)
       const [consumedBy] = await ctx.db
         .select({ identifier: issues.identifier })
         .from(issues)
         .where(eq(issues.draftId, input.id))
         .limit(1)
-      if (consumedBy) {
-        throw new TRPCError({
-          code: `CONFLICT`,
-          message: `This draft was already created as ${consumedBy.identifier}`,
-        })
-      }
+      if (consumedBy) throw consumedConflict(consumedBy.identifier)
 
       const origin = ctx.request.url
       const description = input.description ?? ``
@@ -199,6 +208,18 @@ export const issueDraftsRouter = router({
             message: `This draft belongs to someone else`,
           })
         }
+
+        // EXP-1231: the create that consumed this draft may have committed
+        // between the probe above and this write (its transaction stamps the
+        // issue and deletes the row; ours would have re-inserted it). Probed
+        // AFTER the upsert, this statement sees that commit; throwing rolls
+        // the zombie back, and the caller gets the same CONFLICT.
+        const [consumedMeanwhile] = await tx
+          .select({ identifier: issues.identifier })
+          .from(issues)
+          .where(eq(issues.draftId, input.id))
+          .limit(1)
+        if (consumedMeanwhile) throw consumedConflict(consumedMeanwhile.identifier)
 
         return { draft, txId }
       })

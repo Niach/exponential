@@ -49,9 +49,11 @@ import type { FilesSectionFile } from "@/components/issue-files-section"
 //     and the caller lands on it; the row seen synced and gone with no such
 //     issue = discarded elsewhere once `ISSUE_DRAFT_DISCARDED_GRACE_MS` has
 //     passed (writes are held meanwhile; a row that returns resumes them).
-//     The page's own Create and Discard never trip it. The server refuses
-//     an upsert of a consumed id (CONFLICT): that failure is not a save
-//     error, the shape is about to land the issue.
+//     The page's own Create and Discard never trip it (a FAILED Create
+//     re-judges what the shape said meanwhile). The server refuses an
+//     upsert of a consumed id (CONFLICT): that failure is not a save
+//     error, the page only stops WRITING (`consumedRef`) and keeps
+//     watching, the shape is about to land the issue.
 
 export interface IssueDraftEditorOptions {
   draftId: string
@@ -194,6 +196,12 @@ export function useIssueDraftEditor({
   // until it returns or the grace runs out (then the page is left).
   const holdRef = useRef(false)
   const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // EXP-1231: the server said the draft is consumed (CONFLICT). Nothing is
+  // written again, but the page is NOT finalised: the fate effect still has
+  // to land it on the issue once the shape delivers it (the CONFLICT usually
+  // arrives first). Same as the natives: iOS keeps `finished` false, Android
+  // never seals on it.
+  const consumedRef = useRef(false)
   const onConsumedElsewhereRef = useRef(onConsumedElsewhere)
   onConsumedElsewhereRef.current = onConsumedElsewhere
 
@@ -212,7 +220,13 @@ export function useIssueDraftEditor({
   }
 
   const writeTask = (mode: WriteMode) => async () => {
-    if (finalizedRef.current || creatingRef.current || holdRef.current) return
+    if (
+      finalizedRef.current ||
+      consumedRef.current ||
+      creatingRef.current ||
+      holdRef.current
+    )
+      return
     const snapshot = snapshotRef.current
     if (hasDraftContent(snapshot)) {
       const input = toUpsertInput(snapshot)
@@ -251,9 +265,10 @@ export function useIssueDraftEditor({
       (error: unknown) => {
         // EXP-1231: the server refused a draft an issue was already created
         // from (another client beat this write). Nothing to save any more:
-        // the shape lands the issue and the page goes there.
+        // writes stop, the shape lands the issue and the fate effect takes
+        // the page there (never `finalizedRef`, or it could not).
         if (trpcErrorCode(error) === `CONFLICT`) {
-          finalizedRef.current = true
+          consumedRef.current = true
           clearTimer()
           return true
         }
@@ -330,9 +345,15 @@ export function useIssueDraftEditor({
 
   // EXP-1231: what the shape says about the row. Never while the page's own
   // Create is in flight (its transaction deletes the row and lands the issue:
-  // that is the page's own exit) nor after its own Create/Discard.
+  // that is the page's own exit) nor after its own Create/Discard. Judged
+  // whenever the shape changes AND after a failed Create, which may have
+  // swallowed a verdict (the natives' `judgeFate()` after a create failure).
   const rowPresent = draft != null
   if (rowPresent) seenRef.current = true
+  const rowPresentRef = useRef(rowPresent)
+  rowPresentRef.current = rowPresent
+  const createdElsewhereRef = useRef(createdElsewhere)
+  createdElsewhereRef.current = createdElsewhere
   const createdElsewhereId = createdElsewhere?.id
   const clearGrace = () => {
     if (graceTimerRef.current !== null) {
@@ -340,22 +361,25 @@ export function useIssueDraftEditor({
       graceTimerRef.current = null
     }
   }
-  useEffect(() => {
+  const judgeFate = () => {
     if (finalizedRef.current || createInFlightRef.current) return
-    const fate = draftFate(seenRef.current, rowPresent, createdElsewhereId)
-    if (fate.kind === `created` && createdElsewhere) {
+    const issue = createdElsewhereRef.current
+    const fate = draftFate(seenRef.current, rowPresentRef.current, issue?.id)
+    if (fate.kind === `created` && issue) {
       clearGrace()
       holdRef.current = false
       finalizedRef.current = true
       clearTimer()
-      onConsumedElsewhereRef.current?.({ kind: `created`, issue: createdElsewhere })
+      onConsumedElsewhereRef.current?.({ kind: `created`, issue })
       return
     }
     if (fate.kind === `gone`) {
-      if (graceTimerRef.current !== null) return
       holdRef.current = true
+      if (graceTimerRef.current !== null) return
       graceTimerRef.current = setTimeout(() => {
         graceTimerRef.current = null
+        // A Create in flight owns the exit; should it fail, its re-judge
+        // arms a fresh grace (the hold stays on meanwhile).
         if (finalizedRef.current || createInFlightRef.current) return
         holdRef.current = false
         finalizedRef.current = true
@@ -371,6 +395,9 @@ export function useIssueDraftEditor({
       holdRef.current = false
       schedule()
     }
+  }
+  useEffect(() => {
+    judgeFate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowPresent, createdElsewhereId])
   useEffect(() => clearGrace, [])
@@ -383,12 +410,17 @@ export function useIssueDraftEditor({
    * insert one row.
    */
   const ensureDraft = (): Promise<string> => {
-    // A discarded (or filed) page never brings its row back.
-    if (finalizedRef.current) return Promise.reject(new Error(`Draft discarded`))
+    // A discarded (or filed) page never brings its row back; neither does
+    // one the server already called consumed.
+    if (finalizedRef.current || consumedRef.current) {
+      return Promise.reject(new Error(`Draft discarded`))
+    }
     if (rowExistsRef.current) return Promise.resolve(draftId)
     if (!ensureDraftRef.current) {
       ensureDraftRef.current = enqueue(async () => {
-        if (finalizedRef.current) throw new Error(`Draft discarded`)
+        if (finalizedRef.current || consumedRef.current) {
+          throw new Error(`Draft discarded`)
+        }
         if (rowExistsRef.current) return
         const input = toUpsertInput(snapshotRef.current)
         await trpc.issueDrafts.upsert.mutate(input)
@@ -441,6 +473,10 @@ export function useIssueDraftEditor({
       toast.error(
         error instanceof Error ? error.message : `Failed to create issue`
       )
+      // EXP-1231: whatever the shape said while the Create was in flight
+      // (the row gone or back, an issue claiming it) was not judged then;
+      // and a grace that ran out meanwhile left the hold on. Judge it now.
+      judgeFate()
       return null
     }
     // The create consumed the draft row in its own transaction.

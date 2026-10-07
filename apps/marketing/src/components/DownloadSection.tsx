@@ -134,7 +134,7 @@ export const PLATFORMS: Platform[] = [
     id: `linux`,
     name: `Linux`,
     logo: LinuxLogo,
-    requirement: `x86_64 AppImage`,
+    requirement: `x86_64 AppImage, glibc 2.39 or newer (Ubuntu 24.04+)`,
     cta: `Download AppImage`,
     href: LINKS.downloads.linux,
   },

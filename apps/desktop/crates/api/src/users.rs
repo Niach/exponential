@@ -2,14 +2,17 @@
 //! (masterplan-v3 §7.2). Server procedures verified against
 //! `apps/web/src/lib/trpc/users.ts`:
 //!
-//! - `users.mintPersonalApiKey({name?})` → `{key, id, name, start, prefix,
-//!   createdAt}` — `key` is the RAW `expu_…` credential, returned **exactly
-//!   once** (the server stores only a hash).
+//! - `users.mintPersonalApiKey({name?, purpose?, scope?})` → `{key, id, name,
+//!   start, prefix, createdAt, scope}` — `key` is the RAW `expu_…` credential,
+//!   returned **exactly once** (the server stores only a hash). FEED-76:
+//!   `scope` = the consent screen's team/board selection
+//!   (`{allTeams, teamIds, boardIds}`, [`ScopeSelection`]); absent or
+//!   `allTeams` = an ordinary full key. The server clamps it to membership.
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
 //!   createdAt, lastRequest, scope}]}` — FEED-76: `scope` = `null` for an
 //!   unscoped key, else `{teams: [{id, name}], boards: [{id, name, prefix}]}`
-//!   (a scoped key is MCP-only; keys are scoped on the web, the IDE only
-//!   shows the caption).
+//!   (a scoped key is MCP-only; the IDE's Create-key dialog scopes one with
+//!   the same picker the web shows, `ui::scope_picker`).
 //! - `users.revokePersonalApiKey({id})` → `{ok: true}`.
 //! - `users.timezone()` → `{timezone: string | null}` and
 //!   `users.setTimezone({timezone, onlyIfUnset?})` → `{saved}` (EXP-369) — the
@@ -55,6 +58,9 @@ pub struct MintedPersonalKey {
     pub prefix: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
+    /// FEED-76: the minted key's scope by name, `None` = all teams.
+    #[serde(default)]
+    pub scope: Option<PersonalKeyScope>,
 }
 
 /// One row of `users.listPersonalApiKeys` — display metadata only, no secret.
@@ -128,6 +134,37 @@ pub fn scope_caption(scope: Option<&PersonalKeyScope>) -> String {
     }
 }
 
+/// FEED-76: the team/board selection a key is minted with — the wire shape
+/// of the web's `ScopeSelection` (`@exp/ui` scope-picker, tRPC
+/// `scopeSelectionInput`): `allTeams` = everything (both lists empty),
+/// else the whole teams + the single boards outside them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeSelection {
+    pub all_teams: bool,
+    #[serde(default)]
+    pub team_ids: Vec<String>,
+    #[serde(default)]
+    pub board_ids: Vec<String>,
+}
+
+impl ScopeSelection {
+    /// The picker's starting value: everything (web `EMPTY_SCOPE_SELECTION`).
+    pub fn everything() -> Self {
+        Self {
+            all_teams: true,
+            team_ids: Vec::new(),
+            board_ids: Vec::new(),
+        }
+    }
+
+    /// Something is selected: everything, or at least one team/board (web
+    /// `hasScopeSelection`).
+    pub fn has_selection(&self) -> bool {
+        self.all_teams || !self.team_ids.is_empty() || !self.board_ids.is_empty()
+    }
+}
+
 #[derive(Deserialize)]
 struct ListKeysResponse {
     keys: Vec<PersonalKeyMeta>,
@@ -142,6 +179,10 @@ struct MintInput<'a> {
     /// a person's own key, so an older server sees the wire it always did.
     #[serde(skip_serializing_if = "Option::is_none")]
     purpose: Option<&'a str>,
+    /// FEED-76: the key's team/board scope; absent = a full key (and the
+    /// wire a pre-FEED-76 server accepts). Never sent for the agent's key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<&'a ScopeSelection>,
 }
 
 #[derive(Serialize)]
@@ -157,12 +198,22 @@ pub const AGENT_KEY_PURPOSE: &str = "agent";
 
 /// `users.mintPersonalApiKey` — mutation. `purpose` = `None` for a key the
 /// person mints for themselves, [`AGENT_KEY_PURPOSE`] for the launcher's.
+/// `scope` (FEED-76) = `None` or an `all_teams` pick for a full key, else
+/// the teams/boards the key is confined to (MCP-only from then on).
 pub fn mint_personal_api_key(
     trpc: &TrpcClient,
     name: Option<&str>,
     purpose: Option<&str>,
+    scope: Option<&ScopeSelection>,
 ) -> Result<MintedPersonalKey, ApiError> {
-    trpc.mutation("users.mintPersonalApiKey", &MintInput { name, purpose })
+    trpc.mutation(
+        "users.mintPersonalApiKey",
+        &MintInput {
+            name,
+            purpose,
+            scope,
+        },
+    )
 }
 
 /// `users.listPersonalApiKeys` — query (GET; POST would 405).
@@ -447,7 +498,8 @@ pub fn ensure_personal_key(
             }
         };
     }
-    let minted = mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE))?;
+    let minted =
+        mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE), None)?;
     store.set(account_id, SecretKind::PersonalApiKey, &minted.key)?;
     // Best-effort: remember the row id so Regenerate can revoke precisely,
     // and the purpose so the retag above never repeats.
@@ -476,8 +528,9 @@ pub fn regenerate_personal_key(
         )
     });
 
-    // 1. Mint the fresh key (EXP-1140: always as the agent's).
-    let minted = mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE))?;
+    // 1. Mint the fresh key (EXP-1140: always as the agent's, never scoped).
+    let minted =
+        mint_personal_api_key(trpc, Some(&device_key_name()), Some(AGENT_KEY_PURPOSE), None)?;
     // 2. Store it — the point of no return for the OLD key.
     store.set(account_id, SecretKind::PersonalApiKey, &minted.key)?;
     let _ = store.set(account_id, SecretKind::PersonalApiKeyId, &minted.id);
@@ -532,7 +585,8 @@ mod tests {
     #[test]
     fn mint_decodes_camel_case_envelope() {
         let (base, captured) = one_shot_server(200, MINT_BODY);
-        let minted = mint_personal_api_key(&client(&base), Some("Device: testbox"), None).unwrap();
+        let minted =
+            mint_personal_api_key(&client(&base), Some("Device: testbox"), None, None).unwrap();
         assert_eq!(minted.key, "expu_rawsecret123");
         assert_eq!(minted.id, "key-1");
         assert_eq!(minted.start.as_deref(), Some("expu_ra"));
@@ -545,6 +599,50 @@ mod tests {
             .unwrap();
         assert!(request.starts_with("POST /api/trpc/users.mintPersonalApiKey HTTP/1.1"));
         assert!(request.ends_with(r#"{"name":"Device: testbox"}"#));
+        // FEED-76: an unscoped mint carries no `scope` key at all.
+        assert_eq!(minted.scope, None);
+    }
+
+    /// FEED-76: a scoped mint sends the web's exact `scope` wire
+    /// (`{allTeams, teamIds, boardIds}`) and decodes the resolved scope back.
+    #[test]
+    fn mint_sends_the_scope_selection_in_camel_case() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{
+                "key":"expu_rawsecret123","id":"key-2","name":"Bot",
+                "start":"expu_ra","prefix":"expu_","createdAt":"2026-07-02T10:00:00.000Z",
+                "scope":{"teams":[{"id":"t-1","name":"Acme"}],
+                         "boards":[{"id":"b-1","name":"Web","prefix":"WEB"}]}}}}"#,
+        );
+        let scope = ScopeSelection {
+            all_teams: false,
+            team_ids: vec!["t-1".to_string()],
+            board_ids: vec!["b-1".to_string()],
+        };
+        let minted =
+            mint_personal_api_key(&client(&base), Some("Bot"), None, Some(&scope)).unwrap();
+        assert_eq!(
+            scope_caption(minted.scope.as_ref()),
+            "Scoped to Acme, Web (WEB)"
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/users.mintPersonalApiKey HTTP/1.1"));
+        assert!(request.ends_with(
+            r#"{"name":"Bot","scope":{"allTeams":false,"teamIds":["t-1"],"boardIds":["b-1"]}}"#
+        ));
+    }
+
+    #[test]
+    fn scope_selection_everything_and_has_selection_mirror_the_web() {
+        let everything = ScopeSelection::everything();
+        assert!(everything.all_teams && everything.has_selection());
+        assert!(!ScopeSelection::default().has_selection());
+        assert!(ScopeSelection {
+            board_ids: vec!["b".into()],
+            ..ScopeSelection::default()
+        }
+        .has_selection());
     }
 
     #[test]

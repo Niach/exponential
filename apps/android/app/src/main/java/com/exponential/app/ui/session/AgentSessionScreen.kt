@@ -558,7 +558,10 @@ private fun RunFaceContent(
     )
     // ── EXP-1175: the status row — state, mark, caption, tool line ─────────
     val rowDisplayState = runState ?: CodingSessionDisplayState.Working
-    val rowPaused = hostDevice.isPaused(rowDisplayState, session?.status ?: "running")
+    // An ended run is never paused, whatever its host's heartbeat or a stale
+    // `agent_busy` says (web guards `paused` with `!sessionEnded` the same way).
+    val rowPaused = !sessionEnded &&
+        hostDevice.isPaused(rowDisplayState, session?.status ?: "running")
     val rowState = runRowState(
         paused = rowPaused,
         ended = sessionEnded,

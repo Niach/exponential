@@ -295,8 +295,11 @@ export const mcpServersRouter = router({
           row.auth === `none`
             ? [...memberIds].sort()
             : connected.map((entry) => entry.userId).sort()
+        // A stdio server's secret stays on its owner's machine
+        // (`resolveSharedForLaunch` never hands it out), so a stale shared
+        // row on one never counts either.
         const sharedUserIds =
-          row.auth === `none`
+          row.auth === `none` || row.transport === `stdio`
             ? []
             : connected
                 .filter((entry) => entry.shared === true)
@@ -534,6 +537,16 @@ export const mcpServersRouter = router({
     .mutation(async ({ ctx, input }): Promise<McpConnection> => {
       await assertNotAgentKey(ctx)
       const server = await loadMemberServer(ctx, input.serverId)
+      // A stdio server runs on the owner's machine with their env secret;
+      // the launcher never hands that to a teammate's run, so sharing it
+      // would only list it as a team MCP that no run can use. Unsharing
+      // stays open so an existing row can be undone.
+      if (input.shared && server.transport === `stdio`) {
+        throw new TRPCError({
+          code: `BAD_REQUEST`,
+          message: `A stdio server's secret stays on its owner's machine; it cannot be shared`,
+        })
+      }
       const userId = ctx.session.user.id
       const [row] = await ctx.db
         .select()

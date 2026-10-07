@@ -14,6 +14,9 @@
 //! (`api::token_store::SecretKind::PersonalApiKey`), never the device's
 //! sign-in, so revoking it cuts the runs' wiring while the device stays
 //! signed in. Everything else is an **API key** for scripts and MCP clients.
+//! FEED-76: the Create-key dialog scopes a key to teams/boards with the
+//! same `scope_picker::ScopePicker` the web shows (Everything = a full key;
+//! a scoped key is MCP-only and wears its pick as the row caption).
 //! THIS device's own session row gets a badge; disconnecting it also deletes
 //! the local token-store copy, otherwise `ensure_personal_key` would keep
 //! handing the dead key to coding sessions until a confusing 401.
@@ -34,6 +37,7 @@ use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
 use crate::controls::{glass_input, WebControl as _};
+use crate::scope_picker::{ScopePicker, ScopeSelection, ScopeTeam};
 use crate::surface::{glass_pill_button, PillSize};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::queries;
@@ -45,6 +49,14 @@ use super::{error_notice, section};
 /// The `Device: ` name prefix `api::users::device_key_name` mints with —
 /// rows carrying it belong to a signed-in desktop/CLI, not a script.
 const DEVICE_KEY_PREFIX: &str = "Device: ";
+
+/// FEED-76: under the picker while a scope is being picked (web copy).
+const SCOPED_KEY_NOTE: &str = "A scoped key works with the MCP endpoint only and cannot be \
+                               re-scoped later \u{2014} create a new key to widen it.";
+
+/// FEED-76: the refusal for a pick that names nothing (the server's
+/// `EMPTY_SELECTION_MESSAGE`, with the dialog's own way out).
+const EMPTY_SCOPE_MESSAGE: &str = "Select at least one team or board, or switch Everything on.";
 
 /// A login-session row (a signed-in device) vs an API key.
 fn is_device_row(row: &PersonalKeyMeta) -> bool {
@@ -171,40 +183,69 @@ impl ApiKeysPane {
         cx.notify();
     }
 
-    /// The "Create key" confirm: a name input rides the alert as extra content;
-    /// OK mints and surfaces the raw key in the pane's one-time reveal.
+    /// The "Create key" confirm: a name input and the FEED-76 scope picker
+    /// ride the alert as extra content; OK mints (scoped when Everything is
+    /// off) and surfaces the raw key in the pane's one-time reveal. An
+    /// empty pick keeps the dialog open with the refusal under the picker.
     fn open_mint_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.name_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
         });
+        // The member's synced teams + live boards — the web dialog's
+        // `mcpGrants.scopeTree`, read off the store instead of the wire.
+        let tree = ScopeTeam::from_store(cx);
+        let picker = cx.new(|_| {
+            ScopePicker::new("api-key-scope", tree, ScopeSelection::everything())
+                .scoped_note(SCOPED_KEY_NOTE)
+                .tree_max_height(gpui::px(168.))
+        });
         let pane = cx.entity().downgrade();
         let handle = window.window_handle();
         let content_input = self.name_input.clone();
+        let content_picker = picker.clone();
         let ok_input = self.name_input.clone();
+        let ok_picker = picker.clone();
         let spec = AlertSpec::new(
             "Create API key",
-            "For scripts and MCP clients. The key acts as you with your full \
-             team membership; revoke it here at any time.",
+            "For scripts and MCP clients. The key acts as you within the \
+             teams and boards you choose; revoke it here at any time.",
             "Create key",
         )
-        .height(gpui::px(300.))
+        .height(gpui::px(520.))
         .content(move |window, cx| {
+            let muted = cx.theme().muted_foreground;
             v_flex()
-                .gap_1()
+                .gap_4()
                 .mt_2()
                 .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Name"),
+                    v_flex()
+                        .gap_1()
+                        .child(div().text_xs().text_color(muted).child("Name"))
+                        .child(glass_input(&content_input, window, cx).web_input_sm()),
                 )
-                .child(glass_input(&content_input, window, cx).web_input_sm())
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(div().text_xs().text_color(muted).child("Access"))
+                        .child(content_picker.clone()),
+                )
                 .into_any_element()
         })
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
             };
+            // FEED-76: "Everything" sends no scope — the key stays an
+            // ordinary full key. An empty pick never mints (the web's
+            // `hasScopeSelection` gate).
+            let scope = ok_picker.read(cx).effective();
+            if !scope.has_selection() {
+                ok_picker.update(cx, |picker, cx| {
+                    picker.set_error(Some(EMPTY_SCOPE_MESSAGE.into()), cx);
+                });
+                return false;
+            }
+            let scope = (!scope.all_teams).then_some(scope);
             let typed = ok_input.read(cx).value().trim().to_string();
             let name = if typed.is_empty() {
                 "Personal key".to_string()
@@ -222,7 +263,12 @@ impl ApiKeysPane {
                     .spawn(async move {
                         // A key the person mints for themselves — never the
                         // agent's kind (EXP-1140).
-                        api::users::mint_personal_api_key(&trpc, Some(&name), None)
+                        api::users::mint_personal_api_key(
+                            &trpc,
+                            Some(&name),
+                            None,
+                            scope.as_ref(),
+                        )
                     })
                     .await;
                 let _ = pane.update(cx, |this, cx| {

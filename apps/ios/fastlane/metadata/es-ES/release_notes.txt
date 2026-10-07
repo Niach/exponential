@@ -1,6 +1,5 @@
-- Diálogos: cada confirmación y elección usa la misma tarjeta, y Return nunca elige una respuesta destructiva
-- Nueva issue: la × pregunta antes de descartar un borrador, y al salir de un borrador con contenido pregunta Create, Keep as draft o Discard
-- Runs: la marca de la ejecución encabeza cada fila de la lista, una fila de herramienta en curso muestra solo su título y una ejecución muestra Working hasta que el agente termina de verdad
-- Boards: el selector de boards ya no muestra el punto de otros equipos
-- Cuenta: desvincula un método de inicio de sesión siempre que quede otra forma de entrar
-- Dispositivos: el bloque de preparación dice lo que aún le falta a una máquina, y Computer use se puede activar por dispositivo
+- Ejecuciones: una ejecución se abre como un hilo con una fila de estado (Building on <device>, tiempo transcurrido, última línea de herramienta) y sus resultados integrados; Show work abre la transcripción completa
+- Borradores: un issue creado a partir de un borrador en otro dispositivo se abre aquí como issue, y un borrador descartado se cierra en todas partes
+- Acciones: eliminar una acción pide confirmación primero, en la tarjeta de alerta compartida
+- Dispositivos: Codex ya no necesita instalar una CLI; el IDE lo descarga al iniciar sesión por primera vez
+- Correcciones: fusionar el pull request de un agente sin issue funciona, y las imágenes de resultados se suben de forma fiable

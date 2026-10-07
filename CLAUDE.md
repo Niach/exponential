@@ -67,7 +67,7 @@ The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`); marketing owns the i
 ```bash
 bun install
 bun run backend  # docker compose up -d + dev server (:3000 via Caddy)
-bun run ios / ios:test  # tuist+Xcode / ExpCore+ExpUI suites (Mac-only)
+bun run ios / ios:test  # tuist+Xcode / ExpCore+ExpUI suites
 bun run android  # productionDebug install + launch
 bun dev  # web dev server (:5173)
 bun run {dev,build}:marketing / movie:{studio,render,poster,still}
@@ -78,7 +78,7 @@ bun run typecheck / test / test:e2e  # web
 bun run migrate / migrate:generate / psql / backend:{up,down,clear} (clear wipes volumes) / storage:init (Garage bootstrap)
 bun run dev:desktop / {build,appimage,macapp,test}:desktop  # gpui IDE vs the local backend
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
-cd apps/web && bun run seed:screenshots  # demo data; then `bun run shots` → shots/
+cd apps/web && bun run seed:screenshots  # demo data, then `bun run shots`
 ```
 
 Workspace scripts: `bun --filter @exp/web <script>`; `cargo` in `apps/desktop/`. Never `bun run lint`/`format`.

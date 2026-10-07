@@ -1,4 +1,4 @@
-import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@exp/ui"
 import { TeamMcpServersSection } from "@/components/team/mcp-servers-section"
@@ -334,7 +334,9 @@ describe(`TeamMcpServersSection`, () => {
     await waitFor(() =>
       expect(rowOf(`sentry`).textContent).toContain(`1 shared`)
     )
-    expect(mockState.toastSuccess).toHaveBeenCalledWith(`Shared sentry with the team`)
+    expect(mockState.toastSuccess).toHaveBeenCalledWith(
+      `Shared sentry with the team: action runs on teammates' machines use your connection`
+    )
 
     fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {
       button: 0,
@@ -344,5 +346,56 @@ describe(`TeamMcpServersSection`, () => {
       await screen.findByRole(`menuitem`, { name: `Stop sharing` })
     ).toBeTruthy()
     expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
+  })
+
+  // A stdio server's secret stays on its owner's machine: no Share item,
+  // but an already-shared row (before the server refused it) can be undone.
+  it(`offers no Share item on a stdio row, only Stop sharing on a stale shared one`, async () => {
+    const stdio = (extra: Record<string, unknown> = {}) =>
+      server(`local`, `secret`, `connected`, {
+        transport: `stdio`,
+        url: null,
+        command: `npx`,
+        args: [`-y`, `@acme/mcp`],
+        headerNames: [],
+        envNames: [`ACME_TOKEN`],
+        ...extra,
+      })
+    mockState.list.mockResolvedValue([stdio()])
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`local`)
+
+    fireEvent.pointerDown(screen.getByLabelText(`Connected to local`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    expect(await screen.findByRole(`menuitem`, { name: `Replace key` })).toBeTruthy()
+    expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
+    expect(screen.queryByRole(`menuitem`, { name: `Stop sharing` })).toBeNull()
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: `Escape` })
+
+    mockState.list.mockResolvedValue([
+      stdio({
+        connection: { status: `connected`, expiresAt: null, error: null, shared: true },
+      }),
+    ])
+    mockState.setShared.mockResolvedValue({ status: `connected`, shared: false })
+    cleanup()
+    render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`local`)
+    fireEvent.pointerDown(screen.getByLabelText(`Connected to local`), {
+      button: 0,
+      pointerType: `mouse`,
+    })
+    const stop = await screen.findByRole(`menuitem`, { name: `Stop sharing` })
+    expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
+    fireEvent.click(stop)
+    await waitFor(() =>
+      expect(mockState.setShared).toHaveBeenCalledWith(
+        { serverId: `local`, shared: false },
+        expect.anything()
+      )
+    )
+    expect(mockState.toastSuccess).toHaveBeenCalledWith(`Stopped sharing local`)
   })
 })

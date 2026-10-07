@@ -1141,12 +1141,19 @@ fn probe_agents(ctx: &Ctx) -> (coding::AgentAdvertisement, coding::DoctorReport)
 
 /// EXP-1232: a stored Codex login with no managed build in place → fetch
 /// the pinned build now, off the loop, and re-probe when it lands (the row
-/// reads `Downloading…` meanwhile). At most one fetch per process.
+/// reads `Downloading…` meanwhile). At most one fetch per process. A failed
+/// fetch is retried from here on the doctor cadence once `should_fetch`
+/// says the cooldown passed — `RETRY_CAP` times, then the row stays
+/// `Download failed · Update` until a person acts.
 fn maybe_fetch_codex(ctx: &Ctx, doctor_soon: &Arc<AtomicBool>) {
     let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
     if !coding::managed_codex::should_fetch(&settings, &ctx.data_dir) {
         return;
     }
+    let retrying = matches!(
+        coding::managed_codex::state(&ctx.data_dir),
+        coding::managed_codex::State::Failed(_)
+    );
     let doctor_soon = Arc::clone(doctor_soon);
     let started = coding::managed_codex::fetch_in_background(ctx.data_dir.clone(), move |result| {
         match result {
@@ -1155,7 +1162,9 @@ fn maybe_fetch_codex(ctx: &Ctx, doctor_soon: &Arc<AtomicBool>) {
         }
         doctor_soon.store(true, Ordering::SeqCst);
     });
-    if started {
+    if started && retrying {
+        log::info!("managed codex: retrying the failed download of the pinned build");
+    } else if started {
         log::info!("managed codex: a Codex login is stored here — fetching the pinned build");
     }
 }

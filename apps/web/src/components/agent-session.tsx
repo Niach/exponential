@@ -2116,8 +2116,9 @@ export function AgentSessionView({
                   // row.
                   usageSlot={usageSlot}
                   // EXP-1175: a run that waits on you with no card to answer
-                  // takes the keyboard straight to the composer.
-                  autoFocus={session.needsInput}
+                  // takes the keyboard straight to the composer, except on a
+                  // phone, where the keyboard never pops on open (EXP-1152).
+                  autoFocus={session.needsInput && !isMobile}
                 />
               </div>
             </div>

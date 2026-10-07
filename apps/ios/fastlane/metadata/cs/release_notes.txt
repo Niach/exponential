@@ -1,6 +1,5 @@
-- Dialogy: každé potvrzení a volba používá stejnou kartu a Return nikdy nevybere destruktivní odpověď
-- Nové issue: × se před zahozením konceptu zeptá a odchod z konceptu s obsahem nabídne Create, Keep as draft nebo Discard
-- Runs: značka běhu vede každý řádek seznamu, živý řádek nástroje ukazuje jen svůj nadpis a běh ukazuje Working, dokud agent opravdu neskončí
-- Boardy: výběr boardu už neukazuje tečku ostatních týmů
-- Účet: způsob přihlášení můžete odpojit, pokud zbývá jiná cesta dovnitř
-- Zařízení: blok připravenosti říká, co počítač ještě potřebuje, a Computer use lze zapnout pro každé zařízení zvlášť
+- Běhy: běh se otevře jako vlákno se stavovým řádkem (Building on <device>, uplynulý čas, poslední řádek nástroje) a výsledky přímo v něm; Show work otevře celý přepis
+- Koncepty: issue vytvořené z konceptu na jiném zařízení se zde otevře jako issue a zahozený koncept se zavře všude
+- Akce: smazání akce se nejprve zeptá, na sdílené kartě upozornění
+- Zařízení: Codex už nepotřebuje instalaci CLI; IDE ho stáhne při prvním přihlášení
+- Opravy: sloučení pull requestu agenta bez issue funguje a obrázky výsledků se nahrávají spolehlivě

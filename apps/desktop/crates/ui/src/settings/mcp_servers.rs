@@ -110,11 +110,23 @@ fn share_menu_label(shared: bool) -> &'static str {
     }
 }
 
+/// FEED-73: whether the Connected menu carries a share item at all (web
+/// `ConnectionAction`: `http || shared`). A stdio server's secret stays on
+/// this machine and the server refuses the share, so the item only shows
+/// on such a row to undo a share made before that refusal existed.
+fn share_menu_offered(http: bool, shared: bool) -> bool {
+    http || shared
+}
+
 /// FEED-73 — the share toggle's toasts (web `share` + `useMcpServers.
-/// setShared`): `Ok` = the success line, `Err` = the failure title.
+/// setShared`): `Ok` = the success line (it says what sharing means),
+/// `Err` = the failure title.
 fn share_toast(name: &str, shared: bool) -> (String, &'static str) {
     if shared {
-        (format!("Shared {name} with the team"), "Could not share")
+        (
+            format!("Shared {name} with the team: action runs on teammates' machines use your connection"),
+            "Could not share",
+        )
     } else {
         (format!("Stopped sharing {name}"), "Could not stop sharing")
     }
@@ -895,22 +907,22 @@ impl McpServersPane {
                         );
                     }
                     // FEED-73: share the person's own connection with the
-                    // team (web: always, right before the separator).
-                    {
+                    // team (web: right before the separator). A stdio row
+                    // only offers the undo of an existing share.
+                    if share_menu_offered(http, shared) {
                         let (target, pane) = (target.clone(), pane.clone());
-                        menu = menu
-                            .item(
-                                PopupMenuItem::new(share_menu_label(shared))
-                                    .icon(Icon::new(registry::UI_SHARE))
-                                    .on_click(move |_, window, cx| {
-                                        let target = target.clone();
-                                        pane.update(cx, |this, cx| {
-                                            this.toggle_shared(&target, !shared, window, cx)
-                                        });
-                                    }),
-                            )
-                            .separator();
+                        menu = menu.item(
+                            PopupMenuItem::new(share_menu_label(shared))
+                                .icon(Icon::new(registry::UI_SHARE))
+                                .on_click(move |_, window, cx| {
+                                    let target = target.clone();
+                                    pane.update(cx, |this, cx| {
+                                        this.toggle_shared(&target, !shared, window, cx)
+                                    });
+                                }),
+                        );
                     }
+                    menu = menu.separator();
                     let (target, pane) = (target.clone(), pane.clone());
                     menu.item(
                         crate::controls::danger_menu_item("Disconnect", Icon::new(registry::UI_CLOSE), cx)
@@ -1257,12 +1269,27 @@ mod tests {
         assert_eq!(share_menu_label(true), "Stop sharing");
         assert_eq!(
             share_toast("Linear", true),
-            ("Shared Linear with the team".to_string(), "Could not share")
+            (
+                "Shared Linear with the team: action runs on teammates' machines use your connection"
+                    .to_string(),
+                "Could not share"
+            )
         );
         assert_eq!(
             share_toast("Linear", false),
             ("Stopped sharing Linear".to_string(), "Could not stop sharing")
         );
+    }
+
+    /// A stdio server's secret stays on this machine: no share item, except
+    /// to undo a share made before the server refused them (web
+    /// `ConnectionAction`: `http || shared`).
+    #[test]
+    fn share_item_hidden_on_an_unshared_stdio_row() {
+        assert!(share_menu_offered(true, false));
+        assert!(share_menu_offered(true, true));
+        assert!(!share_menu_offered(false, false));
+        assert!(share_menu_offered(false, true));
     }
 
     /// The web `MCP_TRANSPORT_LABELS` / `MCP_AUTH_LABELS` vocabularies, and
