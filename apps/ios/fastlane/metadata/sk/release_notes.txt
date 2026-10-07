@@ -1,4 +1,4 @@
-- Behy: beh sa otvorí ako vlákno so stavovým riadkom (Building on <device>, uplynulý čas, posledný riadok nástroja) a výsledkami priamo v ňom; Show work otvorí celý prepis
+- Behy: beh sa otvorí ako vlákno so stavovým riadkom (Building on your machine, uplynulý čas, posledný riadok nástroja) a výsledkami priamo v ňom; Show work otvorí celý prepis
 - Koncepty: issue vytvorené z konceptu na inom zariadení sa tu otvorí ako issue a zahodený koncept sa zatvorí všade
 - Akcie: odstránenie akcie sa najprv opýta, na spoločnej karte upozornenia
 - Zariadenia: Codex už nepotrebuje inštaláciu CLI; IDE ho stiahne pri prvom prihlásení

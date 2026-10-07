@@ -1,4 +1,4 @@
-- Kørsler: en kørsel åbner som en tråd med en statuslinje (Building on <device>, forløbet tid, seneste værktøjslinje) og resultaterne direkte i tråden; Show work åbner hele transskriptionen
+- Kørsler: en kørsel åbner som en tråd med en statuslinje (Building on your machine, forløbet tid, seneste værktøjslinje) og resultaterne direkte i tråden; Show work åbner hele transskriptionen
 - Kladder: et issue oprettet fra en kladde på en anden enhed lander på issuet her, og en kasseret kladde lukkes overalt
 - Handlinger: sletning af en handling spørger først, på det fælles advarselskort
 - Enheder: Codex kræver ikke længere en CLI-installation; IDE'en henter den ved første login

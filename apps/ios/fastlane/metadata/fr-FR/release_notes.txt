@@ -1,4 +1,4 @@
-- Exécutions : une exécution s'ouvre comme un fil avec une ligne d'état (Building on <device>, temps écoulé, dernière ligne d'outil) et ses résultats intégrés ; Show work ouvre la transcription complète
+- Exécutions : une exécution s'ouvre comme un fil avec une ligne d'état (Building on your machine, temps écoulé, dernière ligne d'outil) et ses résultats intégrés ; Show work ouvre la transcription complète
 - Brouillons : un issue créé à partir d'un brouillon sur un autre appareil s'ouvre ici comme issue, et un brouillon abandonné se ferme partout
 - Actions : supprimer une action demande d'abord confirmation, sur la carte d'alerte commune
 - Appareils : Codex ne nécessite plus d'installer une CLI ; l'IDE le télécharge à la première connexion

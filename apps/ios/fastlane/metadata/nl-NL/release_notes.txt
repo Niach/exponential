@@ -1,4 +1,4 @@
-- Runs: een run opent als een thread met een statusregel (Building on <device>, verstreken tijd, laatste toolregel) en de resultaten erin; Show work opent het volledige transcript
+- Runs: een run opent als een thread met een statusregel (Building on your machine, verstreken tijd, laatste toolregel) en de resultaten erin; Show work opent het volledige transcript
 - Concepten: een issue dat op een ander apparaat vanuit een concept is gemaakt, opent hier als issue, en een verwijderd concept sluit overal
 - Acties: het verwijderen van een actie vraagt eerst om bevestiging, op de gedeelde meldingskaart
 - Apparaten: Codex heeft geen CLI-installatie meer nodig; de IDE downloadt het bij de eerste aanmelding

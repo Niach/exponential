@@ -1,4 +1,4 @@
-- Rulări: o rulare se deschide ca un fir cu un rând de stare (Building on <device>, timp scurs, ultimul rând de unealtă) și rezultatele incluse; Show work deschide transcrierea completă
+- Rulări: o rulare se deschide ca un fir cu un rând de stare (Building on your machine, timp scurs, ultimul rând de unealtă) și rezultatele incluse; Show work deschide transcrierea completă
 - Ciorne: un issue creat dintr-o ciornă pe alt dispozitiv se deschide aici ca issue, iar o ciornă renunțată se închide peste tot
 - Acțiuni: ștergerea unei acțiuni cere mai întâi confirmare, pe cardul de alertă comun
 - Dispozitive: Codex nu mai necesită instalarea unui CLI; IDE-ul îl descarcă la prima autentificare

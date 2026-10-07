@@ -1,4 +1,4 @@
-- Esecuzioni: un'esecuzione si apre come un thread con una riga di stato (Building on <device>, tempo trascorso, ultima riga dello strumento) e i risultati integrati; Show work apre la trascrizione completa
+- Esecuzioni: un'esecuzione si apre come un thread con una riga di stato (Building on your machine, tempo trascorso, ultima riga dello strumento) e i risultati integrati; Show work apre la trascrizione completa
 - Bozze: un issue creato da una bozza su un altro dispositivo si apre qui come issue, e una bozza scartata si chiude ovunque
 - Azioni: l'eliminazione di un'azione chiede prima conferma, sulla scheda di avviso condivisa
 - Dispositivi: Codex non richiede più l'installazione di una CLI; l'IDE lo scarica al primo accesso

@@ -1,4 +1,4 @@
-- Pokretanja: pokretanje se otvara kao nit s retkom statusa (Building on <device>, proteklo vrijeme, posljednji redak alata) i rezultatima unutar niti; Show work otvara cijeli prijepis
+- Pokretanja: pokretanje se otvara kao nit s retkom statusa (Building on your machine, proteklo vrijeme, posljednji redak alata) i rezultatima unutar niti; Show work otvara cijeli prijepis
 - Skice: issue stvoren iz skice na drugom uređaju ovdje se otvara kao issue, a odbačena skica zatvara se posvuda
 - Radnje: brisanje radnje najprije traži potvrdu, na zajedničkoj kartici upozorenja
 - Uređaji: Codex više ne treba instalaciju CLI-ja; IDE ga preuzima pri prvoj prijavi
