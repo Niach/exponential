@@ -134,6 +134,7 @@ mod reviews_view;
 // Past) and the two Devices sections that render it.
 mod run_rows;
 mod sessions_section;
+mod scope_picker;
 mod screens;
 mod scroll_pane;
 mod search_sheet;
@@ -160,8 +161,6 @@ mod workflow_card;
 // EXP-1005: the account-rotation wall beat.
 mod account_rotation_host;
 pub mod steer_wiring;
-// EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
-mod sub_shell;
 // The shared styleguide's section index, mirrored here so the IDE's entry ids
 // and owners cannot drift from the page that draws them. The styleguide is
 // its OWN app (`apps/styleguide`, styleguide.exponential.at); this module

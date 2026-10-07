@@ -119,7 +119,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`picker-label`]: `Inputs & pickers`,
   [`picker-mcp`]: `Inputs & pickers`,
   [`picker-repository`]: `Inputs & pickers`,
-  [`sub-shell`]: `Surfaces`,
+  [`scope-picker`]: `Inputs & pickers`,
   menu: `Surfaces`,
   [`issue-context-menu`]: `Surfaces`,
   [`composer-dialog`]: `Surfaces`,

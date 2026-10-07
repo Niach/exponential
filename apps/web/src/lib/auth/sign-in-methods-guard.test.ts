@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { betterAuth } from "better-auth"
 import { memoryAdapter } from "better-auth/adapters/memory"
-import { emailOTP } from "better-auth/plugins"
+import { deviceAuthorization, emailOTP } from "better-auth/plugins"
 import { apiKey } from "@better-auth/api-key"
 
 // The guard plugin against a REAL Better Auth instance (memory adapter, the
@@ -26,6 +26,7 @@ vi.mock(`@/db/connection`, () => ({
 import { createFakeDb } from "@/lib/mcp-oauth/test-db"
 
 import {
+  API_KEY_MANAGEMENT_PATHS,
   DISABLED_AUTH_PATHS,
   PLACEHOLDER_EMAIL_CHANGE_MESSAGE,
   PROVIDER_LOGIN_DISABLED_CODE,
@@ -42,6 +43,7 @@ function makeAuth() {
     account: [],
     verification: [],
     apikey: [],
+    deviceCode: [],
   }
   const sent: Array<{ email: string; type: string }> = []
   const auth = betterAuth({
@@ -85,6 +87,14 @@ function makeAuth() {
           return match ? match[1]! : null
         },
       }),
+      // As production mounts it (EXP-403): approve/deny authenticate by
+      // `getSessionFromCtx` alone, so the key-mocked session would pass.
+      deviceAuthorization({
+        expiresIn: `10m`,
+        interval: `5s`,
+        verificationUri: `/auth/device`,
+        schema: {},
+      }),
     ],
   })
   return { auth, db, sent }
@@ -113,6 +123,20 @@ async function post(
     json = { raw: text }
   }
   return { status: response.status, json, response }
+}
+
+async function get(harness: Harness, path: string, headers: Record<string, string> = {}) {
+  const response = await harness.auth.handler(
+    new Request(`${BASE}/api/auth${path}`, { headers: { origin: BASE, ...headers } })
+  )
+  const text = await response.text()
+  let json: unknown = {}
+  try {
+    json = JSON.parse(text)
+  } catch {
+    json = { raw: text }
+  }
+  return { status: response.status, json: json as Record<string, unknown> }
 }
 
 /** Sign up, returning the cookie header of the browser session, the user id
@@ -217,6 +241,95 @@ describe(`signInMethodsGuardPlugin — api-key sessions cannot change identity`,
     expect(response.status).toBe(200)
     const json = (await response.json()) as { user?: { email?: string } }
     expect(json.user?.email).toBe(`person@example.com`)
+  })
+})
+
+describe(`signInMethodsGuardPlugin — a key cannot manage keys or approve a device (FEED-76)`, () => {
+  const SCOPE = { allTeams: false, teamIds: [`team-1`], boardIds: [] }
+
+  async function scopedKey(harness: Harness, userId: string) {
+    const minted = await harness.auth.api.createApiKey({
+      body: { userId, name: `Scoped key`, metadata: { kind: `personal`, scope: SCOPE } },
+    })
+    return { id: minted.id, key: minted.key }
+  }
+
+  it(`api-key/update: a scoped key cannot rewrite its own metadata (both header forms)`, async () => {
+    const { userId } = await signedUp(harness)
+    const scoped = await scopedKey(harness, userId)
+    for (const headers of [
+      { "x-api-key": scoped.key },
+      { authorization: `Bearer ${scoped.key}` },
+    ] as Array<Record<string, string>>) {
+      const refused = await post(
+        harness,
+        `/api-key/update`,
+        { keyId: scoped.id, metadata: { kind: `personal` } },
+        headers
+      )
+      expect(refused.status).toBe(401)
+      expect(refused.json.code).toBe(API_KEY_IDENTITY_CODE)
+    }
+    const row = harness.db.apikey.find((r) => r.id === scoped.id)
+    expect(JSON.parse(String(row?.metadata))).toEqual({ kind: `personal`, scope: SCOPE })
+  })
+
+  it(`api-key/create: an agent key cannot mint a new (unscoped) key`, async () => {
+    const { key } = await signedUp(harness)
+    const before = harness.db.apikey.length
+    const refused = await post(harness, `/api-key/create`, { name: `Escaped` }, { "x-api-key": key })
+    expect(refused.status).toBe(401)
+    expect(refused.json.code).toBe(API_KEY_IDENTITY_CODE)
+    expect(harness.db.apikey).toHaveLength(before)
+  })
+
+  it(`every management path refuses a key: list/get (GET) and delete/approve/deny (POST)`, async () => {
+    const { userId, key } = await signedUp(harness)
+    const scoped = await scopedKey(harness, userId)
+    for (const path of API_KEY_MANAGEMENT_PATHS) {
+      const result =
+        path === `/api-key/list` || path === `/api-key/get`
+          ? await get(harness, `${path}${path === `/api-key/get` ? `?id=${scoped.id}` : ``}`, {
+              "x-api-key": scoped.key,
+            })
+          : await post(
+              harness,
+              path,
+              path.startsWith(`/device/`) ? { userCode: `ABCD-EFGH` } : { keyId: scoped.id },
+              { "x-api-key": scoped.key }
+            )
+      expect([path, result.status, result.json.code]).toEqual([path, 401, API_KEY_IDENTITY_CODE])
+    }
+    // The agent key too, and nothing was deleted.
+    const refused = await post(harness, `/api-key/delete`, { keyId: scoped.id }, { "x-api-key": key })
+    expect(refused.json.code).toBe(API_KEY_IDENTITY_CODE)
+    expect(harness.db.apikey.some((r) => r.id === scoped.id)).toBe(true)
+  })
+
+  it(`the cookie session passes the guard: api-key/list answers, device/approve reaches the plugin`, async () => {
+    const { cookie } = await signedUp(harness)
+    const listed = await get(harness, `/api-key/list`, { cookie })
+    expect(listed.status).toBe(200)
+    // The plugin's raw rows, metadata included — exactly what a key must
+    // never read over HTTP (tRPC `users.listApiKeys` strips it).
+    const apiKeys = listed.json.apiKeys as Array<{ metadata?: unknown }>
+    expect(apiKeys).toHaveLength(1)
+    expect(apiKeys[0]?.metadata).toEqual({ kind: `agent` })
+
+    // No such device code: the plugin's OWN answer, never the key refusal.
+    const approve = await post(harness, `/device/approve`, { userCode: `ABCD-EFGH` }, { cookie })
+    expect(approve.status).not.toBe(401)
+    expect(approve.json.code).not.toBe(API_KEY_IDENTITY_CODE)
+    expect(approve.json.error).toBe(`invalid_request`)
+    const deny = await post(harness, `/device/deny`, { userCode: `ABCD-EFGH` }, { cookie })
+    expect(deny.status).not.toBe(401)
+    expect(deny.json.code).not.toBe(API_KEY_IDENTITY_CODE)
+  })
+
+  it(`the CLI's own device endpoints stay open (no session, no key)`, async () => {
+    const started = await post(harness, `/device/code`, { client_id: `exponential-cli` })
+    expect(started.status).toBe(200)
+    expect(typeof started.json.user_code).toBe(`string`)
   })
 })
 

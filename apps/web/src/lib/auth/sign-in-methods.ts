@@ -331,6 +331,9 @@ const GUARDED_PATHS = new Set([`/unlink-account`, `/passkey/delete-passkey`])
 // launcher's hidden agent key, lib/auth/api-key-kind.ts) is refused, because
 // the api-key plugin mocks a session for every endpoint and a leaked or
 // prompt-injected key could otherwise re-home the whole account.
+// FEED-76: the same refusal covers the key-management and device-approval
+// endpoints (API_KEY_MANAGEMENT_PATHS below): a scoped key could otherwise
+// rewrite its own scope, mint an unscoped sibling or approve a CLI login.
 const IDENTITY_PATHS = new Set([
   `/email-otp/request-email-change`,
   `/email-otp/change-email`,
@@ -338,6 +341,34 @@ const IDENTITY_PATHS = new Set([
   `/oauth2/link`,
   `/unlink-account`,
 ])
+
+// FEED-76 review: the Better Auth endpoints a key must never reach EITHER.
+// The api-key plugin's before-hook mocks `{user, session: {id: apiKey.id}}`
+// for every `/api/auth/*` path a key credential hits, and `getSessionFromCtx`
+// returns it verbatim, so over HTTP an `expu_` key counts as the person:
+// `/api-key/update` rewrites `metadata` (the plugin only refuses the
+// remaining/refill/rateLimit/permissions fields, `enableMetadata` writes the
+// rest) — a scoped key un-scopes ITSELF; `/api-key/create` mints a fresh
+// unscoped key; `/api-key/list` + `/api-key/get` return the raw metadata the
+// tRPC surface strips; `/api-key/delete` revokes any of the person's keys;
+// `/device/approve` + `/device/deny` (device-authorization plugin,
+// `getSessionFromCtx` only) turn a key into a full CLI session token. No
+// client calls any of them with a key: every key operation rides tRPC
+// `users.*` and a device code is approved from the browser page
+// (`/auth/device`), so a key credential is refused outright while cookie and
+// bearer-SESSION requests pass untouched. `/api-key/verify` and
+// `/api-key/delete-all-expired` have no HTTP path (server-only endpoints).
+// The list is EXACT and asserted by tests: a new plugin route is a decision.
+export const API_KEY_MANAGEMENT_PATHS = [
+  `/api-key/create`,
+  `/api-key/get`,
+  `/api-key/list`,
+  `/api-key/update`,
+  `/api-key/delete`,
+  `/device/approve`,
+  `/device/deny`,
+] as const
+const API_KEY_MANAGEMENT_PATH_SET: ReadonlySet<string> = new Set(API_KEY_MANAGEMENT_PATHS)
 
 // Better Auth endpoints that hand a linked provider's tokens to the caller.
 // SLOP-7 keeps the member's GitHub App user token (Contents write on every
@@ -365,6 +396,13 @@ export function isRefusedSocialSignIn(
 export function isIdentityPath(path: string | undefined): boolean {
   if (!path) return false
   return IDENTITY_PATHS.has(path) || path.startsWith(`/passkey/`)
+}
+
+/** Pure: is `path` one an `expu_` key is refused on — an identity endpoint
+ * or a key-management/device-approval one (FEED-76)? */
+export function isApiKeyRefusedPath(path: string | undefined): boolean {
+  if (!path) return false
+  return isIdentityPath(path) || API_KEY_MANAGEMENT_PATH_SET.has(path)
 }
 
 /** Pure: the `expu_` credential a request carries, in either header form
@@ -412,10 +450,11 @@ export function emailChangeNotice(
 
 /** Better Auth flavour: the same rules in front of the endpoints a direct
  *  API caller could still reach (the clients go through tRPC): no GitHub
- *  sign-in while that login is off, no identity
- *  change on an API key, the placeholder refusal on a requested email change,
- *  and the last-way-in rule on the two removals. Registered as a plugin so
- *  it composes with the config-level `hooks.before`. */
+ *  sign-in while that login is off, no identity change, key management or
+ *  device approval on an API key (FEED-76), the placeholder refusal on a
+ *  requested email change, and the last-way-in rule on the two removals.
+ *  Registered as a plugin so it composes with the config-level
+ *  `hooks.before`. */
 export function signInMethodsGuardPlugin(): BetterAuthPlugin {
   return {
     id: `exp-sign-in-methods-guard`,
@@ -433,7 +472,7 @@ export function signInMethodsGuardPlugin(): BetterAuthPlugin {
           }),
         },
         {
-          matcher: (ctx) => isIdentityPath(ctx.path),
+          matcher: (ctx) => isApiKeyRefusedPath(ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const refuse = () => {
               throw new APIError(`UNAUTHORIZED`, {

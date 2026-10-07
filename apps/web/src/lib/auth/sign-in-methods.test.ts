@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import {
+  API_KEY_MANAGEMENT_PATHS,
   apiKeyCredentialFromHeaders,
   buildSignInMethods,
   configuredProviders,
   countWaysIn,
   emailChangeNotice,
+  isApiKeyRefusedPath,
   isIdentityPath,
   removalLeavesNoWayIn,
 } from "@/lib/auth/sign-in-methods"
@@ -253,6 +255,47 @@ describe(`isIdentityPath`, () => {
     }
     for (const path of [`/get-session`, `/sign-in/email`, `/email-otp/send-verification-otp`, `/update-user`, undefined]) {
       expect(isIdentityPath(path)).toBe(false)
+    }
+  })
+})
+
+describe(`isApiKeyRefusedPath (FEED-76)`, () => {
+  it(`the key-management + device-approval list is exact: a new plugin route is a decision`, () => {
+    expect([...API_KEY_MANAGEMENT_PATHS]).toEqual([
+      `/api-key/create`,
+      `/api-key/get`,
+      `/api-key/list`,
+      `/api-key/update`,
+      `/api-key/delete`,
+      `/device/approve`,
+      `/device/deny`,
+    ])
+  })
+
+  it(`refuses every identity path AND every management path, nothing else`, () => {
+    for (const path of [
+      ...API_KEY_MANAGEMENT_PATHS,
+      `/unlink-account`,
+      `/passkey/delete-passkey`,
+    ]) {
+      expect([path, isApiKeyRefusedPath(path)]).toEqual([path, true])
+    }
+    // The management paths are NOT identity paths: the last-way-in and
+    // placeholder rules never run on them.
+    for (const path of API_KEY_MANAGEMENT_PATHS) {
+      expect([path, isIdentityPath(path)]).toEqual([path, false])
+    }
+    for (const path of [
+      `/get-session`,
+      `/sign-in/email`,
+      `/device/code`,
+      `/device/token`,
+      `/device`,
+      `/api-key/verify`,
+      `/update-user`,
+      undefined,
+    ]) {
+      expect([path, isApiKeyRefusedPath(path)]).toEqual([path, false])
     }
   })
 })

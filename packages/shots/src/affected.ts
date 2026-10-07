@@ -288,9 +288,19 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
     // relay-fed feed behind it when this process hosts no engine — which is
     // exactly how the shot is captured, EXP-732).
-    test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs|ui\/src\/(session_screen|steer_viewer)\.rs)/,
+    test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs)/,
     views: /^steering$/,
     why: `the coding-session screen and its feed`,
+  },
+  {
+    // The two ui modules that draw the session tab. EXP-1204: `run-changes`
+    // is the SAME screen on its Diff face (`steer_viewer.rs`'s
+    // `load_pr_changes` fetches an issue-less run's PR files, `session_screen`
+    // frames it), so a change to either claims both shots; the engine and the
+    // feed above never reach that face.
+    test: /^apps\/desktop\/crates\/ui\/src\/(session_screen|steer_viewer)\.rs/,
+    views: /^(steering|run-changes)$/,
+    why: `the coding-session screen on both its faces`,
   },
   {
     // The rest of the steer crate that DRAWS: the grid pickers (permission,

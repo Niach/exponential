@@ -87,8 +87,9 @@ fn fix_hint(item: &DoctorItem) -> Option<String> {
         // EXP-1232: Codex is a managed download — its Update re-fetches the
         // pinned build and its Sign in fetches first; both run from any
         // Exponential app pointed at this device, never a typed command.
+        // The daemon also retries a failed fetch on its own (bounded).
         (DoctorAction::Update, Some(CodingAgent::Codex)) => {
-            "fetch again from the app: Devices → this device → Update".to_string()
+            "fetch again from the app: Devices → this device → Update (or wait a few minutes: the daemon retries on its own for a while)".to_string()
         }
         (DoctorAction::Update, Some(agent)) => format!("run: {} update", agent.id()),
         (DoctorAction::SignIn, Some(CodingAgent::Claude)) => "run: claude".to_string(),

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { act, cleanup, renderHook } from "@testing-library/react"
 import {
   parseShowWork,
@@ -9,7 +9,30 @@ import {
 } from "@/lib/show-work-pref"
 import { SHOW_WORK_DEFAULT } from "@/lib/work-faces"
 
+// Minimal in-memory Storage — the test runner's jsdom does not always ship a
+// working localStorage (same shim as last-visited.test.ts).
+function memoryStorage(): Storage {
+  const map = new Map<string, string>()
+  return {
+    get length() {
+      return map.size
+    },
+    clear: () => map.clear(),
+    getItem: (key: string) => map.get(key) ?? null,
+    key: (index: number) => [...map.keys()][index] ?? null,
+    removeItem: (key: string) => void map.delete(key),
+    setItem: (key: string, value: string) => void map.set(key, value),
+  }
+}
+
 describe(`Show work preference (EXP-1175)`, () => {
+  beforeAll(() => {
+    Object.defineProperty(window, `localStorage`, {
+      value: memoryStorage(),
+      configurable: true,
+    })
+  })
+
   beforeEach(() => {
     window.localStorage.clear()
     resetShowWorkStoreForTests()

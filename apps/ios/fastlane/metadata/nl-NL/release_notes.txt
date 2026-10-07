@@ -1,6 +1,5 @@
-- Dialogen: elke bevestiging en keuze gebruikt dezelfde kaart, en Return kiest nooit een destructief antwoord
-- Nieuw issue: het × vraagt het eerst voordat een concept wordt weggegooid, en wie een concept met inhoud verlaat, krijgt Create, Keep as draft of Discard
-- Runs: het run-teken staat vooraan in elke lijstrij, een actieve toolrij toont alleen de kop, en een run toont Working tot de agent echt klaar is
-- Boards: de boardkiezer toont de stip voor andere teams niet meer
-- Account: ontkoppel een inlogmethode zolang er een andere manier om in te loggen overblijft
-- Apparaten: het gereedheidsblok zegt wat een machine nog nodig heeft, en Computer use zet je per apparaat aan
+- Runs: een run opent als een thread met een statusregel (Building on your machine, verstreken tijd, laatste toolregel) en de resultaten erin; Show work opent het volledige transcript
+- Concepten: een issue dat op een ander apparaat vanuit een concept is gemaakt, opent hier als issue, en een verwijderd concept sluit overal
+- Acties: het verwijderen van een actie vraagt eerst om bevestiging, op de gedeelde meldingskaart
+- Apparaten: Codex heeft geen CLI-installatie meer nodig; de IDE downloadt het bij de eerste aanmelding
+- Oplossingen: het mergen van een pull request van een agent zonder issue werkt, en resultaatafbeeldingen worden betrouwbaar geüpload

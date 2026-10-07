@@ -57,7 +57,8 @@ export function AppsDocsPage() {
                 installer.
               </li>
               <li>
-                <strong>Linux</strong>: an <code>AppImage</code>.
+                <strong>Linux</strong>: an <code>AppImage</code> for x86_64,
+                glibc 2.39 or newer (Ubuntu 24.04 and later).
               </li>
             </ul>
             <p>

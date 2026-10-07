@@ -691,4 +691,119 @@ describe(`useIssueDraftEditor consumed elsewhere`, () => {
     await settle()
     expect(mocks.upsert).toHaveBeenCalledTimes(1)
   })
+
+  // The CONFLICT usually arrives BEFORE the shape delivers the issue: the
+  // page must stop writing but keep watching, and land on the issue when it
+  // comes (the natives keep watching too; sealing here stranded the page).
+  it(`still lands on the issue the shape delivers after a CONFLICT`, async () => {
+    const { TRPCClientError } = await import(`@trpc/client`)
+    mocks.upsert.mockRejectedValue(
+      Object.assign(new TRPCClientError(`consumed`), { data: { code: `CONFLICT` } })
+    )
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    act(() => result.current.setTitle(`Late write`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    // Writing has stopped…
+    act(() => result.current.setTitle(`Later still`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    // …but the verdict is still taken when the shape lands the issue.
+    mocks.createdElsewhere.current = createdIssue
+    rerender({ draft: undefined })
+    await settle()
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({
+      kind: `created`,
+      issue: createdIssue,
+    })
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  // A verdict the shape delivered DURING the page's own Create is not judged
+  // then (the Create owns the exit) — a failed Create must judge it after.
+  it(`judges a row gone during a Create once that Create failed`, async () => {
+    let rejectCreate: (error: unknown) => void = () => {}
+    mocks.create.mockImplementation(
+      () => new Promise((_, reject) => (rejectCreate = reject))
+    )
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    act(() => result.current.setTitle(`Mine`))
+    let created: Promise<unknown> | undefined
+    act(() => {
+      created = result.current.create()
+    })
+    await settle()
+    // Discarded elsewhere while the Create is in flight: nothing yet.
+    rerender({ draft: undefined })
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    rejectCreate(new Error(`Nope`))
+    await act(async () => {
+      await created
+    })
+    expect(result.current.isCreating()).toBe(false)
+    // The failed Create re-judged: the row is gone, a FRESH grace runs.
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS - 1)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    await advance(1)
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({ kind: `discarded` })
+  })
+
+  it(`re-arms the grace when it ran out during a Create that then failed`, async () => {
+    let rejectCreate: (error: unknown) => void = () => {}
+    mocks.create.mockImplementation(
+      () => new Promise((_, reject) => (rejectCreate = reject))
+    )
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    // Gone BEFORE the Create: the hold is on, the grace is running.
+    rerender({ draft: undefined })
+    act(() => result.current.setTitle(`Typed under the hold`))
+    let created: Promise<unknown> | undefined
+    act(() => {
+      created = result.current.create()
+    })
+    await settle()
+    // The grace fires mid-Create and bails.
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    rejectCreate(new Error(`Nope`))
+    await act(async () => {
+      await created
+    })
+    // Before: the hold stayed on for ever and every write was dropped
+    // silently. Now the row is judged again — still gone, fresh grace.
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({ kind: `discarded` })
+    expect(mocks.upsert).not.toHaveBeenCalled()
+  })
+
+  it(`releases a hold when the row came back during a Create that failed`, async () => {
+    let rejectCreate: (error: unknown) => void = () => {}
+    mocks.create.mockImplementation(
+      () => new Promise((_, reject) => (rejectCreate = reject))
+    )
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    rerender({ draft: undefined })
+    act(() => result.current.setTitle(`Typed under the hold`))
+    let created: Promise<unknown> | undefined
+    act(() => {
+      created = result.current.create()
+    })
+    await settle()
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    // A resync brings the row back while the Create is in flight.
+    rerender({ draft: existingDraft() })
+    await settle()
+    rejectCreate(new Error(`Nope`))
+    await act(async () => {
+      await created
+    })
+    // Editing resumed: what was typed under the hold is written.
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    expect(mocks.upsert.mock.calls[0][0].title).toBe(`Typed under the hold`)
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+  })
 })

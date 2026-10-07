@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { router } from "@/lib/trpc"
 import { db } from "@/db/connection"
-import { resolveSession } from "@/lib/auth/resolve-bearer"
+import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { checkClientVersion } from "@/lib/client-version"
 import { teamsRouter } from "@/lib/trpc/teams"
 import { boardsRouter } from "@/lib/trpc/boards"
@@ -92,11 +92,13 @@ const serve = ({ request }: { request: Request }) => {
     endpoint: `/api/trpc`,
     req: request,
     router: appRouter,
-    createContext: async () => ({
-      db,
-      request,
-      session: await resolveSession(request),
-    }),
+    createContext: async () => {
+      // FEED-76: a scoped `expu_` key is MCP-only — unauthenticated here,
+      // but named so the 401 explains itself instead of reading as a dead key.
+      const { session, keyScope } = await resolveMcpCredential(request)
+      if (keyScope) return { db, request, session: null, scopedKey: true as const }
+      return { db, request, session }
+    },
   })
 }
 

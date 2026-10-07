@@ -108,6 +108,9 @@ pub const DOWNLOAD_FAILED_PREFIX: &str = "Codex could not be downloaded:";
 
 const LOCK_DIR: &str = "download.lock";
 const FAILURE_FILE: &str = "last-error.txt";
+/// Automatic retries since the last explicit [`ensure`]: a decimal count
+/// beside [`FAILURE_FILE`] (absent = 0).
+const RETRY_COUNT_FILE: &str = "retry-count";
 const DOWNLOADS_DIR: &str = "downloads";
 /// A lock dir whose heartbeat (5 s) stopped this long ago belonged to a
 /// crashed host; the next fetch reclaims it.
@@ -116,6 +119,14 @@ const LOCK_STALE: Duration = Duration::from_secs(120);
 const UNPACK_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// How long a second host waits for the one holding the lock.
 const WAIT_FOR_PEER: Duration = Duration::from_secs(30 * 60);
+/// A fetch nobody asked for that failed is retried on its own once the
+/// recorded failure ([`FAILURE_FILE`]'s mtime) is this old…
+pub const RETRY_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+/// …at most this many times since the last explicit [`ensure`] (a sign-in
+/// or Update); then the row stays `Download failed · Update` until a person
+/// acts. A headless daemon that booted during a network blip thus recovers
+/// on its own instead of waiting for a click from another client.
+pub const RETRY_CAP: u32 = 3;
 
 /// The `ASSETS` target for the running host (`None` = no upstream build).
 pub fn host_target() -> Option<&'static str> {
@@ -210,7 +221,8 @@ pub enum State {
     /// A fetch is running here or in the other host, or a login is stored
     /// and the host is about to start one ([`should_fetch`]).
     Downloading,
-    /// The last fetch failed; the reason. `agent_update codex` retries.
+    /// The last fetch failed; the reason. `agent_update codex` retries, as
+    /// does the host itself: [`RETRY_CAP`] times, [`RETRY_COOLDOWN`] apart.
     Failed(String),
     /// No binary and no login: nothing to do until a sign-in.
     NotWanted,
@@ -260,25 +272,108 @@ fn last_failure(root: &Path) -> Option<String> {
 
 fn record_failure(root: &Path, reason: &str) {
     let _ = fs::create_dir_all(root);
-    let _ = fs::write(root.join(FAILURE_FILE), reason);
+    if let Err(err) = write_atomic(&root.join(FAILURE_FILE), reason.as_bytes()) {
+        log::debug!("managed codex: could not record the failure: {err}");
+    }
 }
 
 fn clear_failure(root: &Path) {
     let _ = fs::remove_file(root.join(FAILURE_FILE));
+    reset_automatic_retries(root);
 }
+
+/// Write beside, then rename over: a reader never sees a torn file.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, path)
+}
+
+/// Age of the recorded failure at `now`; `None` when there is none.
+fn failure_age(root: &Path, now: SystemTime) -> Option<Duration> {
+    let modified = fs::metadata(root.join(FAILURE_FILE)).ok()?.modified().ok()?;
+    Some(now.duration_since(modified).unwrap_or(Duration::ZERO))
+}
+
+fn automatic_retries(root: &Path) -> u32 {
+    fs::read_to_string(root.join(RETRY_COUNT_FILE))
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// A fetch nobody asked for is starting over a recorded failure: count it
+/// against [`RETRY_CAP`]. Nothing to count without a failure.
+fn note_automatic_retry(root: &Path) {
+    if failure_age(root, SystemTime::now()).is_none() {
+        return;
+    }
+    let count = automatic_retries(root).saturating_add(1);
+    let _ = fs::create_dir_all(root);
+    if let Err(err) = write_atomic(&root.join(RETRY_COUNT_FILE), count.to_string().as_bytes()) {
+        log::debug!("managed codex: could not count the retry: {err}");
+    }
+}
+
+fn reset_automatic_retries(root: &Path) {
+    let _ = fs::remove_file(root.join(RETRY_COUNT_FILE));
+}
+
+/// Whether the recorded failure still holds an automatic fetch back: it is
+/// younger than [`RETRY_COOLDOWN`], or [`RETRY_CAP`] retries already failed
+/// since the last explicit [`ensure`]. No failure holds nothing back.
+fn failure_blocks_retry(root: &Path, now: SystemTime) -> bool {
+    match failure_age(root, now) {
+        None => false,
+        Some(age) => age < RETRY_COOLDOWN || automatic_retries(root) >= RETRY_CAP,
+    }
+}
+
+/// Who wants the build: a person (sign-in, Update, a launch) or the host
+/// itself over a stored login ([`should_fetch`]). Only the latter spends
+/// the automatic-retry budget; the former starts it over.
+#[derive(Clone, Copy)]
+enum Intent {
+    Explicit,
+    Automatic,
+}
+
+type Fetch = fn(&Path, &PinnedAsset, &mut dyn FnMut(u64, Option<u64>)) -> Result<PathBuf, String>;
 
 /// Make sure the pinned build is in place; returns its path. Blocking for
 /// the download (callers run it off the UI thread). ONE fetch per machine
 /// at a time: a second caller — the daemon beside the IDE, a sign-in beside
 /// the upgrade fetch — waits for the holder and then reads the result.
 /// A failure is recorded for the doctor ([`State::Failed`]) and returned.
+/// Asked for explicitly, so the automatic-retry budget starts over.
 pub fn ensure(
     data_dir: &Path,
     progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, String> {
+    ensure_with(data_dir, progress, Intent::Explicit, fetch)
+}
+
+/// [`ensure`] for the host's own fetch over a stored login — one more
+/// automatic retry if a failure is on record ([`should_fetch`] said it is
+/// due).
+fn ensure_automatic(data_dir: &Path) -> Result<PathBuf, String> {
+    ensure_with(data_dir, &mut |_, _| {}, Intent::Automatic, fetch)
+}
+
+fn ensure_with(
+    data_dir: &Path,
+    progress: &mut dyn FnMut(u64, Option<u64>),
+    intent: Intent,
+    fetch: Fetch,
+) -> Result<PathBuf, String> {
     let path = binary_path(data_dir);
     if path.is_file() {
         return Ok(path);
+    }
+    let root = install_root(data_dir);
+    match intent {
+        Intent::Explicit => reset_automatic_retries(&root),
+        Intent::Automatic => note_automatic_retry(&root),
     }
     let Some(asset) = host_asset() else {
         let reason = format!(
@@ -286,10 +381,9 @@ pub fn ensure(
             std::env::consts::OS,
             std::env::consts::ARCH
         );
-        record_failure(&install_root(data_dir), &reason);
+        record_failure(&root, &reason);
         return Err(reason);
     };
-    let root = install_root(data_dir);
     fs::create_dir_all(&root)
         .map_err(|err| format!("Could not create {}: {err}", root.display()))?;
     let lock = root.join(LOCK_DIR);
@@ -468,14 +562,27 @@ fn prune_other_versions(root: &Path) {
 static IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
 /// Whether a host should start a background fetch now: Codex is managed,
-/// the build is missing, a login is stored, and nobody is fetching yet.
+/// the build is missing, a login is stored, nobody is fetching yet, and no
+/// recorded failure holds it back — one does for [`RETRY_COOLDOWN`] after
+/// it was written, and for good once [`RETRY_CAP`] automatic retries have
+/// failed since the last explicit [`ensure`] ([`failure_blocks_retry`]).
 pub fn should_fetch(settings: &Settings, data_dir: &Path) -> bool {
+    should_fetch_in(settings, data_dir, SystemTime::now(), || wanted(data_dir))
+}
+
+fn should_fetch_in(
+    settings: &Settings,
+    data_dir: &Path,
+    now: SystemTime,
+    wanted: impl FnOnce() -> bool,
+) -> bool {
+    let root = install_root(data_dir);
     settings.codex_is_managed()
         && !installed(data_dir)
         && !IN_FLIGHT.load(Ordering::SeqCst)
-        && !lock_live(&install_root(data_dir))
-        && last_failure(&install_root(data_dir)).is_none()
-        && wanted(data_dir)
+        && !lock_live(&root)
+        && !failure_blocks_retry(&root, now)
+        && wanted()
 }
 
 /// [`ensure`] guarded by the process-wide in-flight flag: `None` when this
@@ -485,7 +592,7 @@ pub fn ensure_once(data_dir: &Path) -> Option<Result<PathBuf, String>> {
     if IN_FLIGHT.swap(true, Ordering::SeqCst) {
         return None;
     }
-    let result = ensure(data_dir, &mut |_, _| {});
+    let result = ensure_automatic(data_dir);
     IN_FLIGHT.store(false, Ordering::SeqCst);
     if let Err(reason) = &result {
         log::warn!("managed codex: {reason}");
@@ -505,7 +612,7 @@ pub fn fetch_in_background(
     let spawned = std::thread::Builder::new()
         .name("exp-managed-codex".to_string())
         .spawn(move || {
-            let result = ensure(&data_dir, &mut |_, _| {});
+            let result = ensure_automatic(&data_dir);
             IN_FLIGHT.store(false, Ordering::SeqCst);
             if let Err(reason) = &result {
                 log::warn!("managed codex: {reason}");
@@ -606,6 +713,109 @@ mod tests {
         fs::create_dir_all(version_dir(data_dir)).unwrap();
         fs::write(binary_path(data_dir), b"#!/bin/sh\n").unwrap();
         assert_eq!(state_in(data_dir, || false), State::Installed);
+    }
+
+    #[test]
+    fn a_failed_automatic_fetch_retries_after_the_cooldown_at_most_cap_times() {
+        let dir = TempDir::new("retry");
+        let data_dir = &dir.0;
+        let root = install_root(data_dir);
+        let settings = Settings::default();
+        let now = SystemTime::now();
+        let later = now + RETRY_COOLDOWN + Duration::from_secs(1);
+        assert!(should_fetch_in(&settings, data_dir, now, || true));
+        assert!(!should_fetch_in(&settings, data_dir, now, || false));
+
+        // Nothing to count without a failure on record.
+        note_automatic_retry(&root);
+        assert_eq!(automatic_retries(&root), 0);
+        assert!(!root.join(RETRY_COUNT_FILE).exists());
+
+        // A fresh failure: no fetch yet…
+        record_failure(&root, "no network");
+        assert!(!should_fetch_in(&settings, data_dir, now, || true));
+        assert!(!should_fetch_in(&settings, data_dir, now + RETRY_COOLDOWN / 2, || true));
+        // …past the cooldown with the budget unspent: due.
+        assert!(should_fetch_in(&settings, data_dir, later, || true));
+        assert!(!should_fetch_in(&settings, data_dir, later, || false));
+        // Each automatic retry spends one; at the cap it stays sticky
+        // however old the failure gets.
+        for spent in 1..RETRY_CAP {
+            note_automatic_retry(&root);
+            assert_eq!(automatic_retries(&root), spent);
+            assert!(should_fetch_in(&settings, data_dir, later, || true), "{spent} spent");
+        }
+        note_automatic_retry(&root);
+        assert_eq!(automatic_retries(&root), RETRY_CAP);
+        assert!(!should_fetch_in(&settings, data_dir, later, || true));
+        assert!(!should_fetch_in(&settings, data_dir, later + Duration::from_secs(86_400), || true));
+        assert_eq!(state_in(data_dir, || true), State::Failed("no network".into()));
+
+        // A live lock refuses regardless; clearing the failure clears the count.
+        reset_automatic_retries(&root);
+        fs::create_dir_all(root.join(LOCK_DIR)).unwrap();
+        assert!(!should_fetch_in(&settings, data_dir, later, || true));
+        fs::remove_dir_all(root.join(LOCK_DIR)).unwrap();
+        note_automatic_retry(&root);
+        clear_failure(&root);
+        assert_eq!(automatic_retries(&root), 0);
+        assert!(!root.join(FAILURE_FILE).exists());
+        assert!(should_fetch_in(&settings, data_dir, now, || true));
+    }
+
+    fn failing_fetch(
+        _: &Path,
+        _: &PinnedAsset,
+        _: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<PathBuf, String> {
+        Err("stub: no network".to_string())
+    }
+
+    fn installing_fetch(
+        data_dir: &Path,
+        _: &PinnedAsset,
+        _: &mut dyn FnMut(u64, Option<u64>),
+    ) -> Result<PathBuf, String> {
+        fs::create_dir_all(version_dir(data_dir)).unwrap();
+        fs::write(binary_path(data_dir), b"#!/bin/sh\n").unwrap();
+        Ok(binary_path(data_dir))
+    }
+
+    #[test]
+    fn an_explicit_ensure_resets_the_retry_budget_an_automatic_one_spends_it() {
+        let dir = TempDir::new("retry-reset");
+        let data_dir = &dir.0;
+        let root = install_root(data_dir);
+        record_failure(&root, "no network");
+        for _ in 0..RETRY_CAP {
+            note_automatic_retry(&root);
+        }
+        assert_eq!(automatic_retries(&root), RETRY_CAP);
+
+        // Sign-in / Update: the budget starts over; the failure is
+        // re-recorded fresh, under the lock, and the lock is released.
+        let err = ensure_with(data_dir, &mut |_, _| {}, Intent::Explicit, failing_fetch).unwrap_err();
+        assert_eq!(err, "stub: no network");
+        assert_eq!(state_in(data_dir, || true), State::Failed("stub: no network".into()));
+        assert_eq!(automatic_retries(&root), 0);
+        assert!(!root.join(LOCK_DIR).exists());
+
+        // The host's own retry counts against the cap and keeps the record.
+        let err = ensure_with(data_dir, &mut |_, _| {}, Intent::Automatic, failing_fetch).unwrap_err();
+        assert_eq!(err, "stub: no network");
+        assert_eq!(automatic_retries(&root), 1);
+        assert_eq!(state_in(data_dir, || true), State::Failed("stub: no network".into()));
+
+        // A success clears the failure and the count alike.
+        let path = ensure_with(data_dir, &mut |_, _| {}, Intent::Automatic, installing_fetch).unwrap();
+        assert_eq!(path, binary_path(data_dir));
+        assert_eq!(state_in(data_dir, || false), State::Installed);
+        assert!(!root.join(FAILURE_FILE).exists());
+        assert!(!root.join(RETRY_COUNT_FILE).exists());
+        // Installed: no accounting touches the disk any more.
+        record_failure(&root, "stale");
+        assert!(ensure_with(data_dir, &mut |_, _| {}, Intent::Automatic, failing_fetch).is_ok());
+        assert_eq!(automatic_retries(&root), 0);
     }
 
     #[test]

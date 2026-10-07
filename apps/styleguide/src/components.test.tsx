@@ -88,7 +88,7 @@ const ENTRY_DEMOS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.render !== undefined
 )
 /** The FILLED registered entries that are islands (EXP-1014's workflow graph,
- *  EXP-1020's device settings + sub-shell): the page carries one shadow root
+ *  EXP-1020's device settings): the page carries one shadow root
  *  for each of them beside the component islands. */
 const ENTRY_ISLANDS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.island !== undefined
