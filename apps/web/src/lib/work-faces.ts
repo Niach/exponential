@@ -3,6 +3,8 @@ import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
 import { hasSessionResults, type SessionDotTone } from "@exp/ui"
+import { formatTurnDuration } from "@/lib/working-caption"
+import type { SessionStatusTone } from "@/lib/coding-session-display"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
 // session) with up to four FACES held as screen state, never as navigation:
@@ -305,4 +307,80 @@ export function toggleFaceDots(
 ): Partial<Record<`issue` | `run` | `diff` | `results`, FaceDotTone>> {
   const { changes, ...rest } = dots
   return changes ? { ...rest, diff: changes } : rest
+}
+
+// ── EXP-1175: the Run face's status row + Show work ─────────────────────────
+// The Run face opens as the THREAD: one status row (the agent's run mark as
+// the spinner, this caption, the last tool line muted, `Show work` on the
+// right) over the run's published results in publish order (`sessionThread`,
+// @exp/ui), pending plan/question cards still in place. Show work swaps the
+// thread for the full transcript IN PLACE; the choice is remembered per user.
+// Fixture `packages/domain-contract/fixtures/run-row.json` (×4).
+
+/** The viewer's Show work preference before they ever touched it. */
+export const SHOW_WORK_DEFAULT = false
+export const SHOW_WORK_LABEL = `Show work`
+export const HIDE_WORK_LABEL = `Hide work`
+
+/** The row's trailing button: what pressing it DOES next. */
+export function showWorkLabel(showWork: boolean): string {
+  return showWork ? HIDE_WORK_LABEL : SHOW_WORK_LABEL
+}
+
+/** The ×4 display state (`sessionDisplayState`) plus the two the row alone
+ *  tells apart: a paused (offline host) run and an ended one. */
+export type RunRowState =
+  | `working`
+  | `needs_input`
+  | `paused`
+  | `review`
+  | `done`
+  | `ended`
+
+export interface RunRowCaptionInput {
+  state: RunRowState
+  /** The resolved device label (`device.label || session.deviceLabel || 'Desktop'`). */
+  device: string
+  startedAt: Date | string | null | undefined
+  /** The run's `ended_at`, else its `updated_at` — an ended run's end. */
+  endedAt: Date | string | null | undefined
+  now: Date | string | number
+}
+
+function stampOrNull(value: Date | string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const ms =
+    typeof value === `number`
+      ? value
+      : (typeof value === `string` ? new Date(value) : value).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
+/** The status row's first line and tone: `Building on <device> · <elapsed>`
+ *  while it works (now − start), `Ended on <device> · <elapsed>` once it is
+ *  over (end − start), else the session list row's words. The elapsed part
+ *  is the working caption's ladder and drops when a stamp is missing. */
+export function runRowCaption(
+  input: RunRowCaptionInput
+): { text: string; tone: SessionStatusTone } {
+  const device = input.device
+  switch (input.state) {
+    case `paused`:
+      return { text: `Paused · ${device}`, tone: `muted` }
+    case `needs_input`:
+      return { text: `Needs input · ${device}`, tone: `amber` }
+    case `review`:
+      return { text: `Ready for review · ${device}`, tone: `emerald` }
+    case `done`:
+      return { text: `Done · ${device}`, tone: `sky` }
+    case `working`:
+    case `ended`: {
+      const verb = input.state === `working` ? `Building on` : `Ended on`
+      const start = stampOrNull(input.startedAt)
+      const end = stampOrNull(input.state === `working` ? input.now : input.endedAt)
+      const elapsed =
+        start !== null && end !== null ? ` · ${formatTurnDuration(end - start)}` : ``
+      return { text: `${verb} ${device}${elapsed}`, tone: `muted` }
+    }
+  }
 }

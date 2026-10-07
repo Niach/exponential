@@ -264,3 +264,38 @@ describe(`issueResultsRun`, () => {
     })
   }
 })
+
+// EXP-1175: the Run face status row, fixture-locked ×4.
+import runRowFixture from "@exp/domain-contract/fixtures/run-row.json"
+import {
+  HIDE_WORK_LABEL,
+  SHOW_WORK_DEFAULT,
+  SHOW_WORK_LABEL,
+  runRowCaption,
+  showWorkLabel,
+  type RunRowState,
+} from "./work-faces"
+
+describe(`run row`, () => {
+  it(`labels the Show work switch off the fixture`, () => {
+    expect(SHOW_WORK_LABEL).toBe(runRowFixture.showWorkLabel)
+    expect(HIDE_WORK_LABEL).toBe(runRowFixture.hideWorkLabel)
+    expect(SHOW_WORK_DEFAULT).toBe(runRowFixture.showWorkDefault)
+    expect(showWorkLabel(false)).toBe(runRowFixture.showWorkLabel)
+    expect(showWorkLabel(true)).toBe(runRowFixture.hideWorkLabel)
+  })
+
+  for (const c of runRowFixture.captions) {
+    it(c.name, () => {
+      expect(
+        runRowCaption({
+          state: c.state as RunRowState,
+          device: c.device,
+          startedAt: c.startedAt,
+          endedAt: c.endedAt,
+          now: c.now,
+        })
+      ).toEqual(c.expected)
+    })
+  }
+})

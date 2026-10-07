@@ -1,0 +1,166 @@
+{
+  "$comment": "EXP-1175: the Run face's STATUS ROW and its Show work switch, mirrored x4 (web lib/work-faces.ts + lib/agent-feed.ts, iOS WorkFaces.swift + AgentFeed.swift, Android WorkFaces.kt + AgentFeed.kt, desktop run_rows.rs + steer feed.rs). The Run face opens as the THREAD (the status row over the run's published results, newest at the bottom, pending plan/question cards still in place) unless the viewer's per-user Show work preference (default showWorkDefault, remembered per user id on every client) is on, in which case the same row sits over the full transcript; the row's trailing text button reads showWorkLabel while the thread shows and hideWorkLabel while the transcript shows. runRowCaption({state, device, startedAt, endedAt, now}) = the row's first line + tone: working -> 'Building on <device> · <elapsed>' (elapsed = now - startedAt), ended -> 'Ended on <device> · <elapsed>' (elapsed = endedAt - startedAt; the caller passes ended_at, else updated_at), paused/needs_input/review/done = the session list row's status line words and tones. The elapsed ladder is the working caption's ('37s', '2m 04s', '1h 03m'); a missing or unparsable timestamp drops the ' · <elapsed>' part. lastToolLine(feed) = the row's muted second line: the NEWEST tool item of the feed (anything after it is ignored); an Exponential MCP tool reads the contract expToolDisplay caption for its settled state plus its subject (settled: the single preview ref's title, else identifier, else the preview title/identifier, else the call's detail; unsettled: the detail), any other tool its name plus its detail; both joined by ONE space, a missing part dropped; no tool item = null. Only a LIVE run shows the line.",
+  "showWorkLabel": "Show work",
+  "hideWorkLabel": "Hide work",
+  "showWorkDefault": false,
+  "captions": [
+    {
+      "name": "a working run says where it builds and for how long",
+      "state": "working",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:12:04Z",
+      "expected": { "text": "Building on MacBook Pro · 12m 04s", "tone": "muted" }
+    },
+    {
+      "name": "seconds alone under a minute",
+      "state": "working",
+      "device": "Desktop",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:00:37Z",
+      "expected": { "text": "Building on Desktop · 37s", "tone": "muted" }
+    },
+    {
+      "name": "hours and minutes past an hour",
+      "state": "working",
+      "device": "Desktop",
+      "startedAt": "2026-10-06T09:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:03:59Z",
+      "expected": { "text": "Building on Desktop · 1h 03m", "tone": "muted" }
+    },
+    {
+      "name": "a clock that ran backwards reads 0s",
+      "state": "working",
+      "device": "Desktop",
+      "startedAt": "2026-10-06T10:00:10Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:00:00Z",
+      "expected": { "text": "Building on Desktop · 0s", "tone": "muted" }
+    },
+    {
+      "name": "an unparsable start drops the elapsed part",
+      "state": "working",
+      "device": "Desktop",
+      "startedAt": "yesterday",
+      "endedAt": null,
+      "now": "2026-10-06T10:00:00Z",
+      "expected": { "text": "Building on Desktop", "tone": "muted" }
+    },
+    {
+      "name": "an ended run measures start to end",
+      "state": "ended",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": "2026-10-06T10:45:30Z",
+      "now": "2026-10-07T08:00:00Z",
+      "expected": { "text": "Ended on MacBook Pro · 45m 30s", "tone": "muted" }
+    },
+    {
+      "name": "an ended run with no end stamp drops the elapsed part",
+      "state": "ended",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-07T08:00:00Z",
+      "expected": { "text": "Ended on MacBook Pro", "tone": "muted" }
+    },
+    {
+      "name": "needs input is amber",
+      "state": "needs_input",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:12:04Z",
+      "expected": { "text": "Needs input · MacBook Pro", "tone": "amber" }
+    },
+    {
+      "name": "paused is muted",
+      "state": "paused",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:12:04Z",
+      "expected": { "text": "Paused · MacBook Pro", "tone": "muted" }
+    },
+    {
+      "name": "review is emerald",
+      "state": "review",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:12:04Z",
+      "expected": { "text": "Ready for review · MacBook Pro", "tone": "emerald" }
+    },
+    {
+      "name": "done is sky",
+      "state": "done",
+      "device": "MacBook Pro",
+      "startedAt": "2026-10-06T10:00:00Z",
+      "endedAt": null,
+      "now": "2026-10-06T10:12:04Z",
+      "expected": { "text": "Done · MacBook Pro", "tone": "sky" }
+    }
+  ],
+  "toolLines": [
+    {
+      "name": "no tool item yet",
+      "feed": [
+        { "kind": "narration", "text": "Starting" }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a plain tool reads name and detail",
+      "feed": [
+        { "kind": "tool", "name": "Read", "detail": "apps/web/src/lib/work-faces.ts" }
+      ],
+      "expected": "Read apps/web/src/lib/work-faces.ts"
+    },
+    {
+      "name": "a plain tool without detail reads its name alone",
+      "feed": [
+        { "kind": "tool", "name": "Bash", "settled": true }
+      ],
+      "expected": "Bash"
+    },
+    {
+      "name": "the newest tool wins over anything after it",
+      "feed": [
+        { "kind": "tool", "name": "Read", "detail": "a.ts", "settled": true },
+        { "kind": "tool", "name": "Edit", "detail": "b.ts", "settled": true },
+        { "kind": "narration", "text": "Done with b" }
+      ],
+      "expected": "Edit b.ts"
+    },
+    {
+      "name": "an unsettled Exponential tool reads the progressive caption and the call's subject",
+      "feed": [
+        { "kind": "tool", "name": "mcp__exponential__exponential_issues_create", "detail": "Login button overlaps" }
+      ],
+      "expected": "Creating issue Login button overlaps"
+    },
+    {
+      "name": "a settled Exponential tool reads the done caption and the answer's ref",
+      "feed": [
+        {
+          "kind": "tool",
+          "name": "exponential_issues_create",
+          "detail": "Login button overlaps",
+          "settled": true,
+          "preview": { "refs": [{ "kind": "issue", "id": "i1", "identifier": "EXP-9", "title": "Login button overlaps the logo" }] }
+        }
+      ],
+      "expected": "Created issue Login button overlaps the logo"
+    },
+    {
+      "name": "a settled Exponential tool with no subject reads the caption alone",
+      "feed": [
+        { "kind": "tool", "name": "mcp__exponential__exponential_sessions_show", "settled": true }
+      ],
+      "expected": "Showed picture"
+    }
+  ]
+}

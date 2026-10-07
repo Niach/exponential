@@ -767,6 +767,56 @@ export function liveToolRowId<
   return last.id
 }
 
+/** EXP-1175: the Run face status row's muted second line — the NEWEST tool
+ *  item of the feed (whatever follows it is ignored), as ONE line: an
+ *  Exponential MCP tool reads its contract caption for its settled state and
+ *  its subject (the `ExpToolRow` rule: settled, the single preview ref's
+ *  title, else identifier, else the preview's title/identifier, else the
+ *  call's detail; unsettled, the detail), any other tool its name and detail;
+ *  joined by one space, a missing part dropped. `null` without a tool item.
+ *  Fixture `run-row.json` `toolLines` (×4). */
+export function lastToolLine<
+  T extends {
+    kind: string
+    name?: string
+    detail?: string
+    settled?: boolean
+    preview?: {
+      title?: string
+      identifier?: string
+      refs?: { title?: string; identifier?: string }[]
+    }
+  },
+>(feed: readonly T[]): string | null {
+  for (let i = feed.length - 1; i >= 0; i--) {
+    const item = feed[i]
+    if (item.kind !== `tool`) continue
+    const name = item.name ?? ``
+    const exp = expToolDisplay(name)
+    let head = name
+    let subject = item.detail ?? null
+    if (exp) {
+      head = expToolCaption(exp, item.settled === true)
+      if (item.settled === true) {
+        const ref =
+          item.preview?.refs?.length === 1 ? item.preview.refs[0] : undefined
+        subject =
+          ref?.title ??
+          ref?.identifier ??
+          item.preview?.title ??
+          item.preview?.identifier ??
+          item.detail ??
+          null
+      }
+    }
+    return [head, subject]
+      .filter((part): part is string => typeof part === `string` && part.trim() !== ``)
+      .map((part) => part.trim())
+      .join(` `)
+  }
+  return null
+}
+
 /** Group the flat feed into render rows — a pure projection: the feed (and
  *  `activeQuestionIds` over it) is never restructured, so answerability logic
  *  is unaffected. Grouped items are pulled out of their in-place position into

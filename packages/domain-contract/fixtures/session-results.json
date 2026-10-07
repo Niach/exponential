@@ -210,5 +210,62 @@
         "expected": "r2"
       }
     ]
+  },
+  "thread": {
+    "$comment": "EXP-1175: the Run face's THREAD — sessionThread(raw) reads coding_sessions.results in ARRAY (publish) order, the same tolerance and 60-picture cap as parseSessionResultGroups: a picture entry -> {kind:'picture', entry}; a topic's FIRST non-blank text entry -> {kind:'text', topic, text} at that position (a later text of the same topic is dropped); the text of the Summary topic (isSummaryTopic) is NOT an item, it is `reply` (the first one), the agent's reply drawn LAST after every item; pictures filed under Summary stay in the stream. Mirrored x4.",
+    "cases": [
+      {
+        "name": "null blob",
+        "raw": null,
+        "expected": { "items": [], "reply": null }
+      },
+      {
+        "name": "pictures and texts keep publish order, the summary becomes the reply",
+        "raw": [
+          { "topic": "Progress", "label": "Shot 1", "attachmentId": "a1", "inline": true, "caption": "Before" },
+          { "topic": "nav", "label": null, "attachmentId": null, "text": "  The nav bar  " },
+          { "topic": "nav", "label": "web", "attachmentId": "a2" },
+          { "topic": "Summary", "label": null, "attachmentId": null, "text": " Shipped the nav. " },
+          { "topic": "Progress", "label": "Shot 2", "attachmentId": "a3", "inline": true }
+        ],
+        "expected": {
+          "items": [
+            { "kind": "picture", "attachmentId": "a1" },
+            { "kind": "text", "topic": "nav", "text": "The nav bar" },
+            { "kind": "picture", "attachmentId": "a2" },
+            { "kind": "picture", "attachmentId": "a3" }
+          ],
+          "reply": "Shipped the nav."
+        }
+      },
+      {
+        "name": "a topic's first text wins, blank texts and malformed rows drop, summary pictures stay",
+        "raw": [
+          { "topic": "nav", "label": null, "attachmentId": null, "text": "   " },
+          { "topic": "nav", "label": null, "attachmentId": null, "text": "First" },
+          { "topic": "nav", "label": null, "attachmentId": null, "text": "Second" },
+          { "topic": "", "label": "x", "attachmentId": "a9" },
+          "junk",
+          { "topic": "summary", "label": "cover", "attachmentId": "a4" },
+          { "topic": " SUMMARY ", "label": null, "attachmentId": null, "text": "One" },
+          { "topic": "Summary", "label": null, "attachmentId": null, "text": "Two" }
+        ],
+        "expected": {
+          "items": [
+            { "kind": "text", "topic": "nav", "text": "First" },
+            { "kind": "picture", "attachmentId": "a4" }
+          ],
+          "reply": "One"
+        }
+      },
+      {
+        "name": "a JSON string blob reads like the array",
+        "raw": "[{\"topic\":\"Progress\",\"label\":\"Shot 1\",\"attachmentId\":\"a1\",\"inline\":true}]",
+        "expected": {
+          "items": [{ "kind": "picture", "attachmentId": "a1" }],
+          "reply": null
+        }
+      }
+    ]
   }
 }
