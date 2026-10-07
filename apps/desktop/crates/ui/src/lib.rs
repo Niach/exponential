@@ -134,6 +134,7 @@ mod reviews_view;
 // Past) and the two Devices sections that render it.
 mod run_rows;
 mod sessions_section;
+mod scope_picker;
 mod screens;
 mod scroll_pane;
 mod search_sheet;

@@ -63,6 +63,13 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
   findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
 }))
 
+// FEED-77: a resume that took a report over onto a row with a PR re-patches
+// the PR body (EXP-1154) so it links the successor's Results face. Lazily
+// imported by the router; a spy here, the body itself is run-pr-body's test.
+vi.mock(`@/lib/run-pr-body`, () => ({
+  syncRunPrBody: vi.fn(async () => `synced` as const),
+}))
+
 // EXP-980/1005: a wall tells the run's owner unless the device handles it.
 vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/notifications")>()),
@@ -93,14 +100,22 @@ import {
 } from "@/lib/steer-child-messages"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
+import { syncRunPrBody } from "@/lib/run-pr-body"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
 const SESSION_ID = `33333333-3333-4333-8333-333333333333`
 const ACTION_ID = `44444444-4444-4444-8444-444444444444`
 
-const inserts: { table: unknown; values: Record<string, unknown> }[] = []
-const updates: { table: unknown; values: Record<string, unknown> }[] = []
+// `inTx` = the write ran inside a `db.transaction` (FEED-77: the report
+// handoff must be one transaction around the successor insert).
+const inserts: { table: unknown; values: Record<string, unknown>; inTx: boolean }[] = []
+const updates: { table: unknown; values: Record<string, unknown>; inTx: boolean }[] = []
+// Every write in call order, by kind + table — the only way to assert that
+// the predecessor's clear PRECEDES the successor insert.
+const ops: string[] = []
+let txDepth = 0
+let transactions = 0
 // Every update's where clause, in call order — the fake db can't execute the
 // status fence, so tests assert its SHAPE instead (EXP-531: a needs_input
 // `true` write is fenced to `running` rows only).
@@ -149,10 +164,17 @@ function sqlText(node: unknown): string {
   return ``
 }
 
+function tableName(table: unknown): string {
+  if (table === codingSessions) return `coding_sessions`
+  if (table === sessionAttachments) return `session_attachments`
+  return `other`
+}
+
 const fakeDb = {
   insert: (table: unknown) => ({
     values: (values: Record<string, unknown>) => {
-      inserts.push({ table, values })
+      inserts.push({ table, values, inTx: txDepth > 0 })
+      ops.push(`insert:${tableName(table)}`)
       return {
         returning: async () => [{ id: SESSION_ID, ...values }],
         // The heartbeat re-create insert is awaited without .returning().
@@ -167,10 +189,17 @@ const fakeDb = {
       innerJoin: () => from,
       where: (cond: unknown) => {
         selectWheres.push(cond)
+        // `.limit(1)` is awaited directly or after `.for('update')` (the
+        // FEED-77 row lock), so the limited builder is a thenable with `for`.
+        const limited = {
+          for: () => limited,
+          then: (resolve: (value: unknown) => unknown) =>
+            Promise.resolve(selectResults.shift() ?? []).then(resolve),
+        }
         // Awaited WITHOUT `.limit()` by the unbounded reads (EXP-876's batch
         // issue scoping), so the builder is a thenable as well.
         return {
-          limit: async () => selectResults.shift() ?? [],
+          limit: () => limited,
           then: (resolve: (value: unknown) => unknown) =>
             Promise.resolve(selectResults.shift() ?? []).then(resolve),
         }
@@ -182,7 +211,8 @@ const fakeDb = {
     set: (values: Record<string, unknown>) => ({
       where: (cond: unknown) => {
         const run = () => {
-          updates.push({ table, values })
+          updates.push({ table, values, inTx: txDepth > 0 })
+          ops.push(`update:${tableName(table)}`)
           updateWheres.push(cond)
           return updateResults.shift() ?? [{ id: SESSION_ID }]
         }
@@ -195,6 +225,16 @@ const fakeDb = {
       },
     }),
   }),
+  // The tx is the same recorder; `txDepth` marks what ran inside it.
+  transaction: async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => {
+    transactions += 1
+    txDepth += 1
+    try {
+      return await fn(fakeDb)
+    } finally {
+      txDepth -= 1
+    }
+  },
 }
 
 const caller = codingSessionsRouter.createCaller({
@@ -232,6 +272,10 @@ beforeEach(() => {
   h.applySessionPrState.mockClear()
   h.loadRepositoryByFullName.mockClear()
   h.mergeRepositoryPull.mockClear()
+  ops.length = 0
+  txDepth = 0
+  transactions = 0
+  vi.mocked(syncRunPrBody).mockClear()
 })
 
 // EXP-1051: a deploy constant, not a per-run one — no input, no db read, and
@@ -2542,23 +2586,35 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       prState: `open`,
     }
     // The issue path's team is the issue's (`ws-issue`), not the frame's.
+    // A same-team resume locks the predecessor (FEED-77) — the second row.
     selectResults.push([
       { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
     ])
+    selectResults.push([{ id: RESUMED_FROM }])
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
-    expect(inserts[0]!.values).toMatchObject({ ...PR, status: `running` })
+    expect(inserts[0]!.values).toMatchObject({
+      ...PR,
+      resumedFromId: RESUMED_FROM,
+      status: `running`,
+    })
 
     selectResults.push([
       { id: RESUMED_FROM, teamId: TEAM_ID, userId: `actor`, ...PR },
     ])
+    selectResults.push([{ id: RESUMED_FROM }])
     await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
-    expect(inserts[1]!.values).toMatchObject({ ...PR, status: `running` })
+    expect(inserts[1]!.values).toMatchObject({
+      ...PR,
+      resumedFromId: RESUMED_FROM,
+      status: `running`,
+    })
 
     // The frame's own branch still wins on a branch-carrying subject.
     selectResults.push([
       { id: RESUMED_FROM, teamId: TEAM_ID, userId: `actor`, ...PR },
     ])
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+    selectResults.push([{ id: RESUMED_FROM }])
     await caller.start({
       actionId: ACTION_ID,
       branch: `exp/refresh-1a2b3c4d`,
@@ -2567,6 +2623,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(inserts[2]!.values).toMatchObject({
       ...PR,
       branch: `exp/refresh-1a2b3c4d`,
+      resumedFromId: RESUMED_FROM,
     })
   })
 
@@ -2622,45 +2679,136 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
   // FEED-77: an account switch mid-run (a resume under a new id) left the
   // successor with an EMPTY report — the next `sessions_results` listed only
   // its own topic and `pr_open` built the PR body from that one topic. The
-  // report has one owner, the live run: the entries ride the insert, the
-  // picture rows re-parent, the predecessor's copy clears.
+  // report has one owner, the live run, and the handoff is EXACTLY ONCE: in
+  // the insert's transaction the predecessor is locked, cleared with
+  // RETURNING, the successor inserted with the RETURNED entries and the
+  // picture rows re-parented. The unlocked gate read never feeds the carry:
+  // an upload landing on the old row between that read and the lock (the
+  // HMAC upload route ignores status; EXP-1005 resumes a walled run) is
+  // either carried or refused, never erased.
   const REPORT = [
     { topic: `Summary`, label: null, attachmentId: null, width: null, height: null, text: `Done.` },
     { topic: `Nav`, label: `web`, attachmentId: `att-1`, width: 100, height: 50 },
   ]
-
-  it(`carries the predecessor's report onto the resumed row and moves its pictures (FEED-77)`, async () => {
-    selectResults.push([
-      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: REPORT },
-    ])
-
-    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
-
-    expect(inserts[0]!.values).toMatchObject({ results: REPORT })
-    // The picture rows now belong to the successor, confined to its team.
-    const reparent = updates.find(
+  const LATE_PICTURE = {
+    topic: `Settings`,
+    label: `web`,
+    attachmentId: `att-2`,
+    width: 100,
+    height: 50,
+  }
+  const PR = {
+    branch: `exp/APP-1`,
+    prUrl: `https://github.com/acme/app/pull/7`,
+    prNumber: 7,
+    prState: `open`,
+  }
+  const clearOf = () =>
+    updates.find(
+      (update) => update.table === codingSessions && update.values.results === null
+    )
+  const reparentOf = () =>
+    updates.find(
       (update) =>
         update.table === sessionAttachments && update.values.sessionId === SESSION_ID
     )
-    expect(reparent).toBeDefined()
-    expect(whereShape(updateWheres[updates.indexOf(reparent!)])).toEqual([
+
+  it(`carries the report under the predecessor's lock, in ONE transaction with the insert (FEED-77)`, async () => {
+    // The gate read (unlocked, no `results` column), then the row lock.
+    selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
+    selectResults.push([{ id: RESUMED_FROM }])
+    // The clear's RETURNING = the report as it is under the lock.
+    updateResults.push([{ results: REPORT }])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(transactions).toBe(1)
+    // The lock is team-confined and precedes every write.
+    expect(whereShape(selectWheres[1])).toEqual([
+      `col:id`,
+      RESUMED_FROM,
+      `col:team_id`,
+      `ws-issue`,
+    ])
+    // Clear → insert → re-parent, all inside the transaction.
+    expect(ops).toEqual([
+      `update:coding_sessions`,
+      `insert:coding_sessions`,
+      `update:session_attachments`,
+      // EXP-906's child re-stamp runs AFTER the commit.
+      `update:coding_sessions`,
+    ])
+    const cleared = clearOf()!
+    expect(cleared.inTx).toBe(true)
+    expect(whereShape(updateWheres[updates.indexOf(cleared)])).toEqual([
+      `col:id`,
+      RESUMED_FROM,
+    ])
+    expect(inserts[0]!.inTx).toBe(true)
+    expect(inserts[0]!.values).toMatchObject({
+      results: REPORT,
+      resumedFromId: RESUMED_FROM,
+    })
+    // The picture rows now belong to the successor, confined to its team.
+    const reparent = reparentOf()!
+    expect(reparent.inTx).toBe(true)
+    expect(whereShape(updateWheres[updates.indexOf(reparent)])).toEqual([
       `col:session_id`,
       RESUMED_FROM,
       `col:team_id`,
       `ws-issue`,
     ])
-    // And the predecessor no longer names them.
-    const cleared = updates.find(
-      (update) => update.table === codingSessions && update.values.results === null
-    )
-    expect(cleared).toBeDefined()
-    expect(whereShape(updateWheres[updates.indexOf(cleared!)])).toEqual([
-      `col:id`,
-      RESUMED_FROM,
-    ])
+    // The successor keeps no stale copy anywhere: exactly one clear.
+    expect(updates.filter((update) => update.values.results === null)).toHaveLength(1)
   })
 
-  it(`drops the report of a predecessor in another team (FEED-77)`, async () => {
+  it(`carries the RETURNING value, never the gate read's snapshot (FEED-77)`, async () => {
+    // The gate read still hands back a stale `results` (an older server, a
+    // widened select): it must be ignored in favour of what the clear
+    // returned under the lock — here a picture that landed in between.
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: REPORT },
+    ])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: [...REPORT, LATE_PICTURE] }])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values.results).toEqual([...REPORT, LATE_PICTURE])
+    // And the clear ran BEFORE the insert, so nothing can land in between.
+    expect(ops.indexOf(`update:coding_sessions`)).toBeLessThan(
+      ops.indexOf(`insert:coding_sessions`)
+    )
+  })
+
+  it(`keeps a report that landed after an EMPTY gate read (FEED-77)`, async () => {
+    // The gate read saw no report; a `sessions_show` upload then hit the old
+    // row before the lock. The clear is unconditional, so it is carried.
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: [] },
+    ])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: [LATE_PICTURE] }])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(clearOf()).toBeDefined()
+    expect(inserts[0]!.values.results).toEqual([LATE_PICTURE])
+  })
+
+  it(`moves no report when the lock finds none, the start pictures still follow (FEED-77)`, async () => {
+    selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: null }])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({ results: null })
+    expect(reparentOf()).toBeDefined()
+    expect(syncRunPrBody).not.toHaveBeenCalled()
+  })
+
+  it(`drops the report of a predecessor in another team, with no transaction (FEED-77)`, async () => {
     const OTHER_TEAM = `77777777-7777-4777-8777-777777777777`
     selectResults.push([
       { id: RESUMED_FROM, teamId: OTHER_TEAM, userId: `actor`, results: REPORT },
@@ -2668,30 +2816,106 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
-    expect(inserts[0]!.values).toMatchObject({ results: null })
-    expect(updates.some((update) => update.table === sessionAttachments)).toBe(false)
-    expect(
-      updates.some(
-        (update) => update.table === codingSessions && update.values.results === null
-      )
-    ).toBe(false)
+    expect(transactions).toBe(0)
+    expect(selectWheres).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      results: null,
+      resumedFromId: RESUMED_FROM,
+    })
+    expect(clearOf()).toBeUndefined()
+    expect(reparentOf()).toBeUndefined()
+    expect(syncRunPrBody).not.toHaveBeenCalled()
   })
 
-  it(`moves no report when the predecessor published none (FEED-77)`, async () => {
-    selectResults.push([
-      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: [] },
-    ])
+  // EXP-639's idle sweep can delete the predecessor between the gate read and
+  // the lock; the FK would otherwise 23503 the user's Resume.
+  it(`inserts without the link when the predecessor vanished under the lock (FEED-77)`, async () => {
+    selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
+    selectResults.push([]) // the lock finds no row
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
-    expect(inserts[0]!.values).toMatchObject({ results: null })
-    // The start pictures still follow the run; nothing to clear.
-    expect(updates.some((update) => update.table === sessionAttachments)).toBe(true)
-    expect(
-      updates.some(
-        (update) => update.table === codingSessions && update.values.results === null
-      )
-    ).toBe(false)
+    expect(inserts[0]!.values).toMatchObject({ resumedFromId: null, results: null })
+    expect(clearOf()).toBeUndefined()
+    expect(reparentOf()).toBeUndefined()
+  })
+
+  it(`carries the report the same way on every subject (FEED-77)`, async () => {
+    const subjects: {
+      input: Parameters<typeof caller.start>[0]
+      teamId: string
+      before?: unknown[][]
+    }[] = [
+      { input: { issueId: ISSUE_ID, resumedFromId: RESUMED_FROM }, teamId: `ws-issue` },
+      { input: { teamId: TEAM_ID, resumedFromId: RESUMED_FROM }, teamId: TEAM_ID },
+      {
+        input: { actionId: ACTION_ID, resumedFromId: RESUMED_FROM },
+        teamId: TEAM_ID,
+        before: [[{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }]],
+      },
+      {
+        input: { actionId: `builtin:chat`, teamId: TEAM_ID, resumedFromId: RESUMED_FROM },
+        teamId: TEAM_ID,
+      },
+    ]
+    for (const subject of subjects) {
+      inserts.length = 0
+      updates.length = 0
+      ops.length = 0
+      transactions = 0
+      selectResults.push([{ id: RESUMED_FROM, teamId: subject.teamId, userId: `actor` }])
+      for (const rows of subject.before ?? []) selectResults.push(rows)
+      selectResults.push([{ id: RESUMED_FROM }])
+      updateResults.push([{ results: REPORT }])
+
+      await caller.start(subject.input)
+
+      expect(transactions).toBe(1)
+      expect(ops.slice(0, 3)).toEqual([
+        `update:coding_sessions`,
+        `insert:coding_sessions`,
+        `update:session_attachments`,
+      ])
+      expect(inserts[0]!.inTx).toBe(true)
+      expect(inserts[0]!.values).toMatchObject({
+        results: REPORT,
+        resumedFromId: RESUMED_FROM,
+        teamId: subject.teamId,
+      })
+    }
+  })
+
+  // EXP-1154: the PR body links the run's Results face. The predecessor's
+  // open PR body named the OLD row, whose report is now empty — re-synced
+  // from the successor once the handoff committed, and only then.
+  it(`re-syncs the PR body only when a report came over onto a row with a PR (FEED-77)`, async () => {
+    // Report + PR: synced, after the transaction.
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
+    ])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: REPORT }])
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    expect(syncRunPrBody).toHaveBeenCalledTimes(1)
+    expect(syncRunPrBody).toHaveBeenCalledWith(SESSION_ID)
+    expect(txDepth).toBe(0)
+
+    // Report, no PR: nothing to patch.
+    vi.mocked(syncRunPrBody).mockClear()
+    selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: REPORT }])
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    expect(syncRunPrBody).not.toHaveBeenCalled()
+
+    // PR, no report came over: the body already says what it should.
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
+    ])
+    selectResults.push([{ id: RESUMED_FROM }])
+    updateResults.push([{ results: [] }])
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+    expect(syncRunPrBody).not.toHaveBeenCalled()
   })
 
   it(`lets the frame's own started reason win over the inherited one`, async () => {

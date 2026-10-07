@@ -41,8 +41,10 @@ export const entry: StyleguideEntry = {
       file: `packages/ui/src/scope-picker.tsx`,
     },
     desktop: {
-      state: `n/a`,
-      note: `Keys are scoped on the web; the IDE's Settings → API keys lists the scope caption (users.rs scope_caption).`,
+      state: `ok`,
+      symbol: `ScopePicker`,
+      file: `apps/desktop/crates/ui/src/scope_picker.rs`,
+      note: `The Create-key alert's Access block; the key row carries the scope caption (users.rs scope_caption).`,
     },
     ios: {
       state: `n/a`,

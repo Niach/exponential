@@ -175,8 +175,8 @@ interface ResumedFrom {
   prUrl: string | null
   prNumber: number | null
   prState: (typeof codingSessions.$inferSelect)[`prState`]
-  /** FEED-77: the report the run had filed (`sessions_results`) so far. */
-  results: CodingSessionResult[] | null
+  // FEED-77: deliberately NO `results` here. The report is read under the
+  // row lock in `insertStartRow`, never from this unlocked snapshot.
 }
 
 async function resolveResumedFrom(
@@ -197,7 +197,6 @@ async function resolveResumedFrom(
       prUrl: codingSessions.prUrl,
       prNumber: codingSessions.prNumber,
       prState: codingSessions.prState,
-      results: codingSessions.results,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, resumedFromId))
@@ -230,7 +229,6 @@ async function resolveResumedFrom(
     prUrl: row.prUrl ?? null,
     prNumber: row.prNumber ?? null,
     prState: row.prState ?? null,
-    results: Array.isArray(row.results) && row.results.length ? row.results : null,
   }
 }
 
@@ -256,12 +254,8 @@ function startTree(
  * which reaches runs by `pr_url` alone, never ends the successor and
  * `mergePr` finds no PR on it. The status stays `running` like every start;
  * the sweep matches running and in_review alike. The frame's branch wins.
- * FEED-77: the REPORT rides along the same way. Every `sessions_results` /
- * `sessions_show` / `pr_open` call reads the row the agent's session header
- * names, which after a switch is this new one — without the carry the next
- * report write listed only its own topic and the PR body was built from
- * that. The predecessor's copy and its picture rows move in
- * `adoptPredecessor` (`moveReport`), after the insert.
+ * The REPORT (FEED-77) is NOT in this snapshot: `insertStartRow` moves it
+ * under the predecessor's row lock, in the insert's transaction.
  * Confined to the successor's team like `adoptPredecessor`: a predecessor in
  * ANOTHER team hands nothing over (its PR names that team's repo, its
  * pictures that team's storage), and the start still goes through. */
@@ -271,7 +265,7 @@ function inheritedRun(
   teamId: string
 ): Pick<
   typeof codingSessions.$inferInsert,
-  `branch` | `prUrl` | `prNumber` | `prState` | `results`
+  `branch` | `prUrl` | `prNumber` | `prState`
 > {
   const source = predecessor?.teamId === teamId ? predecessor : null
   return {
@@ -279,49 +273,95 @@ function inheritedRun(
     prUrl: source?.prUrl ?? null,
     prNumber: source?.prNumber ?? null,
     prState: source?.prState ?? null,
-    results: source?.results ?? null,
   }
 }
 
-/** FEED-77: the report has ONE owner, the live run. The successor's insert
- * already carries the entries (`inheritedRun`); this re-parents the picture
- * rows (`session_attachments.session_id`, which a later `remove` deletes
- * bytes through and whose NULL the orphan sweep reclaims once the old row is
- * purged) and clears the predecessor's copy so no two rows name the same
- * attachments. The composer's start pictures move with them: they belong to
- * the same run. Best-effort like `restampChildren`, but never silent: a
- * failed move is exactly the loss this exists to prevent, so it is logged.
- * Confined to the successor's team: another team's pictures stay where their
- * storage budget was charged. */
-async function moveReport(
+type StartRowValues = Omit<
+  typeof codingSessions.$inferInsert,
+  `results` | `resumedFromId`
+>
+
+interface StartedRow {
+  session: typeof codingSessions.$inferSelect
+  /** FEED-77: the successor took over a non-empty report. */
+  carriedReport: boolean
+}
+
+/** The ONE insert every start path performs. A fresh start is a plain
+ * insert. A resume (Resume, account switch, EXP-1005 rotation) of a
+ * same-team predecessor is the report handoff (FEED-77), done EXACTLY ONCE
+ * in one transaction so the live run is the report's only owner:
+ *   1. `FOR UPDATE` on the predecessor, team-confined (the owner/host gate
+ *      already ran in `resolveResumedFrom`) — the lock every report write
+ *      takes (`publishSessionResultPicture`, `sessions_results`), so an
+ *      upload racing this start either lands BEFORE the clear and is
+ *      carried, or AFTER the commit on a row that no longer owns a report
+ *      (the HMAC upload route ignores status and may still target the old
+ *      row: nothing is silently erased).
+ *   2. `UPDATE … SET results = NULL … RETURNING results` — the RETURNED
+ *      value, never an earlier snapshot, is what the successor carries.
+ *   3. The successor insert with that value.
+ *   4. The picture rows (`session_attachments.session_id`, which a later
+ *      `remove` deletes bytes through; the composer's start pictures with
+ *      them) re-parent in the same transaction, so a crash never leaves two
+ *      rows naming one attachment.
+ * Confined to the successor's team: a predecessor in another team hands
+ * nothing over (its pictures charged that team's storage). A predecessor
+ * swept between the gate and the lock (EXP-639's 2h idle sweep) inserts
+ * with no link instead of a 23503. */
+async function insertStartRow(
   db: Context[`db`],
-  predecessor: ResumedFrom,
-  successorId: string,
-  successorTeamId: string
-): Promise<void> {
-  if (predecessor.teamId !== successorTeamId) return
-  try {
-    await db
+  predecessor: ResumedFrom | null,
+  teamId: string,
+  values: StartRowValues
+): Promise<StartedRow> {
+  if (!predecessor || predecessor.teamId !== teamId) {
+    const [session] = await db
+      .insert(codingSessions)
+      .values({ ...values, resumedFromId: predecessor?.id ?? null, results: null })
+      .returning()
+    return { session: session!, carriedReport: false }
+  }
+  return db.transaction(async (tx) => {
+    const [locked] = await tx
+      .select({ id: codingSessions.id })
+      .from(codingSessions)
+      .where(
+        and(eq(codingSessions.id, predecessor.id), eq(codingSessions.teamId, teamId))
+      )
+      .limit(1)
+      .for(`update`)
+    if (!locked) {
+      const [session] = await tx
+        .insert(codingSessions)
+        .values({ ...values, resumedFromId: null, results: null })
+        .returning()
+      return { session: session!, carriedReport: false }
+    }
+    const [cleared] = await tx
+      .update(codingSessions)
+      .set({ results: null, updatedAt: new Date() })
+      .where(eq(codingSessions.id, predecessor.id))
+      .returning({ results: codingSessions.results })
+    const report: CodingSessionResult[] | null =
+      Array.isArray(cleared?.results) && cleared.results.length
+        ? cleared.results
+        : null
+    const [session] = await tx
+      .insert(codingSessions)
+      .values({ ...values, resumedFromId: predecessor.id, results: report })
+      .returning()
+    await tx
       .update(sessionAttachments)
-      .set({ sessionId: successorId })
+      .set({ sessionId: session!.id })
       .where(
         and(
           eq(sessionAttachments.sessionId, predecessor.id),
-          eq(sessionAttachments.teamId, successorTeamId)
+          eq(sessionAttachments.teamId, teamId)
         )
       )
-    if (predecessor.results) {
-      await db
-        .update(codingSessions)
-        .set({ results: null, updatedAt: new Date() })
-        .where(eq(codingSessions.id, predecessor.id))
-    }
-  } catch (err) {
-    console.warn(
-      `[coding-sessions] FEED-77: report move failed for ${predecessor.id} → ${successorId}; the resumed run carries the entries, the predecessor still names the pictures`,
-      err
-    )
-  }
+    return { session: session!, carriedReport: report !== null }
+  })
 }
 
 /** EXP-906: the predecessor's children now belong to the successor — the
@@ -352,18 +392,24 @@ async function restampChildren(
   }
 }
 
-/** The succession writes every resume performs, after the insert (the
- * children, FEED-77's report), and the word to an agent parent that its
- * child is live under the new id (FEED-68; best-effort, never throws). */
+/** The succession writes every resume performs after the insert committed
+ * (the report itself moved INSIDE it, `insertStartRow`): the children, the
+ * word to an agent parent that its child is live under the new id (FEED-68)
+ * and, when a report came over onto a row with a PR, the PR body re-patched
+ * so it links the SUCCESSOR's Results face instead of the emptied row's
+ * (EXP-1154 `syncRunPrBody`). All best-effort, never throws. */
 async function adoptPredecessor(
   db: Context[`db`],
   predecessor: ResumedFrom,
-  successorId: string,
-  successorTeamId: string
+  started: StartedRow
 ): Promise<void> {
-  await restampChildren(db, predecessor.id, successorId, successorTeamId)
-  await moveReport(db, predecessor, successorId, successorTeamId)
-  await notifyParentOfChildResumed(db, predecessor.id, successorId)
+  const { session, carriedReport } = started
+  await restampChildren(db, predecessor.id, session.id, session.teamId)
+  await notifyParentOfChildResumed(db, predecessor.id, session.id)
+  if (carriedReport && session.prUrl) {
+    const { syncRunPrBody } = await import(`@/lib/run-pr-body`)
+    await syncRunPrBody(session.id)
+  }
 }
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
@@ -879,7 +925,6 @@ export const codingSessionsRouter = router({
         ctx.session.user.id,
         input.resumedFromId
       )
-      const resumedFromId = predecessor?.id ?? null
       // EXP-906: the run keeps its place in the session tree across a resume.
       const tree = startTree(input.startedReason, predecessor)
 
@@ -902,41 +947,38 @@ export const codingSessionsRouter = router({
           input.mcpServerIds
         )
 
-        const [session] = await ctx.db
-          .insert(codingSessions)
-          .values({
-            // Batch-shaped: actionId NULL (nothing to FK), the constant name
-            // labels the run on every client.
-            teamId: input.teamId!,
-            actionId: null,
-            actionName: builtinActionName(input.actionId),
-            // EXP-679: only `agent` reaches a builtin (the refine keeps
-            // schedule/event on real action rows), except tidy-up (FEED-50),
-            // whose schedule/event starts carry their automation.
-            ...tree,
-            automationId:
-              input.automationId && input.actionId === BUILTIN_TIDY_UP_ID
-                ? await resolveAutomationId(
-                    ctx.db,
-                    input.automationId,
-                    BUILTIN_TIDY_UP_ID,
-                    input.teamId!
-                  )
-                : null,
-            userId: attribution.userId,
-            hostUserId: attribution.hostUserId,
-            ...device,
-            agent: input.agent ?? null,
-            agentAccount: input.agentAccount ?? null,
-            ...inheritedRun(predecessor, input.branch, input.teamId!),
-            mcpServerIds,
-            resumedFromId,
-            status: `running`,
-          })
-          .returning()
-        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        const started = await insertStartRow(ctx.db, predecessor, input.teamId!, {
+          // Batch-shaped: actionId NULL (nothing to FK), the constant name
+          // labels the run on every client.
+          teamId: input.teamId!,
+          actionId: null,
+          actionName: builtinActionName(input.actionId),
+          // EXP-679: only `agent` reaches a builtin (the refine keeps
+          // schedule/event on real action rows), except tidy-up (FEED-50),
+          // whose schedule/event starts carry their automation.
+          ...tree,
+          automationId:
+            input.automationId && input.actionId === BUILTIN_TIDY_UP_ID
+              ? await resolveAutomationId(
+                  ctx.db,
+                  input.automationId,
+                  BUILTIN_TIDY_UP_ID,
+                  input.teamId!
+                )
+              : null,
+          userId: attribution.userId,
+          hostUserId: attribution.hostUserId,
+          ...device,
+          agent: input.agent ?? null,
+          agentAccount: input.agentAccount ?? null,
+          ...inheritedRun(predecessor, input.branch, input.teamId!),
+          mcpServerIds,
+          status: `running`,
+        })
+        const { session } = started
+        await bindStartAttachments(ctx.db, session, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor, session!.id, input.teamId!)
+          await adoptPredecessor(ctx.db, predecessor, started)
         }
 
         return { session }
@@ -983,36 +1025,33 @@ export const codingSessionsRouter = router({
           action.mcpServerIds ?? []
         )
 
-        const [session] = await ctx.db
-          .insert(codingSessions)
-          .values({
-            // Batch-shaped: no issue/board — team_id written directly.
-            teamId: action.teamId,
-            actionId: action.id,
-            actionName: action.name,
-            ...tree,
-            automationId: input.automationId
-              ? await resolveAutomationId(
-                  ctx.db,
-                  input.automationId,
-                  action.id,
-                  action.teamId
-                )
-              : null,
-            userId: attribution.userId,
-            hostUserId: attribution.hostUserId,
-            ...device,
-            agent: input.agent ?? null,
-            agentAccount: input.agentAccount ?? null,
-            ...inheritedRun(predecessor, input.branch, action.teamId),
-            mcpServerIds,
-            resumedFromId,
-            status: `running`,
-          })
-          .returning()
-        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        const started = await insertStartRow(ctx.db, predecessor, action.teamId, {
+          // Batch-shaped: no issue/board — team_id written directly.
+          teamId: action.teamId,
+          actionId: action.id,
+          actionName: action.name,
+          ...tree,
+          automationId: input.automationId
+            ? await resolveAutomationId(
+                ctx.db,
+                input.automationId,
+                action.id,
+                action.teamId
+              )
+            : null,
+          userId: attribution.userId,
+          hostUserId: attribution.hostUserId,
+          ...device,
+          agent: input.agent ?? null,
+          agentAccount: input.agentAccount ?? null,
+          ...inheritedRun(predecessor, input.branch, action.teamId),
+          mcpServerIds,
+          status: `running`,
+        })
+        const { session } = started
+        await bindStartAttachments(ctx.db, session, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor, session!.id, action.teamId)
+          await adoptPredecessor(ctx.db, predecessor, started)
         }
 
         return { session }
@@ -1038,32 +1077,29 @@ export const codingSessionsRouter = router({
           input.mcpServerIds
         )
 
-        const [session] = await ctx.db
-          .insert(codingSessions)
-          .values({
-            issueId: input.issueId,
-            // Set explicitly (also trigger-denormalized) so the row is valid even
-            // if the populate_* triggers aren't applied.
-            teamId: issueCtx.teamId,
-            boardId: issueCtx.boardId,
-            // EXP-679: an issue run can be agent-started (only `agent`
-            // reaches here — schedule/event need a real action row).
-            ...tree,
-            userId: attribution.userId,
-            hostUserId: attribution.hostUserId,
-            ...device,
-            agent: input.agent ?? null,
-            agentAccount: input.agentAccount ?? null,
-            // Issue rows never took the frame's branch; only a resume's.
-            ...inheritedRun(predecessor, undefined, issueCtx.teamId),
-            mcpServerIds,
-            resumedFromId,
-            status: `running`,
-          })
-          .returning()
-        await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+        const started = await insertStartRow(ctx.db, predecessor, issueCtx.teamId, {
+          issueId: input.issueId,
+          // Set explicitly (also trigger-denormalized) so the row is valid even
+          // if the populate_* triggers aren't applied.
+          teamId: issueCtx.teamId,
+          boardId: issueCtx.boardId,
+          // EXP-679: an issue run can be agent-started (only `agent`
+          // reaches here — schedule/event need a real action row).
+          ...tree,
+          userId: attribution.userId,
+          hostUserId: attribution.hostUserId,
+          ...device,
+          agent: input.agent ?? null,
+          agentAccount: input.agentAccount ?? null,
+          // Issue rows never took the frame's branch; only a resume's.
+          ...inheritedRun(predecessor, undefined, issueCtx.teamId),
+          mcpServerIds,
+          status: `running`,
+        })
+        const { session } = started
+        await bindStartAttachments(ctx.db, session, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor, session!.id, issueCtx.teamId)
+          await adoptPredecessor(ctx.db, predecessor, started)
         }
 
         return { session }
@@ -1096,31 +1132,28 @@ export const codingSessionsRouter = router({
         input.mcpServerIds
       )
 
-      const [session] = await ctx.db
-        .insert(codingSessions)
-        .values({
-          // Batch run: no issue to denormalize from — team_id written
-          // directly; board_id stays NULL, a batch run spans boards and
-          // must never surface through the anonymous board-scoped clause.
-          teamId: input.teamId!,
-          // EXP-679: a batch run can be agent-started (only `agent` reaches
-          // here — schedule/event need a real action row).
-          ...tree,
-          userId: attribution.userId,
-          hostUserId: attribution.hostUserId,
-          ...device,
-          agent: input.agent ?? null,
-          agentAccount: input.agentAccount ?? null,
-          ...inheritedRun(predecessor, input.branch, input.teamId!),
-          batchIssueIds,
-          mcpServerIds,
-          resumedFromId,
-          status: `running`,
-        })
-        .returning()
-      await bindStartAttachments(ctx.db, session!, input.attachmentIds)
+      const started = await insertStartRow(ctx.db, predecessor, input.teamId!, {
+        // Batch run: no issue to denormalize from — team_id written
+        // directly; board_id stays NULL, a batch run spans boards and
+        // must never surface through the anonymous board-scoped clause.
+        teamId: input.teamId!,
+        // EXP-679: a batch run can be agent-started (only `agent` reaches
+        // here — schedule/event need a real action row).
+        ...tree,
+        userId: attribution.userId,
+        hostUserId: attribution.hostUserId,
+        ...device,
+        agent: input.agent ?? null,
+        agentAccount: input.agentAccount ?? null,
+        ...inheritedRun(predecessor, input.branch, input.teamId!),
+        batchIssueIds,
+        mcpServerIds,
+        status: `running`,
+      })
+      const { session } = started
+      await bindStartAttachments(ctx.db, session, input.attachmentIds)
       if (predecessor) {
-        await adoptPredecessor(ctx.db, predecessor, session!.id, input.teamId!)
+        await adoptPredecessor(ctx.db, predecessor, started)
       }
 
       return { session }
