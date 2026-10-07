@@ -62,7 +62,7 @@ struct FixConflictsCard: View {
                 AppIcon(AppIcons.prOpen, size: 16)
                     .foregroundStyle(IssueStatus.inReview.color)
                 if let number = pr.prNumber {
-                    Text("#\(number)")
+                    Text(verbatim: "#\(number)")
                         .font(.subheadline.monospaced())
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
                         .fixedSize()

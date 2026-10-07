@@ -447,8 +447,17 @@ final class StyleguideScreenshots: XCTestCase {
         // headline's verb + the PR's issue chip, the card's PR row.
         let fixCard = anyElement(app, identified: "agent-composer-fix-conflicts")
         XCTAssertTrue(fixCard.waitForExistence(timeout: 15), "No Fix merge conflicts card")
+        // The row is inert until the open-PR pool has synced: a tap that opens
+        // nothing is retried once the sheet's title has had time to appear.
+        let prSheet = app.staticTexts["Select a pull request"].firstMatch
         anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
-        let prRow = app.staticTexts.matching(
+        if !prSheet.waitForExistence(timeout: 10) {
+            anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
+            XCTAssertTrue(prSheet.waitForExistence(timeout: 20), "The PR picker did not open")
+        }
+        // A sheet row is a Button whose label is the option's `#N · IDENT`
+        // (the issue picker above matches its rows the same way, any type).
+        let prRow = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "#", "APP-14")
         ).firstMatch
         XCTAssertTrue(prRow.waitForExistence(timeout: 20), "The PR picker never listed APP-14's pull request")
