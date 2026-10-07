@@ -7448,7 +7448,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                 assert_eq!(check.tool, crate::doctor::Tool::Codex);
                 assert_eq!(
                     check.error.as_deref(),
-                    Some("codex not found on PATH. Set an absolute path.")
+                    Some("codex did not start at the configured path. Remove codexPath from settings.json or set an absolute path.")
                 );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),

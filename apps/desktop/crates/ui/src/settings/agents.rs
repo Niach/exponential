@@ -400,11 +400,16 @@ impl AgentsPane {
                 self.codex_effort_select.clone(),
             ),
         };
-        let path_row = surface::glass_input_row(
-            "CLI path",
-            surface::glass_row_input(glass_input(path, window, cx)).into_any_element(),
-            cx,
-        );
+        // EXP-1232: codex is a managed download — no CLI path to set (a
+        // custom `codexPath` in settings.json stays an escape hatch).
+        let leading = match agent_tab {
+            CodingAgent::Claude => vec![surface::glass_input_row(
+                "CLI path",
+                surface::glass_row_input(glass_input(path, window, cx)).into_any_element(),
+                cx,
+            )],
+            CodingAgent::Codex => Vec::new(),
+        };
 
         let mut group = AgentDefaultsGroup::new(
             "settings-agents",
@@ -421,7 +426,7 @@ impl AgentsPane {
             effort,
         )
         .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
-        .leading(vec![path_row]);
+        .leading(leading);
         // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
         // missing while web had it.
         if agent_tab.supports_subagent_model() {

@@ -1566,6 +1566,7 @@ dependencies = [
  "sha2 0.10.9",
  "terminal",
  "toml 0.8.23",
+ "updater",
  "uuid",
  "wait-timeout",
 ]

@@ -978,11 +978,12 @@ fn run_device_command(
         let command_id = command.id.clone();
         let claimed = Arc::clone(&snapshot.inflight_logins);
         let doctor_soon = Arc::clone(&snapshot.doctor_soon);
+        let data_dir = snapshot.data_dir.clone();
         let spawned = std::thread::Builder::new()
             .name("exp-agent-update".to_string())
             .spawn(move || {
                 log::info!("[device-sync] agent update: running {} update", agent.id());
-                let (ok, message) = match coding::update_agent(&settings, agent) {
+                let (ok, message) = match coding::update_agent(&settings, &data_dir, agent) {
                     Ok(outcome) => (true, outcome.message()),
                     Err(error) => (false, error),
                 };

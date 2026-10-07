@@ -226,7 +226,7 @@ impl Tool {
     fn not_found_message(self) -> &'static str {
         match self {
             Tool::Claude => "claude not found on PATH. Set an absolute path.",
-            Tool::Codex => "codex not found on PATH. Set an absolute path.",
+            Tool::Codex => "codex did not start at the configured path. Remove codexPath from settings.json or set an absolute path.",
             Tool::Git => "git not found on PATH",
         }
     }
@@ -237,7 +237,7 @@ impl Tool {
     fn signed_out_message(self) -> &'static str {
         match self {
             Tool::Claude => "claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
-            Tool::Codex => "codex is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
+            Tool::Codex => "Codex is not signed in on this machine. Sign in from Settings → Agents, or from the Sign in button on the failed start.",
             Tool::Git => "",
         }
     }
@@ -821,6 +821,14 @@ fn check_agent(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> Tool
             claude
         }
         CodingAgent::Codex => {
+            // EXP-1232: the managed build is probed only once it is in
+            // place; until then the row says what the fetch is doing.
+            if settings.codex_is_managed() {
+                let state = crate::managed_codex::state(data_dir);
+                if state != crate::managed_codex::State::Installed {
+                    return managed_codex_check(state);
+                }
+            }
             let mut codex = check_tool(Tool::Codex, &program);
             apply_auth_gate(&mut codex, &program);
             // Before the ACP readiness, which reads `ok`.
@@ -828,6 +836,31 @@ fn check_agent(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> Tool
             apply_codex_acp(&mut codex);
             codex
         }
+    }
+}
+
+/// EXP-1232: the codex row while the managed build is NOT in place. No
+/// login and no binary reads as signed out (the fix is the sign-in, which
+/// fetches); a running fetch and a failed one carry their own messages,
+/// which `device_doctor` keys its rows off and the launch gate shows.
+pub(crate) fn managed_codex_check(state: crate::managed_codex::State) -> ToolCheck {
+    use crate::managed_codex::{State, DOWNLOADING_MESSAGE, DOWNLOAD_FAILED_PREFIX};
+    let (error, authed) = match state {
+        State::Installed | State::Downloading => (DOWNLOADING_MESSAGE.to_string(), None),
+        State::Failed(reason) => (format!("{DOWNLOAD_FAILED_PREFIX} {reason}"), None),
+        State::NotWanted => (Tool::Codex.signed_out_message().to_string(), Some(false)),
+    };
+    ToolCheck {
+        tool: Tool::Codex,
+        ok: false,
+        version: None,
+        error: Some(error.clone()),
+        authed,
+        account: None,
+        usage_eligible: false,
+        acp: Some(false),
+        acp_note: Some(error),
+        signed_in_profile: None,
     }
 }
 
@@ -1670,7 +1703,7 @@ mod tests {
         let check = check_tool(Tool::Codex, "definitely-not-a-real-binary-exp");
         assert_eq!(
             check.error.as_deref(),
-            Some("codex not found on PATH. Set an absolute path.")
+            Some("codex did not start at the configured path. Remove codexPath from settings.json or set an absolute path.")
         );
         let check = check_tool(Tool::Git, "definitely-not-a-real-binary-exp");
         assert_eq!(check.error.as_deref(), Some("git not found on PATH"));
@@ -2407,7 +2440,7 @@ mod tests {
         assert!(check.signed_out());
         assert_eq!(
             check.error.as_deref(),
-            Some("codex is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.")
+            Some("Codex is not signed in on this machine. Sign in from Settings → Agents, or from the Sign in button on the failed start.")
         );
 
         // The report-level view: signed-out codex is out of installed_agents

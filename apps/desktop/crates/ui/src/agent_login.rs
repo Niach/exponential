@@ -291,6 +291,35 @@ fn start(
                 return;
             }
         };
+        // EXP-1232: a managed Codex sign-in fetches the pinned build first
+        // (one toast; the doctor row reads Downloading… meanwhile). A failed
+        // fetch answers the requester and starts nothing.
+        if agent == CodingAgent::Codex
+            && settings.codex_is_managed()
+            && !coding::managed_codex::installed(&data_dir)
+        {
+            let _ = cx.update(|cx| notify(Toast::info("Downloading Codex…".to_string()), cx));
+            let fetch_dir = data_dir.clone();
+            let fetched = cx
+                .background_executor()
+                .spawn(async move { coding::managed_codex::ensure(&fetch_dir, &mut |_, _| {}) })
+                .await;
+            let _ = cx.update(|cx| {
+                let hub = CodingHub::global(cx);
+                CodingHub::refresh_doctor(&hub, cx);
+            });
+            if let Err(message) = fetched {
+                log::warn!("[agent-login] codex fetch failed: {message}");
+                let _ = cx.update(|cx| {
+                    notify(Toast::error(message.clone()), cx);
+                    if let Some(remote) = remote.as_ref() {
+                        complete(&remote.command_id, false, message, cx);
+                        crate::device_sync::release_login(&remote.command_id, cx);
+                    }
+                });
+                return;
+            }
+        }
         if let Some((key, value)) = env.as_ref() {
             plan.spawn.env.push((key.clone(), value.clone()));
         }

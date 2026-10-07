@@ -149,6 +149,8 @@ impl CodingHub {
         });
         let hub = hub.clone();
         let data_dir = coding_data_dir(cx);
+        let fetch_settings = settings.clone();
+        let fetch_dir = data_dir.clone();
         cx.spawn(async move |cx| {
             let (report, device) = cx
                 .background_executor()
@@ -183,6 +185,12 @@ impl CodingHub {
                     // report's accounts.
                     crate::device_sync::beat_soon(cx);
                 });
+                // EXP-1232: a stored Codex login with no managed build in
+                // place → fetch it now; the row reads Downloading… until the
+                // re-run below lands.
+                if coding::managed_codex::should_fetch(&fetch_settings, &fetch_dir) {
+                    let _ = cx.update(|cx| start_codex_fetch(&hub, fetch_dir.clone(), cx));
+                }
             }
         })
         .detach();
@@ -1032,6 +1040,29 @@ pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
 /// device id and (EXP-662) the run registry every resume reads. The signed-in
 /// [`AuthContext`] is authoritative; the default only covers the pre-session
 /// window.
+/// EXP-1232: fetch the managed Codex build off the UI thread (at most one
+/// per process), then re-run the doctor so its row moves on. A failure
+/// shows as a toast and as the row's `Download failed` · Update.
+pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut App) {
+    let hub = hub.clone();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { coding::managed_codex::ensure_once(&data_dir) })
+            .await;
+        let Some(result) = result else {
+            return; // another fetch in this process is already running
+        };
+        let _ = cx.update(|cx| {
+            if let Err(message) = result {
+                crate::toast::show_in_active_window(crate::toast::Toast::error(message), cx);
+            }
+            CodingHub::refresh_doctor(&hub, cx);
+        });
+    })
+    .detach();
+}
+
 pub fn coding_data_dir(cx: &App) -> PathBuf {
     cx.try_global::<AuthContext>()
         .map(|auth| auth.data_dir.clone())

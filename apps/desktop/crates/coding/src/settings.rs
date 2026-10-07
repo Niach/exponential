@@ -378,19 +378,27 @@ impl Settings {
         resolve_claude_program(&self.claude_path, dirs::home_dir())
     }
 
-    /// The configured program for `agent`, probed like
-    /// [`Self::resolved_claude_path`] (bare default names check the per-user
-    /// install locations before PATH).
+    /// The program every spawn of `agent` runs. Claude: the configured
+    /// path, probed like [`Self::resolved_claude_path`]. Codex (EXP-1232):
+    /// the MANAGED build under the data dir ([`crate::managed_codex`]) —
+    /// whether or not it has been fetched yet — unless `codexPath` names a
+    /// custom binary, which is used verbatim.
     pub fn resolved_path_for(&self, agent: CodingAgent) -> String {
         match agent {
             CodingAgent::Claude => self.resolved_claude_path(),
-            CodingAgent::Codex => resolve_program(
-                &self.codex_path,
-                DEFAULT_CODEX_PATH,
-                &[&[".local", "bin", "codex"]],
-                dirs::home_dir(),
-            ),
+            CodingAgent::Codex if self.codex_is_managed() => {
+                crate::managed_codex::binary_path(&api::default_data_dir())
+                    .to_string_lossy()
+                    .into_owned()
+            }
+            CodingAgent::Codex => self.codex_path.clone(),
         }
+    }
+
+    /// EXP-1232: whether Codex is the managed download (the default) rather
+    /// than a custom `codexPath` (dev boxes, air-gapped installs).
+    pub fn codex_is_managed(&self) -> bool {
+        self.codex_path.trim() == DEFAULT_CODEX_PATH
     }
 
     /// The RAW configured path field for `agent` (settings UI + doctor copy).

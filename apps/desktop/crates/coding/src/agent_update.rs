@@ -1,6 +1,6 @@
 //! The `agent_update` device command: run an agent CLI's OWN self-updater on
-//! this machine (`claude update` / `codex update`), remotely, from the device
-//! settings dialog — the agent-side twin of the daemon's FEED-36 `update_now`.
+//! this machine (`claude update`), remotely, from the device settings dialog
+//! — the agent-side twin of the daemon's FEED-36 `update_now`.
 //!
 //! Nothing here knows how the CLI is installed (npm, brew, the native
 //! installer): the CLI's updater does, and it is what the person would type
@@ -9,7 +9,13 @@
 //! do" run and a real bump read differently without a per-CLI grammar. Live
 //! sessions keep running: the binary they hold stays mapped, and the alias
 //! (`opus`, `sonnet`, …) they were started with resolves on the NEXT start.
+//!
+//! EXP-1232: the managed Codex has no self-updater — its "update" is the
+//! pinned build being (re-)fetched ([`crate::managed_codex::ensure`]); a
+//! build already in place is "up to date". A custom `codexPath` still runs
+//! `codex update`.
 
+use std::path::Path;
 use std::time::Duration;
 
 use crate::agent::CodingAgent;
@@ -76,7 +82,14 @@ fn tool_for(agent: CodingAgent) -> Tool {
 /// CLI that gets updated is the one runs actually start. A CLI the doctor
 /// cannot run at all is refused up front with the doctor's own reason (an
 /// updater cannot install a tool that is not there).
-pub fn update_agent(settings: &Settings, agent: CodingAgent) -> Result<AgentUpdateOutcome, String> {
+pub fn update_agent(
+    settings: &Settings,
+    data_dir: &Path,
+    agent: CodingAgent,
+) -> Result<AgentUpdateOutcome, String> {
+    if agent == CodingAgent::Codex && settings.codex_is_managed() {
+        return update_managed_codex(data_dir);
+    }
     let program = settings.resolved_path_for(agent);
     let path_env = terminal::pty::login_path();
     let tool = tool_for(agent);
@@ -122,6 +135,25 @@ pub fn update_agent(settings: &Settings, agent: CodingAgent) -> Result<AgentUpda
             format!("{} update finished but the CLI no longer answers --version.", agent.label())
         })),
     }
+}
+
+/// EXP-1232: the managed build's "update" — fetch the pin if it is missing
+/// (a failed first fetch retries here), else nothing to do.
+fn update_managed_codex(data_dir: &Path) -> Result<AgentUpdateOutcome, String> {
+    use crate::managed_codex::{ensure, installed, PINNED_VERSION};
+    if installed(data_dir) {
+        return Ok(AgentUpdateOutcome {
+            agent: CodingAgent::Codex,
+            before: Some(PINNED_VERSION.to_string()),
+            after: PINNED_VERSION.to_string(),
+        });
+    }
+    ensure(data_dir, &mut |_, _| {})?;
+    Ok(AgentUpdateOutcome {
+        agent: CodingAgent::Codex,
+        before: None,
+        after: PINNED_VERSION.to_string(),
+    })
 }
 
 /// The last non-empty line — updaters print the reason last, after their
@@ -173,7 +205,28 @@ mod tests {
     fn a_missing_cli_is_refused_up_front() {
         let mut settings = Settings::default();
         settings.claude_path = "/nonexistent/exp-agent-update-test/claude".to_string();
-        let err = update_agent(&settings, CodingAgent::Claude).unwrap_err();
+        let err = update_agent(&settings, Path::new("/nonexistent"), CodingAgent::Claude).unwrap_err();
         assert!(err.contains("claude"), "{err}");
+    }
+
+    /// EXP-1232: a managed Codex already at the pin is "up to date" without
+    /// a spawn or a download.
+    #[test]
+    fn a_managed_codex_at_the_pin_is_up_to_date() {
+        let dir = std::env::temp_dir().join(format!(
+            "exp-agent-update-codex-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let binary = crate::managed_codex::binary_path(&dir);
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(&binary, b"").unwrap();
+        let outcome = update_agent(&Settings::default(), &dir, CodingAgent::Codex).unwrap();
+        assert!(!outcome.changed());
+        assert_eq!(outcome.after, crate::managed_codex::PINNED_VERSION);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
