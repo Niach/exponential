@@ -1,6 +1,5 @@
-- Párbeszédek: minden megerősítés és választás ugyanazt a kártyát használja, és a Return soha nem választ romboló választ
-- Új issue: az × rákérdez, mielőtt elvet egy piszkozatot, a tartalommal bíró piszkozat elhagyásakor pedig Create, Keep as draft vagy Discard közül választhatsz
-- Runs: a futás jele vezeti a lista minden sorát, egy élő eszközsor csak a címét mutatja, és a futás addig mutat Working állapotot, amíg az ügynök valóban nem végzett
-- Boardok: a boardválasztó már nem mutatja a többi csapat pöttyét
-- Fiók: leválaszthatsz egy bejelentkezési módot, amíg marad más út befelé
-- Eszközök: a készenléti blokk megmondja, mi hiányzik még egy gépnek, a Computer use pedig eszközönként bekapcsolható
+- Futtatások: a futtatás szálként nyílik meg egy állapotsorral (Building on <device>, eltelt idő, utolsó eszközsor) és az eredményekkel a szálban; a Show work megnyitja a teljes átiratot
+- Piszkozatok: egy másik eszközön piszkozatból létrehozott issue itt issue-ként nyílik meg, az elvetett piszkozat pedig mindenhol bezárul
+- Műveletek: egy művelet törlése előbb rákérdez, a közös figyelmeztető kártyán
+- Eszközök: a Codexhez már nem kell CLI-t telepíteni; az IDE az első bejelentkezéskor letölti
+- Javítások: egy agent issue nélküli pull requestjének egyesítése működik, és az eredményképek megbízhatóan feltöltődnek

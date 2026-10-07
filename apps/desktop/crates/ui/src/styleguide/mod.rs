@@ -117,8 +117,8 @@ mod tests {
     /// EXP-1063: an entry is handed the window and the app, so it can draw
     /// the REAL component. Every entry paints in one window, twice (the
     /// second frame reuses the entities `use_keyed_state` kept), and the
-    /// two that used to only describe theirs — `sub-shell` and
-    /// `device-settings` — now paint the product's own elements. EXP-1092
+    /// one that used to only describe its own — `device-settings` — now
+    /// paints the product's own elements. EXP-1092
     /// did the same for `menu` and `issue-context-menu` (real `PopupMenu`s),
     /// `pr-graph-badge` (`pr_graph::badge`) and `session-tree` (the `run_rows`
     /// renderers over `domain::session_tree`) — with NO `sync::Store`

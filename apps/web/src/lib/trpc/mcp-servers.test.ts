@@ -399,6 +399,7 @@ describe(`mcpServers.update / remove`, () => {
 describe(`mcpServers.list — connection statuses`, () => {
   const SECRET = `11111111-1111-4111-8111-333333333333`
   const OPEN = `11111111-1111-4111-8111-444444444444`
+  const STDIO = `11111111-1111-4111-8111-666666666666`
   const LATER = new Date(Date.now() + 3600_000)
 
   beforeEach(() => {
@@ -408,6 +409,7 @@ describe(`mcpServers.list — connection statuses`, () => {
         serverRow({ id: SERVER_B, name: `Sentry` }),
         serverRow({ id: SECRET, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
         serverRow({ id: OPEN, name: `Docs`, auth: `none` }),
+        serverRow({ id: STDIO, name: `Local`, transport: `stdio`, url: null, command: `npx`, args: [`-y`, `@acme/mcp`], auth: `secret`, envNames: [`ACME_TOKEN`] }),
         serverRow({ id: `11111111-1111-4111-8111-555555555555`, teamId: `other-team`, name: `Foreign` }),
       ],
       team_members: [
@@ -423,13 +425,16 @@ describe(`mcpServers.list — connection statuses`, () => {
         // Shared but broken: never counted as shared.
         { serverId: SERVER_B, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ accessToken: `a`, refreshToken: `r` }, credentialAad(SERVER_B, `actor`)), expiresAt: null, error: `invalid_grant`, shared: true },
         { serverId: SECRET, userId: `mate`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(SECRET, `mate`)), expiresAt: null, error: null },
+        // A stale share on a stdio server (the secret stays on the owner's
+        // machine; `setShared` refuses new ones): connected, never shared.
+        { serverId: STDIO, userId: `actor`, teamId: TEAM, ciphertext: encryptCredential({ value: `k` }, credentialAad(STDIO, `actor`)), expiresAt: null, error: null, shared: true },
       ],
     })
   })
 
   it(`returns the caller's connection per server plus team counts, never a credential`, async () => {
     const rows = await callerFor().list({ teamId: TEAM })
-    expect(rows.map((row) => row.name)).toEqual([`Linear`, `Sentry`, `Grafana`, `Docs`])
+    expect(rows.map((row) => row.name)).toEqual([`Linear`, `Sentry`, `Grafana`, `Docs`, `Local`])
     const byName = new Map(rows.map((row) => [row.name, row]))
     expect(byName.get(`Linear`)).toMatchObject({
       connection: { status: `connected`, expiresAt: LATER.toISOString(), error: null, shared: false },
@@ -457,6 +462,15 @@ describe(`mcpServers.list — connection statuses`, () => {
       connectedCount: 3,
       sharedCount: 0,
       connectedUserIds: [`actor`, `mate`, `third`],
+    })
+    // The stdio row's own connection still reports `shared` (so the menu can
+    // undo it), but the team count excludes it: no run elsewhere can use it.
+    expect(byName.get(`Local`)).toMatchObject({
+      connection: { status: `connected`, shared: true },
+      connectedCount: 1,
+      sharedCount: 0,
+      sharedUserIds: [],
+      connectedUserIds: [`actor`],
     })
     expect(JSON.stringify(rows)).not.toContain(`ciphertext`)
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
@@ -836,9 +850,14 @@ describe(`isReservedMcpEnvName`, () => {
 
 describe(`mcpServers.setShared (FEED-73)`, () => {
   const LATER = new Date(Date.now() + 3600_000)
+  const STDIO = `11111111-1111-4111-8111-666666666666`
   const seed = (credentials: Record<string, unknown>[]) => {
     db = createFakeDb({
-      mcp_servers: [serverRow(), serverRow({ id: SERVER_B, name: `Docs`, auth: `none` })],
+      mcp_servers: [
+        serverRow(),
+        serverRow({ id: SERVER_B, name: `Docs`, auth: `none` }),
+        serverRow({ id: STDIO, name: `Local`, transport: `stdio`, url: null, command: `npx`, args: [`-y`, `@acme/mcp`], auth: `secret`, envNames: [`ACME_TOKEN`] }),
+      ],
       mcp_credentials: credentials,
     })
   }
@@ -886,6 +905,32 @@ describe(`mcpServers.setShared (FEED-73)`, () => {
     h.assertTeamMember.mockRejectedValueOnce(new TRPCError({ code: `FORBIDDEN` }))
     const error = await rejectionOf(callerFor().setShared({ serverId: SERVER, shared: true }))
     expect(error.code).toBe(`FORBIDDEN`)
+    expect(db.rows(`mcp_credentials`)[0]!.shared).toBe(false)
+  })
+
+  it(`refuses sharing a stdio server (its secret stays on the owner's machine), still unshares one`, async () => {
+    const stdioOwn = (shared: boolean) => ({
+      id: `c-stdio`,
+      serverId: STDIO,
+      userId: `actor`,
+      teamId: TEAM,
+      ciphertext: encryptCredential({ value: `k` }, credentialAad(STDIO, `actor`)),
+      expiresAt: null,
+      error: null,
+      shared,
+    })
+    seed([stdioOwn(false)])
+    const error = await rejectionOf(callerFor().setShared({ serverId: STDIO, shared: true }))
+    expect(error.code).toBe(`BAD_REQUEST`)
+    expect(error.message).toBe(
+      `A stdio server's secret stays on its owner's machine; it cannot be shared`
+    )
+    expect(db.rows(`mcp_credentials`)[0]!.shared).toBe(false)
+
+    // A row shared before the refusal existed can still be undone.
+    seed([stdioOwn(true)])
+    const off = await callerFor().setShared({ serverId: STDIO, shared: false })
+    expect(off).toMatchObject({ status: `connected`, shared: false })
     expect(db.rows(`mcp_credentials`)[0]!.shared).toBe(false)
   })
 })

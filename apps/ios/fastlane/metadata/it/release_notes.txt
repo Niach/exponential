@@ -1,6 +1,5 @@
-- Dialoghi: ogni conferma e ogni scelta usa la stessa scheda, e Return non sceglie mai una risposta distruttiva
-- Nuova issue: la × chiede prima di scartare una bozza, e uscire da una bozza con contenuto chiede Create, Keep as draft o Discard
-- Runs: il segno dell'esecuzione apre ogni riga dell'elenco, una riga di strumento in corso mostra solo il titolo e un'esecuzione mostra Working finché l'agente non ha davvero finito
-- Board: il selettore delle board non mostra più il punto degli altri team
-- Account: scollega un metodo di accesso finché resta un altro modo per entrare
-- Dispositivi: il blocco di preparazione dice cosa manca ancora a una macchina, e Computer use si attiva per dispositivo
+- Esecuzioni: un'esecuzione si apre come un thread con una riga di stato (Building on <device>, tempo trascorso, ultima riga dello strumento) e i risultati integrati; Show work apre la trascrizione completa
+- Bozze: un issue creato da una bozza su un altro dispositivo si apre qui come issue, e una bozza scartata si chiude ovunque
+- Azioni: l'eliminazione di un'azione chiede prima conferma, sulla scheda di avviso condivisa
+- Dispositivi: Codex non richiede più l'installazione di una CLI; l'IDE lo scarica al primo accesso
+- Correzioni: unire la pull request di un agente senza issue funziona, e le immagini dei risultati si caricano in modo affidabile

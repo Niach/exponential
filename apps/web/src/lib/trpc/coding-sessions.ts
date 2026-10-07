@@ -1244,14 +1244,28 @@ export const codingSessionsRouter = router({
               input.actionId !== undefined && isBuiltinActionId(input.actionId)
             const tidyUp = input.actionId === BUILTIN_TIDY_UP_ID
             let actionId: string | null = null
+            // FEED-73: the ACTION owns its MCP list; the re-created row
+            // copies it exactly like `start` (re-scoped to the team). A
+            // gone or cross-team action leaves it NULL with the action id.
+            let mcpServerIds: string[] | null = null
             if (input.actionId && !builtin) {
               const [action] = await ctx.db
-                .select({ id: actions.id, teamId: actions.teamId })
+                .select({
+                  id: actions.id,
+                  teamId: actions.teamId,
+                  mcpServerIds: actions.mcpServerIds,
+                })
                 .from(actions)
                 .where(eq(actions.id, input.actionId))
                 .limit(1)
-              actionId =
-                action && action.teamId === input.teamId ? action.id : null
+              if (action && action.teamId === input.teamId) {
+                actionId = action.id
+                mcpServerIds = await resolveMcpServerIds(
+                  ctx.db,
+                  input.teamId!,
+                  action.mcpServerIds ?? []
+                )
+              }
             }
             // The id an automation names: the action row, or tidy-up's
             // builtin id (its row's action_id stays NULL, a uuid FK).
@@ -1303,6 +1317,7 @@ export const codingSessionsRouter = router({
               agentAccount: input.agentAccount ?? null,
               branch: input.branch ?? null,
               batchIssueIds,
+              mcpServerIds,
               // EXP-701: acked from the start, like the issue branch above.
               ackedAt: new Date(),
               // Batch/action rows have no issue to re-derive review state

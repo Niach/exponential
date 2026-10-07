@@ -1,6 +1,5 @@
-- Dialogs: every confirm and choice prompt uses the same card, and Return never picks a destructive answer
-- New issue: the × asks before discarding a draft, and leaving a draft with content asks Create, Keep as draft or Discard
-- Runs: the run mark leads every list row, a live tool row shows only its headline, and a run reads Working until the agent is really done
-- Boards: the board picker no longer shows the other-teams dot
-- Account: unlink a sign-in method as long as another way in remains
-- Devices: the readiness block says what a machine still needs, and Computer use can be switched on per device
+- Runs: a run opens as a thread with a status row (Building on <device>, elapsed time, last tool line) and its results inline; Show work opens the full transcript
+- Drafts: an issue created from a draft on another device lands on the issue here, and a discarded draft closes everywhere
+- Actions: deleting an action asks first, on the shared alert card
+- Devices: Codex no longer needs a CLI install; the IDE fetches it on the first sign-in
+- Fixes: merging an agent's pull request without an issue works, and results pictures upload reliably

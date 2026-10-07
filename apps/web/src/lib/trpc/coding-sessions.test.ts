@@ -1127,6 +1127,41 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
       actionName: `Code review`,
       status: `running`,
     })
+    // An action with no MCP list re-creates with none (no lookup query).
+    expect(inserts[0]!.values.mcpServerIds).toBeNull()
+  })
+
+  // FEED-73: the action owns its MCP list; the resurrected row copies it
+  // exactly like `start` (re-scoped to the team, a removed server dropped).
+  it(`re-creates a swept action row with the action's MCP list`, async () => {
+    const owned = `77777777-7777-4777-8777-777777777777`
+    const removed = `88888888-8888-4888-8888-888888888888`
+    selectResults.push([]) // session row gone (swept)
+    selectResults.push([
+      { id: ACTION_ID, teamId: TEAM_ID, mcpServerIds: [owned, removed] },
+    ])
+    selectResults.push([{ id: owned }]) // resolveMcpServerIds: in-team rows
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      actionName: `Code review`,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(inserts).toHaveLength(1)
+    expect(inserts[0]!.values).toMatchObject({
+      actionId: ACTION_ID,
+      mcpServerIds: [owned],
+    })
+    expect(whereShape(selectWheres[2])).toEqual([
+      `col:id`,
+      owned,
+      removed,
+      `col:team_id`,
+      TEAM_ID,
+    ])
   })
 
   it(`degrades a swept action row to batch-shaped when the action is gone`, async () => {

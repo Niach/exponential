@@ -1,6 +1,5 @@
-- Dialoger: hver bekræftelse og hvert valg bruger det samme kort, og Return vælger aldrig et destruktivt svar
-- Nyt issue: × spørger, før en kladde kasseres, og når du forlader en kladde med indhold, spørger den Create, Keep as draft eller Discard
-- Runs: kørselsmærket står først i hver listerække, en aktiv værktøjsrække viser kun sin overskrift, og en kørsel viser Working, indtil agenten virkelig er færdig
-- Boards: boardvælgeren viser ikke længere prikken for andre teams
-- Konto: fjern en loginmetode, så længe der er en anden vej ind
-- Enheder: klarhedsblokken siger, hvad en maskine stadig mangler, og Computer use kan slås til for hver enhed
+- Kørsler: en kørsel åbner som en tråd med en statuslinje (Building on <device>, forløbet tid, seneste værktøjslinje) og resultaterne direkte i tråden; Show work åbner hele transskriptionen
+- Kladder: et issue oprettet fra en kladde på en anden enhed lander på issuet her, og en kasseret kladde lukkes overalt
+- Handlinger: sletning af en handling spørger først, på det fælles advarselskort
+- Enheder: Codex kræver ikke længere en CLI-installation; IDE'en henter den ved første login
+- Rettelser: sammenfletning af en agents pull request uden et issue virker, og resultatbilleder uploades pålideligt

@@ -1,6 +1,5 @@
-- Okna dialogowe: każde potwierdzenie i wybór używa tej samej karty, a Return nigdy nie wybiera destrukcyjnej odpowiedzi
-- Nowe issue: × pyta przed odrzuceniem szkicu, a wyjście ze szkicu z treścią pyta o Create, Keep as draft lub Discard
-- Runs: znak uruchomienia otwiera każdy wiersz listy, aktywny wiersz narzędzia pokazuje tylko nagłówek, a uruchomienie pokazuje Working, dopóki agent naprawdę nie skończy
-- Boards: wybór boardu nie pokazuje już kropki innych zespołów
-- Konto: odłącz metodę logowania, o ile zostaje inna droga wejścia
-- Urządzenia: blok gotowości mówi, czego maszynie jeszcze brakuje, a Computer use można włączyć dla każdego urządzenia
+- Uruchomienia: uruchomienie otwiera się jako wątek z wierszem stanu (Building on <device>, upływ czasu, ostatni wiersz narzędzia) i wynikami w treści; Show work otwiera pełny zapis
+- Szkice: issue utworzone ze szkicu na innym urządzeniu otwiera się tutaj jako issue, a odrzucony szkic zamyka się wszędzie
+- Akcje: usunięcie akcji najpierw prosi o potwierdzenie, na wspólnej karcie ostrzeżenia
+- Urządzenia: Codex nie wymaga już instalacji CLI; IDE pobiera go przy pierwszym logowaniu
+- Poprawki: scalanie pull requesta agenta bez issue działa, a obrazy wyników przesyłają się niezawodnie
