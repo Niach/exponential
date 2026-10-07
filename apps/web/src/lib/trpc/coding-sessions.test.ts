@@ -447,6 +447,8 @@ describe(`codingSessions.start — issue path`, () => {
       prUrl: null,
       prNumber: null,
       prState: null,
+      // FEED-77: nor a report (only a resume inherits one).
+      results: null,
       // EXP-1140: nor an MCP server pick.
       mcpServerIds: null,
       resumedFromId: null,
@@ -492,6 +494,8 @@ describe(`codingSessions.start — batch path`, () => {
       prUrl: null,
       prNumber: null,
       prState: null,
+      // FEED-77: nor a report (only a resume inherits one).
+      results: null,
       // EXP-876: nothing to name this batch by — the start sent no issues.
       batchIssueIds: null,
       // EXP-1140: nor an MCP server pick.
@@ -707,6 +711,8 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       prUrl: null,
       prNumber: null,
       prState: null,
+      // FEED-77: nor a report (only a resume inherits one).
+      results: null,
       // EXP-1140: nor an MCP server pick.
       mcpServerIds: null,
       resumedFromId: null,
@@ -2568,13 +2574,89 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     })
   })
 
-  it(`starts a fresh run with no PR`, async () => {
+  it(`starts a fresh run with no PR and no report`, async () => {
     await caller.start({ teamId: TEAM_ID })
     expect(inserts[0]!.values).toMatchObject({
       prUrl: null,
       prNumber: null,
       prState: null,
+      results: null,
     })
+  })
+
+  // FEED-77: an account switch mid-run (a resume under a new id) left the
+  // successor with an EMPTY report — the next `sessions_results` listed only
+  // its own topic and `pr_open` built the PR body from that one topic. The
+  // report has one owner, the live run: the entries ride the insert, the
+  // picture rows re-parent, the predecessor's copy clears.
+  const REPORT = [
+    { topic: `Summary`, label: null, attachmentId: null, width: null, height: null, text: `Done.` },
+    { topic: `Nav`, label: `web`, attachmentId: `att-1`, width: 100, height: 50 },
+  ]
+
+  it(`carries the predecessor's report onto the resumed row and moves its pictures (FEED-77)`, async () => {
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: REPORT },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({ results: REPORT })
+    // The picture rows now belong to the successor, confined to its team.
+    const reparent = updates.find(
+      (update) =>
+        update.table === sessionAttachments && update.values.sessionId === SESSION_ID
+    )
+    expect(reparent).toBeDefined()
+    expect(whereShape(updateWheres[updates.indexOf(reparent!)])).toEqual([
+      `col:session_id`,
+      RESUMED_FROM,
+      `col:team_id`,
+      `ws-issue`,
+    ])
+    // And the predecessor no longer names them.
+    const cleared = updates.find(
+      (update) => update.table === codingSessions && update.values.results === null
+    )
+    expect(cleared).toBeDefined()
+    expect(whereShape(updateWheres[updates.indexOf(cleared!)])).toEqual([
+      `col:id`,
+      RESUMED_FROM,
+    ])
+  })
+
+  it(`drops the report of a predecessor in another team (FEED-77)`, async () => {
+    const OTHER_TEAM = `77777777-7777-4777-8777-777777777777`
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: OTHER_TEAM, userId: `actor`, results: REPORT },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({ results: null })
+    expect(updates.some((update) => update.table === sessionAttachments)).toBe(false)
+    expect(
+      updates.some(
+        (update) => update.table === codingSessions && update.values.results === null
+      )
+    ).toBe(false)
+  })
+
+  it(`moves no report when the predecessor published none (FEED-77)`, async () => {
+    selectResults.push([
+      { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: [] },
+    ])
+
+    await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
+
+    expect(inserts[0]!.values).toMatchObject({ results: null })
+    // The start pictures still follow the run; nothing to clear.
+    expect(updates.some((update) => update.table === sessionAttachments)).toBe(true)
+    expect(
+      updates.some(
+        (update) => update.table === codingSessions && update.values.results === null
+      )
+    ).toBe(false)
   })
 
   it(`lets the frame's own started reason win over the inherited one`, async () => {
