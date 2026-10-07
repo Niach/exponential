@@ -1348,6 +1348,45 @@ fn attach_computer_use(
     }
 }
 
+/// EXP-1236: wire the device's code-mode server for this run, AFTER
+/// [`attach_computer_use`] so the computer entry is among the upstreams its
+/// scripts may call. Returns whether the run got it. BEST-EFFORT like
+/// computer use: a host that cannot bind a loopback port launches without,
+/// with a warning in the log and no section in the prompt.
+fn attach_code_mode(
+    team_mcp: &mut ResolvedMcp,
+    agent_mcp: &AgentMcp,
+    personal_key: &str,
+    session_id: &str,
+    label: &str,
+) -> bool {
+    let Some((upstreams, direct_only)) =
+        crate::mcp_servers::codemode_upstreams(agent_mcp, personal_key, session_id, team_mcp)
+    else {
+        return false;
+    };
+    match codemode::grant(session_id, label, upstreams, direct_only) {
+        Ok(grant) => {
+            crate::mcp_servers::attach_codemode(team_mcp, &grant);
+            true
+        }
+        Err(reason) => {
+            log::warn!("coding: code mode unavailable, launching without it: {reason}");
+            false
+        }
+    }
+}
+
+/// EXP-1196/EXP-1236: what this launch carries beyond the playbook, for
+/// [`system_append_for_team`]: the computer-use section names the device's
+/// subagent model.
+fn run_extras(deps: &CodingDeps, computer_use: bool, code_mode: bool) -> crate::skill::Extras {
+    crate::skill::Extras {
+        computer_use: computer_use.then(|| deps.settings.computer_use_model.clone()),
+        code_mode,
+    }
+}
+
 /// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:
 /// every resolved secret under the launcher-minted name (`EXP_MCP_TOKEN_<n>`,
 /// `EXP_MCP_ENV_<n>_<NAME>`, a stdio server's own `<NAME>`) — the values the
@@ -1799,6 +1838,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => String::new(),
     };
     let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
+    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
 
     // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
     // `in_progress`. Under plan mode the agent's MCP status call would only
@@ -2066,7 +2106,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // The row id the ACP arm hands the engine (the literal below moves
     // `session.id` into the launch).
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &team_id, computer_use);
+    let system_append = system_append_for_team(deps, &team_id, &run_extras(deps, computer_use, code_mode));
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
     let context_layers = context_layers_for(
@@ -2584,6 +2624,7 @@ fn prepare_action(
         _ => req.action_name.clone(),
     };
     let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
+    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
 
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
     // marker, exactly like the issue path — a later resume reads it to
@@ -2742,7 +2783,7 @@ fn prepare_action(
     );
 
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &req.team_id, computer_use);
+    let system_append = system_append_for_team(deps, &req.team_id, &run_extras(deps, computer_use, code_mode));
     // EXP-1051: an action run's cwd is its own worktree or scratch dir, so
     // its project memory is whatever sits there — not the trunk clone's.
     let context_layers = context_layers_for(
@@ -3397,6 +3438,8 @@ fn prepare_resume_run(
     let pick = (record.kind != RunKind::Team).then_some(options.mcp_server_ids.as_slice());
     let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
     let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &record.display_name());
+    let code_mode =
+        attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &record.display_name());
 
     // Step 6 — the spawn spec, mirroring the fresh action path.
     if agent == CodingAgent::Codex {
@@ -3570,7 +3613,7 @@ fn prepare_resume_run(
                 .map(ResumeSeed::Native)
         });
     let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &record.team_id, computer_use);
+    let system_append = system_append_for_team(deps, &record.team_id, &run_extras(deps, computer_use, code_mode));
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the predecessor's measured number is the
     // only honest one to carry. A resume that fell back to a fresh session
@@ -3647,18 +3690,18 @@ fn with_delegation_note(append: String, team_mcp: &ResolvedMcp) -> String {
 /// never a refused launch — the prompt is a nicety of the run, not a
 /// precondition of it.
 ///
-/// EXP-1196: `computer_use` = this launch carries the `computer` MCP server
-/// ([`attach_computer_use`]), so the append also teaches it. An agent shell
-/// never does.
-fn system_append_for_team(deps: &CodingDeps, team_id: &str, computer_use: bool) -> String {
+/// EXP-1196/EXP-1236: `extras` = the servers this launch carries beyond
+/// `exponential` ([`attach_computer_use`], [`attach_code_mode`]), so the
+/// append also teaches them. An agent shell carries neither.
+fn system_append_for_team(deps: &CodingDeps, team_id: &str, extras: &crate::skill::Extras) -> String {
     if team_id.trim().is_empty() {
-        return crate::skill::system_append_with(None, computer_use);
+        return crate::skill::system_append_with(None, extras);
     }
     match api::teams::teams_get_agent_prompt(&deps.trpc, team_id) {
-        Ok(prompt) => crate::skill::system_append_with(Some(&prompt.agent_prompt), computer_use),
+        Ok(prompt) => crate::skill::system_append_with(Some(&prompt.agent_prompt), extras),
         Err(err) => {
             log::warn!("coding: team prompt for {team_id} unavailable, launching without it: {err}");
-            crate::skill::system_append_with(None, computer_use)
+            crate::skill::system_append_with(None, extras)
         }
     }
 }
@@ -3882,7 +3925,7 @@ pub fn prepare_agent_shell(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""), false);
+    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""), &crate::skill::Extras::NONE);
     let args = shell_args(options, &agent_mcp, &system_append);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
@@ -5094,7 +5137,10 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(append.ends_with(&format!("\n\n{note}")), "{append}");
         let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
         assert!(before.contains("Always write tests."), "{before}");
-        let unnoted = crate::skill::system_append_with(Some("Always write tests."), false);
+        // EXP-1236: every launch carries the code-mode server, so its
+        // section rides between the playbook and the team prompt.
+        let extras = crate::skill::Extras { computer_use: None, code_mode: true };
+        let unnoted = crate::skill::system_append_with(Some("Always write tests."), &extras);
         assert_eq!(before, unnoted.trim_end());
         assert_eq!(
             prepared.acp.context_layers.team_bytes,
@@ -5102,7 +5148,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
         assert!(prepared.acp.context_layers.team_bytes.is_some());
         let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, vec!["linear", "linear_as_chris"]);
+        assert_eq!(names, vec!["linear", "linear_as_chris", "codemode"]);
         assert_eq!(
             prepared.acp.servers[1].actor.as_ref().map(|a| a.name.as_str()),
             Some("Chris")
@@ -7914,8 +7960,13 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                     .to_string()
             ]
         );
-        assert!(prepared.acp.servers.is_empty());
-        assert!(prepared.acp.mcp_secrets.is_empty());
+        // EXP-1236: the skipped pick leaves only the device's own code-mode
+        // server, behind its token env; the token is the one secret.
+        let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["codemode"]);
+        assert_eq!(prepared.acp.servers[0].token_env.as_deref(), Some(codemode::TOKEN_ENV));
+        assert!(!prepared.acp.mcp_secrets.is_empty());
+        assert!(prepared.acp.system_append.contains("# Code mode"), "{}", prepared.acp.system_append);
 
         let requests = captured.lock().unwrap();
         let start = requests

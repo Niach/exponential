@@ -55,14 +55,34 @@ every run of the team and outranks the requester's additional instructions.";
 /// a launcher that silently cut a prompt would hand the agent rules the
 /// owner never wrote.
 pub fn system_append(team_prompt: Option<&str>) -> String {
-    system_append_with(team_prompt, false)
+    system_append_with(team_prompt, &Extras::NONE)
+}
+
+/// EXP-1196/EXP-1236 — what ONE launch carries beyond the playbook: the
+/// `computer` MCP server (with the model alias its screen-driving subagents
+/// run on) and the `codemode` server. Each adds its own section; an agent
+/// shell carries neither.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Extras {
+    /// `Some(model)` = the launch wired the `computer` server; `model` is
+    /// `Settings::computer_use_model`, the alias the section tells the agent
+    /// to hand its screen-driving subagents.
+    pub computer_use: Option<String>,
+    /// The launch wired the `codemode` server.
+    pub code_mode: bool,
+}
+
+impl Extras {
+    /// The bare playbook (an agent shell, a test).
+    pub const NONE: Extras = Extras { computer_use: None, code_mode: false };
 }
 
 /// EXP-1196 — what a run is told when THIS device's Computer use switch is
 /// on and the launcher wired the `computer` MCP server: the ladder (pixels
 /// last), how positions work, and the limits the server enforces anyway.
 /// Outside `skill.md` on purpose: the playbook has no bytes to spare, and
-/// most runs never get the server.
+/// most runs never get the server. `{model}` is where the subagent model
+/// alias lands ([`computer_use_section`]).
 pub const COMPUTER_USE_SECTION: &str = "# Computer use
 
 This device lets you see and drive its desktop through the `computer` MCP server (the cua \
@@ -82,23 +102,54 @@ refusal justifies `delivery_mode: \"foreground\"` or a desktop target (`get_desk
 over their pointer and keyboard.
 - Show the person a frame that matters: `screenshot_out_file` on a state tool, then \
 `exponential_sessions_show` with that `file`.
+- Drive the screen from SUBAGENTS on model `{model}` (the `Agent` tool's `model`, a fast one by \
+design): one window per subagent, several at once when the task has several, each verifying its \
+own effects; keep the plan and the final check in this conversation. Background delivery drives \
+windows in place, so parallel subagents need no second pointer.
+";
+
+/// [`COMPUTER_USE_SECTION`] with the subagent model alias filled in.
+pub fn computer_use_section(model: &str) -> String {
+    COMPUTER_USE_SECTION.replace("{model}", model)
+}
+
+/// EXP-1236 — what a run is told when the launcher wired the `codemode`
+/// MCP server: one script instead of a call per item, parallel screen work,
+/// and that only the script's output comes back.
+pub const CODE_MODE_SECTION: &str = "# Code mode
+
+The `codemode` MCP server runs JavaScript that calls this run's OTHER MCP tools: `exec({script})`, \
+where `await tools.<server>.<tool>(args)` (or `tools.mcp__<server>__<tool>`) is any tool of \
+`exponential`, `computer` and the team's HTTP servers; `Promise.all([...])` runs them at once (16 in \
+flight), `sleep(ms)` waits, `console.log` lines and the `return` value come back as JSON (64 KB cap) \
+and nothing else does. `describe({names})` gives input schemas; `ALL_TOOLS` lists the names inside a \
+script.
+
+- Use it when one step is many calls (every issue of a board, a dozen windows): one script, one \
+result in your context, instead of a call per item. A single call stays a direct tool call.
+- Computer use: one `tools.computer.*` chain per window inside `Promise.all` drives several windows \
+at once; verify each effect in the script as you would a direct call, and print what you learned.
+- Stdio team servers are direct-call only; a refusal rejects (`Promise.allSettled` tolerates it).
 ";
 
 /// The fixed text every run of a device gets before the team prompt: the
-/// playbook, plus [`COMPUTER_USE_SECTION`] when `computer_use`.
-pub fn fixed_append(computer_use: bool) -> String {
-    if computer_use {
-        format!("{}\n\n{COMPUTER_USE_SECTION}", RUN_SKILL.trim_end())
-    } else {
-        RUN_SKILL.to_string()
+/// playbook, plus [`COMPUTER_USE_SECTION`] and [`CODE_MODE_SECTION`] as the
+/// launch carries them.
+pub fn fixed_append(extras: &Extras) -> String {
+    let mut text = RUN_SKILL.to_string();
+    if let Some(model) = &extras.computer_use {
+        text = format!("{}\n\n{}", text.trim_end(), computer_use_section(model));
     }
+    if extras.code_mode {
+        text = format!("{}\n\n{CODE_MODE_SECTION}", text.trim_end());
+    }
+    text
 }
 
-/// [`system_append`] for a run that may have the `computer` MCP server: the
-/// playbook, the computer-use section, then the team prompt LAST (it
-/// outranks both).
-pub fn system_append_with(team_prompt: Option<&str>, computer_use: bool) -> String {
-    let fixed = fixed_append(computer_use);
+/// [`system_append`] for a run that may carry the extra servers: the
+/// playbook, their sections, then the team prompt LAST (it outranks all).
+pub fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String {
+    let fixed = fixed_append(extras);
     match team_prompt.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => format!(
             "{}\n\n{TEAM_PROMPT_HEADING}\n\n{TEAM_PROMPT_LEAD}\n\n{text}\n",
@@ -145,22 +196,54 @@ mod tests {
         );
     }
 
+    fn computer(model: &str) -> Extras {
+        Extras { computer_use: Some(model.to_string()), code_mode: false }
+    }
+
     /// EXP-1196: the computer-use section sits between the playbook and the
-    /// team prompt, only when asked for, and names no em dash either.
+    /// team prompt, only when asked for, names the subagent model, and
+    /// names no em dash either.
     #[test]
     fn the_computer_use_section_rides_between_the_playbook_and_the_team_prompt() {
-        assert_eq!(system_append_with(None, false), RUN_SKILL);
-        assert_eq!(system_append_with(Some("Rules"), false), system_append(Some("Rules")));
-        let alone = system_append_with(None, true);
+        assert_eq!(system_append_with(None, &Extras::NONE), RUN_SKILL);
+        assert_eq!(system_append_with(Some("Rules"), &Extras::NONE), system_append(Some("Rules")));
+        let alone = system_append_with(None, &computer("haiku"));
         assert!(alone.starts_with(RUN_SKILL.trim_end()));
-        assert!(alone.ends_with(COMPUTER_USE_SECTION));
-        let both = system_append_with(Some("Rules"), true);
+        assert!(alone.ends_with(&computer_use_section("haiku")));
+        assert!(alone.contains("SUBAGENTS on model `haiku`"));
+        assert!(!alone.contains("{model}"));
+        let both = system_append_with(Some("Rules"), &computer("sonnet"));
         let section = both.find("# Computer use").unwrap();
         let team = both.find(TEAM_PROMPT_HEADING).unwrap();
         assert!(RUN_SKILL.trim_end().len() < section && section < team);
         assert!(both.ends_with("\n\nRules\n"));
+        assert!(both.contains("model `sonnet`"));
         assert!(!COMPUTER_USE_SECTION.contains('\u{2014}'));
-        assert!(COMPUTER_USE_SECTION.len() < 1536, "{} bytes", COMPUTER_USE_SECTION.len());
+        assert!(COMPUTER_USE_SECTION.len() < 1900, "{} bytes", COMPUTER_USE_SECTION.len());
+    }
+
+    /// EXP-1236: the code-mode section follows the computer-use one (when
+    /// both are carried) and precedes the team prompt; alone it follows the
+    /// playbook directly.
+    #[test]
+    fn the_code_mode_section_rides_after_computer_use_and_before_the_team_prompt() {
+        let code = Extras { computer_use: None, code_mode: true };
+        let alone = system_append_with(None, &code);
+        assert!(alone.starts_with(RUN_SKILL.trim_end()));
+        assert!(alone.ends_with(CODE_MODE_SECTION));
+        assert!(!alone.contains("# Computer use"));
+        let all = Extras { computer_use: Some("haiku".into()), code_mode: true };
+        let everything = system_append_with(Some("Rules"), &all);
+        let computer = everything.find("# Computer use").unwrap();
+        let code_mode = everything.find("# Code mode").unwrap();
+        let team = everything.find(TEAM_PROMPT_HEADING).unwrap();
+        assert!(computer < code_mode && code_mode < team);
+        assert!(everything.ends_with("\n\nRules\n"));
+        assert!(!CODE_MODE_SECTION.contains('\u{2014}'));
+        assert!(CODE_MODE_SECTION.len() < 1100, "{} bytes", CODE_MODE_SECTION.len());
+        for name in ["`exec({script})`", "`describe({names})`", "Promise.all", "ALL_TOOLS", "tools.computer."] {
+            assert!(CODE_MODE_SECTION.contains(name), "the section never says {name}");
+        }
     }
 
     /// EXP-1025: no team prompt = the playbook, byte for byte.

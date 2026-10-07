@@ -65,6 +65,28 @@ enum LaunchVocabulary {
         agent == "claude"
     }
 
+    /// EXP-1236: the Computer use model list — the aliases the run's
+    /// screen-driving subagents may run on, contract order, the default
+    /// (Haiku) first. A device-level pick, not an agent's: no blank row.
+    static func computerUseModelValues() -> [String] {
+        DomainContract.computerUseModelValues
+    }
+
+    /// The Model picker's own alias labels (Haiku, Sonnet, Opus, Fable).
+    static func computerUseModelLabel(_ value: String) -> String {
+        modelLabel(value)
+    }
+
+    /// The stored `launchDefaults.computerUseModel` as the picker's draft: a
+    /// contract alias as itself, anything else (absent, an older row, a future
+    /// model this build cannot name) the contract default.
+    static func seedComputerUseModel(_ advertised: String?) -> String {
+        if let advertised, DomainContract.computerUseModelValues.contains(advertised) {
+            return advertised
+        }
+        return DomainContract.deviceComputerUseDefaultsModel
+    }
+
     /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan
     /// mode. EXP-849 dropped the second agent that had one.
     static func supportsPlanMode(_ agent: String) -> Bool {

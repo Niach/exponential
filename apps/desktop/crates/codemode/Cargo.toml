@@ -1,0 +1,29 @@
+[package]
+name = "codemode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+# EXP-1236: code mode for coding runs. The host (IDE or `exponential` daemon)
+# serves ONE loopback MCP endpoint per process with two tools, `exec` and
+# `describe`: a script the agent writes calls the run's OTHER MCP servers
+# (`exponential`, `computer`, the team's HTTP servers) in bulk and in
+# parallel, and only its output returns to the model. Sibling of
+# `crates/computer`, same topology (per-run bearer, tiny_http, plain JSON).
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = "0.4"
+uuid = { workspace = true }
+# The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
+tiny_http = { version = "0.12", default-features = false }
+# The upstream MCP calls (streamable HTTP answered as JSON): the workspace's
+# ONE HTTP stack (EXP-304), blocking, rustls.
+reqwest = { workspace = true }
+# The script engine: a pure-Rust ECMAScript engine (Unlicense OR MIT), so the
+# device needs no node/bun/deno and every build target compiles it the same.
+# Default features off: no ICU/temporal data, the scripts only orchestrate
+# tool calls. The host drives its event loop by hand (`runtime.rs`), which is
+# what lets N tool calls run at once on their own threads.
+boa_engine = { version = "0.22", default-features = false }

@@ -25,6 +25,10 @@ import SwiftUI
 //              EXP-1196: the DEVICE-level "Computer use" switch rides the
 //              same debounced whole-object save as a top-level key; it lives
 //              in the Readiness block's Computer use group (below).
+//              EXP-1236: "Computer use model" (the alias the run's
+//              screen-driving subagents run on, default Haiku) is that
+//              group's last row, shown only while the switch is on, and rides
+//              the same save beside it as `computerUseModel`.
 //              EXP-862 took the ACCOUNT and USAGE rows back out (×4). A login
 //              is a flow, not a setting: signing in lives on the account chips
 //              (`AgentLoginSheet`) and the numbers live on ONE surface, Devices
@@ -105,6 +109,10 @@ struct DeviceSettingsSheet: View {
     /// EXP-1196: the device-level `launchDefaults.computerUse` draft. Off
     /// when the row has no value; sent explicitly on every defaults save.
     @State private var computerUse = false
+    /// EXP-1236: the device-level `launchDefaults.computerUseModel` draft,
+    /// seeded through `LaunchVocabulary.seedComputerUseModel` (contract
+    /// default when the row has none).
+    @State private var computerUseModel = DomainContract.deviceComputerUseDefaultsModel
     @State private var savingDefaults = false
     @State private var defaultsSaveTask: Task<Void, Never>?
     @State private var defaultsPending = false
@@ -254,6 +262,7 @@ struct DeviceSettingsSheet: View {
         }
         drafts = next
         computerUse = device.launchDefaults?.computerUse ?? false
+        computerUseModel = LaunchVocabulary.seedComputerUseModel(device.launchDefaults?.computerUseModel)
     }
 
     /// The advertised per-agent defaults as a draft, contract-validated with
@@ -511,6 +520,7 @@ struct DeviceSettingsSheet: View {
                         scheduleDefaultsAutosave()
                     }
                 ),
+                computerUseModel: computerUseModelBinding,
                 busyActions: updatingAgents,
                 onAction: { row in runReadinessAction(row, device: device) }
             )
@@ -519,8 +529,22 @@ struct DeviceSettingsSheet: View {
         .listRowBackground(Color.clear)
     }
 
+    /// EXP-1236: the Computer use model draft's binding — a pick saves
+    /// through the same debounced launch-defaults path as the switch.
+    private var computerUseModelBinding: Binding<String> {
+        Binding(
+            get: { computerUseModel },
+            set: { newValue in
+                computerUseModel = newValue
+                defaultsPending = true
+                scheduleDefaultsAutosave()
+            }
+        )
+    }
+
     /// An older build sends no doctor (fixture rule): no block, but the bare
-    /// Computer use switch row stays reachable. Label + switch, no footer.
+    /// Computer use switch row stays reachable. Label + switch, no footer;
+    /// EXP-1236: the model picker row under it while the switch is on.
     private var computerUseSection: some View {
         Section {
             Toggle(
@@ -535,6 +559,15 @@ struct DeviceSettingsSheet: View {
                 )
             )
             .accessibilityIdentifier("device-computer-use")
+            if computerUse {
+                GlassPickerRow(
+                    "Computer use model",
+                    selection: computerUseModelBinding,
+                    options: LaunchVocabulary.computerUseModelValues(),
+                    label: { LaunchVocabulary.computerUseModelLabel($0) }
+                )
+                .accessibilityIdentifier("device-computer-use-model")
+            }
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -657,8 +690,13 @@ struct DeviceSettingsSheet: View {
         // later edit re-arms the debounce on its own.
         // EXP-1158: no `defaultAgent` — the device owns the last used agent
         // and the server carries it forward over this save.
-        // EXP-1196: the device-level switch rides as an explicit boolean.
-        let payload = DeviceLaunchDefaultsInput(agents: agents, computerUse: computerUse)
+        // EXP-1196: the device-level switch rides as an explicit boolean;
+        // EXP-1236: its model alias beside it (always a contract value here).
+        let payload = DeviceLaunchDefaultsInput(
+            agents: agents,
+            computerUse: computerUse,
+            computerUseModel: computerUseModel
+        )
         defaultsPending = false
         savingDefaults = true
         let api = deps.devicesApi

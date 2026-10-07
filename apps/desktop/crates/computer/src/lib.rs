@@ -16,6 +16,8 @@
 //! no approval cards, nothing on top of what cua itself refuses.
 
 #[cfg(feature = "cua")]
+mod channel;
+#[cfg(feature = "cua")]
 mod driver;
 mod server;
 pub mod worker;

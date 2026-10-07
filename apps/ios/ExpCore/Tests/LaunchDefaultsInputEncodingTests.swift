@@ -85,6 +85,38 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         XCTAssertEqual(odd.defaultAgent, "codex")
     }
 
+    /// EXP-1236: `computerUseModel` rides beside the switch as a TOP-LEVEL
+    /// string: encoded when set, absent when nil (the server keeps the stored
+    /// alias), decoded leniently (absent, null or a non-string = nil, which
+    /// the sheet seeds as the contract default).
+    func testComputerUseModelRidesBesideTheSwitchAndIsOmittedWhenNil() throws {
+        let picked = try json(DeviceLaunchDefaultsInput(
+            agents: [:], computerUse: true, computerUseModel: "sonnet"
+        ))
+        XCTAssertEqual(picked["computerUseModel"] as? String, "sonnet")
+        XCTAssertEqual(Set(picked.keys), ["agents", "computerUse", "computerUseModel"])
+        let unset = try json(DeviceLaunchDefaultsInput(agents: [:], computerUse: true))
+        XCTAssertNil(unset.index(forKey: "computerUseModel"))
+
+        let decode = { (raw: String) throws -> DeviceLaunchDefaults in
+            try JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(raw.utf8))
+        }
+        let row = try decode(#"{"computerUse":true,"computerUseModel":"opus","agents":{}}"#)
+        XCTAssertEqual(row.computerUseModel, "opus")
+        XCTAssertEqual(row.computerUse, true)
+        XCTAssertNil(try decode(#"{"computerUse":true}"#).computerUseModel)
+        XCTAssertNil(try decode(#"{"computerUseModel":null}"#).computerUseModel)
+        let odd = try decode(#"{"defaultAgent":"codex","computerUseModel":7}"#)
+        XCTAssertNil(odd.computerUseModel)
+        XCTAssertEqual(odd.defaultAgent, "codex")
+
+        // The contract names the default and it is one of the pickable aliases.
+        XCTAssertEqual(DomainContract.deviceComputerUseDefaultsModel, "haiku")
+        XCTAssertTrue(
+            DomainContract.computerUseModelValues.contains(DomainContract.deviceComputerUseDefaultsModel)
+        )
+    }
+
     /// The synced devices row (stringified jsonb) keeps the key through the
     /// retired-agent filter that rebuilds the decoded defaults.
     func testSyncedDeviceRowKeepsComputerUse() throws {
@@ -93,11 +125,13 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
             userId: "me",
             deviceId: "box",
             label: "Box",
-            launchDefaults: #"{"defaultAgent":"claude","computerUse":true}"#,
+            launchDefaults: #"{"defaultAgent":"claude","computerUse":true,"computerUseModel":"fable"}"#,
             lastSeenAt: "2026-10-05T11:59:00.000Z"
         )
         let device = SteerDevice(entity: row, currentUserId: "me")
         XCTAssertEqual(device.launchDefaults?.computerUse, true)
+        // EXP-1236: the model alias survives the same rebuild.
+        XCTAssertEqual(device.launchDefaults?.computerUseModel, "fable")
         XCTAssertEqual(device.launchDefaults?.defaultAgent, "claude")
     }
 }

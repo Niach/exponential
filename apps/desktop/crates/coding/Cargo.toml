@@ -21,6 +21,9 @@ terminal = { path = "../terminal", default-features = false }
 # EXP-1196: the device's computer-use MCP server (gpui-free, tokio-free). The
 # launcher mints a run's grant and wires the entry beside the team servers.
 computer = { path = "../computer" }
+# EXP-1236: the device's code-mode MCP server (scripts over the run's other
+# MCP servers), wired into every run beside the team servers.
+codemode = { path = "../codemode" }
 # EXP-1232: the managed Codex download reuses the self-updater's streaming
 # `download` (no whole-request deadline, `.part` + rename).
 updater = { path = "../updater" }

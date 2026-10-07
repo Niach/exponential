@@ -213,6 +213,10 @@ export interface DomainContract {
   codingAgent: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */
   codingModel: { values: readonly string[] }
+  /** EXP-1236: model aliases a run's screen-driving subagents may run on (`launch_defaults.computerUseModel`). */
+  computerUseModel: { values: readonly string[] }
+  /** EXP-1236: a device's computer-use defaults (the subagent model, `haiku`). */
+  deviceComputerUseDefaults: { model: string }
   /** Claude effort levels; blank ("CLI default") is a per-client extra row, not a contract value. */
   codingEffort: { values: readonly string[] }
   /** Codex model slugs; blank ("CLI default") is a per-client extra row, not a contract value. */

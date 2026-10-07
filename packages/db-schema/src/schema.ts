@@ -1235,6 +1235,10 @@ export interface DeviceLaunchDefaults {
    * (screen, click, type). Device-level, absent = off; a save without it
    * keeps the stored one. */
   computerUse?: boolean | null
+  /** EXP-1236: the model alias the run's screen-driving subagents run on
+   * (contract `computerUseModel`); absent = contract
+   * `deviceComputerUseDefaults.model`. Same carry-forward as `computerUse`. */
+  computerUseModel?: string | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
@@ -1249,6 +1253,8 @@ export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
   // EXP-1196: see DeviceLaunchDefaults.computerUse.
   computerUse: z.boolean().nullish(),
+  // EXP-1236: see DeviceLaunchDefaults.computerUseModel.
+  computerUseModel: z.string().max(32).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),

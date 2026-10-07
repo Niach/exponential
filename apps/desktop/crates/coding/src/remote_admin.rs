@@ -59,6 +59,10 @@ pub struct DefaultsPatch {
     /// server carries it forward), and an absent key here changes nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use: Option<bool>,
+    /// EXP-1236: `Settings.computer_use_model`, device-level beside the
+    /// switch; same carry-forward contract as `computer_use`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use_model: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
 
@@ -91,6 +95,11 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
     }
     if let Some(computer_use) = patch.computer_use {
         set_bool(&mut settings.computer_use, computer_use, &mut changed);
+    }
+    if let Some(model) = &patch.computer_use_model {
+        if crate::settings::COMPUTER_USE_MODELS.contains(&model.as_str()) {
+            set_string(&mut settings.computer_use_model, model, &mut changed);
+        }
     }
     for (agent_id, entry) in &patch.agents {
         let Some(agent) = CodingAgent::parse(agent_id) else {
@@ -178,6 +187,7 @@ pub fn overlay_launch_defaults(onto: &mut Settings, from: &Settings) {
     onto.claude_plan_mode = from.claude_plan_mode;
     onto.auto_rotate_accounts = from.auto_rotate_accounts;
     onto.computer_use = from.computer_use;
+    onto.computer_use_model = from.computer_use_model.clone();
 }
 
 /// The PUSH direction: this machine's launch defaults as the full wire
@@ -209,6 +219,7 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
         computer_use: Some(settings.computer_use),
+        computer_use_model: Some(settings.computer_use_model.clone()),
         agents,
     }
 }
@@ -289,6 +300,28 @@ mod tests {
             let patch: DefaultsPatch = serde_json::from_value(silent).unwrap();
             assert!(!apply_defaults_patch(&mut settings, &patch));
             assert!(settings.computer_use);
+        }
+    }
+
+    /// EXP-1236: the screen-driving model rides the top of the wire beside
+    /// the switch; an unknown alias changes nothing, an absent key keeps it.
+    #[test]
+    fn computer_use_model_rides_the_top_of_the_wire_and_refuses_unknown_aliases() {
+        let wire = serde_json::to_value(defaults_wire(&Settings::default())).unwrap();
+        assert_eq!(wire["computerUseModel"], "haiku");
+        let mut settings = Settings::default();
+        let patch: DefaultsPatch =
+            serde_json::from_value(serde_json::json!({ "computerUseModel": "sonnet" })).unwrap();
+        assert!(apply_defaults_patch(&mut settings, &patch));
+        assert_eq!(settings.computer_use_model, "sonnet");
+        for silent in [
+            serde_json::json!({ "agents": {} }),
+            serde_json::json!({ "computerUseModel": null }),
+            serde_json::json!({ "computerUseModel": "gpt-5.6-sol" }),
+        ] {
+            let patch: DefaultsPatch = serde_json::from_value(silent).unwrap();
+            assert!(!apply_defaults_patch(&mut settings, &patch));
+            assert_eq!(settings.computer_use_model, "sonnet");
         }
     }
 
@@ -398,6 +431,7 @@ mod tests {
             claude_plan_mode: false,
             auto_rotate_accounts: false,
             computer_use: true,
+            computer_use_model: "opus".into(),
             terminal_shell: Some("/bin/zsh".into()),
             changelog_seen_id: Some("2026-09-24".into()),
             emoji_recents: vec!["🎉".into()],

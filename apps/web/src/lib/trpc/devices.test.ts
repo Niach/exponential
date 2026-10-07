@@ -1105,6 +1105,49 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
   })
 
+  // EXP-1236: the screen-driving subagents' model rides beside `computerUse`
+  // under the same contract: a contract alias passes, an unknown one is
+  // dropped (never an error), and a save that OMITS the key keeps the stored
+  // pick while an explicit null clears it.
+  it(`clamps computerUseModel to the contract and carries it forward on omission`, async () => {
+    h.state.selectQueue = deviceRow()
+    let result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseModel: `sonnet` },
+    })
+    expect(result.launchDefaults).toEqual({
+      computerUse: true,
+      computerUseModel: `sonnet`,
+    })
+
+    h.state.selectQueue = deviceRow()
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseModel: `gpt-5.6-sol` },
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true })
+
+    const stored = { computerUse: true, computerUseModel: `opus` }
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `fable` } } },
+    })
+    expect(result.launchDefaults).toEqual({
+      computerUse: true,
+      computerUseModel: `opus`,
+      agents: { claude: { model: `fable` } },
+    })
+
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseModel: null },
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true })
+    expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
+  })
+
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({

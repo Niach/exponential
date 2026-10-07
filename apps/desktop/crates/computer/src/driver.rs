@@ -6,17 +6,24 @@
 //! sharing already keeps other people off the machine, and cua's own
 //! bounded/standard modes would put approval prompts in front of the owner
 //! of the hardware. Whatever cua can do on this OS, a run can.
+//!
+//! EXP-1236: the host speaks to the worker over [`crate::channel`], not
+//! cua's `CuaDriver`, so calls from several runs (or one run's `Promise.all`
+//! over several windows) overlap instead of queueing; the worker end is the
+//! concurrent loop in `worker.rs`. The host holds no tokio runtime any more:
+//! a call blocks its own HTTP thread and nothing else.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cua_driver_sdk::worker::ActionCompletion;
 use cua_driver_sdk::{
-    ConfiguredDriverOptions, CuaDriver, CuaDriverSession, DriverError, PrivateWorkerOptions,
-    RuntimeAuthorizationOptions, SessionPermissionMode, TrustedSessionOptions,
+    ConfiguredDriverOptions, RuntimeAuthorizationOptions, SessionPermissionMode, TrustedSessionOptions,
 };
 use serde_json::{json, Value};
 
+use crate::channel::{ChannelError, SpawnOptions, WorkerChannel};
 use crate::server::ToolHost;
 
 /// How long a run's session may live and idle (cua's ceilings; a run that
@@ -24,46 +31,52 @@ use crate::server::ToolHost;
 const SESSION_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const SESSION_IDLE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const WORKER_STARTUP: Duration = Duration::from_secs(30);
+/// cua's own per-request ceiling. Past it the CALL fails and the agent is
+/// told to look again; the worker and every other call in flight live on.
+const CALL_TIMEOUT: Duration = Duration::from_secs(120);
+const BIND_TIMEOUT: Duration = Duration::from_secs(30);
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 struct Live {
-    cua: Arc<CuaDriver>,
+    channel: Arc<WorkerChannel>,
     tools: Value,
-    sessions: HashMap<String, Arc<CuaDriverSession>>,
+    /// Run (session id) to the worker's session handle.
+    sessions: HashMap<String, String>,
 }
 
 pub(crate) struct Driver {
     host_bundle_id: String,
-    runtime: tokio::runtime::Runtime,
     live: Mutex<Option<Live>>,
 }
 
 impl Driver {
     pub fn new(host_bundle_id: &str) -> Result<Self, String> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("computer-driver")
-            .enable_all()
-            .build()
-            .map_err(|err| format!("Could not start the computer-use runtime: {err}"))?;
-        Ok(Self { host_bundle_id: host_bundle_id.to_string(), runtime, live: Mutex::new(None) })
+        Ok(Self { host_bundle_id: host_bundle_id.to_string(), live: Mutex::new(None) })
     }
 
     pub fn is_live(&self) -> bool {
         self.live.lock().unwrap().is_some()
     }
 
-    /// Spawn the worker unless it runs; the first call pays the start.
+    /// Spawn the worker unless it runs; the first call pays the start. A
+    /// worker that died behind our back (a crash, an OS kill) is replaced.
     pub fn start(&self) -> Result<(), String> {
         let mut live = self.live.lock().unwrap();
-        if live.is_some() {
-            return Ok(());
+        if let Some(current) = live.as_ref() {
+            if current.channel.is_alive() {
+                return Ok(());
+            }
+            log::warn!("[computer] cua worker is gone; starting another");
+            if let Some(dead) = live.take() {
+                dead.channel.stop();
+            }
         }
         let exe = std::env::current_exe().map_err(|err| format!("own executable: {err}"))?;
-        let cua = CuaDriver::create_private_worker(PrivateWorkerOptions {
-            binary_path: exe.to_string_lossy().into_owned(),
+        let channel = WorkerChannel::spawn(SpawnOptions {
+            binary_path: exe,
             host_bundle_id: self.host_bundle_id.clone(),
-            startup_timeout_ms: Some(WORKER_STARTUP.as_millis() as u64),
-            shutdown_timeout_ms: Some(2_000),
+            startup_timeout: WORKER_STARTUP,
             configured_driver: ConfiguredDriverOptions {
                 claude_code_compatibility: false,
                 authorization: RuntimeAuthorizationOptions {
@@ -76,57 +89,84 @@ impl Driver {
                     max_idle_ttl_seconds: SESSION_IDLE_TTL.as_secs(),
                 },
             },
-            environment: Vec::new(),
             inherit_stderr: true,
         })
         .map_err(|err| format!("Could not start the computer-use worker: {err}"))?;
-        let tools = self
-            .runtime
-            .block_on(cua.list_tools_json())
-            .map_err(|err| format!("Could not list the computer-use tools: {err}"))
-            .and_then(|json| serde_json::from_str::<Value>(&json).map_err(|err| err.to_string()))?
+        let tools = channel
+            .request("list", None, None, None, WORKER_STARTUP)
+            .map_err(|err| {
+                channel.stop();
+                format!("Could not list the computer-use tools: {err}")
+            })?
             .get("tools")
             .cloned()
             .ok_or("The computer-use tool list has no tools.")?;
         log::info!("[computer] cua worker up, {} tools", tools.as_array().map_or(0, Vec::len));
-        *live = Some(Live { cua, tools, sessions: HashMap::new() });
+        *live = Some(Live { channel, tools, sessions: HashMap::new() });
         Ok(())
     }
 
     /// Shut the worker down (the switch turned off, or it broke).
     pub fn stop(&self) {
         let Some(live) = self.live.lock().unwrap().take() else { return };
-        drop(live.sessions);
-        if let Err(err) = self.runtime.block_on(live.cua.shutdown()) {
+        if let Err(err) = live.channel.shutdown(SHUTDOWN_TIMEOUT) {
             log::warn!("[computer] cua worker shutdown: {err}");
         }
     }
 
-    fn session(&self, session_id: &str, label: &str) -> Result<Arc<CuaDriverSession>, String> {
+    /// `channel` broke: drop it, unless another start already replaced it
+    /// (a concurrent call must not kill the new worker).
+    fn lose(&self, channel: &Arc<WorkerChannel>) {
+        let mut live = self.live.lock().unwrap();
+        if live.as_ref().is_some_and(|live| Arc::ptr_eq(&live.channel, channel)) {
+            live.take();
+        }
+        drop(live);
+        channel.stop();
+    }
+
+    /// The run's worker session, bound on first use. The bind happens under
+    /// the lock (a few milliseconds inside the worker, never behind another
+    /// run's action now that the worker is concurrent) so two first calls
+    /// of one run cannot bind twice.
+    fn session(&self, session_id: &str, label: &str) -> Result<(Arc<WorkerChannel>, String), String> {
         self.start()?;
         let mut guard = self.live.lock().unwrap();
         let live = guard.as_mut().ok_or("The computer-use worker is not running.")?;
-        if let Some(session) = live.sessions.get(session_id) {
-            return Ok(session.clone());
+        if let Some(handle) = live.sessions.get(session_id) {
+            return Ok((live.channel.clone(), handle.clone()));
         }
         // The public session names the cursor badge AND must be unique
         // among live sessions (two chats are both "Chat"): the run's id
         // tails the label.
         let short = session_id.get(..8).unwrap_or(session_id);
         let public_session = if label.is_empty() { short.to_string() } else { format!("{label} {short}") };
-        let session = live
-            .cua
-            .create_trusted_session(TrustedSessionOptions {
-                public_session,
-                mode: SessionPermissionMode::Unrestricted,
-                ttl_seconds: SESSION_TTL.as_secs(),
-                idle_ttl_seconds: SESSION_IDLE_TTL.as_secs(),
-                capability_manifest_path: None,
-                bounded_manifest_path: None,
-            })
-            .map_err(|err| format!("Could not open a computer-use session: {err}"))?;
-        live.sessions.insert(session_id.to_string(), session.clone());
-        Ok(session)
+        let options = serde_json::to_value(TrustedSessionOptions {
+            public_session,
+            mode: SessionPermissionMode::Unrestricted,
+            ttl_seconds: SESSION_TTL.as_secs(),
+            idle_ttl_seconds: SESSION_IDLE_TTL.as_secs(),
+            capability_manifest_path: None,
+            bounded_manifest_path: None,
+        })
+        .map_err(|err| format!("Could not open a computer-use session: {err}"))?;
+        let channel = live.channel.clone();
+        let bound = channel.request("bind_session", None, Some(options), None, BIND_TIMEOUT);
+        let handle = match bound {
+            Ok(value) => value
+                .get("session_handle")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .ok_or("The computer-use worker bound a session without a handle.")?,
+            Err(err) if worker_lost(&err) => {
+                drop(guard);
+                self.lose(&channel);
+                return Err(format!("Computer use restarted ({err}). Call again."));
+            }
+            Err(err) => return Err(format!("Could not open a computer-use session: {err}")),
+        };
+        live.sessions.insert(session_id.to_string(), handle.clone());
+        Ok((channel, handle))
     }
 
     /// Wayland's portals consent on first use (the screenshot portal, the
@@ -171,14 +211,15 @@ impl Driver {
 }
 
 /// `true` when the worker itself is gone or wedged, not just this call.
-fn worker_lost(err: &DriverError) -> bool {
+fn worker_lost(err: &ChannelError) -> bool {
     match err {
-        DriverError::Shutdown
-        | DriverError::ActionInterrupted { .. }
-        | DriverError::Protocol { .. }
-        | DriverError::Transport { .. } => true,
-        DriverError::Worker { reason } => !reason.starts_with("worker_request_failed:"),
-        _ => false,
+        ChannelError::Closed(_) | ChannelError::Protocol(_) => true,
+        // The worker does not know what state its action left; cua treats
+        // that as an interrupted runtime too.
+        ChannelError::Worker { completion: ActionCompletion::Unknown, .. } => true,
+        // Our lines reach a worker of another generation: not ours any more.
+        ChannelError::Worker { code, .. } => code == "generation_mismatch",
+        ChannelError::Timeout(_) => false,
     }
 }
 
@@ -193,36 +234,44 @@ impl ToolHost for Driver {
     }
 
     fn call(&self, session_id: &str, label: &str, name: &str, arguments: Value) -> Value {
-        let session = match self.session(session_id, label) {
+        let (channel, handle) = match self.session(session_id, label) {
             Ok(session) => session,
             Err(text) => return error_result(text),
         };
-        let outcome = self.runtime.block_on(session.call_tool(name.to_string(), arguments.to_string()));
-        match outcome {
-            Ok(result) => serde_json::from_str(&result.raw_json).unwrap_or_else(|_| {
-                json!({ "content": [{ "type": "text", "text": result.text }], "isError": result.is_error })
-            }),
+        // No lock is held from here: this is where calls overlap (EXP-1236).
+        match channel.request("call", Some(name.to_string()), Some(arguments), Some(handle), CALL_TIMEOUT) {
+            // The worker already parsed cua's MCP result (content, isError,
+            // structuredContent): it passes through.
+            Ok(result) => result,
+            Err(ChannelError::Timeout(after)) => error_result(format!(
+                "Computer use did not answer {name} within {} s; the action may still be running. Observe the current state and call again.",
+                after.as_secs()
+            )),
             Err(err) if worker_lost(&err) => {
                 log::warn!("[computer] cua worker lost on {name}: {err}");
-                self.stop();
+                self.lose(&channel);
                 error_result(format!("Computer use restarted ({err}). Observe the current state and call again."))
             }
-            Err(DriverError::Worker { reason }) => {
+            Err(ChannelError::Worker { code, text, .. }) => {
                 // The session may have expired inside the worker: bind anew
                 // next time.
-                if reason.contains("session") {
+                if code == "session_not_bound" || text.contains("session") {
                     self.forget_session(session_id);
                 }
-                error_result(reason.trim_start_matches("worker_request_failed:").trim().to_string())
+                error_result(text)
             }
             Err(err) => error_result(err.to_string()),
         }
     }
 
     fn end(&self, session_id: &str) {
-        let session = self.live.lock().unwrap().as_mut().and_then(|live| live.sessions.remove(session_id));
-        if let Some(session) = session {
-            session.close();
+        let bound = self.live.lock().unwrap().as_mut().and_then(|live| {
+            live.sessions.remove(session_id).map(|handle| (live.channel.clone(), handle))
+        });
+        if let Some((channel, handle)) = bound {
+            if let Err(err) = channel.request("close_session", None, None, Some(handle), CLOSE_TIMEOUT) {
+                log::debug!("[computer] close session {session_id}: {err}");
+            }
         }
     }
 }

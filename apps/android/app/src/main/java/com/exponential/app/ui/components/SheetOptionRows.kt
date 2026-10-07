@@ -418,6 +418,28 @@ internal fun subagentModelLabel(value: String): String =
 internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
 private const val SUBAGENT_MODEL_DEFAULT_LABEL = "Default"
 
+/**
+ * EXP-1236: the Computer use model vocabulary — the aliases a run's
+ * screen-driving subagents may run on, contract order, the default (Haiku)
+ * first. A DEVICE-level pick beside the Computer use switch: no blank entry,
+ * the setting always holds a value.
+ */
+internal fun computerUseModelOptions(): List<String> = DomainContract.computerUseModelValues
+
+/** The Model picker's own alias labels (Haiku, Sonnet, Opus, Fable). */
+internal fun computerUseModelLabel(value: String): String = modelLabel(value)
+
+internal const val COMPUTER_USE_MODEL_LABEL = "Computer use model"
+
+/**
+ * The stored `launchDefaults.computerUseModel` as the picker's draft: a
+ * contract alias as itself, anything else (absent, an older row, a future
+ * model this build cannot name) the contract default.
+ */
+internal fun seedComputerUseModel(stored: String?): String =
+    stored?.takeIf { it in DomainContract.computerUseModelValues }
+        ?: DomainContract.deviceComputerUseDefaultsModel
+
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"
     "codex" -> "Codex"
