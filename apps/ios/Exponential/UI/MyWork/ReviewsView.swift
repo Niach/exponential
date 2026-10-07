@@ -38,17 +38,17 @@ struct ReviewsListContent: View {
     /// pending for — its own alert, because the copy names no issues.
     @State private var runMergeTarget: RunReviewEntry?
     /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
-    /// failing row (EXP-323). An alert made the reason modal and gave the
-    /// conflict-recovery run nowhere to live. Each failure also records whether
-    /// the server diagnosed a REAL content conflict (EXP-533), which is the
-    /// only case the recovery run can fix.
+    /// failing row (EXP-323). An alert made the reason modal. EXP-1233: a REAL
+    /// content conflict (EXP-533) never lands here — it opens the recovery
+    /// run's composer instead; only the refusals no rebase can fix caption.
     @State private var mergeErrors: [String: MergeFailure] = [:]
     @State private var merging: Set<String> = []
 
-    // "Fix conflicts" (EXP-323, desktop parity): a failed merge is usually a
-    // conflict, so the row offers the builtin recovery run. EXP-825: it is
+    // The conflict recovery run (EXP-323, desktop parity). EXP-825: it is
     // NAVIGATION into the Agent page composer, seeded with the builtin and
-    // this row's pull request.
+    // this row's pull request. EXP-1233: a merge refused by a REAL conflict
+    // opens it at once (no "Fix conflicts" swap in the row's slot, no
+    // caption); the context menu keeps it as a manual entry.
     @State private var steerEnabled = false
 
     var body: some View {
@@ -476,9 +476,9 @@ struct ReviewsListContent: View {
                     Label("Show the issues", appIcon: AppIcons.prBatch)
                 }
             }
-            if canFixConflicts(entry) {
+            if canOpenFixConflicts(entry) {
                 Button {
-                    fixConflicts(entry)
+                    fixConflicts(entry, conflict: false)
                 } label: {
                     Label("Fix merge conflicts", appIcon: AppIcons.uiBranch)
                 }
@@ -501,31 +501,20 @@ struct ReviewsListContent: View {
     /// contentShape + onTapGesture pattern as IssueListView's inline
     /// status/priority glyphs.
     ///
-    /// EXP-706: once the merge failed on a REAL conflict, merging again is
-    /// the one thing that cannot work — so the recovery run REPLACES Merge in
-    /// this slot instead of crowding a second button into the caption below.
-    @ViewBuilder
+    /// EXP-1233: always Merge — a REAL conflict opens the recovery run's
+    /// composer at once instead of swapping this slot (EXP-706's swap is
+    /// gone), so a conflict resolved elsewhere is one tap away.
     private func mergeSlot(_ entry: ReviewEntry) -> some View {
-        if canFixConflicts(entry) {
-            GlassPill("Fix conflicts", icon: AppIcons.uiBranch)
-            .contentShape(Capsule())
-            .onTapGesture {
-                fixConflicts(entry)
-            }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Fix merge conflicts")
-        } else {
-            GlassPill("Merge") {
-                mergeGlyph(entry, icon: AppIcons.prMerged)
-            }
-            .contentShape(Capsule())
-            .onTapGesture {
-                guard !merging.contains(entry.id) else { return }
-                requestMerge(entry)
-            }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Merge pull request")
+        GlassPill("Merge") {
+            mergeGlyph(entry, icon: AppIcons.prMerged)
         }
+        .contentShape(Capsule())
+        .onTapGesture {
+            guard !merging.contains(entry.id) else { return }
+            requestMerge(entry)
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Merge pull request")
     }
 
     /// The merge pill's glyph: a spinner while that row's merge is in flight.
@@ -538,11 +527,10 @@ struct ReviewsListContent: View {
         }
     }
 
-    /// A refused merge (conflicts, branch protection, GitHub App errors)
+    /// A refused merge (branch protection, a stale base, GitHub App errors)
     /// captions THIS row (EXP-323) — never a modal alert, and never anything
-    /// the tab bar can cover. EXP-706: the caption is the REASON only; the
-    /// recovery run took the row's Merge slot, so repeating it here would be
-    /// two buttons for one action.
+    /// the tab bar can cover. The caption is the REASON only. EXP-1233: a
+    /// real conflict opens the recovery composer instead (no caption).
     @ViewBuilder
     private func mergeErrorCaption(_ entry: ReviewEntry, failure: MergeFailure) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -560,14 +548,18 @@ struct ReviewsListContent: View {
     }
 
     /// The recovery run rebases the PR's branch, so it needs one recorded —
-    /// the same guard the desktop applies on its Reviews rows. EXP-533: only a
-    /// REAL conflict (the server's `CONFLICT` / HTTP 409) is offered the run; a
-    /// stale head, branch protection or an unreachable server refused the merge
-    /// for a reason no rebase can fix.
-    private func canFixConflicts(_ entry: ReviewEntry) -> Bool {
-        steerEnabled &&
-            mergeErrors[entry.id]?.isConflict == true &&
-            !(entry.branch ?? "").isEmpty
+    /// the same guard the desktop applies on its Reviews rows — and the relay
+    /// to start it. The context menu's manual entry needs only this.
+    private func canOpenFixConflicts(_ entry: ReviewEntry) -> Bool {
+        steerEnabled && !(entry.branch ?? "").isEmpty
+    }
+
+    /// EXP-533/EXP-1233: a refusal OPENS the recovery run only for a REAL
+    /// conflict (the server's `CONFLICT` / HTTP 409); a stale head, branch
+    /// protection or an unreachable server refused the merge for a reason no
+    /// rebase can fix.
+    private func refusalOpensFixConflicts(_ entry: ReviewEntry, _ failure: MergeFailure) -> Bool {
+        failure.isConflict && canOpenFixConflicts(entry)
     }
 
     private func prURL(_ entry: ReviewEntry) -> URL? {
@@ -592,9 +584,9 @@ struct ReviewsListContent: View {
     }
 
     /// The row's merge, plain or (EXP-1145) the stack merge through
-    /// `issueId`; a refusal captions the row with the server's message. A
-    /// stack merge's never offers Fix conflicts: the member that stopped the
-    /// chain may not be this row's pull request.
+    /// `issueId`; a refusal captions the row with the server's message,
+    /// except a real conflict on a plain merge, which opens the recovery
+    /// composer (EXP-1233).
     private func merge(_ entry: ReviewEntry, issueId: String, mergeStack: Bool) {
         mergeTarget = nil
         stackTarget = nil
@@ -607,7 +599,16 @@ struct ReviewsListContent: View {
                     accountId: accountId, issueId: issueId, mergeStack: mergeStack ? true : nil
                 )
             } catch {
-                mergeErrors[key] = MergeFailure(error: error, stackMerge: mergeStack)
+                let failure = MergeFailure(error: error, stackMerge: mergeStack)
+                // EXP-1233: a real conflict opens the recovery composer,
+                // flagged, with no caption; a stack merge's never does (the
+                // member that stopped the chain may not be this row's PR, and
+                // `stackMerge` already strips its conflict flag).
+                if !mergeStack, refusalOpensFixConflicts(entry, failure) {
+                    fixConflicts(entry, conflict: true)
+                } else {
+                    mergeErrors[key] = failure
+                }
             }
             merging.remove(key)
         }
@@ -616,14 +617,16 @@ struct ReviewsListContent: View {
     /// EXP-825: the recovery run is the composer with the "Fix merge
     /// conflicts" builtin picked and this row's pull request pre-picked —
     /// ANY linked issue resolves (the picker normalises by membership).
-    private func fixConflicts(_ entry: ReviewEntry) {
+    /// `conflict` = a refused merge opened it (EXP-1233: the card says why).
+    private func fixConflicts(_ entry: ReviewEntry, conflict: Bool) {
         pushRoute(.agent(
             accountId: accountId,
             // EXP-1186: on the PR's OWN team — Reviews is cross-team.
             seed: AgentComposerSeed(
                 actionId: DomainContract.builtinFixConflictsId,
                 prIssueId: entry.representative.id,
-                teamId: viewModel?.teamId(of: entry)
+                teamId: viewModel?.teamId(of: entry),
+                conflict: conflict
             )
         ))
     }

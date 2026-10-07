@@ -20,12 +20,13 @@ describe(`seedFromSearch`, () => {
       prIssueId: undefined,
       text: undefined,
       icon: undefined,
+      conflict: undefined,
     })
     // A list of junk is no seed at all.
     expect(seedFromSearch({ issues: `x,y` })).toBeNull()
   })
 
-  it(`carries action, pr, device, text and icon`, () => {
+  it(`carries action, pr, device, text, icon and the conflict flag`, () => {
     expect(
       seedFromSearch({
         action: `builtin:fix-conflicts`,
@@ -33,6 +34,7 @@ describe(`seedFromSearch`, () => {
         device: `dev-1`,
         text: `Label new issues`,
         icon: `sparkles`,
+        conflict: `1`,
       })
     ).toEqual({
       issueIds: [],
@@ -41,7 +43,10 @@ describe(`seedFromSearch`, () => {
       prIssueId: a,
       text: `Label new issues`,
       icon: `sparkles`,
+      conflict: true,
     })
+    // EXP-1233: only the literal `1` means a refused merge.
+    expect(seedFromSearch({ action: `x`, conflict: `yes` })?.conflict).toBeUndefined()
     // A malformed `pr` is dropped, not refused.
     expect(seedFromSearch({ action: `x`, pr: `nope` })?.prIssueId).toBeUndefined()
   })
@@ -58,6 +63,7 @@ describe(`searchFromSeed`, () => {
         icon: `sparkles`,
         deviceId: `dev-1`,
         prIssueId: a,
+        conflict: true,
       })
     ).toEqual({
       action: `builtin:create-action`,
@@ -65,6 +71,7 @@ describe(`searchFromSeed`, () => {
       device: `dev-1`,
       text: `Nightly triage`,
       icon: `sparkles`,
+      conflict: `1`,
     })
   })
 
@@ -75,6 +82,7 @@ describe(`searchFromSeed`, () => {
       actionId: undefined,
       prIssueId: undefined,
       icon: undefined,
+      conflict: undefined,
     })
   })
 })

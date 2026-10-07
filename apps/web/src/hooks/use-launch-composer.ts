@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
+import { contract } from "@exp/domain-contract"
 import { toast } from "@exp/ui"
 import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
@@ -29,6 +30,7 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_FIX_CONFLICTS_ID,
   builtinCreateAction,
   builtinFixConflictsAction,
   builtinTidyUpAction,
@@ -119,13 +121,68 @@ function repoInputSeed(action: TeamAction): Record<string, string> {
   return seed
 }
 
-/** The contract's submit label per subject (×4). */
-export function submitLabelFor(subject: LaunchSubject): string {
+/** The contract's submit label per subject (×4). EXP-1233: the Fix merge
+ *  conflicts builtin with a PICKED pull request is its own case. */
+export function submitLabelFor(
+  subject: LaunchSubject,
+  fixConflictsPicked = false
+): string {
   if (subject === null) return `Start chat`
-  if (subject.kind === `action`) return `Run action`
+  if (subject.kind === `action`) {
+    return fixConflictsPicked
+      ? contract.composerUi.fixConflictsSubmit
+      : `Run action`
+  }
   return subject.ids.length >= 2
     ? `Start batch · ${subject.ids.length}`
     : `Start coding`
+}
+
+/** EXP-1233: the Fix merge conflicts builtin as the composer draws it — a
+ *  conflict CARD, not the generic action chip + "Pull request" field. `pr`
+ *  is the picked pull request resolved off the synced issue rows (every
+ *  issue the PR links, its number and branches); null while nothing is
+ *  picked, when the headline still reads "Run Fix merge conflicts" and the
+ *  card is the picker alone. `refused` = a REFUSED merge opened the
+ *  composer (the seed's `conflict`), so the card says why it is here. */
+export interface FixConflictsView {
+  pr: {
+    /** The representative issue id — the `pr` input's value. */
+    issueId: string
+    prNumber: number | null
+    branch: string | null
+    baseBranch: string | null
+    /** Every synced issue the pull request links, by identifier. */
+    issues: Issue[]
+  } | null
+  refused: boolean
+}
+
+/** The PR picked into the Fix merge conflicts builtin, off the synced rows.
+ *  Pure, so the batch grouping is a test: the linked set is every open-PR
+ *  row sharing the representative's `prUrl` (a batch PR links several). */
+export function resolveFixConflictsPr(
+  prIssueId: string | undefined,
+  issuesById: Map<string, Issue>
+): FixConflictsView[`pr`] {
+  if (!prIssueId) return null
+  const representative = issuesById.get(prIssueId)
+  if (!representative) return null
+  const linked = representative.prUrl
+    ? [...issuesById.values()]
+        .filter(
+          (issue) =>
+            issue.prUrl === representative.prUrl && issue.prState === `open`
+        )
+        .sort((a, b) => a.identifier.localeCompare(b.identifier))
+    : [representative]
+  return {
+    issueId: representative.id,
+    prNumber: representative.prNumber ?? null,
+    branch: representative.branch ?? null,
+    baseBranch: representative.prBaseBranch ?? null,
+    issues: linked.length > 0 ? linked : [representative],
+  }
 }
 
 export interface LaunchComposerModel {
@@ -146,6 +203,9 @@ export interface LaunchComposerModel {
   setInput: (key: string, value: string) => void
   /** Any issue linked to the PR the `pr` input opens pre-picked on. */
   seedPrIssueId: string | undefined
+  /** EXP-1233: the Fix merge conflicts builtin's own view; null for every
+   * other subject. */
+  fixConflicts: FixConflictsView | null
 
   text: string
   setText: (text: string) => void
@@ -235,6 +295,9 @@ export function useLaunchComposer({
   // eligible (reset when the sole issue changes); a manual toggle sticks.
   const [resume, setResume] = useState(true)
   const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
+  // EXP-1233: the seed said a refused merge brought us here. Cleared with
+  // the subject (a different pick is a different story).
+  const [conflictSeeded, setConflictSeeded] = useState(false)
   const [sending, setSending] = useState(false)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
@@ -448,9 +511,13 @@ export function useLaunchComposer({
         inputs: seed.icon ? { icon: seed.icon } : {},
       })
       setSeedPrIssueId(seed.prIssueId)
+      setConflictSeeded(
+        seed.actionId === BUILTIN_FIX_CONFLICTS_ID && Boolean(seed.conflict)
+      )
     } else if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
       setSeedPrIssueId(undefined)
+      setConflictSeeded(false)
     }
     // EXP-836: an explicit machine is a REQUEST — it outranks the default
     // machine whether or not the devices shape has hydrated yet, and it is
@@ -499,9 +566,11 @@ export function useLaunchComposer({
       return ids.length === 0 ? null : { kind: `issues`, ids }
     })
     setSeedPrIssueId(undefined)
+    setConflictSeeded(false)
   }, [])
 
   const pickAction = useCallback((actionId: string) => {
+    setConflictSeeded(false)
     if (actionId === BUILTIN_CHAT_ID) {
       setSubject(null)
       return
@@ -519,7 +588,23 @@ export function useLaunchComposer({
   const clearAction = useCallback(() => {
     setSubject((current) => (current?.kind === `action` ? null : current))
     setSeedPrIssueId(undefined)
+    setConflictSeeded(false)
   }, [])
+
+  // EXP-1233: the Fix merge conflicts builtin's view — the picked PR's rows
+  // (every synced issue it links) and whether a refused merge sent us here.
+  const fixConflictsPrId =
+    subject?.kind === `action` && subject.id === BUILTIN_FIX_CONFLICTS_ID
+      ? subject.inputs.pr || undefined
+      : undefined
+  const fixConflicts = useMemo<FixConflictsView | null>(() => {
+    if (subject?.kind !== `action` || subject.id !== BUILTIN_FIX_CONFLICTS_ID)
+      return null
+    return {
+      pr: resolveFixConflictsPr(fixConflictsPrId, allById),
+      refused: conflictSeeded,
+    }
+  }, [subject, fixConflictsPrId, allById, conflictSeeded])
 
   const setInput = useCallback((key: string, value: string) => {
     setSubject((current) =>
@@ -866,6 +951,7 @@ export function useLaunchComposer({
     clearAction,
     setInput,
     seedPrIssueId,
+    fixConflicts,
     text,
     setText,
     images,
@@ -896,7 +982,7 @@ export function useLaunchComposer({
     deviceRequestNote,
     mcpServers: mcp.servers,
     mcpConnectHref,
-    submitLabel: submitLabelFor(subject),
+    submitLabel: submitLabelFor(subject, Boolean(fixConflicts?.pr)),
     blocked,
     overCap,
     spansRepos,

@@ -5,7 +5,8 @@
 //! for a local one. `chat_screen.rs` owns the state and calls in here.
 //!
 //! The contract (shared ×4): no subject → "Start chat", 1 issue → "Start
-//! coding", 2+ → "Start batch · N", an action → "Run action"; free text is
+//! coding", 2+ → "Start batch · N", an action → "Run action" (EXP-1233: the
+//! Fix merge conflicts builtin with a picked PR → "Fix conflicts"); free text is
 //! the CHAT PROMPT with no subject, the creator REQUEST for the Create-action
 //! builtin (both required), and optional additional instructions otherwise.
 
@@ -26,6 +27,10 @@ pub(crate) enum SubjectKind {
     Issues { count: usize },
     /// One picked action (`id` — a row id or a builtin literal).
     Action { id: String },
+    /// EXP-1233: the Fix merge conflicts builtin WITH a pull request picked —
+    /// its own verb and send (web `launchHeadlineVerb`/`submitLabelFor` with
+    /// `fixConflictsPicked`). Unpicked it is a plain [`Self::Action`].
+    FixConflicts,
 }
 
 /// FEED-73 — a REAL action subject brings its own MCP list (the server sets
@@ -46,6 +51,7 @@ pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
         SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
         SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
         SubjectKind::Action { .. } => domain::contract::COMPOSER_UI_RUN_HEADLINE,
+        SubjectKind::FixConflicts => domain::contract::COMPOSER_UI_FIX_CONFLICTS_HEADLINE,
     }
 }
 
@@ -56,6 +62,7 @@ pub(crate) fn submit_label(subject: &SubjectKind) -> String {
         SubjectKind::Issues { count: 1 } => "Start coding".to_string(),
         SubjectKind::Issues { count } => format!("Start batch · {count}"),
         SubjectKind::Action { .. } => "Run action".to_string(),
+        SubjectKind::FixConflicts => domain::contract::COMPOSER_UI_FIX_CONFLICTS_SUBMIT.to_string(),
     }
 }
 
@@ -67,7 +74,7 @@ pub(crate) fn text_required(subject: &SubjectKind) -> bool {
     match subject {
         SubjectKind::Chat => true,
         SubjectKind::Action { id } => id == api::actions::BUILTIN_CREATE_ACTION_ID,
-        SubjectKind::Issues { .. } => false,
+        SubjectKind::Issues { .. } | SubjectKind::FixConflicts => false,
     }
 }
 
@@ -355,6 +362,7 @@ mod tests {
         assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_FIX_CONFLICTS_ID)));
         assert!(!subject_owns_mcp_servers(&SubjectKind::Chat));
         assert!(!subject_owns_mcp_servers(&SubjectKind::Issues { count: 2 }));
+        assert!(!subject_owns_mcp_servers(&SubjectKind::FixConflicts));
     }
 
     fn options() -> LaunchOptions {
@@ -383,6 +391,8 @@ mod tests {
             }),
             "Run"
         );
+        // EXP-1233: the builtin with a picked PR wears its own verb.
+        assert_eq!(headline(&SubjectKind::FixConflicts), "Fix merge conflicts");
     }
 
     /// The four labels of the shared contract, byte for byte.
@@ -398,6 +408,7 @@ mod tests {
             }),
             "Run action"
         );
+        assert_eq!(submit_label(&SubjectKind::FixConflicts), "Fix conflicts");
     }
 
     /// Free text is required for a chat (an image alone counts) and the
@@ -416,6 +427,7 @@ mod tests {
             id: api::actions::BUILTIN_FIX_CONFLICTS_ID.into(),
         };
         assert_eq!(text_blocker(&fix, "", 0), None);
+        assert_eq!(text_blocker(&SubjectKind::FixConflicts, "", 0), None);
         assert_eq!(text_blocker(&SubjectKind::Issues { count: 2 }, "", 0), None);
         assert_eq!(issue_count_blocker(0).as_deref(), Some("Select at least one issue."));
         assert!(issue_count_blocker(1).is_none());

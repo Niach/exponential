@@ -39,9 +39,24 @@ data class MergeFailure(
 }
 
 /**
- * Whether a failed merge may offer the "Fix merge conflicts" run: a real
- * conflict, on a PR whose branch we recorded (the run rebases it), with remote
- * start available.
+ * EXP-1233: ONE plain merge of [issueId]'s pull request refused by a REAL
+ * conflict — the one-shot a ViewModel emits so its screen can open the Fix
+ * merge conflicts composer exactly once per refusal (a sticky state would
+ * re-navigate on every recomposition). The screen applies
+ * [canOfferFixConflicts] with what only it knows (branch, remote start).
+ */
+data class ConflictRefusal(val issueId: String, val failure: MergeFailure)
+
+/**
+ * EXP-917/EXP-1233: the ONE gate on the recovery run — a real conflict, on a
+ * PR whose branch we recorded (the run rebases it), with remote start
+ * available. When it holds, the refused merge OPENS the Agent composer on the
+ * Fix merge conflicts builtin at once (seed `conflict = true`); when it does
+ * not, the refusal is a toast / row caption. Callers apply it to ISSUE
+ * targets only (the builtin takes a representative issue) and never to a
+ * stack merge ([MergeFailure.fromStack] is never a conflict). Mirrors web
+ * `canOfferFixConflicts`, iOS `canFixConflicts` and desktop
+ * `work_header::conflict_opens_composer`.
  *
  * [steerEnabled] defaults to true for the surfaces that carry no separate
  * remote-start gate of their own (Reviews rows, which report an unreachable

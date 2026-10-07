@@ -32,12 +32,14 @@ import {
 } from "@/components/stack-merge-choice-dialog"
 import type { VariantProps } from "class-variance-authority"
 
-/** EXP-917: the ONE gate on the "Fix conflicts" swap — a REAL conflict
+/** EXP-917/EXP-1233: the ONE gate on the recovery run — a REAL conflict
  *  (EXP-533), on an ISSUE target (the builtin action takes a representative
  *  issue, so a run's own chore PR never qualifies), with a recorded branch
- *  (the run rebases it) and the relay configured. Pure, so the rule is a
- *  test; mirrors Android `canOfferFixConflicts`, iOS `canFixConflicts` and
- *  desktop `work_header::merge_slot_swapped`. */
+ *  (the run rebases it) and the relay configured. When it holds, the refused
+ *  merge OPENS the composer on the Fix merge conflicts builtin at once; when
+ *  it does not, the refusal is a toast. Pure, so the rule is a test; mirrors
+ *  Android `canOfferFixConflicts`, iOS `canFixConflicts` and desktop
+ *  `work_header::conflict_opens_composer`. */
 export function canOfferFixConflicts({
   failure,
   issueId,
@@ -54,7 +56,6 @@ export function canOfferFixConflicts({
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-const UiBranchIcon = conceptIcon(`ui-branch`)
 
 // The session-scoped Merge control — the Agents list row (icon-only outline)
 // and the steering view's glass pill (EXP-678) share it. Merge always closes
@@ -66,29 +67,23 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // EXP-734: the target is an issue XOR a session. An issue-LESS run (batch,
 // action or chat) that opened its own PR carries prUrl/prNumber/prState on
 // the SESSION row, so it merges through `codingSessions.mergePr` and
-// settles on the session row's own echo. Recovery ("Fix conflicts") stays
-// issue-only: the builtin action takes a representative ISSUE id, so a run
-// PR's conflict just reports its refusal.
+// settles on the session row's own echo. Recovery stays issue-only: the
+// builtin action takes a representative ISSUE id, so a run PR's conflict
+// just reports its refusal.
 //
-// EXP-706: when the merge is refused by a REAL conflict (EXP-533) and the
-// caller wired the recovery run (`branch` + `steerEnabled`), this button
-// REPLACES itself with "Fix conflicts" in the very same slot — the same swap
-// the Reviews list and the review detail make. Every other refusal still
-// reaches the user as a toast; nothing is swallowed.
+// EXP-1233: when the merge is refused by a REAL conflict (EXP-533) and the
+// caller wired the recovery run (`branch` + `steerEnabled`), the refusal
+// OPENS the launcher on the Fix merge conflicts builtin with this pull
+// request picked and the conflict flagged (the composer's card says why it
+// is up) — no toast, and no "Fix conflicts" button parked in the Merge slot
+// (EXP-706's swap, with its "Retry merge" secondary and its `updatedAt`
+// expiry, is gone: the button is plain Merge again the moment the dialog is
+// up, so a conflict resolved outside the run is one click away). Every
+// other refusal still reaches the user as a toast; nothing is swallowed.
 //
-// EXP-917: the swap takes NOTHING from the caller that a synced issue row
-// cannot supply. It used to require a `teamId` too, and every surface fed it
-// `issue.teamId` — a column the board-scoped `issues` shape deliberately drops
-// (REV2-5), so the gate was dead on the property tray, the run header, the
-// Changes faces and the review detail: a real conflict fell through to the
-// toast. The team is not needed: the composer resolves it from the route.
-//
-// A refusal describes ONE snapshot of the pull request, so the swap is
-// deliberately short-lived: a newer `updatedAt` (the Electric echo of a
-// re-synced row) drops it, and while it stands a secondary "Retry merge"
-// button keeps the plain merge one click away. Without both, a conflict
-// resolved OUTSIDE the recovery run (a teammate rebases and pushes, GitHub
-// recomputes mergeability) would hide Merge for the life of the open PR.
+// EXP-917: the gate takes NOTHING from the caller that a synced issue row
+// cannot supply (no `teamId` — the board-scoped `issues` shape drops it,
+// REV2-5; the composer resolves the team from the route).
 //
 // EXP-1145: a PR that is a member of a STACK of 2+ open pull requests never
 // merges off the plain confirm. The click first reads the stack off the
@@ -185,7 +180,6 @@ export function SessionMergeButton({
   prNumber,
   issueId,
   sessionId,
-  updatedAt,
   variant = `outline`,
   size = `icon`,
   className,
@@ -204,11 +198,6 @@ export function SessionMergeButton({
   issueId?: string
   /** EXP-734: the run whose OWN chore PR this merges (no linked issue). */
   sessionId?: string
-  /**
-   * The target row's `updated_at`. A new value means the row was re-synced, so
-   * any stored refusal is about a stale snapshot and is dropped.
-   */
-  updatedAt?: string | Date | null
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
   className?: string
@@ -221,7 +210,7 @@ export function SessionMergeButton({
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
-  const [failure, setFailure] = useState<MergeFailure | null>(null)
+  const openComposer = useOpenComposer()
   // EXP-1145: the click ARMS the stack read; the answer decides which dialog
   // opens. `stackChoice` holds the stack dialog's content while it is open.
   const [armed, setArmed] = useState(false)
@@ -233,8 +222,6 @@ export function SessionMergeButton({
   const mergeCopy = issueId
     ? mergeIssuePrPrompt({ number: prNumber, count: linkedCount })
     : mergeRunPrPrompt(prNumber)
-  const stamp =
-    updatedAt instanceof Date ? updatedAt.toISOString() : (updatedAt ?? null)
 
   useEffect(() => {
     if (prState !== `open`) {
@@ -242,7 +229,6 @@ export function SessionMergeButton({
       setConfirmOpen(false)
       setArmed(false)
       setStackChoice(null)
-      setFailure(null)
     }
   }, [prState])
 
@@ -255,26 +241,9 @@ export function SessionMergeButton({
     else setConfirmOpen(true)
   }, [armed, stack.ready, stack.choice])
 
-  // A re-synced row supersedes the refusal captioned on the old one.
-  // (A refused merge writes nothing server-side, so this never races its own
-  // failure.)
-  useEffect(() => {
-    setFailure(null)
-  }, [stamp])
-
   if (prState !== `open`) return null
   // The caller wired neither target — nothing to merge.
   if (!issueId && !sessionId) return null
-
-  // Only a REAL conflict is fixable by the recovery run, and only where the
-  // caller can actually launch one. The builtin action takes a representative
-  // ISSUE id, so a run's own chore PR (EXP-734) never swaps.
-  const canFixConflicts = canOfferFixConflicts({
-    failure,
-    issueId,
-    branch,
-    steerEnabled,
-  })
 
   // The click itself: a session PR goes straight to the plain confirm, an
   // issue PR first asks the synced rows about its stack.
@@ -285,7 +254,6 @@ export function SessionMergeButton({
 
   const merge = async () => {
     setMerging(true)
-    setFailure(null)
     try {
       if (issueId) {
         await trpc.issues.mergePr.mutate(
@@ -308,13 +276,21 @@ export function SessionMergeButton({
       setMerging(false)
       setConfirmOpen(false)
       setStackChoice(null)
-      setFailure(next)
-      // The swap is this button's own caption for a conflict; every other
-      // refusal has nowhere to live in a row this small, so it keeps the
-      // global toast the link would otherwise have shown.
+      // EXP-1233: a real conflict on an issue PR opens the recovery run's
+      // composer at once, this pull request picked and the refusal flagged
+      // (EXP-825: a navigation/dialog seed, no device lookup here). Every
+      // other refusal has nowhere to live in a row this small, so it keeps
+      // the global toast.
       if (
-        !canOfferFixConflicts({ failure: next, issueId, branch, steerEnabled })
+        issueId &&
+        canOfferFixConflicts({ failure: next, issueId, branch, steerEnabled })
       ) {
+        openComposer({
+          actionId: BUILTIN_FIX_CONFLICTS_ID,
+          prIssueId: issueId,
+          conflict: true,
+        })
+      } else {
         toast.error(`Couldn't merge the pull request`, {
           description: next.message,
         })
@@ -325,10 +301,9 @@ export function SessionMergeButton({
   // EXP-1145: a stack merge (Merge stack, or Merge this pull request on a
   // member above the bottom) lands several pull requests; its refusal is the
   // server's message about whichever one stopped the chain, never a
-  // rebase-and-resolve job for THIS one, so it is toasted, not swapped.
+  // rebase-and-resolve job for THIS one, so it is toasted, never a run.
   const mergeStack = async (input: StackMergeInput) => {
     setMerging(true)
-    setFailure(null)
     try {
       await trpc.issues.mergePr.mutate(input, {
         context: { skipErrorToast: true },
@@ -342,68 +317,29 @@ export function SessionMergeButton({
     }
   }
 
-  const showFix = canFixConflicts && issueId
-
   return (
     <>
-      {showFix ? (
-        <>
-          <FixConflictsButton
-            as={as}
-            pillSize={pillSize}
-            issueId={issueId}
-            variant={variant}
-            size={size}
-            className={className}
-            label={label}
-            message={failure?.message}
-          />
-          {/* The swap must never be a dead end: the conflict may have been
-              resolved outside the recovery run, so Merge stays one click
-              away as a quiet secondary. `pointer-events-auto`: the phone's
-              bar and Merge float are `pointer-events-none` shells. */}
-          <Button
-            variant="glass"
-            size="icon-sm"
-            className="pointer-events-auto"
-            disabled={merging}
-            aria-label={merging ? `Merging…` : `Retry merge`}
-            title={merging ? `Merging…` : `Retry merge`}
-            onClick={(e) => {
-              e.stopPropagation()
-              arm()
-            }}
-          >
-            {merging ? (
-              <UiLoadingIcon className="animate-spin" />
-            ) : (
-              <PrMergedIcon />
-            )}
-          </Button>
-        </>
-      ) : (
-        <MergeControl
-          as={as}
-          pillSize={pillSize}
-          variant={variant}
-          size={size}
-          className={className}
-          disabled={merging}
-          ariaLabel={merging ? `Merging…` : `Merge pull request`}
-          title={merging ? `Merging…` : `Merge`}
-          onClick={(e) => {
-            e.stopPropagation()
-            arm()
-          }}
-        >
-          {merging ? (
-            <UiLoadingIcon className="animate-spin" />
-          ) : (
-            <PrMergedIcon />
-          )}
-          {label}
-        </MergeControl>
-      )}
+      <MergeControl
+        as={as}
+        pillSize={pillSize}
+        variant={variant}
+        size={size}
+        className={className}
+        disabled={merging}
+        ariaLabel={merging ? `Merging…` : `Merge pull request`}
+        title={merging ? `Merging…` : `Merge`}
+        onClick={(e) => {
+          e.stopPropagation()
+          arm()
+        }}
+      >
+        {merging ? (
+          <UiLoadingIcon className="animate-spin" />
+        ) : (
+          <PrMergedIcon />
+        )}
+        {label}
+      </MergeControl>
       {issueId ? (
         <StackMergeChoiceDialog
           choice={stackChoice}
@@ -412,7 +348,7 @@ export function SessionMergeButton({
           onCancel={() => setStackChoice(null)}
           onMerge={(input) => {
             // The bottom member's "Merge this pull request" is the plain
-            // single-PR merge, Fix-conflicts swap and all.
+            // single-PR merge, conflict recovery and all.
             if (input.mergeStack) void mergeStack(input)
             else void merge()
           }}
@@ -436,51 +372,8 @@ export function SessionMergeButton({
   )
 }
 
-// EXP-825: a navigation to the Agent page composer with the builtin picked
-// and this PR pre-filled — no dialog, no device lookup here.
-function FixConflictsButton({
-  as,
-  pillSize,
-  issueId,
-  variant,
-  size,
-  className,
-  label,
-  message,
-}: {
-  as: MergeControlShape
-  pillSize?: MergePillSize
-  issueId: string
-  variant?: VariantProps<typeof buttonVariants>[`variant`]
-  size?: VariantProps<typeof buttonVariants>[`size`]
-  className?: string
-  label?: string
-  message?: string
-}) {
-  const openComposer = useOpenComposer()
-
-  return (
-    <MergeControl
-      as={as}
-      pillSize={pillSize}
-      variant={variant}
-      size={size}
-      className={className}
-      ariaLabel="Fix merge conflicts"
-      title={message ?? `Fix merge conflicts`}
-      onClick={(e) => {
-        e.stopPropagation()
-        openComposer({ actionId: BUILTIN_FIX_CONFLICTS_ID, prIssueId: issueId })
-      }}
-    >
-      <UiBranchIcon />
-      {label ? `Fix conflicts` : null}
-    </MergeControl>
-  )
-}
-
 /** EXP-895: THE merge control of a Changes surface — the primary glass pill,
- *  the same confirm/spinner/Fix-conflicts/Retry behaviour. Every Changes
+ *  the same confirm/spinner/conflict-recovery behaviour. Every Changes
  *  surface renders exactly ONE of these (the review's top bar, the run's, the
  *  phone work bar's capsule); it self-hides unless the PR is open. */
 export function SessionMergePill(

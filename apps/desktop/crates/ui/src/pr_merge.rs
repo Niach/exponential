@@ -20,14 +20,15 @@
 //! collide. Error captions always key on the ROW
 //! (the issue id / pull key), so a failed close renders under the same row
 //! as a failed merge — the caption carries a [`FailedOp`] so the surfaces can
-//! still tell the two apart (only a failed merge offers "Fix conflicts").
+//! still tell the two apart (only a failed merge may open the fix-conflicts
+//! composer).
 //!
-//! A failure describes ONE snapshot of the pull request, so it retires itself
-//! three ways: the `pr_state` echo (the PR closed), a re-synced issue row
-//! ([`MergeFailure::row_stamp`]), and an explicit [`MergeState::clear_error`]
-//! from a surface that refetched. Surfaces that let the recovery run TAKE the
-//! Merge slot must also keep a "Retry merge" secondary — otherwise a conflict
-//! resolved outside that run leaves the PR unmergeable from the app.
+//! EXP-1233: a merge refused by a REAL conflict is not captioned at all on
+//! the surfaces that wire [`two_click`]'s `on_failure`: the hook opens the
+//! composer on the Fix merge conflicts builtin at once and answers `true`,
+//! which drops the failure (the composer's card says why it is up). Every
+//! other refusal captions its row until the `pr_state` echo, the next attempt
+//! or an explicit [`MergeState::clear_error`] from a surface that refetched.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -65,7 +66,7 @@ pub fn user_message(err: api::ApiError) -> String {
     err.user_message()
 }
 
-/// Which op produced a failure caption. The "Fix conflicts" recovery run
+/// Which op produced a failure caption. The fix-conflicts recovery run
 /// rebases, force-pushes and then MERGES the pull request, so it may only be
 /// offered after a failed MERGE — a user who asked to CLOSE a PR must never
 /// be handed a button that merges it.
@@ -244,28 +245,13 @@ pub struct MergeFailure {
     /// or an unconfigured GitHub App is NOT one, and "Fix merge conflicts"
     /// would send an agent to rebase a branch over a problem it cannot fix.
     pub conflict: bool,
-    /// The issue row's `updated_at` when the refusal was recorded (`None` for
-    /// pull keys and for rows that were not synced at the time). A refusal
-    /// describes ONE snapshot of the pull request: when the row re-syncs with
-    /// a newer stamp the caption — and with it the "Fix conflicts" swap that
-    /// took the Merge button's slot — is stale and clears itself. Without
-    /// that, a conflict resolved OUTSIDE the recovery run would hide Merge
-    /// for the life of the open PR.
-    pub row_stamp: Option<String>,
 }
 
-/// Whether a stored failure describes a SUPERSEDED snapshot of its row —
-/// `current` is that row's `updated_at` as it stands now. An unstamped
-/// failure (a pull key, or a row that was not synced when it failed) and a
-/// row that has since vanished are both left alone: there is nothing to
-/// compare against, and dropping the caption on a guess would take the
-/// "Fix conflicts" offer with it.
-fn superseded_by(failure: &MergeFailure, current: Option<&str>) -> bool {
-    match (failure.row_stamp.as_deref(), current) {
-        (Some(stamp), Some(now)) => stamp != now,
-        _ => false,
-    }
-}
+/// [`two_click`]'s failure hook: runs once, right after the failure is
+/// recorded, outside the state's own update (so it may open windows).
+/// Answering `true` = the hook HANDLED the refusal (EXP-1233: it opened the
+/// fix-conflicts composer), and the failure is dropped instead of captioned.
+pub type OnMergeFailure = Box<dyn FnOnce(&MergeFailure, &mut App) -> bool>;
 
 struct MergeStateGlobal(Entity<MergeState>);
 
@@ -330,19 +316,6 @@ impl MergeState {
         self.failure(row_key).map(|f| f.message.clone())
     }
 
-    /// Which action produced this row's caption — the "Fix conflicts"
-    /// recovery run is offered on [`FailedOp::Merge`] only.
-    pub fn failed_op(&self, row_key: &str) -> Option<FailedOp> {
-        self.failure(row_key).map(|f| f.op)
-    }
-
-    /// EXP-533: whether this row's failure was a REAL content conflict — the
-    /// second half of the "Fix conflicts" gate (the first is
-    /// [`Self::failed_op`]).
-    pub fn is_conflict(&self, row_key: &str) -> bool {
-        self.failure(row_key).is_some_and(|f| f.conflict)
-    }
-
     /// First click of the two-click confirm: arm `key` and start the ~5s
     /// seq-guarded auto-disarm timer.
     fn arm_key(&mut self, key: String, cx: &mut gpui::Context<Self>) {
@@ -376,8 +349,7 @@ impl MergeState {
 
     /// Drop the standing failure caption. A surface calls this when it
     /// REFETCHES the pull request's data (entering the Reviews screen,
-    /// re-pointing the PR diff): the refusal was about the previous snapshot,
-    /// and keeping it would keep "Fix conflicts" parked in the Merge slot.
+    /// re-pointing the PR diff): the refusal was about the previous snapshot.
     pub fn clear_error(cx: &mut App) {
         let state = MergeState::global(cx);
         state.update(cx, |this, cx| {
@@ -449,29 +421,7 @@ impl MergeState {
                 self.arm_seq += 1;
                 changed = true;
             }
-            // A re-synced issue row supersedes the refusal captioned on the
-            // old one — the branch may have been rebased and pushed since,
-            // and the PR is mergeable again. (A refused merge writes nothing
-            // server-side, so this can never race the failure just stored.)
-            let superseded = |failure: &MergeFailure| -> bool {
-                let current = if let Some(session_id) = failure.row_key.strip_prefix("session:") {
-                    // EXP-734: a session-keyed refusal is stamped with the
-                    // SESSION row's `updated_at`.
-                    sessions
-                        .get(session_id)
-                        .and_then(|session| session.updated_at.as_deref())
-                } else {
-                    issues
-                        .get(&failure.row_key)
-                        .and_then(|issue| issue.updated_at.as_deref())
-                };
-                superseded_by(failure, current)
-            };
-            if self
-                .error
-                .as_ref()
-                .is_some_and(|f| settled(&f.row_key) || superseded(f))
-            {
+            if self.error.as_ref().is_some_and(|f| settled(&f.row_key)) {
                 self.error = None;
                 changed = true;
             }
@@ -595,12 +545,13 @@ pub(crate) fn stack_merge_alert(
 
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call
 /// fires the op on the background executor. Failures land in the shared
-/// error slot (and run `on_failure` — the terminal dock jumps to the Reviews
-/// tool with it); echo-settled successes hold the in-flight spinner until
-/// the Electric echo, pull successes clear it and run `on_success`.
+/// error slot and then run `on_failure` ([`OnMergeFailure`]: answering
+/// `true` drops the failure again — EXP-1233's conflict → composer);
+/// echo-settled successes hold the in-flight spinner until the Electric
+/// echo, pull successes clear it and run `on_success`.
 pub fn two_click(
     op: MergeOp,
-    on_failure: Option<Box<dyn FnOnce(&mut App)>>,
+    on_failure: Option<OnMergeFailure>,
     on_success: Option<Box<dyn FnOnce(&mut App)>>,
     cx: &mut App,
 ) -> TwoClick {
@@ -637,13 +588,14 @@ pub fn two_click(
                 .background_executor()
                 .spawn(async move { bg_op.run(&trpc) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let failed = this.update(cx, |this, cx| {
                 match result {
                     Ok(false) => {
                         // Queued on GitHub: nothing landed, no echo will
                         // settle it now; release the spinner, keep the row.
                         this.merging.remove(&key);
                         cx.notify();
+                        None
                     }
                     Ok(true) => {
                         if call_op.echo_settled() {
@@ -656,6 +608,7 @@ pub fn two_click(
                                 on_success(cx);
                             }
                         }
+                        None
                     }
                     Err(err) => {
                         log::warn!("[ui] {} failed: {err}", call_op.describe());
@@ -663,46 +616,32 @@ pub fn two_click(
                         // EXP-533: classify BEFORE the message is consumed —
                         // only a real 409 conflict may offer the recovery run.
                         let conflict = err.is_conflict();
-                        let row_key = call_op.row_key();
-                        // Stamp the row this refusal describes, so a later
-                        // re-sync of it retires the caption (and the swap).
-                        let row_stamp = match Store::try_global(cx) {
-                            Some(store) => {
-                                if let Some(session_id) = row_key.strip_prefix("session:") {
-                                    // EXP-734: session-keyed rows stamp off the
-                                    // `coding_sessions` row, the only place the
-                                    // run's own PR lives.
-                                    store
-                                        .collections()
-                                        .coding_sessions
-                                        .read(cx)
-                                        .get(session_id)
-                                        .and_then(|session| session.updated_at.clone())
-                                } else {
-                                    store
-                                        .collections()
-                                        .issues
-                                        .read(cx)
-                                        .get(&row_key)
-                                        .and_then(|issue| issue.updated_at.clone())
-                                }
-                            }
-                            None => None,
-                        };
-                        this.error = Some(MergeFailure {
-                            row_key,
+                        let failure = MergeFailure {
+                            row_key: call_op.row_key(),
                             message: SharedString::from(user_message(err)),
                             op: call_op.failed_op(),
                             conflict,
-                            row_stamp,
-                        });
+                        };
+                        this.error = Some(failure.clone());
                         cx.notify();
-                        if let Some(on_failure) = on_failure {
-                            on_failure(cx);
-                        }
+                        Some(failure)
                     }
                 }
             });
+            // The hook runs OUTSIDE the state's update: it may open a window
+            // (the fix-conflicts composer) or read this state itself.
+            if let (Ok(Some(failure)), Some(on_failure)) = (failed, on_failure) {
+                let _ = cx.update(|cx| {
+                    if on_failure(&failure, cx) {
+                        MergeState::global(cx).update(cx, |this, cx| {
+                            if this.error.as_ref().is_some_and(|f| f.row_key == failure.row_key) {
+                                this.error = None;
+                                cx.notify();
+                            }
+                        });
+                    }
+                });
+            }
         })
         .detach();
     });
@@ -759,7 +698,7 @@ mod tests {
         assert!(session.echo_settled());
         assert!(!pull.echo_settled());
         assert_eq!(session.describe(), "codingSessions.mergePr(s1)");
-        // …but the caption still says WHICH op failed: "Fix conflicts" ends
+        // …but the caption still says WHICH op failed: the fix run ends
         // in a merge, so a failed close must never be offered it.
         assert_eq!(merge.failed_op(), FailedOp::Merge);
         assert_eq!(close.failed_op(), FailedOp::Close);
@@ -816,16 +755,16 @@ mod tests {
         assert!(!user_message(api::ApiError::Unauthorized).is_empty());
     }
 
-    /// EXP-533: "Fix conflicts" needs BOTH a failed merge and a real 409 —
-    /// an offline merge attempt caption offers nothing to click.
+    /// EXP-533: a failure records WHICH op failed and whether it was a real
+    /// 409 — the two facts `work_header::conflict_opens_composer` gates on —
+    /// and only under its own row.
     #[test]
-    fn only_a_real_conflict_arms_the_recovery_run() {
+    fn a_failure_carries_its_op_and_conflict_under_its_row() {
         let failure = |conflict, op| MergeFailure {
             row_key: "i1".to_string(),
             message: SharedString::from("nope"),
             op,
             conflict,
-            row_stamp: None,
         };
         let state = |error| MergeState {
             arm: None,
@@ -835,43 +774,16 @@ mod tests {
             _subscriptions: Vec::new(),
         };
         let conflicted = state(failure(true, FailedOp::Merge));
-        assert!(conflicted.is_conflict("i1"));
-        assert_eq!(conflicted.failed_op("i1"), Some(FailedOp::Merge));
+        let recorded = conflicted.failure("i1").expect("its row");
+        assert!(recorded.conflict);
+        assert_eq!(recorded.op, FailedOp::Merge);
+        assert_eq!(conflicted.error("i1").as_deref(), Some("nope"));
         // Another row's failure never leaks into this one.
-        assert!(!conflicted.is_conflict("i2"));
+        assert!(conflicted.failure("i2").is_none());
         // Offline / stale-base / no-GitHub-App merge failure: caption only.
-        assert!(!state(failure(false, FailedOp::Merge)).is_conflict("i1"));
-        // A failed CLOSE never offers a run that merges, conflict or not.
+        assert!(!state(failure(false, FailedOp::Merge)).failure("i1").unwrap().conflict);
+        // A failed CLOSE says so — a run that merges is never offered for it.
         let closed = state(failure(true, FailedOp::Close));
-        assert_eq!(closed.failed_op("i1"), Some(FailedOp::Close));
-    }
-
-    /// A refusal is about ONE snapshot of the pull request: once the issue row
-    /// re-syncs with a newer `updated_at`, the caption (and the "Fix
-    /// conflicts" swap that took the Merge slot) must retire itself — the
-    /// conflict may well have been resolved outside the recovery run.
-    #[test]
-    fn a_resynced_row_supersedes_its_failure() {
-        let stamped = |row_stamp: Option<&str>| MergeFailure {
-            row_key: "i1".to_string(),
-            message: SharedString::from("Pull Request is not mergeable"),
-            op: FailedOp::Merge,
-            conflict: true,
-            row_stamp: row_stamp.map(str::to_string),
-        };
-        // Same snapshot: the refusal still stands.
-        assert!(!superseded_by(
-            &stamped(Some("2026-09-01T10:00:00Z")),
-            Some("2026-09-01T10:00:00Z")
-        ));
-        // The row moved on — drop it.
-        assert!(superseded_by(
-            &stamped(Some("2026-09-01T10:00:00Z")),
-            Some("2026-09-01T10:05:00Z")
-        ));
-        // Nothing to compare against never drops a caption: an unstamped
-        // failure (pull keys, unsynced rows) or a row that has vanished.
-        assert!(!superseded_by(&stamped(None), Some("2026-09-01T10:05:00Z")));
-        assert!(!superseded_by(&stamped(Some("2026-09-01T10:00:00Z")), None));
+        assert_eq!(closed.failure("i1").unwrap().op, FailedOp::Close);
     }
 }

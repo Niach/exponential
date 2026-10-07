@@ -16,6 +16,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.ConflictRefusal
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
 import dagger.assisted.Assisted
@@ -23,6 +24,8 @@ import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -155,6 +158,13 @@ class ChangesViewModel @AssistedInject constructor(
     private val _actionErrorIsConflict = MutableStateFlow(false)
     val actionErrorIsConflict: StateFlow<Boolean> = _actionErrorIsConflict
 
+    /**
+     * EXP-1233: one event per plain ISSUE merge refused by a real conflict;
+     * the Work screen opens the Fix merge conflicts composer off it, once.
+     */
+    private val _conflictRefusals = Channel<ConflictRefusal>(Channel.BUFFERED)
+    val conflictRefusals: Flow<ConflictRefusal> = _conflictRefusals.receiveAsFlow()
+
     init {
         // Re-fetch when the diff source flips (a PR opens on a watched branch).
         viewModelScope.launch {
@@ -276,6 +286,9 @@ class ChangesViewModel @AssistedInject constructor(
                     _actionError.value = failure.message
                     _actionErrorFrom.value = PrAction.Merge
                     _actionErrorIsConflict.value = failure.isConflict
+                    if (!mergeStack && failure.isConflict) {
+                        _conflictRefusals.send(ConflictRefusal(targetIssueId, failure))
+                    }
                 }
             _merging.value = false
         }

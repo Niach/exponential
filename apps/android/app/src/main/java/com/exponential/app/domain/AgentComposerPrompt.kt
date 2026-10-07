@@ -53,27 +53,36 @@ object AgentComposerPrompt {
 
         /** A team action or a builtin. */
         data object Action : Subject
+
+        /**
+         * EXP-1233: the Fix merge conflicts builtin WITH a picked pull
+         * request — its own verb and send. Unpicked it is a plain [Action].
+         */
+        data object FixConflicts : Subject
     }
 
     /**
      * The submit label — the ×4 contract: "Start chat" / "Start coding" /
-     * "Start batch · N" / "Run action".
+     * "Start batch · N" / "Run action" / (EXP-1233) "Fix conflicts".
      */
     fun submitTitle(subject: Subject): String = when (subject) {
         Subject.None -> "Start chat"
         is Subject.Issues -> if (subject.count > 1) "Start batch · ${subject.count}" else "Start coding"
         Subject.Action -> "Run action"
+        Subject.FixConflicts -> DomainContract.composerUiFixConflictsSubmit
     }
 
     /**
      * EXP-1038: the composer's HEADLINE verb, above the field and beside the
      * subject chips — the contract's `composerUi*` copy ×4: "Run" for an
      * action, "Implement" for issue chips, "Ask the agent" for a subjectless
-     * chat (which has no chips, so the verb stands alone).
+     * chat (which has no chips, so the verb stands alone). EXP-1233: "Fix
+     * merge conflicts" beside the picked pull request's issue chips.
      */
     fun headline(subject: Subject): String = when (subject) {
         Subject.None -> DomainContract.composerUiChatHeadline
         is Subject.Issues -> DomainContract.composerUiImplementHeadline
         Subject.Action -> DomainContract.composerUiRunHeadline
+        Subject.FixConflicts -> DomainContract.composerUiFixConflictsHeadline
     }
 }

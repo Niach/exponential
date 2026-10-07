@@ -112,6 +112,8 @@ export * from "./session-results"
 export * from "./session-results-view"
 export * from "./session-thread-view"
 export * from "./run-status-row"
+// EXP-1233: the Fix merge conflicts card the composer draws for the builtin.
+export * from "./fix-conflicts-card"
 export * from "./sheet"
 export * from "./sheet-chrome"
 export * from "./sidebar"

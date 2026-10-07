@@ -37,6 +37,7 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
+import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
@@ -88,6 +89,14 @@ internal fun AgentComposer(
     boards: List<StartBoardOption>,
     pullRequests: List<StartPullRequestOption>,
     onInputChange: (key: String, value: String) -> Unit,
+    /**
+     * EXP-1233: the subject is the Fix merge conflicts builtin — its pick row
+     * is [FixConflictsCard] ([fixConflictsPr] picked, [conflictRefused] = a
+     * refused merge opened the page) instead of the generic field.
+     */
+    fixConflictsActive: Boolean,
+    fixConflictsPr: FixConflictsPr?,
+    conflictRefused: Boolean,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     canAttach: Boolean,
@@ -125,7 +134,18 @@ internal fun AgentComposer(
         // by the page above this card). What stays here are the picked
         // action's typed pick rows, which belong with the field they are
         // filled next to.
-        leading = if (inputDefs.isNotEmpty()) {
+        leading = if (fixConflictsActive) {
+            {
+                FixConflictsCard(
+                    pr = fixConflictsPr,
+                    conflictRefused = conflictRefused,
+                    pullRequests = pullRequests,
+                    value = inputValues[FIX_CONFLICTS_PR_KEY].orEmpty(),
+                    onSelect = { onInputChange(FIX_CONFLICTS_PR_KEY, it) },
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+        } else if (inputDefs.isNotEmpty()) {
             {
                 ActionInputFields(
                     defs = inputDefs,
@@ -254,6 +274,11 @@ private fun ChipClose(
 }
 
 /**
+ * EXP-1233: the Fix merge conflicts builtin with a picked pull request heads
+ * the page as "Fix merge conflicts" + the PR's ISSUE chips (the page passes
+ * them as [issueChips] with no [actionChip]); unpicked it is the plain "Run"
+ * + action chip.
+ *
  * EXP-1038: the composer's HEADLINE — the run's subject as the page's main
  * element rather than a chip buried in the card. The contract verb
  * ([AgentComposerPrompt.headline], ×4: "Run" · "Implement") reads straight
@@ -271,6 +296,12 @@ internal fun AgentComposerHeadline(
     issueChips: List<IssueOption>,
     onRemoveIssue: (String) -> Unit,
     actionChip: ActionDto?,
+    /**
+     * EXP-1233: the ✕'s name per issue chip — "Remove APP-3" for the issues
+     * subject; the Fix merge conflicts builtin's PR chips say "Clear the pull
+     * request" (their ✕ clears the PICK, not the action).
+     */
+    removeIssueDescription: (IssueOption) -> String = { "Remove ${it.identifier}" },
     onClearAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -332,7 +363,7 @@ internal fun AgentComposerHeadline(
                                 IssueStatusResolver.resolve(null, option.status, emptyList())
                             },
                             onRemove = { onRemoveIssue(option.id) },
-                            removeContentDescription = "Remove ${option.identifier}",
+                            removeContentDescription = removeIssueDescription(option),
                             removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",
                             modifier = Modifier.testTag("agent-composer-chip-issue-${option.identifier}"),
                         )

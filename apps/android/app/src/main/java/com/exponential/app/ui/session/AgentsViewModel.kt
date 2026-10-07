@@ -3,10 +3,8 @@ package com.exponential.app.ui.session
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
-import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentProfileRemoveCommand
@@ -30,7 +28,6 @@ import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
@@ -119,8 +116,6 @@ class AgentsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
-    private val issuesApi: IssuesApi,
-    private val codingSessionsApi: CodingSessionsApi,
     stats: SyncStats,
 ) : ViewModel() {
 
@@ -478,52 +473,6 @@ class AgentsViewModel @Inject constructor(
             _deviceBusy.value = _deviceBusy.value + deviceId
             runCatching { block(accountId) }
             _deviceBusy.value = _deviceBusy.value - deviceId
-        }
-    }
-
-    // ── Merge (EXP-498: merging always closes the session) ──────────────────
-    // The server merges AND ends the session, so the row drops off this list
-    // on its own once the `ended` flip syncs. Keyed by MergeTarget.key
-    // (EXP-734: an issue id, or `session:<id>` for a run's own PR): several
-    // rows can be in flight at once.
-    private val _merging = MutableStateFlow<Set<String>>(emptySet())
-    val merging: StateFlow<Set<String>> = _merging
-
-    // Rendered INLINE on the failing row (EXP-323 pattern — a snackbar hides
-    // behind the floating bottom nav pill). Cleared by the next attempt.
-    private val _mergeErrors = MutableStateFlow<Map<String, MergeFailure>>(emptyMap())
-    val mergeErrors: StateFlow<Map<String, MergeFailure>> = _mergeErrors
-
-    /**
-     * Squash-merge the row's PR — the server always ends its coding session
-     * too (EXP-498). A [MergeTarget.Issue] merges through the issue (for a
-     * batch PR the server resolves it to ALL linked issues and completes them
-     * together); a [MergeTarget.Session] merges the run's OWN issueless PR
-     * (EXP-734), which completes nothing and only closes the run.
-     */
-    fun merge(target: MergeTarget) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            val key = target.key
-            _mergeErrors.value = _mergeErrors.value - key
-            _merging.value = _merging.value + key
-            runCatching {
-                when (target) {
-                    is MergeTarget.Issue -> issuesApi.mergePr(accountId, target.issueId)
-                    is MergeTarget.Session ->
-                        codingSessionsApi.mergePr(accountId, target.sessionId)
-                }
-            }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    // Conflicts, branch protection and GitHub App errors are the
-                    // common, persistent failures of a squash merge — same copy
-                    // as Reviews and the issue Changes tab, and the same
-                    // conflict-only gate on the recovery run (EXP-533).
-                    _mergeErrors.value = _mergeErrors.value +
-                        (key to MergeFailure.from(t, "The pull request could not be merged"))
-                }
-            _merging.value = _merging.value - key
         }
     }
 }

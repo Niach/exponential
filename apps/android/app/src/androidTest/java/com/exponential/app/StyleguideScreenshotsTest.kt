@@ -137,6 +137,10 @@ class StyleguideScreenshotsTest {
         // The builtin the sg_chat-action shot picks (EXP-259).
         private const val FIX_CONFLICTS_ACTION_NAME = "Fix merge conflicts"
 
+        // EXP-1233: the seeded open PR the Fix merge conflicts card picks
+        // (APP-14, the realPr review issue).
+        private const val FIX_CONFLICTS_PR_IDENTIFIER = "APP-14"
+
         // The close-out the seed's freshest agent-ended run carries (EXP-637) —
         // only the EXPANDED row shows it, so it is the post-tap gate.
 
@@ -401,6 +405,15 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
+        // EXP-1233: the builtin draws its own card; picking the seeded open
+        // PR (APP-14) completes it into the Fix merge conflicts look — the
+        // verb + the PR's issue chip, the card's PR row, "Fix conflicts".
+        flow.waitFor(hasTestTag("agent-composer-fix-conflicts"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-fix-conflicts-pr")).performClick()
+        flow.waitFor(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("agent-composer-chip-issue-$FIX_CONFLICTS_PR_IDENTIFIER"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-action")
         // A tab now (Back would leave the app): the Devices tab returns.

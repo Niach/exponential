@@ -36,6 +36,10 @@ const RecentRunsIcon = conceptIcon(`settings-sessions`)
 
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
+// EXP-1233: `?conflict=1` — the router parses a bare `1` as a NUMBER, so the
+// flag is normalised back to the seed's string form here.
+const flag = (value: unknown): string | undefined =>
+  value === `1` || value === 1 || value === true ? `1` : undefined
 
 // EXP-818: the team's AGENT page — the composer over the caller's sessions
 // list (Running, then Past). EXP-825 made that composer THE launcher: issues,
@@ -56,6 +60,8 @@ const str = (value: unknown): string | undefined =>
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft (a suggestion's description)
 //   icon    a curated icon name seeding Create action's `icon` input
+//   conflict `1` when a refused merge opened the Fix merge conflicts builtin
+//           (EXP-1233) — the composer's card says so
 //   from    where the launch came from (`lib/detail-origin.ts`) — the sidebar
 //           keeps that list beside the composer, and the run it starts
 //           inherits it (an issue origin lands on the issue's session route)
@@ -77,6 +83,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     device: str(search.device),
     text: str(search.text),
     icon: str(search.icon),
+    conflict: flag(search.conflict),
     from: str(search.from),
   }),
   beforeLoad: async ({ context, location }) => {
@@ -124,6 +131,7 @@ function AgentPage() {
       search.device,
       search.text,
       search.icon,
+      search.conflict,
     ]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
@@ -191,7 +199,8 @@ function AgentPage() {
       !urlSeed.deviceId &&
       !urlSeed.prIssueId &&
       !urlSeed.text &&
-      !urlSeed.icon
+      !urlSeed.icon &&
+      !urlSeed.conflict
     if (mirrorOnly) return
     seedPendingRef.current = true
     setSeed(urlSeed)

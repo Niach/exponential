@@ -18,7 +18,11 @@ import {
   boardCollection,
   issueCollection,
 } from "@/lib/collections"
-import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
+import {
+  buildPrOptions,
+  findPrOptionForIssue,
+  type PrOption,
+} from "@/lib/pr-options"
 import type { ActionRepoOption } from "@/components/action-prompt-form"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
@@ -142,25 +146,13 @@ export function ActionInputFields({
 // the row lists every linked identifier and carries the representative
 // issue's id as its value). Issues don't sync team_id, so the team scope
 // comes from the synced boards.
-function PrInputField({
-  teamId,
-  value,
-  required,
-  seedIssueId,
-  onChange,
-}: {
-  teamId: string
-  /** The picked representative issue id, or `` when unset. */
-  value: string
-  required: boolean
-  /**
-   * ANY issue id linked to the PR this field should open pre-picked (EXP-323 —
-   * a Reviews row's representative is the newest linked issue, not this list's
-   * lowest-id one, so it is resolved by membership). Applied once per mount.
-   */
-  seedIssueId?: string
-  onChange: (issueId: string) => void
-}) {
+//
+// EXP-1233: the OPTIONS and the seed latch are hooks of their own, because
+// the Fix merge conflicts card (`fix-conflicts-card.tsx`) draws the same
+// picker inside its own row — one list, two triggers.
+
+/** The team's open pull requests as picker options, off the synced rows. */
+export function useOpenPrOptions(teamId: string): PrOption[] {
   const { data: boardRows } = useLiveQuery(
     (q) =>
       q
@@ -175,21 +167,27 @@ function PrInputField({
         .where(({ issues }) => eq(issues.prState, `open`)),
     []
   )
-  const pulls = useMemo(() => {
+  return useMemo(() => {
     const teamBoards = new Set(
       ((boardRows ?? []) as Board[]).map((board) => board.id)
     )
     return buildPrOptions((issueRows ?? []) as Issue[], teamBoards)
   }, [boardRows, issueRows])
-  const options = useMemo<PickerOption[]>(
-    () =>
-      pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
-    [pulls]
-  )
+}
 
-  // Seed the preselected PR once the options land (the dialog clears input
-  // values on open, so the seed can't live there). The ref latch keeps a
-  // manual re-pick — including clearing an optional field — from being stomped.
+/**
+ * Seed the preselected PR once the options land (the dialog clears input
+ * values on open, so the seed can't live there). The ref latch keeps a
+ * manual re-pick — including clearing an optional field — from being stomped.
+ * `seedIssueId` is ANY issue linked to the PR (EXP-323 — a Reviews row's
+ * representative is the newest linked issue, not this list's lowest-id one,
+ * so it is resolved by membership). Applied once per mount.
+ */
+export function usePrInputSeed(
+  pulls: PrOption[],
+  seedIssueId: string | undefined,
+  onChange: (issueId: string) => void
+) {
   const seeded = useRef(false)
   useEffect(() => {
     if (seeded.current || !seedIssueId || pulls.length === 0) return
@@ -198,6 +196,29 @@ function PrInputField({
     seeded.current = true
     onChange(option.issueId)
   }, [seedIssueId, pulls, onChange])
+}
+
+function PrInputField({
+  teamId,
+  value,
+  required,
+  seedIssueId,
+  onChange,
+}: {
+  teamId: string
+  /** The picked representative issue id, or `` when unset. */
+  value: string
+  required: boolean
+  seedIssueId?: string
+  onChange: (issueId: string) => void
+}) {
+  const pulls = useOpenPrOptions(teamId)
+  const options = useMemo<PickerOption[]>(
+    () =>
+      pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
+    [pulls]
+  )
+  usePrInputSeed(pulls, seedIssueId, onChange)
 
   return (
     <Combobox

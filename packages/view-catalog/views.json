@@ -953,12 +953,12 @@
       "id": "chat-action",
       "group": "coding",
       "title": "Agent · Action",
-      "blurb": "The composer running a saved action: the action chip above the prompt and the action's typed inputs under it — here the builtin Fix merge conflicts with an open PR already filled in.",
+      "blurb": "The composer running the builtin Fix merge conflicts with an open PR picked — its own look (EXP-1233): the headline names the PR's issue as a chip, the card under it is the PR row (number, branch → base, the picker) and, after a refused merge, the refusal line. A saved action with inputs keeps the generic action chip and its typed fields.",
       "order": 6,
       "web": {
-        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue",
+        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue&conflict=1",
         "anchor": {
-          "testId": "agent-composer-chip-action",
+          "testId": "agent-composer-chip-issue-APP-14",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -973,13 +973,13 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR. Needs `bun run screenshots:desktop` like chat-issues.",
-        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>`, paired with `EXP_DEV_TOOL=agent` by the lane."
+        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR; `conflict=1` (EXP-1233) = a refused merge opened it, so the card shows the refusal line. Needs `bun run screenshots:desktop` like chat-issues.",
+        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>&conflict=1`, paired with `EXP_DEV_TOOL=agent` by the lane."
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue"
+          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue&conflict=1"
         }
       }
     },

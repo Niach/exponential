@@ -18,12 +18,16 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -277,8 +281,11 @@ class ReviewsViewModel @Inject constructor(
      * EXP-1145: [mergeStack] merges the open stack bottom-up THROUGH [issueId];
      * a failure captions the row with the server's message and never offers
      * Fix conflicts: the conflicting pull request may be another member.
+     * EXP-1233: a plain merge refused by a REAL conflict on a PR with a
+     * recorded [branch] captions nothing — it emits [conflictRefusals] once
+     * and the screen opens the Fix merge conflicts composer.
      */
-    fun mergePr(groupKey: String, issueId: String, mergeStack: Boolean = false) {
+    fun mergePr(groupKey: String, issueId: String, branch: String?, mergeStack: Boolean = false) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _mergeErrors.value = _mergeErrors.value - groupKey
@@ -295,7 +302,11 @@ class ReviewsViewModel @Inject constructor(
                     } else {
                         MergeFailure.from(t, "The pull request could not be merged")
                     }
-                    _mergeErrors.value = _mergeErrors.value + (groupKey to failure)
+                    if (!mergeStack && canOfferFixConflicts(failure, branch)) {
+                        _conflictRefusals.send(issueId)
+                    } else {
+                        _mergeErrors.value = _mergeErrors.value + (groupKey to failure)
+                    }
                 }
             _merging.value = _merging.value - groupKey
         }
@@ -342,4 +353,12 @@ class ReviewsViewModel @Inject constructor(
 
     private val _merging = MutableStateFlow<Set<String>>(emptySet())
     val merging: StateFlow<Set<String>> = _merging
+
+    /**
+     * EXP-1233: ONE event per conflict-refused merge, carrying the PR's
+     * representative issue id — a one-shot, so the composer opens once per
+     * refusal and never again on recomposition.
+     */
+    private val _conflictRefusals = Channel<String>(Channel.BUFFERED)
+    val conflictRefusals: Flow<String> = _conflictRefusals.receiveAsFlow()
 }

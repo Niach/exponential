@@ -928,26 +928,22 @@ pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &A
 
 /// The ONE Merge look: a `Sm` pill (primary or glass) with the merge glyph,
 /// two-click armed (`Merge PR` → `Confirm merge`, then `Merging…` until the
-/// Electric echo settles) through [`crate::pr_merge::two_click`].
+/// Electric echo settles) through [`crate::pr_merge::two_click`]. Every Merge
+/// PR surface renders exactly this (the issue tray, the run header — a batch
+/// run merges through its representative issue — and the Changes bars), so
+/// the conflict rule below is wired once.
+///
+/// EXP-1233: the slot never swaps any more. A plain merge of an ISSUE target
+/// refused by a REAL conflict ([`conflict_opens_composer`]) OPENS the
+/// composer on the Fix merge conflicts builtin at once, the pull request
+/// picked and the refusal flagged ([`conflict_recovery`]); the pill stays
+/// plain Merge, so a conflict resolved elsewhere is one click away. A SESSION
+/// target (a run's own chore PR, EXP-734) and every other refusal caption
+/// instead ([`merge_error_caption`]).
 pub(crate) fn merge_pill(
     id: impl Into<gpui::ElementId>,
     target: &MergeTarget,
     primary: bool,
-    size: PillSize,
-    cx: &mut App,
-) -> AnyElement {
-    merge_pill_labeled(id, target, primary, None, size, cx)
-}
-
-/// EXP-917 — [`merge_pill`] with its RESTING label overridden: the swapped
-/// slot's secondary reads "Retry merge" (the Reviews row's word, and the
-/// web's), never a second "Merge PR" beside "Fix conflicts". The armed and
-/// in-flight labels stay the shared ones.
-pub(crate) fn merge_pill_labeled(
-    id: impl Into<gpui::ElementId>,
-    target: &MergeTarget,
-    primary: bool,
-    resting_label: Option<&'static str>,
     // EXP-926: the placement's size, never the pill's own opinion.
     size: PillSize,
     cx: &mut App,
@@ -983,18 +979,22 @@ pub(crate) fn merge_pill_labeled(
     } else if armed {
         "Confirm merge"
     } else {
-        resting_label.unwrap_or(domain::contract::DIFF_UI_MERGE_PR)
+        domain::contract::DIFF_UI_MERGE_PR
     })
     .tooltip(target.tooltip())
     .on_click(move |_, window, cx| {
         // EXP-1145: a member of an open PR stack asks first; a run's own
         // chore PR (a Session target) is never a stack member.
-        if let MergeTarget::Issue { issue_id } = &target {
-            if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
-                return;
+        let on_failure = match &target {
+            MergeTarget::Issue { issue_id } => {
+                if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
+                    return;
+                }
+                Some(conflict_recovery(issue_id.clone(), window.window_handle()))
             }
-        }
-        crate::pr_merge::two_click(target.op(), None, None, cx);
+            MergeTarget::Session { .. } => None,
+        };
+        crate::pr_merge::two_click(target.op(), on_failure, None, cx);
     });
     if merging {
         button = button.disabled(true);
@@ -1002,20 +1002,14 @@ pub(crate) fn merge_pill_labeled(
     button.into_any_element()
 }
 
-/// The word the swapped slot's secondary Merge wears — the Reviews row's and
-/// the web's (`session-merge-button.tsx`). No contract constant exists for it
-/// yet; when one lands, this is the ONE place to point at it.
-pub(crate) const RETRY_MERGE_LABEL: &str = "Retry merge";
-
-/// EXP-799 / EXP-917: whether an ISSUE target's Merge slot swaps to a
-/// primary "Fix conflicts" beside a glass "Retry merge". MERGE failures only:
-/// the fix run ends in a merge, so a failed CLOSE must never offer it; and
-/// only a REAL content conflict (EXP-533) — an offline or policy-refused
-/// merge has nothing an agent could rebase; and only with a recorded branch,
-/// which is what the run rebases. Pure, so the rule is a test; mirrors web
-/// `canOfferFixConflicts`, Android `canOfferFixConflicts` and iOS
-/// `canFixConflicts`.
-pub(crate) fn merge_slot_swapped(
+/// EXP-799 / EXP-917 / EXP-1233: whether an ISSUE target's refused merge
+/// opens the fix-conflicts composer. MERGE failures only: the fix run ends in
+/// a merge, so a failed CLOSE must never offer it; and only a REAL content
+/// conflict (EXP-533) — an offline or policy-refused merge has nothing an
+/// agent could rebase; and only with a recorded branch, which is what the run
+/// rebases. Pure, so the rule is a test; mirrors web `canOfferFixConflicts`,
+/// Android `canOfferFixConflicts` and iOS `canFixConflicts`.
+pub(crate) fn conflict_opens_composer(
     pr_open: bool,
     merge_failed: bool,
     is_conflict: bool,
@@ -1028,10 +1022,8 @@ pub(crate) fn merge_slot_swapped(
 /// issue. Its `pr` input is REQUIRED and names the representative issue of an
 /// OPEN pull request, resolved through the ACTIVE team's boards
 /// (`action_run::resolve_fix_conflicts_target`): the issue and its board must
-/// be synced, and the board must belong to the team this window is scoped to.
-/// The issue header's own button always bailed on an unknown board; the
-/// shared slot keeps that guard (and tightens it to the team), so a click can
-/// never open the composer with an empty required input.
+/// be synced, and the board must belong to the team this window is scoped to,
+/// so a refusal can never open the composer with an empty required input.
 pub(crate) fn fix_conflicts_target_resolves(issue_id: &str, window: &Window, cx: &mut App) -> bool {
     let issue_team = Store::try_global(cx).and_then(|store| {
         let collections = store.collections();
@@ -1053,148 +1045,57 @@ pub(crate) fn fix_conflicts_target_resolves(issue_id: &str, window: &Window, cx:
     crate::navigation::active_team_id(&nav, cx).as_deref() == Some(issue_team.as_str())
 }
 
-/// The "Fix conflicts" pill (EXP-313): the primary `Sm` capsule that opens
-/// the Agent page composer with the fix-conflicts builtin and this issue's
-/// PR preselected (EXP-825). "Fixing…" while an actual fix run works the
-/// branch; disabled with the reason when this machine has no agent CLI
-/// (EXP-367) — never hidden.
-pub(crate) fn fix_conflicts_pill(
-    id: impl Into<gpui::ElementId>,
-    issue_id: &str,
-    branch: Option<&str>,
-    size: PillSize,
-    cx: &mut App,
-) -> AnyElement {
-    let fixing = branch.is_some_and(|branch| {
-        LocalSessions::global_ref(cx)
-            .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-    });
-    let no_agent = crate::coding_flow::no_agent_reason(cx);
-    let issue_id = issue_id.to_string();
-    let mut button = glass_pill_button_primary(id, size)
-        .icon(
-            Icon::from(ExpIcon::GitBranch)
-                .with_size(px(size.glyph()))
-                .text_color(cx.theme().primary_foreground),
-        )
-        .label(if fixing { "Fixing…" } else { "Fix conflicts" })
-        .tooltip(
-            no_agent
-                .clone()
-                .unwrap_or_else(|| "Run the fix-conflicts action on this pull request".into()),
-        )
-        .on_click(move |_, window, cx| {
-            // EXP-917: the composer's `pr` input is REQUIRED and resolves the
-            // issue through the active team's boards — an issue whose board
-            // is not in this window's scope (a team switch mid-conflict, a
-            // board that left the shape) would open the run with an empty
-            // required input. Refuse instead, the guard the issue header's
-            // own button always had.
-            if !fix_conflicts_target_resolves(&issue_id, window, cx) {
-                log::warn!("[ui] fix conflicts skipped: {issue_id} is outside the active team");
-                return;
-            }
-            crate::navigation::navigate_to_chat(
-                window,
-                cx,
-                crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
-            );
-        });
-    if fixing || no_agent.is_some() {
-        button = button.disabled(true);
-    }
-    button.into_any_element()
-}
-
-/// EXP-917: the merge SLOT every Merge PR surface renders — the plain
-/// [`merge_pill`] until a merge of an ISSUE target is refused by a real
-/// conflict, then `[Fix conflicts] [Retry merge]` in that same slot (the
-/// swap [`merge_slot_swapped`] decides). ONE place, so no surface can wire
-/// the plain pill and forget the swap again: the issue tray, the run header
-/// (a batch run merges through its representative issue) and both Changes
-/// bars all come through here. A SESSION target (a run's own chore PR,
-/// EXP-734) never swaps — the builtin takes an issue — and captions its
-/// refusal instead ([`merge_error_caption`]). The swap is short-lived by
-/// construction: `MergeState` drops a failure whose row re-synced, so the
-/// next echo restores the plain pill.
-pub(crate) fn merge_slot(
-    id: &str,
-    target: &MergeTarget,
-    primary: bool,
-    size: PillSize,
-    cx: &mut App,
-) -> AnyElement {
-    let Some(issue) = merge_slot_swap_issue(target, cx) else {
-        return merge_pill(SharedString::from(id.to_string()), target, primary, size, cx);
-    };
-    // Fix conflicts takes the primary paint; Merge steps down to the glass
-    // "Retry merge" beside it — never a dead end, the conflict may have been
-    // resolved outside that run (a teammate rebased and pushed). The pair
-    // never shrinks (the header's left side gives way first, like the diff
-    // bar's).
-    h_flex()
-        .flex_shrink_0()
-        .items_center()
-        .gap_1()
-        .child(fix_conflicts_pill(
-            SharedString::from(format!("{id}-fix")),
-            &issue.id,
-            issue.branch.as_deref(),
-            size,
-            cx,
-        ))
-        .child(merge_pill_labeled(
-            SharedString::from(id.to_string()),
-            target,
-            false,
-            Some(RETRY_MERGE_LABEL),
-            size,
-            cx,
-        ))
-        .into_any_element()
-}
-
-/// EXP-917 — the issue whose merge refusal SWAPPED this target's slot, or
-/// `None` when it renders the plain pill. Read by [`merge_slot`] itself and
-/// by [`merge_error_caption`], so "the slot swapped" is one answer and the
-/// caption never duplicates a conflict the swap already explains.
-fn merge_slot_swap_issue(target: &MergeTarget, cx: &mut App) -> Option<domain::rows::Issue> {
-    let MergeTarget::Issue { issue_id } = target else {
-        // A SESSION target (a run's own chore PR, EXP-734) never swaps — the
-        // builtin takes an issue — and captions its refusal instead.
-        return None;
-    };
-    let issue = Store::try_global(cx)
-        .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned())?;
-    let (merge_failed, is_conflict) = {
-        let state = crate::pr_merge::MergeState::global(cx);
-        let state = state.read(cx);
-        (
-            state.failed_op(issue_id) == Some(crate::pr_merge::FailedOp::Merge),
-            state.is_conflict(issue_id),
-        )
-    };
-    merge_slot_swapped(
-        issue.pr_state.as_deref() == Some("open"),
-        merge_failed,
-        is_conflict,
-        issue.branch.is_some(),
-    )
-    .then_some(issue)
+/// EXP-1233 — the ONE failure hook a plain issue merge hands
+/// [`crate::pr_merge::two_click`] (the Merge pill above, the Reviews rows):
+/// when [`conflict_opens_composer`] holds and the issue resolves in the
+/// clicking window's team ([`fix_conflicts_target_resolves`]), it opens the
+/// composer on the Fix merge conflicts builtin with this PR picked and the
+/// conflict flagged, and answers `true` so the refusal is not captioned (the
+/// composer's card says why it is up). It runs ONCE per failure, right where
+/// the failure is recorded. Anything else answers `false`: the caption stays.
+pub(crate) fn conflict_recovery(
+    issue_id: String,
+    window: gpui::AnyWindowHandle,
+) -> crate::pr_merge::OnMergeFailure {
+    Box::new(move |failure, cx| {
+        let issue = Store::try_global(cx)
+            .and_then(|store| store.collections().issues.read(cx).get(&issue_id).cloned());
+        let Some(issue) = issue else {
+            return false;
+        };
+        if !conflict_opens_composer(
+            issue.pr_state.as_deref() == Some("open"),
+            failure.op == crate::pr_merge::FailedOp::Merge,
+            failure.conflict,
+            issue.branch.is_some(),
+        ) {
+            return false;
+        }
+        window
+            .update(cx, |_, window, cx| {
+                if !fix_conflicts_target_resolves(&issue_id, window, cx) {
+                    log::warn!("[ui] fix conflicts skipped: {issue_id} is outside the active team");
+                    return false;
+                }
+                crate::navigation::navigate_to_chat(
+                    window,
+                    cx,
+                    crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()).with_conflict(),
+                );
+                true
+            })
+            .unwrap_or(false)
+    })
 }
 
 /// EXP-917: the refusal caption for a merge target, for a header that has no
 /// property tray to carry it (an issue-less run's — the issue tray's
 /// `agent_row` renders the same line). A merge that fails for a reason no run
 /// can fix (offline, stale base, no GitHub App, a run's own chore PR) still
-/// gets a visible message under the pill, never only a log line — but a
-/// CONFLICT is not one of those: it already swapped the slot to
-/// `[Fix conflicts] [Retry merge]`, which says it better than a red line
-/// repeating GitHub's wording under it.
+/// gets a visible message under the pill, never only a log line. A CONFLICT
+/// the composer took ([`conflict_recovery`]) left no failure behind to
+/// caption.
 pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<AnyElement> {
-    if merge_slot_swap_issue(target, cx).is_some() {
-        return None;
-    }
     let state = crate::pr_merge::MergeState::global(cx);
     let error = state.read(cx).error(&target.key())?;
     Some(
@@ -1739,21 +1640,21 @@ pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) ->
 mod tests {
     use super::*;
 
-    /// EXP-799 / EXP-917: the Merge slot swaps to Fix conflicts + Retry merge
-    /// on a real conflict of a failed MERGE with a recorded branch — and on
-    /// nothing else.
+    /// EXP-799 / EXP-917 / EXP-1233: a refused merge opens the fix-conflicts
+    /// composer on a real conflict of a failed MERGE with a recorded branch —
+    /// and on nothing else.
     #[test]
-    fn merge_slot_swaps_only_on_a_real_merge_conflict() {
+    fn only_a_real_merge_conflict_opens_the_composer() {
         // A conflict-classified merge failure on an open PR with a branch.
-        assert!(merge_slot_swapped(true, true, true, true));
+        assert!(conflict_opens_composer(true, true, true, true));
         // A merge refused for another reason (offline, stale base, no App).
-        assert!(!merge_slot_swapped(true, true, false, true));
+        assert!(!conflict_opens_composer(true, true, false, true));
         // A failed CLOSE, even one the server called a conflict.
-        assert!(!merge_slot_swapped(true, false, true, true));
+        assert!(!conflict_opens_composer(true, false, true, true));
         // No recorded branch: nothing for the run to rebase.
-        assert!(!merge_slot_swapped(true, true, true, false));
-        // The PR is no longer open — the slot is gone anyway.
-        assert!(!merge_slot_swapped(false, true, true, true));
+        assert!(!conflict_opens_composer(true, true, true, false));
+        // The PR is no longer open — nothing to fix.
+        assert!(!conflict_opens_composer(false, true, true, true));
     }
 
     /// EXP-926 / FEED-45 — ONE size rule per placement, pinned as a rule

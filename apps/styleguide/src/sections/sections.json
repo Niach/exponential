@@ -9,7 +9,7 @@
       "jump-to-bottom"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
+      "composer-dialog", "composer-fix-conflicts", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
       "blocked-start-dialog", "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread"
     ] },
@@ -35,6 +35,7 @@
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",
     "composer-dialog": "EXP-1019",
+    "composer-fix-conflicts": "EXP-1233",
     "session-tree": "EXP-996",
     "pr-graph-badge": "EXP-1058",
     "device-settings": "EXP-1020",

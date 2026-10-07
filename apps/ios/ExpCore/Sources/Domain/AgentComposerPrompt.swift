@@ -38,27 +38,34 @@ public enum AgentComposerPrompt {
         case issues(count: Int)
         /// A team action or a builtin.
         case action
+        /// EXP-1233: the Fix merge conflicts builtin WITH a picked pull
+        /// request — its own headline ("Fix merge conflicts" + the PR's
+        /// issue chips) and send ("Fix conflicts"). Unpicked it is `.action`.
+        case fixConflicts
     }
 
     /// The submit label — the ×4 contract: "Start chat" / "Start coding" /
-    /// "Start batch · N" / "Run action".
+    /// "Start batch · N" / "Run action" / (EXP-1233) "Fix conflicts".
     public static func submitTitle(for subject: Subject) -> String {
         switch subject {
         case .none: "Start chat"
         case let .issues(count): count > 1 ? "Start batch · \(count)" : "Start coding"
         case .action: "Run action"
+        case .fixConflicts: DomainContract.composerUiFixConflictsSubmit
         }
     }
 
     /// EXP-1038: the composer's HEADLINE verb, above the field and beside the
     /// subject chips — the contract's `composerUi*` copy ×4: "Run" for an
     /// action, "Implement" for issue chips, "Ask the agent" for a subjectless
-    /// chat (which has no chips, so the verb stands alone).
+    /// chat (which has no chips, so the verb stands alone). EXP-1233: "Fix
+    /// merge conflicts" for the builtin with a picked pull request.
     public static func headline(for subject: Subject) -> String {
         switch subject {
         case .none: DomainContract.composerUiChatHeadline
         case .issues: DomainContract.composerUiImplementHeadline
         case .action: DomainContract.composerUiRunHeadline
+        case .fixConflicts: DomainContract.composerUiFixConflictsHeadline
         }
     }
 
@@ -72,7 +79,7 @@ public enum AgentComposerPrompt {
         switch subject {
         case .none:
             return DomainContract.composerUiChatPlaceholder
-        case .action:
+        case .action, .fixConflicts:
             let hint = actionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return hint.isEmpty ? DomainContract.composerUiInstructionsPlaceholder : hint
         case .issues:

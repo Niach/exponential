@@ -140,6 +140,10 @@ object DomainContract {
     const val composerUiChatPlaceholder: String = "Ask the agent…"
     const val composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     const val composerUiDialogTitle: String = "Start a run"
+    const val composerUiFixConflictsHeadline: String = "Fix merge conflicts"
+    const val composerUiFixConflictsSubmit: String = "Fix conflicts"
+    const val composerUiPrPlaceholder: String = "Select a pull request…"
+    const val composerUiConflictNote: String = "Merge refused: the branch has conflicts."
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

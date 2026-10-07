@@ -63,8 +63,24 @@ final class AgentComposerSeedTests: XCTestCase {
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "u", icon: "rocket"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", prIssueId: "p", text: "t", icon: "rocket"))
         XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket", teamId: "team-2"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket", conflict: true))
         var set: Set<AgentComposerSeed> = [base]
         set.insert(AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket"))
         XCTAssertEqual(set.count, 1)
+    }
+
+    // EXP-1233: a refused merge flags the seed; every other opener does not
+    // (the context menu's manual "Fix merge conflicts" included).
+    func testConflictDefaultsOffAndRidesTheFixConflictsSeed() {
+        XCTAssertFalse(AgentComposerSeed.empty.conflict)
+        XCTAssertFalse(
+            AgentComposerSeed(actionId: DomainContract.builtinFixConflictsId, prIssueId: "a").conflict
+        )
+        let refused = AgentComposerSeed(
+            actionId: DomainContract.builtinFixConflictsId, prIssueId: "a", teamId: "t", conflict: true
+        )
+        XCTAssertTrue(refused.conflict)
+        XCTAssertEqual(refused.effectiveIssueIds, [])
+        XCTAssertEqual(refused.prIssueId, "a")
     }
 }

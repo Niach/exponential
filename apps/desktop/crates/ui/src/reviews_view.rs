@@ -99,8 +99,7 @@ impl ReviewsView {
     pub fn mark_pulls_stale(&mut self, cx: &mut gpui::Context<Self>) {
         self.open_pulls_key = None;
         // Re-entering the screen is a refetch: a refusal from the previous
-        // visit describes a snapshot that is no longer the one on screen, and
-        // keeping it would keep "Fix conflicts" parked in the Merge slot.
+        // visit describes a snapshot that is no longer the one on screen.
         MergeState::clear_error(cx);
         cx.notify();
     }
@@ -153,27 +152,6 @@ impl ReviewsView {
         .detach();
     }
 
-    /// The row's "Fix conflicts" button (EXP-259): open the Start coding
-    /// dialog with the builtin "Fix merge conflicts" action and this PR
-    /// preselected (EXP-313 — agent/model/effort stay choosable; the run only
-    /// starts when the dialog confirms). The error caption stays — the PR
-    /// really does still have conflicts until a fix lands.
-    fn on_fix_conflicts_click(
-        &mut self,
-        issue_id: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if active_team_id(&self.nav, cx).is_none() {
-            return;
-        }
-        crate::navigation::navigate_to_chat(
-            window,
-            cx,
-            crate::navigation::ChatSeed::fix_conflicts(issue_id),
-        );
-    }
-
     // -- rows ----------------------------------------------------------------
 
     /// One Reviews row for a PR entry: PR icon + identifier + title with a
@@ -187,10 +165,11 @@ impl ReviewsView {
     /// affordance (EXP-706 took the ghost `×` off this row: the list is a
     /// queue of things to merge, rejection is a decision made in the diff).
     ///
-    /// EXP-706 "Fix conflicts replaces Merge": when a merge failed on a REAL
-    /// content conflict the recovery button takes the Merge button's SLOT
-    /// instead of trailing the caption — merging is exactly what is blocked,
-    /// so offering it there is a dead end.
+    /// EXP-1233: the trailing slot is ALWAYS the Merge button. A merge refused
+    /// by a REAL content conflict opens the composer on the Fix merge
+    /// conflicts builtin at once (`work_header::conflict_recovery`, the Merge
+    /// pill's own hook) and leaves no caption; any other refusal captions the
+    /// row.
     fn review_row(
         &self,
         entry: &queries::ReviewEntry,
@@ -216,91 +195,31 @@ impl ReviewsView {
         // EXP-325: the two-click arm/spinner/error live in the shared
         // app-global merge state — a merge driven from the PR diff header or a
         // terminal tab renders here identically.
-        let (merging, armed, error, failed_op, is_conflict) = {
+        let (merging, armed, error) = {
             let state = MergeState::global(cx);
             let state = state.read(cx);
             (
                 state.merging(&issue.id),
                 state.armed(&issue.id),
                 state.error(&issue.id),
-                state.failed_op(&issue.id),
-                state.is_conflict(&issue.id),
             )
         };
-        // EXP-259: a failed merge (typically "not mergeable" — conflicts)
-        // offers the builtin "Fix merge conflicts" action run right on the
-        // row. MERGE failures only — the run ends in a merge, the opposite of
-        // what a failed close was asked to do. Needs the PR's recorded branch
-        // (the run rebases it); "Fixing…" parks the button only while an
-        // ACTUAL fix run works the branch — any other session still holding it
-        // is ended by the fix-run launch itself.
-        let fixing = issue.branch.as_deref().is_some_and(|branch| {
-            crate::coding_flow::LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-        });
-        // EXP-533 + EXP-917: the swap rule is ONE function
-        // (`work_header::merge_slot_swapped`) — MERGE failures only, and only
-        // a REAL content conflict (409) with a recorded branch. A merge that
-        // failed because the machine is offline, the base is stale or no
-        // GitHub App is installed offers nothing an agent could rebase.
-        let fix_button = crate::work_header::merge_slot_swapped(
-            crate::queries::is_reviewable(issue),
-            failed_op == Some(crate::pr_merge::FailedOp::Merge),
-            is_conflict,
-            issue.branch.is_some(),
-        )
-        .then(|| {
-                let mut button =
-                    Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
-                        .web_sm()
-                        .outline()
-                        .cursor_pointer();
-                if fixing {
-                    button = button.label("Fixing…").disabled(true);
-                } else if let Some(reason) = crate::coding_flow::no_agent_reason(cx) {
-                    // EXP-367: no agent CLI → disabled with the reason.
-                    button = button.label("Fix conflicts").tooltip(reason).disabled(true);
-                } else {
-                    button = button.label("Fix conflicts");
-                }
-                let click_id = issue.id.clone();
-                button
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        this.on_fix_conflicts_click(click_id.clone(), window, cx);
-                    }))
-                    .into_any_element()
-            });
 
         // EXP-706: PR numbers are leaving the row — the branch IS the sub-line.
         let sub = issue.branch.clone().filter(|branch| !branch.is_empty());
 
-        // While the recovery run holds the trailing slot, Merge stays reachable
-        // beside it as a quiet secondary ("Retry merge"): the conflict may have
-        // been resolved outside that run, and the swap must never be a dead end.
-        let swapped = fix_button.is_some();
-        let merge_button = {
+        let trailing = {
             let mut button = Button::new(SharedString::from(format!("review-merge-{}", issue.id)))
                 .web_sm()
+                .outline()
                 .cursor_pointer();
-            button = if swapped {
-                button.ghost()
-            } else {
-                button.outline()
-            };
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
                 button = button.label("Confirm merge").danger().cursor_pointer();
             } else {
                 // EXP-642 (web parity): the merge glyph rides the label.
-                button = button
-                    .icon(Icon::new(registry::PR_MERGED))
-                    .label(if swapped {
-                        crate::work_header::RETRY_MERGE_LABEL
-                    } else {
-                        MERGE_LABEL
-                    });
+                button = button.icon(Icon::new(registry::PR_MERGED)).label(MERGE_LABEL);
             }
             let click_id = issue.id.clone();
             button
@@ -311,30 +230,22 @@ impl ReviewsView {
                     if crate::pr_merge::ask_stack_merge(&click_id, window, cx) {
                         return;
                     }
+                    // EXP-1233: a real conflict opens the fix-conflicts
+                    // composer — the same hook as the Merge pill's.
                     crate::pr_merge::two_click(
                         MergeOp::MergeIssuePr {
                             issue_id: click_id.clone(),
                             stack_through: None,
                         },
-                        None,
+                        Some(crate::work_header::conflict_recovery(
+                            click_id.clone(),
+                            window.window_handle(),
+                        )),
                         None,
                         cx,
                     );
                 }))
                 .into_any_element()
-        };
-        // The swap: a conflict-classified merge failure takes the PRIMARY
-        // trailing slot; Merge steps down to the ghost "Retry merge" beside it
-        // rather than disappearing until the PR closes.
-        let trailing = match fix_button {
-            Some(fix) => h_flex()
-                .flex_shrink_0()
-                .items_center()
-                .gap_1()
-                .child(merge_button)
-                .child(fix)
-                .into_any_element(),
-            None => merge_button,
         };
 
         let nav_id = issue.id.clone();
