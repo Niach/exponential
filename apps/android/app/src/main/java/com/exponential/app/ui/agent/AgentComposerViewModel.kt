@@ -31,6 +31,8 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.FixConflictsPr
+import com.exponential.app.domain.resolveFixConflictsPr
 import com.exponential.app.domain.BlockedStart
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.IssueGraph
@@ -99,6 +101,9 @@ internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: Acti
     if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
     return DomainContract.composerUiInstructionsPlaceholder
 }
+
+/** The Fix merge conflicts builtin's one input key (`builtinFixConflictsAction`). */
+internal const val FIX_CONFLICTS_PR_KEY = "pr"
 
 /** What the composer is about — issue chips OR one action chip, never both. */
 sealed interface ComposerSubject {
@@ -323,6 +328,37 @@ class AgentComposerViewModel @Inject constructor(
         _pendingPrIssueId.value = null
     }
 
+    /**
+     * EXP-1233: a REFUSED merge opened the composer on the Fix merge conflicts
+     * builtin (the seed's `conflict`) — the card's refusal line under the PR
+     * row. Cleared whenever the subject changes.
+     */
+    private val _conflictRefused = MutableStateFlow(false)
+    val conflictRefused: StateFlow<Boolean> = _conflictRefused
+
+    /**
+     * EXP-1233: the pull request picked into the Fix merge conflicts builtin,
+     * resolved off the synced rows (the representative + every open-PR issue
+     * sharing its `prUrl`); null for every other subject and while nothing is
+     * picked — the composer then draws the plain "Run" + action chip.
+     */
+    val fixConflictsPr: StateFlow<FixConflictsPr?> = combine(_subject, allIssues) { subject, issues ->
+        val action = subject as? ComposerSubject.Action
+        if (action?.id != DomainContract.builtinFixConflictsId) {
+            null
+        } else {
+            resolveFixConflictsPr(action.inputs[FIX_CONFLICTS_PR_KEY], issues)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-1233: the headline chip's ✕ — clears the PICK, never the action. */
+    fun clearFixConflictsPr() {
+        val current = _subject.value as? ComposerSubject.Action ?: return
+        if (current.id != DomainContract.builtinFixConflictsId) return
+        _pendingPrIssueId.value = null
+        setInput(FIX_CONFLICTS_PR_KEY, "")
+    }
+
     // EXP-349: the last action id whose repo inputs were seeded — the latch
     // keeps a manual re-pick (including clearing to "None") from being
     // re-seeded when the synced rows update.
@@ -482,8 +518,8 @@ class AgentComposerViewModel @Inject constructor(
      * Apply a preselection: `action` wins over `issues` (the hidden Chat
      * builtin is the no-subject state, not a chip); text lands only in an
      * EMPTY draft; a `pr` seed waits for the options pool; a device seed is a
-     * PREFERENCE (sticky until the user picks). Also what an in-page "Fix
-     * conflicts" tap calls.
+     * PREFERENCE (sticky until the user picks). EXP-1233: a `conflict` seed
+     * on the Fix merge conflicts builtin raises the card's refusal line.
      */
     fun applySeed(seed: AgentComposerSeed) {
         val actionId = seed.actionId
@@ -494,9 +530,11 @@ class AgentComposerViewModel @Inject constructor(
                 if (seed.icon.isNullOrEmpty()) emptyMap() else mapOf("icon" to seed.icon),
             )
             _pendingPrIssueId.value = seed.prIssueId
+            _conflictRefused.value = seed.conflict && actionId == DomainContract.builtinFixConflictsId
         } else if (seed.effectiveIssueIds.isNotEmpty()) {
             _subject.value = ComposerSubject.Issues(seed.effectiveIssueIds.distinct())
             _pendingPrIssueId.value = null
+            _conflictRefused.value = false
         }
         seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
         val text = seed.text
@@ -516,11 +554,13 @@ class AgentComposerViewModel @Inject constructor(
             if (ids.isEmpty()) null else ComposerSubject.Issues(ids)
         }
         _pendingPrIssueId.value = null
+        _conflictRefused.value = false
         steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
     fun pickAction(actionId: String) {
+        _conflictRefused.value = false
         if (actionId == DomainContract.builtinChatId) {
             _subject.value = null
         } else {
@@ -542,6 +582,7 @@ class AgentComposerViewModel @Inject constructor(
     fun clearAction() {
         if (_subject.value is ComposerSubject.Action) _subject.value = null
         _pendingPrIssueId.value = null
+        _conflictRefused.value = false
         steerLaunch.clearFailure()
         reseedPlanMode()
     }

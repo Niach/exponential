@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -424,32 +425,25 @@ fun WorkScreen(
     // The live run merges its own target (EXP-678/734).
     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
         !sessionEnded && phase !is AgentPhase.Ended
+    // EXP-1233: a REAL conflict on an ISSUE target (with a recorded branch and
+    // remote start) OPENS the Fix merge conflicts composer — the ViewModel
+    // reports it once ([AgentSessionViewModel.conflictRefusals], collected
+    // below) and that refusal never toasts. Every other refusal still does.
+    val sessionConflictOpens = mergeTarget is MergeTarget.Issue &&
+        canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
     val sessionMerge: ChangesMergeControl? = if (sessionCanMerge) {
-        // EXP-706/734: a REAL conflict on an ISSUE target swaps the verb for
-        // the recovery run.
-        val fix = mergeTarget is MergeTarget.Issue &&
-            canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
         ChangesMergeControl(
-            label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
-            fixConflicts = fix,
+            label = DomainContract.diffUiMergePr,
             loading = merging,
-            error = mergeError?.message,
+            error = mergeError?.takeUnless { sessionConflictOpens }?.message,
             confirmPrompt = when (mergeTarget) {
                 is MergeTarget.Session -> Prompts.MergeRunPr.prompt(shownSession?.prNumber)
                 else -> Prompts.MergeIssuePr.prompt(mergeIssue?.prNumber, prIssueCount)
             },
             onConfirm = { sessionVm.merge() },
-            stackChoice = if (fix) null else sessionStackChoice,
+            stackChoice = sessionStackChoice,
             stackIssueId = (mergeTarget as? MergeTarget.Issue)?.issueId,
             onMergeStack = { through -> sessionVm.mergeStack(through) },
-            onFixConflicts = {
-                onOpenAgent(
-                    AgentComposerSeed(
-                        actionId = DomainContract.builtinFixConflictsId,
-                        prIssueId = mergeIssue?.id,
-                    ),
-                )
-            },
         )
     } else {
         null
@@ -470,31 +464,58 @@ fun WorkScreen(
     val mergeControl: ChangesMergeControl? = when {
         sessionMerge != null -> sessionMerge
         changesVm != null && prOpen && permissions?.isMember == true -> {
-            val fix = changesConflict &&
+            // EXP-1233: the conflict that opened the composer never toasts.
+            val conflictOpens = changesConflict &&
                 changesErrorFrom == ChangesViewModel.PrAction.Merge &&
                 steerEnabled == true && !issue.branch.isNullOrBlank()
             ChangesMergeControl(
-                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
-                fixConflicts = fix,
+                label = DomainContract.diffUiMergePr,
                 loading = changesMerging,
                 // EXP-1154: a Close PR refusal toasts on its own (below).
-                error = changesError.takeIf { changesErrorFrom == ChangesViewModel.PrAction.Merge },
+                error = changesError.takeIf {
+                    changesErrorFrom == ChangesViewModel.PrAction.Merge && !conflictOpens
+                },
                 confirmPrompt = Prompts.MergeIssuePr.prompt(issue.prNumber, prIssueCount),
                 onConfirm = { changesVm.mergePr() },
-                stackChoice = if (fix) null else changesStackChoice,
+                stackChoice = changesStackChoice,
                 stackIssueId = issueId,
                 onMergeStack = { through -> changesVm.mergeStack(through) },
-                onFixConflicts = {
-                    onOpenAgent(
-                        AgentComposerSeed(
-                            actionId = DomainContract.builtinFixConflictsId,
-                            prIssueId = issueId,
-                        ),
-                    )
-                },
             )
         }
         else -> null
+    }
+    // EXP-1233: both merge sources report a conflict-refused plain merge ONCE
+    // (a one-shot, so a recomposition never re-navigates); the screen applies
+    // the gate it alone can (the PR's branch, remote start) and opens the
+    // composer on the Fix merge conflicts builtin, this PR picked and the
+    // refusal flagged. The gate reads the LATEST values, not the first
+    // composition's.
+    val openAgent by rememberUpdatedState(onOpenAgent)
+    val latestSteerEnabled by rememberUpdatedState(steerEnabled == true)
+    val latestSessionBranch by rememberUpdatedState(mergeIssue?.branch)
+    val latestIssueBranch by rememberUpdatedState(issue?.branch)
+    val openFixConflicts: (String) -> Unit = { prIssueId ->
+        openAgent(
+            AgentComposerSeed(
+                actionId = DomainContract.builtinFixConflictsId,
+                prIssueId = prIssueId,
+                conflict = true,
+            ),
+        )
+    }
+    LaunchedEffect(sessionVm) {
+        sessionVm?.conflictRefusals?.collect { refusal ->
+            if (canOfferFixConflicts(refusal.failure, latestSessionBranch, latestSteerEnabled)) {
+                openFixConflicts(refusal.issueId)
+            }
+        }
+    }
+    LaunchedEffect(changesVm) {
+        changesVm?.conflictRefusals?.collect { refusal ->
+            if (canOfferFixConflicts(refusal.failure, latestIssueBranch, latestSteerEnabled)) {
+                openFixConflicts(refusal.issueId)
+            }
+        }
     }
     // EXP-1154: a refused merge toasts ONCE here, keyed on the one control's
     // error: every pager page draws its own capsule, so a per-capsule toast

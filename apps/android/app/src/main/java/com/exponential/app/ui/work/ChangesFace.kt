@@ -64,12 +64,13 @@ import com.exponential.app.domain.Prompts
 // this bar — it sits in the header's action slot (EXP-895). EXP-1154: this
 // face IS the review of a PR; the standalone review page is gone.
 
-/** What the Merge capsule merges — the PR, or the recovery run.
- *  The host builds ONE (off the live run or the issue's PR) and every face
- *  draws it on its floating bar ([MergeCapsule] / [MergeCircle], EXP-1154/1191). */
+/** What the Merge capsule merges — the PR. The host builds ONE (off the live
+ *  run or the issue's PR) and every face draws it on its floating bar
+ *  ([MergeCapsule] / [MergeCircle], EXP-1154/1191). EXP-1233: always Merge —
+ *  a conflict-refused merge opens the Fix merge conflicts composer from the
+ *  host instead of swapping this control. */
 data class ChangesMergeControl(
     val label: String,
-    val fixConflicts: Boolean,
     val loading: Boolean,
     /** The refusal a failed merge left behind, toasted once by the host. */
     val error: String?,
@@ -77,7 +78,6 @@ data class ChangesMergeControl(
      *  no issue linked) `merge-run-pr`. */
     val confirmPrompt: Prompts.Prompt,
     val onConfirm: () -> Unit,
-    val onFixConflicts: () -> Unit,
     /** EXP-1145: non-null = the merged PR is a stack member, so Merge asks first. */
     val stackChoice: PrStack.StackMergeChoice? = null,
     /** EXP-1145: the issue whose PR the plain merge lands (the stack dialog's "this one"). */
@@ -216,9 +216,9 @@ fun ChangesFace(
 /**
  * EXP-1154: the ONE Merge PR on a phone — the SOLID WHITE capsule (the
  * EXP-916 [BarSolidPill], 52dp, hugging its label) in the Changes / Results
- * bar cluster, running the confirm (or the stack dialog). With a real
- * conflict it becomes Fix conflicts (the branch glyph) and opens the
- * recovery run. A refusal toasts. The host builds it only while the PR is
+ * bar cluster, running the confirm (or the stack dialog). A real conflict
+ * opens the Fix merge conflicts composer from the host (EXP-1233); any other
+ * refusal toasts. The host builds it only while the PR is
  * open, so it self-hides with the PR. The Issue / Run bars carry the same
  * control as the glyph-only [MergeCircle] (EXP-1191).
  */
@@ -236,7 +236,7 @@ fun MergeCapsule(
     MergeTrigger(merge) { onClick ->
         BarSolidPill(
             label = merge.label,
-            icon = mergeGlyph(merge),
+            icon = ExpIcons.prMerged,
             loading = merge.loading,
             enabled = !merge.loading,
             onClick = onClick,
@@ -249,7 +249,7 @@ fun MergeCapsule(
 /**
  * EXP-1191: the Issue / Run faces' Merge — the bar's own 52dp glass
  * [BarCircle] carrying only the merge glyph (white), directly right of the
- * composer capsule. Same control, same confirm / stack / fix-conflicts flow
+ * composer capsule. Same control, same confirm / stack flow
  * as [MergeCapsule]; a merging circle spins in place of its glyph.
  */
 @Composable
@@ -260,7 +260,7 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
             enabled = !merge.loading,
             modifier = modifier
                 .testTag(tag)
-                .semantics { contentDescription = if (merge.fixConflicts) merge.label else MERGE_CIRCLE_LABEL },
+                .semantics { contentDescription = MERGE_CIRCLE_LABEL },
         ) {
             if (merge.loading) {
                 CircularProgressIndicator(
@@ -270,7 +270,7 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
                 )
             } else {
                 Icon(
-                    mergeGlyph(merge),
+                    ExpIcons.prMerged,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
                     tint = Color.White,
@@ -282,13 +282,9 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
 
 private const val MERGE_CIRCLE_LABEL = "Merge PR"
 
-private fun mergeGlyph(merge: ChangesMergeControl) =
-    if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged
-
 /**
- * The ONE tap behaviour both Merge shapes share: Fix conflicts opens the
- * recovery run, a merge asks first ([MergeConfirmDialog], the stack choice
- * included). A refusal toasts ONCE in the host (WorkScreen), never per
+ * The ONE tap behaviour both Merge shapes share: a merge asks first
+ * ([MergeConfirmDialog], the stack choice included). A refusal toasts ONCE in the host (WorkScreen), never per
  * control: the pager keeps neighbouring faces composed.
  */
 @Composable
@@ -297,7 +293,7 @@ private fun MergeTrigger(
     content: @Composable (onClick: () -> Unit) -> Unit,
 ) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
-    content { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true }
+    content { mergeConfirmOpen = true }
     if (mergeConfirmOpen) {
         MergeConfirmDialog(merge = merge, onDismiss = { mergeConfirmOpen = false })
     }

@@ -12,7 +12,8 @@ import org.junit.Test
  * EXP-533: the "Fix merge conflicts" offer. The bug this locks is the one the
  * issue reported — a merge attempted with no connection at all still showed
  * the recovery button, sending the user to start an agent run against a
- * problem that isn't a conflict.
+ * problem that isn't a conflict. EXP-1233: the same gate now decides whether
+ * a refused merge OPENS the Fix merge conflicts composer at once.
  */
 class MergeFailureTest {
 

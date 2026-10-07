@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.IssueSearch
 
 /**
@@ -24,3 +25,20 @@ data class IssueOption(
     override val createdAt: String?,
     override val updatedAt: String?,
 ) : IssueSearch.Row
+
+/**
+ * EXP-1233: a synced issue row as a composer chip — the Fix merge conflicts
+ * headline draws its pull request's issues with the issues subject's chip.
+ * No repository: these chips never gate a batch.
+ */
+internal fun IssueEntity.toIssueOption(): IssueOption = IssueOption(
+    id = id,
+    identifier = identifier,
+    title = title,
+    repositoryId = null,
+    status = status,
+    priority = priority,
+    description = description,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)

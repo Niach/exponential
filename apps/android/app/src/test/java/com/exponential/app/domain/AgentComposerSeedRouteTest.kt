@@ -42,11 +42,11 @@ class AgentComposerSeedRouteTest {
     fun `the pattern declares every arg as a query placeholder`() {
         assertEquals(
             "agent?issues={issues}&action={action}&device={device}&pr={pr}&text={text}" +
-                "&icon={icon}",
+                "&icon={icon}&conflict={conflict}",
             AGENT_ROUTE_PATTERN,
         )
         assertEquals(
-            listOf("issues", "action", "device", "pr", "text", "icon"),
+            listOf("issues", "action", "device", "pr", "text", "icon", "conflict"),
             AGENT_ROUTE_ARGS,
         )
     }
@@ -73,6 +73,7 @@ class AgentComposerSeedRouteTest {
             prIssueId = issueB,
             text = text,
             icon = "sparkles",
+            conflict = true,
         )
         val route = agentRoute(seed)
         // Nothing unencoded that could break the query: no raw `&`, `=`, `+`,
@@ -103,6 +104,25 @@ class AgentComposerSeedRouteTest {
         assertNull(parsed.deviceId)
         assertNull(parsed.text)
         assertNull(parsed.icon)
+    }
+
+    /** EXP-1233: a refused merge flags the seed; only the literal `1` reads true. */
+    @Test
+    fun `the conflict flag rides as conflict=1`() {
+        val seed = AgentComposerSeed(
+            actionId = DomainContract.builtinFixConflictsId,
+            prIssueId = issueA,
+            conflict = true,
+        )
+        val route = agentRoute(seed)
+        assertEquals("agent?action=builtin%3Afix-conflicts&pr=$issueA&conflict=1", route)
+        assertEquals(seed, AgentComposerSeed.fromArgs(argsOf(route)))
+        // Absent from an unflagged seed's route.
+        assertFalse(agentRoute(seed.copy(conflict = false)).contains("&conflict="))
+        listOf("true", "0", "", "yes", "11").forEach { value ->
+            assertFalse(value, AgentComposerSeed.fromArgs { if (it == ARG_CONFLICT) value else null }.conflict)
+        }
+        assertTrue(AgentComposerSeed.fromArgs { if (it == ARG_CONFLICT) "1" else null }.conflict)
     }
 
     @Test

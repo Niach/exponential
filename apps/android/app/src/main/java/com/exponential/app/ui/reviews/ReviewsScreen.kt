@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,7 +52,6 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
-import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
@@ -83,8 +84,9 @@ fun ReviewsScreen(
     onOpenChanges: (String) -> Unit,
     /** EXP-1194: an Agent runs row — the run's own PR on the Changes face. */
     onOpenRunChanges: (sessionId: String) -> Unit,
-    // EXP-825: a row's "Fix conflicts" navigates to the Agent page composer
-    // on the builtin action with this PR pre-picked (EXP-323).
+    // EXP-825/EXP-1233: a conflict-refused merge (and the long-press sheet's
+    // "Fix merge conflicts") navigates to the Agent page composer on the
+    // builtin action with this PR pre-picked (EXP-323).
     onOpenAgent: (AgentComposerSeed) -> Unit,
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
@@ -127,6 +129,21 @@ private fun ReviewsListContent(
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
     var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
+    // EXP-1233: a merge refused by a REAL conflict opens the Fix merge
+    // conflicts composer at once, the pull request picked and the refusal
+    // flagged — no row caption, no button swap. One event per refusal.
+    val openAgent by rememberUpdatedState(onOpenAgent)
+    LaunchedEffect(viewModel) {
+        viewModel.conflictRefusals.collect { issueId ->
+            openAgent(
+                AgentComposerSeed(
+                    actionId = DomainContract.builtinFixConflictsId,
+                    prIssueId = issueId,
+                    conflict = true,
+                ),
+            )
+        }
+    }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -157,8 +174,9 @@ private fun ReviewsListContent(
                         statuses = issueStatuses,
                         users = users,
                         onMerge = { mergeTarget = entry },
-                        // EXP-323/EXP-825: the composer opens on the builtin
-                        // with THIS pull request already picked.
+                        // EXP-323/EXP-825: the long-press sheet's manual entry —
+                        // the composer opens on the builtin with THIS pull
+                        // request already picked (no refusal to explain).
                         onFixConflicts = {
                             onOpenAgent(
                                 AgentComposerSeed(
@@ -203,8 +221,10 @@ private fun ReviewsListContent(
             StackMergeDialog(
                 choice = stackChoice,
                 issueId = entry.representative.id,
-                onMergeStack = { through -> viewModel.mergePr(entry.groupKey, through, mergeStack = true) },
-                onMergePlain = { viewModel.mergePr(entry.groupKey, entry.representative.id) },
+                onMergeStack = { through ->
+                    viewModel.mergePr(entry.groupKey, through, entry.branch, mergeStack = true)
+                },
+                onMergePlain = { viewModel.mergePr(entry.groupKey, entry.representative.id, entry.branch) },
                 onDismiss = { mergeTarget = null },
             )
             return@let
@@ -212,7 +232,7 @@ private fun ReviewsListContent(
         MergeConfirmDialog(
             entry = entry,
             onConfirm = {
-                viewModel.mergePr(entry.groupKey, entry.representative.id)
+                viewModel.mergePr(entry.groupKey, entry.representative.id, entry.branch)
                 mergeTarget = null
             },
             onDismiss = { mergeTarget = null },
@@ -394,11 +414,6 @@ private fun ReviewRow(
     var showActions by remember { mutableStateOf(false) }
     // The batch glyph opens the issues its ONE pull request spans.
     var showBatch by remember { mutableStateOf(false) }
-    // Only a REAL conflict is something the recovery run can fix (EXP-533),
-    // and it rebases the PR's branch, so it needs one recorded — desktop
-    // applies the same guard on its Reviews rows.
-    val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
-
     ReviewPrRow(
         isBatch = entry.isBatch,
         label = if (entry.isBatch) {
@@ -435,38 +450,26 @@ private fun ReviewRow(
         },
         trailing = {
             // Inline merge — same confirm-gated flow as the long-press sheet
-            // (EXP-248: uniform with the web/iOS review rows). EXP-706: a
-            // conflict-refused merge REPLACES the pill with the recovery run
-            // rather than stacking a second button under the message — the
-            // one thing that can move this PR forward sits where the user
-            // just tapped.
+            // (EXP-248: uniform with the web/iOS review rows). EXP-1233: always
+            // Merge — a conflict-refused merge opens the recovery composer
+            // instead of swapping this slot.
             // EXP-698: the shared pill, not a second hand-rolled copy of it
             // (the steer screen's Merge control is the same component).
-            if (canFixConflicts) {
-                GlassPill(
-                    "Fix conflicts",
-                    onClick = onFixConflicts,
-                    icon = ExpIcons.uiBranch,
-                    enabled = !merging,
-                    loading = merging,
-                )
-            } else {
-                GlassPill(
-                    "Merge",
-                    onClick = onMerge,
-                    icon = ExpIcons.prMerged,
-                    enabled = !merging,
-                    loading = merging,
-                    modifier = Modifier.testTag("review-merge"),
-                )
-            }
+            GlassPill(
+                "Merge",
+                onClick = onMerge,
+                icon = ExpIcons.prMerged,
+                enabled = !merging,
+                loading = merging,
+                modifier = Modifier.testTag("review-merge"),
+            )
         },
         footer = {
             // A refused merge (conflicts, branch protection, GitHub App errors, an
             // unreachable server) captions THIS row (EXP-323) — inside the list,
             // which already clears the floating nav pill, so the reason is always
-            // readable. EXP-706: the message ONLY; the recovery run took the merge
-            // pill's place in the row above.
+            // readable. EXP-1233: a real conflict never lands here — it opened
+            // the Fix merge conflicts composer instead.
             if (failure != null) {
                 Column(
                     modifier = Modifier
