@@ -502,12 +502,10 @@ impl RepositoriesPane {
         let handle = window.window_handle();
         let repository_id = repo.id.clone();
         let full_name = repo.full_name.clone();
-        let spec = AlertSpec::new(
+        let spec = AlertSpec::from_prompt(
             "Remove repository",
-            format!("This disconnects {full_name} from the team."),
-            "Remove",
+            &domain::prompts::remove_repository(&full_name),
         )
-        .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
@@ -562,6 +560,9 @@ impl RepositoriesPane {
             copy::DISCONNECT_BODY,
             copy::DISCONNECT,
         )
+        // The web's Prompt: Disconnect is the destructive answer, Cancel
+        // takes Return (prompts.json roles + focus).
+        .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;

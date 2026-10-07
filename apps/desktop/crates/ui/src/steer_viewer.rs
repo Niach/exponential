@@ -3364,18 +3364,6 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
 
-/// The confirm copy, byte-identical to the web `useKillSession` dialog.
-pub(crate) fn kill_description(device_label: Option<&str>) -> String {
-    let on_device = match device_label {
-        Some(label) if !label.is_empty() => format!(" on {label}"),
-        _ => String::new(),
-    };
-    format!(
-        "This stops the agent{on_device} and ends the session. \
-         Uncommitted work in the worktree is kept, but the agent stops immediately."
-    )
-}
-
 /// `steer.killSession` off the gpui foreground. Shared with the Devices
 /// screen's per-row kill.
 pub(crate) fn kill_session(session_id: &str, cx: &mut App) {
@@ -8547,17 +8535,6 @@ mod tests {
         assert!(!clampable(&"line\n".repeat(CLAMP_LINES - 1)));
     }
 
-    #[test]
-    fn the_kill_copy_names_the_device_only_when_there_is_one() {
-        assert!(kill_description(Some("macbook")).starts_with(
-            "This stops the agent on macbook and ends the session."
-        ));
-        assert!(kill_description(None)
-            .starts_with("This stops the agent and ends the session."));
-        assert!(kill_description(Some("")).starts_with(
-            "This stops the agent and ends the session."
-        ));
-    }
 
     /// EXP-724: the `/clear` confirm is the same four strings on
     /// web, iOS, Android and here. `Cancel` is [`AlertSpec`]'s own footer

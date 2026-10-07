@@ -1287,16 +1287,10 @@ impl DeviceSettingsView {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// Remove behind a confirm — destructive native actions confirm first.
+    /// Remove behind a confirm (the prompts fixture's `remove-device`).
     fn prompt_remove(&mut self, label: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let view = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            format!("Remove \"{label}\"?"),
-            "The machine drops off this list. One still running the daemon \
-             re-registers itself on its next heartbeat.",
-            "Remove",
-        )
-        .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt("Remove device", &domain::prompts::remove_device(&label))
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
                 view.update(cx, |this, cx| this.remove_device(cx));

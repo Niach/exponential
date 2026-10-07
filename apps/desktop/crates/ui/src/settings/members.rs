@@ -35,7 +35,7 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -326,6 +326,7 @@ impl MembersPane {
             .when(show_actions, |row_el| {
                 row_el.child(member_actions_menu(
                     member.id.clone(),
+                    team_id,
                     &name,
                     is_self,
                     is_owner_row,
@@ -376,6 +377,7 @@ struct ResendContext {
 /// (self) / Remove member (owner).
 fn member_actions_menu(
     member_id: String,
+    team_id: &str,
     name: &str,
     is_self: bool,
     is_owner_row: bool,
@@ -391,6 +393,7 @@ fn member_actions_menu(
     )
         .dropdown_menu({
             let member_id = member_id.clone();
+            let team_id = team_id.to_string();
             let name = name.to_string();
             move |mut menu, _, _| {
                 // EXP-630: first item — the invite is the thing that is
@@ -423,19 +426,20 @@ fn member_actions_menu(
                     };
                     let (label, role, icon) = role_item;
                     let member_id = member_id.clone();
+                    let name = name.clone();
                     menu = menu.item(
                         PopupMenuItem::new(label)
                             .icon(Icon::new(icon))
-                            .on_click(move |_, _, cx| {
-                                let member_id = member_id.clone();
-                                spawn_trpc(cx, "teamMembers.updateRole", move |trpc| {
-                                    api::teams::team_members_update_role(trpc, &member_id, role)
-                                });
+                            // EXP-1230: a role change confirms with the
+                            // prompts fixture's make-owner / make-member.
+                            .on_click(move |_, window, cx| {
+                                open_role_dialog(member_id.clone(), &name, role, window, cx);
                             }),
                     );
                 }
                 if is_self || i_am_owner {
                     let member_id = member_id.clone();
+                    let team_id = team_id.clone();
                     let name = name.clone();
                     // EXP-687: leaving is a sign-out, removing someone is a
                     // user-minus — the web draws the same two concepts.
@@ -452,7 +456,8 @@ fn member_actions_menu(
                             .on_click(move |_, window, cx| {
                                 open_remove_member_dialog(
                                     member_id.clone(),
-                                    name.clone(),
+                                    &team_id,
+                                    &name,
                                     is_self,
                                     window,
                                     cx,
@@ -465,44 +470,63 @@ fn member_actions_menu(
         })
 }
 
-/// The web's remove/leave confirm (`members-section.tsx`), word for word:
-/// losing access to a team is immediate and cannot be undone, and the item sits
-/// right under the role toggles — so it asks first, like every other
-/// destructive settings action.
+/// The remove/leave confirm: the prompts fixture's `remove-member` /
+/// `leave-team` (EXP-1230). Losing access to a team is immediate and cannot
+/// be undone, and the item sits right under the role toggles, so it asks
+/// first, like every other destructive settings action.
 fn open_remove_member_dialog(
     member_id: String,
-    name: String,
+    team_id: &str,
+    name: &str,
     is_self: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let (title, description, ok_text) = if is_self {
-        (
-            "Leave team",
-            "Leave this team? You lose access to its boards and issues \
-             immediately and need a new invite to rejoin."
-                .to_string(),
-            "Leave team",
-        )
+    let spec = if is_self {
+        let team_name = Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(team_id)
+            .map(|team| team.name.clone())
+            .unwrap_or_default();
+        AlertSpec::from_prompt("Leave team", &domain::prompts::leave_team(&team_name))
     } else {
-        (
-            "Remove member",
-            format!(
-                "Remove {name} from the team? They lose access to its boards \
-                 and issues immediately."
-            ),
-            "Remove",
-        )
-    };
-    let spec = AlertSpec::new(title, description, ok_text)
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            let member_id = member_id.clone();
-            spawn_trpc(cx, "teamMembers.remove", move |trpc| {
-                api::teams::team_members_remove(trpc, &member_id)
-            });
-            true
+        AlertSpec::from_prompt("Remove member", &domain::prompts::remove_member(name))
+    }
+    .on_ok(move |_, cx| {
+        let member_id = member_id.clone();
+        spawn_trpc(cx, "teamMembers.remove", move |trpc| {
+            api::teams::team_members_remove(trpc, &member_id)
         });
+        true
+    });
+    native_dialog::open_alert(window, cx, spec);
+}
+
+/// The role-change confirm: `make-owner` / `make-member` (EXP-1230).
+fn open_role_dialog(
+    member_id: String,
+    name: &str,
+    role: api::teams::TeamRole,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let spec = match role {
+        api::teams::TeamRole::Owner => {
+            AlertSpec::from_prompt("Make owner", &domain::prompts::make_owner(name))
+        }
+        api::teams::TeamRole::Member => {
+            AlertSpec::from_prompt("Make member", &domain::prompts::make_member(name))
+        }
+    }
+    .on_ok(move |_, cx| {
+        let member_id = member_id.clone();
+        spawn_trpc(cx, "teamMembers.updateRole", move |trpc| {
+            api::teams::team_members_update_role(trpc, &member_id, role)
+        });
+        true
+    });
     native_dialog::open_alert(window, cx, spec);
 }
 

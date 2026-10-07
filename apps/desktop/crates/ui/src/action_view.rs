@@ -374,7 +374,8 @@ impl ActionView {
         self.write_triggers(trigger_editor::triggers_without(&current, trigger_id), cx);
     }
 
-    /// Destructive native actions confirm first (the machines Remove pattern).
+    /// Destructive native actions confirm first: the prompts fixture's
+    /// `delete-trigger` (EXP-1230).
     fn prompt_delete_trigger(
         &mut self,
         trigger_id: String,
@@ -382,12 +383,7 @@ impl ActionView {
         cx: &mut gpui::Context<Self>,
     ) {
         let view = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            "Delete trigger?",
-            "It stops firing. Past runs stay in Runs.".to_string(),
-            "Delete",
-        )
-        .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger())
         .on_ok(move |_, cx| {
             if let Some(view) = view.upgrade() {
                 view.update(cx, |this, cx| this.delete_trigger(&trigger_id, cx));

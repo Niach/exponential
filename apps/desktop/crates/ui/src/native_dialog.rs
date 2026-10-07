@@ -69,6 +69,7 @@ use gpui_component::{
     scroll::ScrollableElement as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
 };
+use domain::prompts::{Prompt, Role};
 use theme::tokens as t;
 use crate::controls::WebControl as _;
 use crate::icons::{registry, ExpIcon};
@@ -1046,7 +1047,13 @@ pub(crate) enum AlertEnter {
 /// `open_alert_dialog` + `DialogButtonProps` surface.
 pub(crate) struct AlertSpec {
     title: SharedString,
+    /// EXP-1230: the prompt's ONE question, above the description (a fixture
+    /// prompt's `title`; the window title above stays the alert's name).
+    /// `None` = the description alone, every alert before it.
+    question: Option<SharedString>,
     description: SharedString,
+    /// EXP-1230: the Cancel answer's label (the fixture's `cancel` action).
+    cancel_text: SharedString,
     ok_text: SharedString,
     ok_variant: ButtonVariant,
     /// EXP-1167: a leading glyph on the OK button, where the web dialog's
@@ -1096,7 +1103,9 @@ impl AlertSpec {
     ) -> Self {
         Self {
             title: title.into(),
+            question: None,
             description: description.into(),
+            cancel_text: "Cancel".into(),
             ok_text: ok_text.into(),
             ok_variant: ButtonVariant::Primary,
             ok_icon: None,
@@ -1112,6 +1121,46 @@ impl AlertSpec {
             enter: AlertEnter::Ok,
             on_ok: Rc::new(|_, _| true),
         }
+    }
+
+    /// EXP-1230: a confirm built from a `prompts.json` entry
+    /// (`domain::prompts`): the question line, the body and both answers are
+    /// the fixture's; `window_title` only names the window. Roles map onto the
+    /// footer: `cancel` = the Cancel button, the answer = OK (`destructive`
+    /// Danger, `primary` Primary, `default` plain); `focus` picks the
+    /// [`AlertEnter`] answer, so Return never lands on a destructive one.
+    /// The caller attaches the answer with [`Self::on_ok`].
+    pub(crate) fn from_prompt(window_title: impl Into<SharedString>, prompt: &Prompt) -> Self {
+        let answers: Vec<_> = prompt.actions.iter().filter(|a| a.role != Role::Cancel).collect();
+        assert_eq!(
+            answers.len(),
+            1,
+            "{}: a prompt with more than one answer wires its own buttons",
+            prompt.id
+        );
+        let answer = answers[0];
+        let ok_variant = match answer.role {
+            Role::Primary => ButtonVariant::Primary,
+            Role::Destructive | Role::QuietDestructive => ButtonVariant::Danger,
+            Role::Default | Role::Cancel => ButtonVariant::Default,
+        };
+        let mut spec = Self::new(
+            window_title,
+            prompt.body.clone().unwrap_or_default(),
+            answer.label,
+        )
+        .ok_variant(ok_variant);
+        spec.question = Some(prompt.title.clone().into());
+        match prompt.actions.iter().find(|a| a.role == Role::Cancel) {
+            Some(cancel) => spec.cancel_text = cancel.label.into(),
+            None => spec.cancel = false,
+        }
+        spec.enter = if prompt.focused().role == Role::Cancel {
+            AlertEnter::Cancel
+        } else {
+            AlertEnter::Ok
+        };
+        spec
     }
 
     /// EXP-1212: hand Enter to another footer answer (see [`AlertEnter`]).
@@ -1139,9 +1188,42 @@ impl AlertSpec {
         self
     }
 
+    /// A `Danger` OK also hands Enter to Cancel (EXP-1230, the prompts
+    /// contract: focus never lands on a destructive answer).
     pub(crate) fn ok_variant(mut self, variant: ButtonVariant) -> Self {
         self.ok_variant = variant;
+        if variant == ButtonVariant::Danger && self.enter == AlertEnter::Ok {
+            self.enter = AlertEnter::Cancel;
+        }
         self
+    }
+
+    /// The question line, the description and the button labels in display
+    /// order (the prompt tests).
+    #[cfg(test)]
+    pub(crate) fn words(&self) -> (Option<String>, String, Vec<String>) {
+        let mut buttons = Vec::new();
+        if let Some((label, _)) = &self.destructive {
+            buttons.push(label.to_string());
+        }
+        if self.cancel {
+            buttons.push(self.cancel_text.to_string());
+        }
+        if let Some((label, _)) = &self.secondary {
+            buttons.push(label.to_string());
+        }
+        buttons.push(self.ok_text.to_string());
+        (
+            self.question.as_ref().map(|q| q.to_string()),
+            self.description.to_string(),
+            buttons,
+        )
+    }
+
+    /// The OK button's variant (the prompt tests).
+    #[cfg(test)]
+    pub(crate) fn ok_variant_of(&self) -> ButtonVariant {
+        self.ok_variant
     }
 
     /// EXP-1167: lead the OK label with `icon` (see [`AlertSpec::ok_icon`]).
@@ -1328,12 +1410,21 @@ impl Render for AlertView {
                     // footer below stays pinned either way).
                     .overflow_y_scrollbar()
                     .gap_3()
-                    .child(
+                    .children(self.spec.question.clone().map(|question| {
                         div()
                             .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.spec.description.clone()),
-                    )
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(cx.theme().foreground)
+                            .child(question)
+                    }))
+                    .when(!self.spec.description.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(self.spec.description.clone()),
+                        )
+                    })
                     .children(extra),
             )
             .child(
@@ -1364,7 +1455,7 @@ impl Render for AlertView {
                             Button::new("native-alert-cancel")
                                 .outline().cursor_pointer()
                                 .web_sm()
-                                .label("Cancel")
+                                .label(self.spec.cancel_text.clone())
                                 .on_click(|_, window, cx| close_dialog_window(window, cx)),
                         )
                     })
@@ -1394,5 +1485,49 @@ impl Render for AlertView {
                             }),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::*;
+    use domain::prompts::{self, ALL};
+
+    /// EXP-1230: every fixture prompt lands on the native alert with the
+    /// fixture's question, body and button labels in display order; the
+    /// answer's role picks the OK variant and `focus` the Return answer.
+    #[test]
+    fn every_fixture_prompt_maps_onto_the_alert() {
+        for spec in ALL {
+            let title_key = spec.copy.iter().map(|(k, _)| *k).find(|k| k.starts_with("title")).unwrap();
+            let body_key = spec.copy.iter().map(|(k, _)| *k).find(|k| k.starts_with("body"));
+            let prompt = spec.render(title_key, body_key, &[]);
+            let alert = AlertSpec::from_prompt("Window", &prompt);
+            let (question, description, buttons) = alert.words();
+            assert_eq!(question.as_deref(), Some(prompt.title.as_str()), "{}", spec.id);
+            assert_eq!(description, prompt.body.clone().unwrap_or_default(), "{}", spec.id);
+            let labels: Vec<String> = spec.actions.iter().map(|a| a.label.to_string()).collect();
+            assert_eq!(buttons, labels, "{}", spec.id);
+            let answer = spec.actions.last().unwrap();
+            let variant = match answer.role {
+                Role::Primary => ButtonVariant::Primary,
+                Role::Destructive => ButtonVariant::Danger,
+                _ => ButtonVariant::Default,
+            };
+            assert_eq!(alert.ok_variant_of(), variant, "{}", spec.id);
+            let enter = if spec.focus == "cancel" { AlertEnter::Cancel } else { AlertEnter::Ok };
+            assert_eq!(alert.enter_answer(), enter, "{}", spec.id);
+        }
+    }
+
+    #[test]
+    fn return_never_lands_on_a_destructive_answer() {
+        let stop = AlertSpec::from_prompt("Stop run", &prompts::stop_run());
+        assert_eq!(stop.enter_answer(), AlertEnter::Cancel);
+        let make_owner = AlertSpec::from_prompt("Make owner", &prompts::make_owner("Ada"));
+        assert_eq!(make_owner.enter_answer(), AlertEnter::Ok);
+        // A hand-written destructive confirm follows the same rule.
+        let danger = AlertSpec::new("Reset", "Gone.", "Reset").ok_variant(ButtonVariant::Danger);
+        assert_eq!(danger.enter_answer(), AlertEnter::Cancel);
     }
 }

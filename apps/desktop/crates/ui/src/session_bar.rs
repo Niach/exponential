@@ -56,7 +56,7 @@ use gpui::{
     ParentElement, Pixels, Render, SharedString, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
@@ -994,40 +994,26 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         )))
 }
 
-/// The confirm before a live run is ended. A run this process hosts stops
-/// through its [`LocalSessionHost`] (the same path the issue header's stop
-/// takes); anything else goes out as `steer.killSession`. Shared by the
-/// session lists' Stop.
+/// The confirm before a live run is ended: the prompts fixture's `stop-run`
+/// (EXP-1230: one question, no body, Cancel takes Return). A run this process
+/// hosts stops through its [`LocalSessionHost`] (the same path the issue
+/// header's stop takes); anything else goes out as `steer.killSession`.
+/// Shared by the session lists' Stop.
 pub(crate) fn prompt_kill_session(
     local: Option<LocalSessionHost>,
-    device_label: Option<String>,
     session_id: String,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let spec = match local {
-        Some(host) => {
-            let detail = "The agent stops immediately. Uncommitted work in the worktree is kept.";
-            AlertSpec::new("Stop this coding session?", detail, "Stop session").on_ok(
-                move |_, cx| {
-                    host.stop(cx);
-                    true
-                },
-            )
-        }
-        None => AlertSpec::new(
-            // EXP-849 fix-up: "Stop" here too — a run on another machine ends
-            // the same way, and the copy already says what it does.
-            "Stop this coding session?",
-            crate::steer_viewer::kill_description(device_label.as_deref()),
-            "Stop session",
-        )
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            crate::steer_viewer::kill_session(&session_id, cx);
+    let spec = AlertSpec::from_prompt("Stop run", &domain::prompts::stop_run()).on_ok(
+        move |_, cx| {
+            match &local {
+                Some(host) => host.stop(cx),
+                None => crate::steer_viewer::kill_session(&session_id, cx),
+            }
             true
-        }),
-    };
+        },
+    );
     native_dialog::open_alert(window, cx, spec);
 }
 
