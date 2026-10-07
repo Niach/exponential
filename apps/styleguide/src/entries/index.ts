@@ -21,6 +21,7 @@ import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
+import { entry as composerFixConflicts } from "./composer-fix-conflicts.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionTree } from "./session-tree.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
@@ -57,6 +58,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   toast,
   jumpToBottom,
   composerDialog,
+  composerFixConflicts,
   issueContextMenu,
   sessionTree,
   prGraphBadge,

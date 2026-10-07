@@ -123,6 +123,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   menu: `Surfaces`,
   [`issue-context-menu`]: `Surfaces`,
   [`composer-dialog`]: `Surfaces`,
+  [`composer-fix-conflicts`]: `Surfaces`,
   [`device-settings`]: `Surfaces`,
   [`blocked-start-dialog`]: `Surfaces`,
   [`stack-merge-choice-dialog`]: `Surfaces`,

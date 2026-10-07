@@ -1,16 +1,25 @@
 import { useMemo } from "react"
 import { contract } from "@exp/domain-contract"
-import { Combobox, conceptIcon, GlassGroup, type PickerOption } from "@exp/ui"
+import {
+  Combobox,
+  FixConflictsCard as FixConflictsCardView,
+  FixConflictsNote,
+  FixConflictsPrRow,
+  type PickerOption,
+} from "@exp/ui"
 
 import {
   useOpenPrOptions,
   usePrInputSeed,
 } from "@/components/launch-dialog/action-input-fields"
 import type { FixConflictsView } from "@/hooks/use-launch-composer"
-import { cn } from "@/lib/utils"
 
 // EXP-1233: the Fix merge conflicts builtin's CARD — what the composer's
-// strip draws instead of the generic "Pull request" label + field.
+// strip draws instead of the generic "Pull request" label + field, the
+// DATA half. The pieces (the surface, the PR row, the refusal note) are
+// `@exp/ui`'s `fix-conflicts-card.tsx`, the same ×4; this file binds the row
+// to the team's open-PR picker (the same options the generic field lists,
+// `useOpenPrOptions`) and hands it the contract's words.
 //
 // A refused merge used to swap the Merge button for a "Fix conflicts" one
 // and leave the person to press it; now the refusal opens the composer
@@ -22,27 +31,8 @@ import { cn } from "@/lib/utils"
 //   │ ⚠ Merge refused: the branch has conflicts.                   │
 //   └──────────────────────────────────────────────────────────────┘
 //
-// The branch row IS the PR picker (the same open-PR options the generic
-// field lists; the chevron says so), so re-picking is one click and the
-// unpicked state is the picker alone ("Select a pull request…"). The
-// conflict line shows only when a refused merge brought us here (the seed's
+// The note shows only when a refused merge brought us here (the seed's
 // `conflict`); a pick made from the action picker has nothing to explain.
-// Copy = `contract.composerUi` (×4).
-
-const PrOpenIcon = conceptIcon(`pr-open`)
-const UiBranchIcon = conceptIcon(`ui-branch`)
-const UiWarningIcon = conceptIcon(`ui-warning`)
-const ChevronIcon = conceptIcon(`ui-chevron-down`)
-
-/** `exp/APP-14 → master`, or the branch alone while the base is unknown.
- *  Pure, so the arrow rule is a test (the natives print the same line). */
-export function branchLine(
-  branch: string | null,
-  baseBranch: string | null
-): string {
-  if (!branch) return ``
-  return baseBranch ? `${branch} → ${baseBranch}` : branch
-}
 
 export function FixConflictsCard({
   view,
@@ -68,10 +58,9 @@ export function FixConflictsCard({
   )
   usePrInputSeed(pulls, seedIssueId, onChange)
   const { pr, refused } = view
-  const line = pr ? branchLine(pr.branch, pr.baseBranch) : ``
 
   return (
-    <GlassGroup data-testid="agent-composer-fix-conflicts">
+    <FixConflictsCardView data-testid="agent-composer-fix-conflicts">
       <Combobox
         options={options}
         value={value === `` ? null : value}
@@ -82,60 +71,18 @@ export function FixConflictsCard({
         emptyText="No open pull requests."
         disabled={disabled}
         renderTrigger={({ open }) => (
-          <button
-            type="button"
-            data-slot="fix-conflicts-pr-row"
-            data-state={open ? `open` : `closed`}
-            aria-label={
-              pr
-                ? `Pull request ${pr.prNumber ? `#${pr.prNumber}` : ``}`.trim()
-                : contract.composerUi.prPlaceholder
-            }
-            className={cn(
-              `flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors duration-fast outline-none`,
-              `hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50`,
-              `disabled:pointer-events-none disabled:opacity-50`
-            )}
-          >
-            {pr ? (
-              <>
-                <PrOpenIcon
-                  aria-hidden
-                  className="size-4 shrink-0 text-emerald-500"
-                />
-                {pr.prNumber !== null && (
-                  <span className="shrink-0 font-mono text-foreground">
-                    #{pr.prNumber}
-                  </span>
-                )}
-                <span className="flex min-w-0 items-center gap-1.5 font-mono text-foreground/70">
-                  <UiBranchIcon aria-hidden className="size-3.5 shrink-0" />
-                  <span className="min-w-0 truncate">{line}</span>
-                </span>
-              </>
-            ) : (
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                {contract.composerUi.prPlaceholder}
-              </span>
-            )}
-            <ChevronIcon
-              aria-hidden
-              className="ml-auto size-3.5 shrink-0 text-foreground/50"
-            />
-          </button>
+          <FixConflictsPrRow
+            pr={pr}
+            placeholder={contract.composerUi.prPlaceholder}
+            open={open}
+          />
         )}
       />
       {refused && pr && (
-        <div
-          className="flex items-center gap-2 px-4 py-2.5 text-sm text-destructive"
-          data-testid="agent-composer-conflict-note"
-        >
-          <UiWarningIcon aria-hidden className="size-4 shrink-0" />
-          <span className="min-w-0 truncate">
-            {contract.composerUi.conflictNote}
-          </span>
-        </div>
+        <FixConflictsNote data-testid="agent-composer-conflict-note">
+          {contract.composerUi.conflictNote}
+        </FixConflictsNote>
       )}
-    </GlassGroup>
+    </FixConflictsCardView>
   )
 }
