@@ -10,6 +10,15 @@
 // keep full access: a CLI daemon on `EXP_TOKEN` and human MCP clients run on
 // those.
 //
+// FEED-76: a person's key may also carry a SCOPE — the team/board selection
+// the OAuth consent screen offers, stored in the same `metadata` JSON as
+// `scope: {allTeams: false, teamIds, boardIds}`. A scoped key is an MCP-only
+// credential: /api/mcp confines it exactly like an OAuth grant
+// (lib/mcp/scope.ts) and the general surface (tRPC, shapes, attachments)
+// refuses it (lib/auth/resolve-bearer.ts), the way OAuth tokens are refused
+// there. A key without a stored scope (every key minted before FEED-76,
+// device keys, agent keys, "Everything" picks) stays a full key.
+//
 // How a request maps to its key: the Better Auth api-key plugin
 // (`enableSessionForAPIKeys`) builds a mock session whose `session.id` IS
 // the api-key row id (never a `sessions` row id, those never collide: both
@@ -24,31 +33,77 @@ import type { Context } from "@/lib/trpc"
 export const API_KEY_KINDS = [`personal`, `agent`] as const
 export type ApiKeyKind = (typeof API_KEY_KINDS)[number]
 
-/** Parse the plugin's `metadata` text into the key's kind (`personal` when
- * untagged — every key minted before EXP-1140). */
-export function apiKeyKindOf(metadata: string | null | undefined): ApiKeyKind {
-  if (!metadata) return `personal`
-  try {
-    const parsed: unknown = JSON.parse(metadata)
-    if (
-      parsed &&
-      typeof parsed === `object` &&
-      (parsed as { kind?: unknown }).kind === `agent`
-    ) {
-      return `agent`
-    }
-  } catch {
-    // Not JSON — an untagged key.
-  }
-  return `personal`
+/** A stored key scope: never "everything" (an all-teams pick stores NO
+ * scope, so the key stays an ordinary full key). */
+export interface ApiKeyScope {
+  allTeams: false
+  teamIds: string[]
+  boardIds: string[]
 }
 
-/** The kind of the caller's own `expu_` key behind `session`, or `null` when
- * the request rode a real (cookie/bearer) session — one indexed lookup. */
-export async function apiKeySessionKind(
+export interface ApiKeyMetadata {
+  kind: ApiKeyKind
+  /** `null` = unscoped (full membership access everywhere). */
+  scope: ApiKeyScope | null
+}
+
+const UNSCOPED_PERSONAL: ApiKeyMetadata = { kind: `personal`, scope: null }
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === `string`)
+
+/** Parse the plugin's `metadata` text: the key's kind (`personal` when
+ * untagged — every key minted before EXP-1140) and its scope (`null` when
+ * absent or `allTeams`). A PRESENT but malformed scope fails CLOSED (nothing
+ * granted): only this server writes it, so a bad shape is a bug, never a
+ * reason to widen a key. */
+export function parseApiKeyMetadata(
+  metadata: string | null | undefined
+): ApiKeyMetadata {
+  if (!metadata) return UNSCOPED_PERSONAL
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(metadata)
+  } catch {
+    // Not JSON — an untagged key.
+    return UNSCOPED_PERSONAL
+  }
+  if (!parsed || typeof parsed !== `object`) return UNSCOPED_PERSONAL
+  const record = parsed as { kind?: unknown; scope?: unknown }
+  const kind: ApiKeyKind = record.kind === `agent` ? `agent` : `personal`
+  if (record.scope === undefined || record.scope === null) {
+    return { kind, scope: null }
+  }
+  const scope = record.scope as {
+    allTeams?: unknown
+    teamIds?: unknown
+    boardIds?: unknown
+  }
+  if (!scope || typeof scope !== `object`) {
+    return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
+  }
+  if (scope.allTeams === true) return { kind, scope: null }
+  if (!isStringArray(scope.teamIds) || !isStringArray(scope.boardIds)) {
+    return { kind, scope: { allTeams: false, teamIds: [], boardIds: [] } }
+  }
+  return {
+    kind,
+    scope: { allTeams: false, teamIds: scope.teamIds, boardIds: scope.boardIds },
+  }
+}
+
+/** The key's kind alone (`personal` when untagged). */
+export function apiKeyKindOf(metadata: string | null | undefined): ApiKeyKind {
+  return parseApiKeyMetadata(metadata).kind
+}
+
+/** The parsed metadata of the caller's own `expu_` key behind `session`, or
+ * `null` when the request rode a real (cookie/bearer) session — one indexed
+ * lookup (the PK + `reference_id`). */
+export async function apiKeySessionMetadata(
   db: Context[`db`],
   session: NonNullable<Context[`session`]>
-): Promise<ApiKeyKind | null> {
+): Promise<ApiKeyMetadata | null> {
   const sessionId = session.session?.id
   if (!sessionId) return null
   const [row] = await db
@@ -58,7 +113,16 @@ export async function apiKeySessionKind(
       and(eq(apikeys.id, sessionId), eq(apikeys.referenceId, session.user.id))
     )
     .limit(1)
-  return row === undefined ? null : apiKeyKindOf(row.metadata)
+  return row === undefined ? null : parseApiKeyMetadata(row.metadata)
+}
+
+/** The kind of the caller's own `expu_` key behind `session`, or `null` when
+ * the request rode a real (cookie/bearer) session. */
+export async function apiKeySessionKind(
+  db: Context[`db`],
+  session: NonNullable<Context[`session`]>
+): Promise<ApiKeyKind | null> {
+  return (await apiKeySessionMetadata(db, session))?.kind ?? null
 }
 
 /** True when the request that built `session` authenticated with a key the
@@ -112,4 +176,8 @@ export async function assertNotAgentApiKeySession(
 }
 
 export const AGENT_KEY_MANAGES_KEYS_MESSAGE = `Agent keys cannot manage API keys`
+/** FEED-76: a scoped key reaching anything but /api/mcp. */
+export const SCOPED_API_KEY_MESSAGE = `This API key is scoped to selected teams/boards and only works with the MCP endpoint (/api/mcp). Create an unscoped key for the API.`
+/** FEED-76: the agent's hidden key must keep the launcher's full access. */
+export const AGENT_KEY_SCOPE_MESSAGE = `An agent key cannot be scoped`
 export const AGENT_KEY_MANAGES_MCP_MESSAGE = `Agent keys cannot manage MCP servers or their credentials`

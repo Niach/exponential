@@ -7,6 +7,7 @@ import {
   codingSessionBlockedSchema,
   startedReasonValues,
   type CodingSessionBlocked,
+  type CodingSessionResult,
   MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
@@ -174,6 +175,8 @@ interface ResumedFrom {
   prUrl: string | null
   prNumber: number | null
   prState: (typeof codingSessions.$inferSelect)[`prState`]
+  /** FEED-77: the report the run had filed (`sessions_results`) so far. */
+  results: CodingSessionResult[] | null
 }
 
 async function resolveResumedFrom(
@@ -194,6 +197,7 @@ async function resolveResumedFrom(
       prUrl: codingSessions.prUrl,
       prNumber: codingSessions.prNumber,
       prState: codingSessions.prState,
+      results: codingSessions.results,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, resumedFromId))
@@ -226,6 +230,7 @@ async function resolveResumedFrom(
     prUrl: row.prUrl ?? null,
     prNumber: row.prNumber ?? null,
     prState: row.prState ?? null,
+    results: Array.isArray(row.results) && row.results.length ? row.results : null,
   }
 }
 
@@ -251,16 +256,22 @@ function startTree(
  * which reaches runs by `pr_url` alone, never ends the successor and
  * `mergePr` finds no PR on it. The status stays `running` like every start;
  * the sweep matches running and in_review alike. The frame's branch wins.
+ * FEED-77: the REPORT rides along the same way. Every `sessions_results` /
+ * `sessions_show` / `pr_open` call reads the row the agent's session header
+ * names, which after a switch is this new one — without the carry the next
+ * report write listed only its own topic and the PR body was built from
+ * that. The predecessor's copy and its picture rows move in
+ * `adoptPredecessor` (`moveReport`), after the insert.
  * Confined to the successor's team like `adoptPredecessor`: a predecessor in
- * ANOTHER team hands nothing over (its PR names that team's repo), and the
- * start still goes through. */
-function inheritedPr(
+ * ANOTHER team hands nothing over (its PR names that team's repo, its
+ * pictures that team's storage), and the start still goes through. */
+function inheritedRun(
   predecessor: ResumedFrom | null,
   frameBranch: string | undefined,
   teamId: string
 ): Pick<
   typeof codingSessions.$inferInsert,
-  `branch` | `prUrl` | `prNumber` | `prState`
+  `branch` | `prUrl` | `prNumber` | `prState` | `results`
 > {
   const source = predecessor?.teamId === teamId ? predecessor : null
   return {
@@ -268,6 +279,48 @@ function inheritedPr(
     prUrl: source?.prUrl ?? null,
     prNumber: source?.prNumber ?? null,
     prState: source?.prState ?? null,
+    results: source?.results ?? null,
+  }
+}
+
+/** FEED-77: the report has ONE owner, the live run. The successor's insert
+ * already carries the entries (`inheritedRun`); this re-parents the picture
+ * rows (`session_attachments.session_id`, which a later `remove` deletes
+ * bytes through and whose NULL the orphan sweep reclaims once the old row is
+ * purged) and clears the predecessor's copy so no two rows name the same
+ * attachments. The composer's start pictures move with them: they belong to
+ * the same run. Best-effort like `restampChildren`, but never silent: a
+ * failed move is exactly the loss this exists to prevent, so it is logged.
+ * Confined to the successor's team: another team's pictures stay where their
+ * storage budget was charged. */
+async function moveReport(
+  db: Context[`db`],
+  predecessor: ResumedFrom,
+  successorId: string,
+  successorTeamId: string
+): Promise<void> {
+  if (predecessor.teamId !== successorTeamId) return
+  try {
+    await db
+      .update(sessionAttachments)
+      .set({ sessionId: successorId })
+      .where(
+        and(
+          eq(sessionAttachments.sessionId, predecessor.id),
+          eq(sessionAttachments.teamId, successorTeamId)
+        )
+      )
+    if (predecessor.results) {
+      await db
+        .update(codingSessions)
+        .set({ results: null, updatedAt: new Date() })
+        .where(eq(codingSessions.id, predecessor.id))
+    }
+  } catch (err) {
+    console.warn(
+      `[coding-sessions] FEED-77: report move failed for ${predecessor.id} → ${successorId}; the resumed run carries the entries, the predecessor still names the pictures`,
+      err
+    )
   }
 }
 
@@ -299,17 +352,18 @@ async function restampChildren(
   }
 }
 
-/** The succession write every resume performs, after the insert, and
- * the word to an agent parent that its child is live under the new id
- * (FEED-68; best-effort, never throws). */
+/** The succession writes every resume performs, after the insert (the
+ * children, FEED-77's report), and the word to an agent parent that its
+ * child is live under the new id (FEED-68; best-effort, never throws). */
 async function adoptPredecessor(
   db: Context[`db`],
-  predecessorId: string,
+  predecessor: ResumedFrom,
   successorId: string,
   successorTeamId: string
 ): Promise<void> {
-  await restampChildren(db, predecessorId, successorId, successorTeamId)
-  await notifyParentOfChildResumed(db, predecessorId, successorId)
+  await restampChildren(db, predecessor.id, successorId, successorTeamId)
+  await moveReport(db, predecessor, successorId, successorTeamId)
+  await notifyParentOfChildResumed(db, predecessor.id, successorId)
 }
 
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
@@ -874,7 +928,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            ...inheritedPr(predecessor, input.branch, input.teamId!),
+            ...inheritedRun(predecessor, input.branch, input.teamId!),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -882,7 +936,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor.id, session!.id, input.teamId!)
+          await adoptPredecessor(ctx.db, predecessor, session!.id, input.teamId!)
         }
 
         return { session }
@@ -950,7 +1004,7 @@ export const codingSessionsRouter = router({
             ...device,
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
-            ...inheritedPr(predecessor, input.branch, action.teamId),
+            ...inheritedRun(predecessor, input.branch, action.teamId),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -958,7 +1012,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor.id, session!.id, action.teamId)
+          await adoptPredecessor(ctx.db, predecessor, session!.id, action.teamId)
         }
 
         return { session }
@@ -1001,7 +1055,7 @@ export const codingSessionsRouter = router({
             agent: input.agent ?? null,
             agentAccount: input.agentAccount ?? null,
             // Issue rows never took the frame's branch; only a resume's.
-            ...inheritedPr(predecessor, undefined, issueCtx.teamId),
+            ...inheritedRun(predecessor, undefined, issueCtx.teamId),
             mcpServerIds,
             resumedFromId,
             status: `running`,
@@ -1009,7 +1063,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await adoptPredecessor(ctx.db, predecessor.id, session!.id, issueCtx.teamId)
+          await adoptPredecessor(ctx.db, predecessor, session!.id, issueCtx.teamId)
         }
 
         return { session }
@@ -1057,7 +1111,7 @@ export const codingSessionsRouter = router({
           ...device,
           agent: input.agent ?? null,
           agentAccount: input.agentAccount ?? null,
-          ...inheritedPr(predecessor, input.branch, input.teamId!),
+          ...inheritedRun(predecessor, input.branch, input.teamId!),
           batchIssueIds,
           mcpServerIds,
           resumedFromId,
@@ -1066,7 +1120,7 @@ export const codingSessionsRouter = router({
         .returning()
       await bindStartAttachments(ctx.db, session!, input.attachmentIds)
       if (predecessor) {
-        await adoptPredecessor(ctx.db, predecessor.id, session!.id, input.teamId!)
+        await adoptPredecessor(ctx.db, predecessor, session!.id, input.teamId!)
       }
 
       return { session }

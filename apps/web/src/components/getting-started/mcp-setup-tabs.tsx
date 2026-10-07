@@ -276,7 +276,8 @@ export function McpSetupTabs() {
       </Tabs>
       <Note>
         Signing in via OAuth lets you scope access per team/board; personal API
-        keys (Bearer expu_…) work for headless use —{` `}
+        keys (Bearer expu_…) work for headless use and can be scoped to
+        teams/boards when you create one —{` `}
         {teamSlug ? (
           <Link
             to="/t/$teamSlug/settings/security"

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import { db } from "@/db/connection"
 import { sql } from "drizzle-orm"
 import { assertAdmin } from "@/lib/admin"
+import { SCOPED_API_KEY_MESSAGE } from "@/lib/auth/api-key-kind"
 
 export type Context = {
   session: Awaited<ReturnType<typeof auth.api.getSession>>
@@ -15,6 +16,10 @@ export type Context = {
   // attribution gates its host→requester swap on this; HTTP contexts leave
   // it undefined.
   viaMcp?: true
+  // FEED-76: the request carried a SCOPED personal `expu_` key — an MCP-only
+  // credential, so `session` is null here; set by the HTTP context so the
+  // 401 can say why instead of looking like a dead key.
+  scopedKey?: true
 }
 
 const t = initTRPC.context<Context>().create()
@@ -25,7 +30,10 @@ export const middleware = t.middleware
 
 export const isAuthed = middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user) {
-    throw new TRPCError({ code: `UNAUTHORIZED` })
+    throw new TRPCError({
+      code: `UNAUTHORIZED`,
+      ...(ctx.scopedKey ? { message: SCOPED_API_KEY_MESSAGE } : {}),
+    })
   }
   return next({
     ctx: {

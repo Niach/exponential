@@ -11,6 +11,11 @@ import {
 } from "@/db/schema"
 import { auth } from "@/lib/auth"
 import { boardVisible } from "@/lib/board-visibility"
+import {
+  assertScopeSelectionNonEmpty,
+  clampScopeSelection,
+  scopeSelectionInput,
+} from "@/lib/mcp/scope-selection"
 import { authedProcedure, router } from "@/lib/trpc"
 
 // Backs the /auth/consent page of the MCP OAuth flow: what the client is,
@@ -113,13 +118,10 @@ export const mcpGrantsRouter = router({
   // changed.
   grantAndConsent: authedProcedure
     .input(
-      z.object({
+      scopeSelectionInput.extend({
         clientId: z.string().min(1).max(255),
         consentCode: z.string().min(1).max(255),
         accept: z.boolean(),
-        allTeams: z.boolean().default(false),
-        teamIds: z.array(z.string().uuid()).max(500).default([]),
-        boardIds: z.array(z.string().uuid()).max(2000).default([]),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -141,16 +143,7 @@ export const mcpGrantsRouter = router({
       if (!input.accept) return completeConsent()
 
       const userId = ctx.session.user.id
-      if (
-        !input.allTeams &&
-        input.teamIds.length === 0 &&
-        input.boardIds.length === 0
-      ) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `Select at least one team or board, or deny access.`,
-        })
-      }
+      assertScopeSelectionNonEmpty(input)
 
       const [client] = await db
         .select({ clientId: oauthApplications.clientId })
@@ -162,34 +155,16 @@ export const mcpGrantsRouter = router({
       }
 
       // Clamp the selection to what the user is actually a member of — the
-      // page sends ids, but the grant must never exceed membership.
+      // page sends ids, but the grant must never exceed membership (the same
+      // clamp a scoped API key is minted through, FEED-76).
       const memberTeamIds = new Set(
         (await getMemberTeams(userId)).map((w) => w.id)
       )
-      const teamIds = input.allTeams
-        ? []
-        : input.teamIds.filter((id) => memberTeamIds.has(id))
-      let boardIds: string[] = []
-      if (!input.allTeams && input.boardIds.length > 0) {
-        const rows = await db
-          .select({ id: boards.id, teamId: boards.teamId })
-          .from(boards)
-          .where(
-            and(
-              inArray(boards.id, input.boardIds),
-              boardVisible()
-            )
-          )
-        boardIds = rows
-          .filter((p) => memberTeamIds.has(p.teamId))
-          .map((p) => p.id)
-      }
-      if (!input.allTeams && teamIds.length === 0 && boardIds.length === 0) {
-        throw new TRPCError({
-          code: `BAD_REQUEST`,
-          message: `None of the selected teams/boards are accessible to your account.`,
-        })
-      }
+      const { allTeams, teamIds, boardIds } = await clampScopeSelection(
+        db,
+        memberTeamIds,
+        input
+      )
 
       // Consent first: this mints the authorization code and throws when the
       // consent code is expired or already redeemed, in which case the existing
@@ -206,14 +181,14 @@ export const mcpGrantsRouter = router({
         .values({
           userId,
           clientId: input.clientId,
-          allTeams: input.allTeams,
+          allTeams,
           teamIds,
           boardIds,
         })
         .onConflictDoUpdate({
           target: [mcpGrants.userId, mcpGrants.clientId],
           set: {
-            allTeams: input.allTeams,
+            allTeams,
             teamIds,
             boardIds,
             updatedAt: new Date(),

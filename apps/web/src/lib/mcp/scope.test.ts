@@ -13,6 +13,32 @@ import {
   isTeamVisible,
 } from "@/lib/mcp/scope"
 
+// FEED-76: the same confinement behind a scoped API key picks its own
+// denial wording; both keep "not granted access".
+describe(`origin (FEED-76)`, () => {
+  const grant = { allTeams: false, teamIds: [`ws-a`], boardIds: [] }
+
+  it(`stamps the origin, keeping FULL_ACCESS identity for allTeams`, () => {
+    expect(buildMcpAccess(grant, new Map(), `apiKey`).origin).toBe(`apiKey`)
+    expect(buildMcpAccess(grant, new Map()).origin).toBe(`oauth`)
+    expect(
+      buildMcpAccess({ allTeams: true, teamIds: [], boardIds: [] }, new Map(), `apiKey`)
+    ).toBe(FULL_ACCESS)
+  })
+
+  it(`an api-key denial points at a new key, an OAuth one at re-consenting`, () => {
+    const key = buildMcpAccess(grant, new Map(), `apiKey`)
+    expect(() => assertTeamVisible(key, `ws-x`)).toThrow(
+      /This API key was not granted access to this team.*Settings → Security/
+    )
+    expect(() => assertFullAccess(key)).toThrow(/API key.*not granted access/)
+    const oauth = buildMcpAccess(grant, new Map())
+    expect(() => assertTeamVisible(oauth, `ws-x`)).toThrow(
+      /This MCP connection was not granted access.*consent screen/
+    )
+  })
+})
+
 const WS_A = `ws-a`
 const WS_B = `ws-b`
 const PROJ_A1 = `proj-a1`

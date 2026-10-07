@@ -16,6 +16,7 @@ import { entry as pickerPriority } from "./picker-priority.tsx"
 import { entry as pickerLabel } from "./picker-label.tsx"
 import { entry as pickerMcp } from "./picker-mcp.tsx"
 import { entry as pickerRepository } from "./picker-repository.tsx"
+import { entry as scopePicker } from "./scope-picker.tsx"
 import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
@@ -51,6 +52,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerLabel,
   pickerMcp,
   pickerRepository,
+  scopePicker,
   menu,
   toast,
   jumpToBottom,

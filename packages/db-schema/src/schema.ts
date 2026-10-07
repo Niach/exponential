@@ -2802,9 +2802,11 @@ export const widgetSubmissions = pgTable(
 // replaces the selection. `teamIds` grants whole teams (including
 // boards created later); `boardIds` grants individual boards. A token
 // whose (user, client) pair has NO row gets no access — the holder must
-// re-authenticate through the consent page. Session-cookie and personal
-// api-key access to /api/mcp is never grant-scoped (the user's own
-// credentials keep full membership access).
+// re-authenticate through the consent page. Session-cookie and UNSCOPED
+// personal api-key access to /api/mcp is never grant-scoped (the user's own
+// credentials keep full membership access); a personal key minted with the
+// same team/board selection (FEED-76) carries it in `apikeys.metadata.scope`
+// and is confined the same way, on /api/mcp only.
 export const mcpGrants = pgTable(
   `mcp_grants`,
   {
