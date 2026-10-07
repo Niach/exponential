@@ -103,6 +103,7 @@ class PromptsTest {
             Prompts.ResumeRun.prompt("Mac"),
             Prompts.ResumeRun.prompt(null),
             Prompts.DeleteTrigger.prompt(),
+            Prompts.DeleteAction.prompt("Triage"),
             Prompts.RemoveDevice.prompt("Mac"),
             Prompts.DeleteTeam.prompt("Acme"),
             Prompts.TrashBoard.prompt("Web"),
@@ -139,5 +140,6 @@ class PromptsTest {
         assertEquals("Remove the passkey \"Passkey\"?", Prompts.RemovePasskey.prompt("").title)
         assertEquals("Delete your account on Cloud?", Prompts.DeleteAccount.prompt("Cloud").title)
         assertEquals("Move \"Web\" to trash?", Prompts.TrashBoard.prompt("Web").title)
+        assertEquals("Delete \"Triage\"?", Prompts.DeleteAction.prompt("Triage").title)
     }
 }

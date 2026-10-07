@@ -93,6 +93,7 @@ final class PromptsTests: XCTestCase {
         XCTAssertEqual(copy.title, "Move EXP-12 to \"Mobile\"?")
         XCTAssertEqual(copy.body, "It gets a new identifier in that board.")
         XCTAssertEqual(copy.focus, "move")
+        XCTAssertEqual(Prompts.DeleteAction.copy(name: "Triage").title, "Delete \"Triage\"?")
         XCTAssertNil(Prompts.StopRun.copy().body)
         XCTAssertNil(Prompts.RemoveRepository.copy(fullName: "a/b").body)
     }

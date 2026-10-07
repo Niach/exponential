@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
+import { deleteActionPrompt, promptActions } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import type { SyncedAction, Team } from "@/db/schema"
@@ -239,7 +239,7 @@ export function DeleteActionDialog({
       setDeleting(false)
     }
   }
-  const deleteCopy = WEB_PROMPTS.deleteAction(action?.name ?? `this action`)
+  const deleteCopy = deleteActionPrompt(action?.name ?? ``)
 
   return (
     <Prompt

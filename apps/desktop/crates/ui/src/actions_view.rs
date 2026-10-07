@@ -44,7 +44,6 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    button::ButtonVariant,
     menu::{DropdownMenu as _, PopupMenuItem},
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -251,8 +250,8 @@ impl ActionsView {
         );
     }
 
-    /// Destructive native actions confirm first — the web delete dialog's
-    /// copy behind the shared alert window (the machines Remove pattern).
+    /// Destructive native actions confirm first: the prompts fixture's
+    /// `delete-action` (EXP-1230) behind the shared alert window.
     fn prompt_delete(
         &mut self,
         action_id: String,
@@ -260,15 +259,7 @@ impl ActionsView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let spec = AlertSpec::new(
-            "Delete action",
-            format!(
-                "Delete \"{name}\"? Live runs keep going and keep their label; \
-                 this cannot be undone."
-            ),
-            "Delete",
-        )
-        .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt("Delete action", &domain::prompts::delete_action(&name))
         .on_ok(move |_, cx| {
             spawn_action_delete(cx, action_id.clone());
             true
