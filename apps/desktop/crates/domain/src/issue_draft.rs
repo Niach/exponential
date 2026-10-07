@@ -41,6 +41,41 @@ pub const LEAVE_DISCARD: &str = "Discard";
 /// One coalesced `issueDrafts.upsert` this long after the last
 /// title/description edit.
 pub const AUTOSAVE_DEBOUNCE_MS: u64 = 800;
+/// EXP-1231: the info toast of a page whose draft another client discarded.
+pub const DISCARDED_ELSEWHERE: &str = "Draft discarded elsewhere";
+/// EXP-1231: how long a synced row may be gone (a resync, this client's own
+/// racing write) before the page concludes it was discarded elsewhere.
+pub const DISCARDED_GRACE_MS: u64 = 3000;
+
+/// EXP-1231: what the synced store says about this page's draft. The same
+/// draft may be open on several clients; whichever one creates or discards
+/// it consumes the row for all of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DraftFate {
+    /// Still a draft: keep editing.
+    Open,
+    /// An issue carries this draft's id (`issues.draft_id`): the page becomes
+    /// that issue's detail at once, no prompt, no toast.
+    Created { issue_id: String },
+    /// The synced row went with no such issue: after
+    /// [`DISCARDED_GRACE_MS`] the page leaves with [`DISCARDED_ELSEWHERE`].
+    Gone,
+}
+
+/// EXP-1231: the ONE rule ×4. `created_issue_id` = an issue whose `draft_id`
+/// is this draft (proof it was created, wherever); `seen` = the row has been
+/// observed in the synced collection during this page's life (a row never
+/// seen is never "gone": a brand-new page's first write may not have synced);
+/// `present` = it is there now. Created wins; Gone = seen and not present.
+pub fn draft_fate(seen: bool, present: bool, created_issue_id: Option<&str>) -> DraftFate {
+    match created_issue_id {
+        Some(issue_id) => DraftFate::Created {
+            issue_id: issue_id.to_string(),
+        },
+        None if seen && !present => DraftFate::Gone,
+        None => DraftFate::Open,
+    }
+}
 
 /// EXP-1212: how the page is being left. The page's OWN exits (a successful
 /// Create, a confirmed Discard) are neither: they never ask.
@@ -115,7 +150,8 @@ mod tests {
         assert_eq!(leave["keep"].as_str(), Some(LEAVE_KEEP));
         assert_eq!(leave["discard"].as_str(), Some(LEAVE_DISCARD));
         assert_eq!(leave.as_object().unwrap().len(), 4, "a new string needs a test");
-        assert_eq!(copy.as_object().unwrap().len(), 8, "a new string needs a test");
+        assert_eq!(copy["discardedElsewhere"].as_str(), Some(DISCARDED_ELSEWHERE));
+        assert_eq!(copy.as_object().unwrap().len(), 9, "a new string needs a test");
     }
 
     #[test]
@@ -140,5 +176,33 @@ mod tests {
         let autosave = &fixture["autosave"];
         assert_eq!(autosave["debounceMs"].as_u64(), Some(AUTOSAVE_DEBOUNCE_MS));
         assert_eq!(autosave.as_object().unwrap().len(), 1, "a new constant needs a test");
+    }
+
+    #[test]
+    fn issue_draft_concurrency_matches_the_fixture() {
+        let fixture = fixture();
+        let concurrency = &fixture["concurrency"];
+        assert_eq!(
+            concurrency["discardedGraceMs"].as_u64(),
+            Some(DISCARDED_GRACE_MS)
+        );
+        assert_eq!(concurrency.as_object().unwrap().len(), 1, "a new constant needs a test");
+    }
+
+    #[test]
+    fn draft_fate_table() {
+        let created = || DraftFate::Created {
+            issue_id: "i1".into(),
+        };
+        // (seen, present, created) → fate
+        assert_eq!(draft_fate(false, false, None), DraftFate::Open, "never seen is never gone");
+        assert_eq!(draft_fate(false, true, None), DraftFate::Open);
+        assert_eq!(draft_fate(true, true, None), DraftFate::Open);
+        assert_eq!(draft_fate(true, false, None), DraftFate::Gone);
+        // Created wins over everything.
+        assert_eq!(draft_fate(false, false, Some("i1")), created());
+        assert_eq!(draft_fate(true, false, Some("i1")), created());
+        assert_eq!(draft_fate(true, true, Some("i1")), created());
+        assert_eq!(draft_fate(false, true, Some("i1")), created());
     }
 }

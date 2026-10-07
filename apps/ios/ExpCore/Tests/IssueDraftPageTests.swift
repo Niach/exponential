@@ -33,10 +33,16 @@ final class IssueDraftPageTests: XCTestCase {
             let untitled: String
             let discardConfirm: DiscardConfirm
             let leave: Leave
+            let discardedElsewhere: String
+        }
+
+        struct Concurrency: Decodable {
+            let discardedGraceMs: Double
         }
 
         let copy: Copy
         let autosave: Autosave
+        let concurrency: Concurrency
     }
 
     private var fixtureURL: URL {
@@ -84,6 +90,7 @@ final class IssueDraftPageTests: XCTestCase {
             "leave.create": IssueDraftPage.Leave.create,
             "leave.keep": IssueDraftPage.Leave.keep,
             "leave.discard": IssueDraftPage.Leave.discard,
+            "discardedElsewhere": IssueDraftPage.discardedElsewhere,
         ]
         let expected: [String: String] = [
             "header": copy.header,
@@ -98,6 +105,7 @@ final class IssueDraftPageTests: XCTestCase {
             "leave.create": copy.leave.create,
             "leave.keep": copy.leave.keep,
             "leave.discard": copy.leave.discard,
+            "discardedElsewhere": copy.discardedElsewhere,
         ]
         XCTAssertEqual(mirrored, expected)
         XCTAssertEqual(Set(mirrored.keys), try fixtureCopyKeys())
@@ -172,5 +180,28 @@ final class IssueDraftPageTests: XCTestCase {
 
     func testAutosaveDebounce() throws {
         XCTAssertEqual(IssueDraftPage.autosaveDebounceMs, try fixture().autosave.debounceMs)
+    }
+
+    // EXP-1231: draft concurrency.
+
+    func testDiscardedGrace() throws {
+        XCTAssertEqual(IssueDraftPage.discardedGraceMs, try fixture().concurrency.discardedGraceMs)
+    }
+
+    func testFate() {
+        // Created elsewhere wins over everything.
+        for seen in [false, true] {
+            for present in [false, true] {
+                XCTAssertEqual(
+                    IssueDraftPage.fate(seen: seen, present: present, createdIssueId: "i1"),
+                    .created(issueId: "i1")
+                )
+            }
+        }
+        // A row never seen is never gone (a brand-new page's first write).
+        XCTAssertEqual(IssueDraftPage.fate(seen: false, present: false, createdIssueId: nil), .open)
+        XCTAssertEqual(IssueDraftPage.fate(seen: true, present: true, createdIssueId: nil), .open)
+        // Seen, then gone with no issue made from it.
+        XCTAssertEqual(IssueDraftPage.fate(seen: true, present: false, createdIssueId: nil), .gone)
     }
 }

@@ -69,6 +69,11 @@ interface IssueDao {
     @Query("SELECT * FROM issues WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<IssueEntity?>
 
+    // EXP-1231: the issue created from a draft (`issues.draft_id`), the open
+    // draft page's proof it was created elsewhere.
+    @Query("SELECT * FROM issues WHERE draft_id = :draftId LIMIT 1")
+    fun observeByDraftId(draftId: String): Flow<IssueEntity?>
+
     // Existence probe for the push-tap fallback's fill-a-hole guard (EXP-264);
     // suspend so it can run inside the same withTransaction as the insert.
     @Query("SELECT EXISTS(SELECT 1 FROM issues WHERE id = :id)")

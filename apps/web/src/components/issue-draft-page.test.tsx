@@ -33,13 +33,20 @@ const editor = vi.hoisted(() => ({
   create: vi.fn(),
   discard: vi.fn(async () => true),
   leave: vi.fn(async () => true),
+  /** EXP-1231: the options the page handed the controller (its callbacks). */
+  options: null as null | { onConsumedElsewhere?: (consumed: unknown) => void },
 }))
+const toastMessage = vi.hoisted(() => vi.fn())
 
-vi.mock(`@exp/ui`, async (importOriginal) => ({
+vi.mock(`@exp/ui`, async (importOriginal) => {
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
-  ...(await importOriginal<typeof import("@exp/ui")>()),
-  useIsMobile: () => mobileState.mobile,
-}))
+  const actual = await importOriginal<typeof import("@exp/ui")>()
+  return {
+    ...actual,
+    useIsMobile: () => mobileState.mobile,
+    toast: { ...actual.toast, message: toastMessage },
+  }
+})
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => navigate,
   useBlocker: (opts: {
@@ -60,7 +67,9 @@ vi.mock(`@tanstack/react-router`, () => ({
   },
 }))
 vi.mock(`@/hooks/use-issue-draft-editor`, () => ({
-  useIssueDraftEditor: () => ({
+  useIssueDraftEditor: (options: typeof editor.options) => {
+    editor.options = options
+    return {
     title: `Fix it`,
     description: ``,
     boardId: `b1`,
@@ -77,7 +86,8 @@ vi.mock(`@/hooks/use-issue-draft-editor`, () => ({
     onDescriptionBlur: vi.fn(),
     ...editor,
     isCreating: () => editor.creating,
-  }),
+    }
+  },
 }))
 vi.mock(`@/hooks/use-detail-chrome`, () => ({
   useMeasuredSize: () => [() => {}, { width: 0, height: 0 }],
@@ -139,6 +149,50 @@ beforeEach(() => {
   editor.discard.mockImplementation(async () => true)
   editor.leave.mockReset()
   editor.leave.mockImplementation(async () => true)
+  editor.options = null
+  toastMessage.mockReset()
+})
+
+// EXP-1231: the draft consumed on another client — the controller's
+// verdict, the page's exit. Both are the page's OWN exits: they replace or
+// leave with the blocker ignored, nothing is asked.
+describe(`IssueDraftPage consumed elsewhere`, () => {
+  it(`created elsewhere: becomes that issue's detail, replacing the draft entry`, () => {
+    renderPage()
+    act(() => {
+      editor.options?.onConsumedElsewhere?.({
+        kind: `created`,
+        issue: { id: `i9`, identifier: `WEB-9`, boardId: `b1` },
+      })
+    })
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: { teamSlug: `acme`, boardSlug: `web`, issueIdentifier: `WEB-9` },
+        replace: true,
+        ignoreBlocker: true,
+      })
+    )
+    expect(toastMessage).not.toHaveBeenCalled()
+    expect(screen.queryByTestId(`issue-draft-leave-dialog`)).toBeNull()
+  })
+
+  it(`discarded elsewhere: says so and goes Back past the blocker`, () => {
+    renderPage()
+    act(() => {
+      editor.options?.onConsumedElsewhere?.({ kind: `discarded` })
+    })
+    expect(toastMessage).toHaveBeenCalledWith(ISSUE_DRAFT_COPY.discardedElsewhere)
+    expect(navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: `/t/$teamSlug/boards/$boardSlug`,
+        params: { teamSlug: `acme`, boardSlug: `web` },
+        ignoreBlocker: true,
+      })
+    )
+    expect(editor.leave).not.toHaveBeenCalled()
+    expect(editor.discard).not.toHaveBeenCalled()
+  })
 })
 
 describe(`IssueDraftPage discard`, () => {

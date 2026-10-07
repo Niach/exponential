@@ -914,6 +914,9 @@ export const issuesRouter = router({
             dueDate: input.dueDate ?? null,
             estimate: input.estimate ?? null,
             completedAt,
+            // EXP-1231: the draft this create CONSUMES (its row goes below),
+            // synced so a page still showing it elsewhere lands here.
+            draftId: input.draftId && draftOwned ? input.draftId : null,
             creatorId: ctx.session.user.id,
           })
           .returning()

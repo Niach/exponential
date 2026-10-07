@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState } from "react"
 import { toast } from "@exp/ui"
-import type { Board, IssueDraft, User } from "@/db/schema"
+import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
-import { ISSUE_DRAFT_AUTOSAVE_MS, canCreateDraft } from "@/lib/issue-draft-page"
 import {
+  ISSUE_DRAFT_AUTOSAVE_MS,
+  ISSUE_DRAFT_DISCARDED_GRACE_MS,
+  canCreateDraft,
+} from "@/lib/issue-draft-page"
+import {
+  draftFate,
   hasDraftContent,
   toDialogSeed,
   toUpsertInput,
   type DraftSnapshot,
 } from "@/lib/issue-drafts"
+import { trpcErrorCode } from "@/lib/trpc-error"
+import { useIssueFromDraft } from "@/hooks/use-issue-drafts"
 import {
   isFallbackStatusOption,
   statusUpdatePayload,
@@ -36,6 +43,15 @@ import type { FilesSectionFile } from "@/components/issue-files-section"
 //   * Create flushes, files the issue with `draftId` (the server consumes the
 //     row in the same transaction) and finalises the page so the leave write
 //     never resurrects it. Discard deletes and finalises.
+//   * EXP-1231: the same draft may be open elsewhere (another tab, another
+//     device). The page watches its row through the shape (`draftFate`): an
+//     issue carrying this draft id = created elsewhere, the page finalises
+//     and the caller lands on it; the row seen synced and gone with no such
+//     issue = discarded elsewhere once `ISSUE_DRAFT_DISCARDED_GRACE_MS` has
+//     passed (writes are held meanwhile; a row that returns resumes them).
+//     The page's own Create and Discard never trip it. The server refuses
+//     an upsert of a consumed id (CONFLICT): that failure is not a save
+//     error, the shape is about to land the issue.
 
 export interface IssueDraftEditorOptions {
   draftId: string
@@ -44,12 +60,21 @@ export interface IssueDraftEditorOptions {
   initialBoardId: string
   /** The group status a "+" seeded (`?status=`). */
   initialStatusId?: string | null
-  /** The synced row present when the page opened — seeds it ONCE. */
+  /** The synced row — LIVE. Seeds the page ONCE when present on open;
+   *  afterwards only its presence is read (EXP-1231). */
   draft?: IssueDraft
   boards: readonly Board[]
   labels: readonly { id: string }[]
   users: readonly User[]
+  /** EXP-1231: another client consumed the draft. `created` = land on the
+   *  issue (as the page's own Create does); `discarded` = leave. The page
+   *  has already stopped writing when this fires. */
+  onConsumedElsewhere?: (consumed: DraftConsumedElsewhere) => void
 }
+
+export type DraftConsumedElsewhere =
+  | { kind: `created`; issue: Issue }
+  | { kind: `discarded` }
 
 export interface CreatedIssue {
   identifier: string
@@ -67,8 +92,11 @@ export function useIssueDraftEditor({
   boards,
   labels,
   users,
+  onConsumedElsewhere,
 }: IssueDraftEditorOptions) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
+  // EXP-1231: the issue created from this draft, wherever that happened.
+  const createdElsewhere = useIssueFromDraft(draftId)
 
   // Seeded ONCE from the row present on open; later shape echoes of our own
   // writes must never overwrite what is being typed.
@@ -159,6 +187,15 @@ export function useIssueDraftEditor({
   // the autosave, which the pre-create flush still needs); this one gates
   // the leave prompt and Discard.
   const createInFlightRef = useRef(false)
+  // EXP-1231: the row has been seen synced during this page's life (the
+  // seed, or the echo of our first write) — only then can it be "gone".
+  const seenRef = useRef(draft != null)
+  // EXP-1231: the row vanished with no issue claiming it; writes are held
+  // until it returns or the grace runs out (then the page is left).
+  const holdRef = useRef(false)
+  const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const onConsumedElsewhereRef = useRef(onConsumedElsewhere)
+  onConsumedElsewhereRef.current = onConsumedElsewhere
 
   const clearTimer = () => {
     if (timerRef.current !== null) {
@@ -175,7 +212,7 @@ export function useIssueDraftEditor({
   }
 
   const writeTask = (mode: WriteMode) => async () => {
-    if (finalizedRef.current || creatingRef.current) return
+    if (finalizedRef.current || creatingRef.current || holdRef.current) return
     const snapshot = snapshotRef.current
     if (hasDraftContent(snapshot)) {
       const input = toUpsertInput(snapshot)
@@ -211,7 +248,15 @@ export function useIssueDraftEditor({
         failedWritesRef.current = 0
         return true
       },
-      () => {
+      (error: unknown) => {
+        // EXP-1231: the server refused a draft an issue was already created
+        // from (another client beat this write). Nothing to save any more:
+        // the shape lands the issue and the page goes there.
+        if (trpcErrorCode(error) === `CONFLICT`) {
+          finalizedRef.current = true
+          clearTimer()
+          return true
+        }
         failedWritesRef.current += 1
         if (mode === `leave` || failedWritesRef.current === 2) {
           toast.error(`Could not save the draft`)
@@ -282,6 +327,53 @@ export function useIssueDraftEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // EXP-1231: what the shape says about the row. Never while the page's own
+  // Create is in flight (its transaction deletes the row and lands the issue:
+  // that is the page's own exit) nor after its own Create/Discard.
+  const rowPresent = draft != null
+  if (rowPresent) seenRef.current = true
+  const createdElsewhereId = createdElsewhere?.id
+  const clearGrace = () => {
+    if (graceTimerRef.current !== null) {
+      clearTimeout(graceTimerRef.current)
+      graceTimerRef.current = null
+    }
+  }
+  useEffect(() => {
+    if (finalizedRef.current || createInFlightRef.current) return
+    const fate = draftFate(seenRef.current, rowPresent, createdElsewhereId)
+    if (fate.kind === `created` && createdElsewhere) {
+      clearGrace()
+      holdRef.current = false
+      finalizedRef.current = true
+      clearTimer()
+      onConsumedElsewhereRef.current?.({ kind: `created`, issue: createdElsewhere })
+      return
+    }
+    if (fate.kind === `gone`) {
+      if (graceTimerRef.current !== null) return
+      holdRef.current = true
+      graceTimerRef.current = setTimeout(() => {
+        graceTimerRef.current = null
+        if (finalizedRef.current || createInFlightRef.current) return
+        holdRef.current = false
+        finalizedRef.current = true
+        clearTimer()
+        onConsumedElsewhereRef.current?.({ kind: `discarded` })
+      }, ISSUE_DRAFT_DISCARDED_GRACE_MS)
+      return
+    }
+    // Back (a resync, our own racing write landed): editing resumes, and
+    // whatever was typed under the hold is written.
+    clearGrace()
+    if (holdRef.current) {
+      holdRef.current = false
+      schedule()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowPresent, createdElsewhereId])
+  useEffect(() => clearGrace, [])
 
   const bumpChips = () => setChipVersion((version) => version + 1)
 

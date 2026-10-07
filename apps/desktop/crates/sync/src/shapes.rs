@@ -196,6 +196,10 @@ pub const SHAPES: [ShapeSpec; 21] = [
             // `estimation_type` decides how it reads). `heal_missing_columns`
             // ALTERs it onto existing store tables.
             "estimate",
+            // EXP-1231: the draft this issue was created from — an open draft
+            // page on another client replaces itself with the issue.
+            // `heal_missing_columns` ALTERs it onto existing store tables.
+            "draft_id",
             "created_at",
             "updated_at",
         ],
@@ -839,6 +843,14 @@ mod tests {
         assert!(spec.columns.contains(&"estimate"));
         let teams = shape_by_name("teams").unwrap();
         assert!(teams.columns.contains(&"estimation_type"));
+    }
+
+    #[test]
+    fn issues_sync_the_draft_they_were_created_from() {
+        // EXP-1231: `issues.draft_id` is how an open draft page learns its
+        // draft was created elsewhere — dropping it strands the page.
+        let spec = shape_by_name("issues").unwrap();
+        assert!(spec.columns.contains(&"draft_id"));
     }
 
     #[test]

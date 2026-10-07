@@ -112,6 +112,37 @@ export function toDialogSeed(
   }
 }
 
+/**
+ * EXP-1231: what the synced store says about the draft a page is editing.
+ * The same draft may be open on several clients (another tab, another
+ * device); whichever creates the issue or discards the draft consumes the
+ * row for all of them.
+ *
+ *  * `created` — an issue carries this draft's id (`issues.draft_id`, stamped
+ *    by `issues.create({ draftId })`). Proof enough on its own: the page
+ *    stops writing and becomes that issue's detail, as its own Create would.
+ *  * `gone` — the row this page has SEEN synced (`seen`) is not there now
+ *    (`present` false) and no issue claims it. Discarded elsewhere, or a
+ *    moment of resync — the page waits `ISSUE_DRAFT_DISCARDED_GRACE_MS`
+ *    before leaving, and resumes if the row returns.
+ *  * `open` — nothing to conclude. A row never seen synced can never be
+ *    `gone`: a brand-new page whose first write has not landed is `open`.
+ */
+export type DraftFate =
+  | { kind: `open` }
+  | { kind: `created`; issueId: string }
+  | { kind: `gone` }
+
+export function draftFate(
+  seen: boolean,
+  present: boolean,
+  createdIssueId: string | null | undefined
+): DraftFate {
+  if (createdIssueId) return { kind: `created`, issueId: createdIssueId }
+  if (seen && !present) return { kind: `gone` }
+  return { kind: `open` }
+}
+
 /** One renderable row of the Drafts list. */
 export interface DraftEntry {
   draft: IssueDraft

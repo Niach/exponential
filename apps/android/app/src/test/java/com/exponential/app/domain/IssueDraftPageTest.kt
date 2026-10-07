@@ -31,7 +31,7 @@ class IssueDraftPageTest {
         val copy = fixture().getValue("copy").jsonObject
         val nested = setOf("discardConfirm", "leave")
         assertEquals(
-            setOf("header", "titlePlaceholder", "descriptionPlaceholder", "create", "discard", "untitled") + nested,
+            setOf("header", "titlePlaceholder", "descriptionPlaceholder", "create", "discard", "untitled", "discardedElsewhere") + nested,
             copy.keys,
         )
         assertCopy(
@@ -42,6 +42,7 @@ class IssueDraftPageTest {
                 "create" to IssueDraftPage.CREATE,
                 "discard" to IssueDraftPage.DISCARD,
                 "untitled" to IssueDraftPage.UNTITLED,
+                "discardedElsewhere" to IssueDraftPage.DISCARDED_ELSEWHERE,
             ),
             JsonObject(copy.filterKeys { it !in nested }),
         )
@@ -143,5 +144,26 @@ class IssueDraftPageTest {
         assertFalse(IssueDraftPage.createEnabled("Fix it", hasBoard = false, creating = false, uploadsInFlight = 0))
         assertFalse(IssueDraftPage.createEnabled("Fix it", hasBoard = true, creating = true, uploadsInFlight = 0))
         assertFalse(IssueDraftPage.createEnabled("Fix it", hasBoard = true, creating = false, uploadsInFlight = 1))
+    }
+
+    @Test
+    fun `the discarded grace is the contract's`() {
+        val concurrency = fixture().getValue("concurrency").jsonObject
+        assertEquals(concurrency.getValue("discardedGraceMs").jsonPrimitive.long, IssueDraftPage.DISCARDED_GRACE_MS)
+    }
+
+    // EXP-1231: an issue carrying the draft id wins; a seen row that is gone
+    // is Gone; a never-seen row is never gone.
+    @Test
+    fun `the draft's fate follows the synced store`() {
+        val open = IssueDraftPage.Fate.Open
+        val gone = IssueDraftPage.Fate.Gone
+        val created = IssueDraftPage.Fate.Created("issue-1")
+        assertEquals(open, IssueDraftPage.fate(seen = false, present = false, createdIssueId = null))
+        assertEquals(open, IssueDraftPage.fate(seen = true, present = true, createdIssueId = null))
+        assertEquals(gone, IssueDraftPage.fate(seen = true, present = false, createdIssueId = null))
+        assertEquals(created, IssueDraftPage.fate(seen = true, present = false, createdIssueId = "issue-1"))
+        assertEquals(created, IssueDraftPage.fate(seen = true, present = true, createdIssueId = "issue-1"))
+        assertEquals(created, IssueDraftPage.fate(seen = false, present = false, createdIssueId = "issue-1"))
     }
 }

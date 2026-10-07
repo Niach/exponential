@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  draftFate,
   draftTitleLabel,
   hasDraftContent,
   resolveDraftEntries,
@@ -193,5 +194,24 @@ describe(`resolveDraftEntries`, () => {
 
   it(`resolves nothing without a team`, () => {
     expect(resolveDraftEntries([draft()], [board()], undefined)).toEqual([])
+  })
+})
+
+// EXP-1231: the ONE concurrency rule ×4 — an issue claiming the draft wins
+// outright; a row seen synced and gone is "gone"; a row never seen is open.
+describe(`draftFate`, () => {
+  it(`is created whenever an issue carries the draft id, seen or not`, () => {
+    expect(draftFate(false, false, `i1`)).toEqual({ kind: `created`, issueId: `i1` })
+    expect(draftFate(true, true, `i1`)).toEqual({ kind: `created`, issueId: `i1` })
+  })
+
+  it(`is gone only for a row that was seen and is not there now`, () => {
+    expect(draftFate(true, false, null)).toEqual({ kind: `gone` })
+    expect(draftFate(true, true, null)).toEqual({ kind: `open` })
+  })
+
+  it(`never calls a row it has not seen gone`, () => {
+    expect(draftFate(false, false, null)).toEqual({ kind: `open` })
+    expect(draftFate(false, false, undefined)).toEqual({ kind: `open` })
   })
 })

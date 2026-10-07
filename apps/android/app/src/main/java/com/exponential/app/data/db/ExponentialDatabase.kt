@@ -381,8 +381,12 @@ import androidx.room.TypeConverters
     // v81 (EXP-1196/1218/1219): devices.doctor — the machine's readiness
     //      report (jsonb kept as raw text). Explicit [MIGRATION_80_81] adds
     //      the nullable column and refetches only the devices shape.
+    // v82 (EXP-1231): issues.draft_id — the draft an issue was created from,
+    //      so every open draft page sees it was created elsewhere. Explicit
+    //      [MIGRATION_81_82] adds the nullable column and refetches only the
+    //      issues shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 81,
+    version = 82,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

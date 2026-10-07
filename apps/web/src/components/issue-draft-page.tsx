@@ -16,9 +16,12 @@ import {
   WorkHeader,
   WorkStickyTray,
 } from "@exp/ui"
-import type { Board, IssueDraft, User } from "@/db/schema"
+import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
-import { useIssueDraftEditor } from "@/hooks/use-issue-draft-editor"
+import {
+  useIssueDraftEditor,
+  type DraftConsumedElsewhere,
+} from "@/hooks/use-issue-draft-editor"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { draftExitPrompt, ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
 import {
@@ -67,6 +70,12 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 // continues to where the person was going. The page's own exits (a filed
 // Create, a confirmed Discard) bypass it; closing the browser tab does not
 // ask (the autosave keeps the draft).
+//
+// EXP-1231: the draft may be consumed ELSEWHERE (another tab or device
+// created the issue from it, or discarded it). The controller notices
+// through the shape; created = this page becomes the issue's detail exactly
+// as its own Create would (replace, no prompt), discarded = a toast and
+// Back. Both are the page's own exits: the blocker never asks.
 
 // EXP-1212/EXP-1215: the two prompts are the shared `Prompt` (one question,
 // no ✕, no body, one row of the 32px `Pill` capsules) on phone AND desktop.
@@ -101,6 +110,33 @@ export function IssueDraftPage({
   const isMobile = useIsMobile()
   const navigate = useNavigate()
   const editorRef = useRef<MarkdownEditorRef>(null)
+  // Land on an issue — the page's own Create and a create elsewhere
+  // (EXP-1231) both REPLACE the draft entry, keep `?from=`, and pass the
+  // leave blocker (the draft is consumed; there is nothing to ask about).
+  const openIssue = (issue: Pick<Issue, `identifier` | `boardId`>) => {
+    void navigate({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: {
+        teamSlug,
+        boardSlug:
+          boards.find((row) => row.id === issue.boardId)?.slug ??
+          boards[0]?.slug ??
+          ``,
+        issueIdentifier: issue.identifier,
+      },
+      search: from ? { from } : {},
+      replace: true,
+      ignoreBlocker: true,
+    })
+  }
+  const onConsumedElsewhere = (consumed: DraftConsumedElsewhere) => {
+    if (consumed.kind === `created`) {
+      openIssue(consumed.issue)
+      return
+    }
+    toast.message(ISSUE_DRAFT_COPY.discardedElsewhere)
+    goBackRef.current(true)
+  }
   const editor = useIssueDraftEditor({
     draftId,
     teamId,
@@ -110,6 +146,7 @@ export function IssueDraftPage({
     boards,
     labels,
     users,
+    onConsumedElsewhere,
   })
   const board =
     boards.find((row) => row.id === editor.boardId) ??
@@ -147,6 +184,9 @@ export function IssueDraftPage({
     },
     [navigate, teamSlug, from, board?.slug]
   )
+
+  const goBackRef = useRef(goBack)
+  goBackRef.current = goBack
 
   const handleBack = () => {
     void editor.leave()

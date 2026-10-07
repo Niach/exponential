@@ -110,6 +110,22 @@ struct IssueDraftPageView: View {
         .onChange(of: vm.loadFailed) { _, failed in
             if failed { onClose() }
         }
+        // EXP-1231: another client consumed the draft. Created elsewhere =
+        // this page becomes that issue at once, exactly like its own Create
+        // (no prompt, no toast); discarded elsewhere = a toast and Back. Both
+        // are the page's own exits: never held, and any open prompt (with
+        // the navigation it held) is dropped.
+        .onChange(of: vm.consumedElsewhere) { _, consumed in
+            guard let consumed else { return }
+            dropPrompts()
+            switch consumed {
+            case let .created(issueId):
+                onCreated(issueId)
+            case .discarded:
+                toaster.info(IssueDraftPage.discardedElsewhere)
+                onClose()
+            }
+        }
         // Presenting a picker over a focused editor kept it first responder
         // (EXP-246): resign before the picker lands.
         .onChange(of: child) { _, shown in
@@ -341,6 +357,19 @@ struct IssueDraftPageView: View {
             vm.discard()
             held.proceed()
         }
+    }
+
+    /// EXP-1231: the draft is gone from under the prompts: close both, and
+    /// drop the navigation the leave dialog held (marked answered, so its
+    /// dismissal never drops it twice).
+    private func dropPrompts() {
+        confirmDiscard = false
+        if let held = heldLeave {
+            heldLeave = nil
+            leaveAnswered = true
+            held.dropped()
+        }
+        leavePresented = false
     }
 
     /// Discard draft, the page's own exit: never the leave dialog, and never

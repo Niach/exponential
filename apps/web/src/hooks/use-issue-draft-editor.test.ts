@@ -1,7 +1,10 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, IssueDraft, User } from "@/db/schema"
-import { ISSUE_DRAFT_AUTOSAVE_MS } from "@/lib/issue-draft-page"
+import {
+  ISSUE_DRAFT_AUTOSAVE_MS,
+  ISSUE_DRAFT_DISCARDED_GRACE_MS,
+} from "@/lib/issue-draft-page"
 import {
   useIssueDraftEditor,
   type IssueDraftEditorOptions,
@@ -19,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   attachmentDelete: vi.fn(),
   awaitTxId: vi.fn(),
   toastError: vi.fn(),
+  /** EXP-1231: the issue created from this draft, as the shape reports it. */
+  createdElsewhere: { current: undefined as undefined | { id: string } },
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -41,6 +46,10 @@ vi.mock(`@/lib/collections`, async (importOriginal) => ({
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...((await importOriginal()) as Record<string, unknown>),
   toast: { error: mocks.toastError, message: vi.fn() },
+}))
+
+vi.mock(`@/hooks/use-issue-drafts`, () => ({
+  useIssueFromDraft: () => mocks.createdElsewhere.current,
 }))
 
 const DRAFT_ID = `11111111-1111-4111-8111-111111111111`
@@ -99,7 +108,10 @@ async function advance(ms: number) {
 
 beforeEach(() => {
   vi.useFakeTimers()
-  for (const mock of Object.values(mocks)) mock.mockReset()
+  mocks.createdElsewhere.current = undefined
+  for (const mock of Object.values(mocks)) {
+    if (typeof mock === `function`) mock.mockReset()
+  }
   mocks.upsert.mockImplementation(async (input: { id: string }) => ({
     draft: { id: input.id },
     txId: 1,
@@ -545,5 +557,138 @@ describe(`useIssueDraftEditor discard`, () => {
     await advance(ISSUE_DRAFT_AUTOSAVE_MS * 2)
     expect(mocks.draftDelete).not.toHaveBeenCalled()
     expect(mocks.upsert).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1231: the draft consumed on ANOTHER client. The hook reads the live
+// row (`draft`) and the issue created from it (`useIssueFromDraft`).
+describe(`useIssueDraftEditor consumed elsewhere`, () => {
+  const createdIssue = { id: `i9`, identifier: `WEB-9`, boardId: BOARD_ID }
+
+  function renderLive(initialDraft: IssueDraft | undefined, onConsumedElsewhere = vi.fn()) {
+    const hook = renderHook(
+      ({ draft }: { draft: IssueDraft | undefined }) =>
+        useIssueDraftEditor(options({ draft, onConsumedElsewhere })),
+      { initialProps: { draft: initialDraft } }
+    )
+    return { ...hook, onConsumedElsewhere }
+  }
+
+  it(`lands on the issue created elsewhere and never writes again`, async () => {
+    const { result, rerender, unmount, onConsumedElsewhere } = renderLive(existingDraft())
+    act(() => result.current.setTitle(`Edited here`))
+    // The other client's create: the row goes, the issue lands.
+    mocks.createdElsewhere.current = createdIssue
+    rerender({ draft: undefined })
+    await settle()
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({
+      kind: `created`,
+      issue: createdIssue,
+    })
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    unmount()
+    await settle()
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    expect(mocks.draftDelete).not.toHaveBeenCalled()
+  })
+
+  it(`an issue claiming the draft is proof enough, even with the row still synced`, async () => {
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    mocks.createdElsewhere.current = createdIssue
+    rerender({ draft: existingDraft() })
+    await settle()
+    expect(onConsumedElsewhere).toHaveBeenCalledTimes(1)
+    expect(result.current.hasContent).toBe(true)
+  })
+
+  it(`holds writes while the row is gone, then leaves as discarded after the grace`, async () => {
+    const { result, rerender, unmount, onConsumedElsewhere } = renderLive(existingDraft())
+    rerender({ draft: undefined })
+    act(() => result.current.setTitle(`Typed into a dead page`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({ kind: `discarded` })
+    unmount()
+    await settle()
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    expect(mocks.draftDelete).not.toHaveBeenCalled()
+  })
+
+  it(`resumes (and writes what was typed) when the row returns within the grace`, async () => {
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    rerender({ draft: undefined })
+    act(() => result.current.setTitle(`Kept`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).not.toHaveBeenCalled()
+    rerender({ draft: existingDraft() })
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    expect(mocks.upsert.mock.calls[0][0].title).toBe(`Kept`)
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+  })
+
+  it(`never calls a row it has not seen synced gone`, async () => {
+    const { result, onConsumedElsewhere } = renderLive(undefined)
+    act(() => result.current.setTitle(`Fresh`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS + ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+  })
+
+  it(`counts the echo of its own first write as seen`, async () => {
+    const { result, rerender, onConsumedElsewhere } = renderLive(undefined)
+    act(() => result.current.setTitle(`Fresh`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    rerender({ draft: existingDraft({ title: `Fresh` }) })
+    rerender({ draft: undefined })
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).toHaveBeenCalledWith({ kind: `discarded` })
+  })
+
+  it(`concludes nothing while its own Create is in flight`, async () => {
+    let resolveCreate: (value: unknown) => void = () => {}
+    mocks.create.mockImplementation(
+      () => new Promise((resolve) => (resolveCreate = resolve))
+    )
+    const { result, rerender, onConsumedElsewhere } = renderLive(existingDraft())
+    act(() => result.current.setTitle(`Mine`))
+    let created: Promise<unknown> | undefined
+    act(() => {
+      created = result.current.create()
+    })
+    await settle()
+    // Our own transaction: the row goes and the issue lands, through the
+    // shape, before the mutation answers.
+    mocks.createdElsewhere.current = createdIssue
+    rerender({ draft: undefined })
+    await settle()
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+    resolveCreate({ issue: { id: `i9`, identifier: `WEB-9` }, txId: 5 })
+    await act(async () => {
+      await created
+    })
+    await advance(ISSUE_DRAFT_DISCARDED_GRACE_MS)
+    expect(onConsumedElsewhere).not.toHaveBeenCalled()
+  })
+
+  it(`treats the server's CONFLICT on a consumed draft as nothing to save`, async () => {
+    const { TRPCClientError } = await import(`@trpc/client`)
+    mocks.upsert.mockRejectedValue(
+      Object.assign(new TRPCClientError(`consumed`), { data: { code: `CONFLICT` } })
+    )
+    const { result, unmount } = renderLive(existingDraft())
+    act(() => result.current.setTitle(`Late write`))
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.leave()
+    })
+    expect(ok).toBe(true)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+    unmount()
+    await settle()
+    expect(mocks.upsert).toHaveBeenCalledTimes(1)
   })
 })

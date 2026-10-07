@@ -36,6 +36,7 @@ public extension FetchedIssue {
             prBaseBranch: prBaseBranch,
             prMergedAt: prMergedAt,
             estimate: estimate,
+            draftId: draftId,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
@@ -72,6 +73,7 @@ public extension IssueEntity {
             prBaseBranch: prBaseBranch,
             prMergedAt: prMergedAt,
             estimate: estimate,
+            draftId: draftId,
             createdAt: createdAt,
             updatedAt: updatedAt
         )
