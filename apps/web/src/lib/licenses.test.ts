@@ -17,6 +17,10 @@ import { describe, expect, it } from "vitest"
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
+import {
+  parseBunLock,
+  productionClosure,
+} from "../../../../packages/licenses/src/bun-lock"
 
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
 const pkg = join(repoRoot, `packages/licenses`)
@@ -143,6 +147,7 @@ describe(`notice generation`, () => {
     // would disagree on ordering and the drift gate would flap.
     for (const file of [
       `src/schema.ts`,
+      `src/bun-lock.ts`,
       `src/spdx.ts`,
       `src/text.ts`,
       `src/render.ts`,
@@ -220,62 +225,58 @@ describe(`coverage — Rust`, () => {
 })
 
 describe(`coverage — npm`, () => {
-  // bun.lock is JSON with trailing commas. Strip them rather than pull in a
-  // parser: the file is machine-written, so the shape is predictable.
-  const bunLock = JSON.parse(
-    read(`bun.lock`).replace(/,(\s*[}\]])/g, `$1`)
-  ) as {
-    workspaces: Record<string, { dependencies?: Record<string, string> }>
-    packages: Record<string, [string, string, Record<string, unknown>, string]>
-  }
-
-  /** name -> every version bun.lock resolves for it. */
-  const resolved = new Map<string, Set<string>>()
-  for (const entry of Object.values(bunLock.packages)) {
-    const spec = entry[0]
-    // Names may be scoped (`@scope/name@1.2.3`), so split at the LAST `@`
-    // that is not the leading one.
-    const at = spec.lastIndexOf(`@`)
-    if (at <= 0) continue
-    const name = spec.slice(0, at)
-    const version = spec.slice(at + 1)
-    const versions = resolved.get(name) ?? new Set<string>()
-    versions.add(version)
-    resolved.set(name, versions)
-  }
+  // The committed inventory needs node_modules to COLLECT (licence bodies,
+  // copyright lines), but the SET of components it must contain is a pure
+  // function of bun.lock: a workspace's `dependencies` + `optionalDependencies`
+  // walked transitively, our `@exp/*` packages traversed through. So the gate
+  // recomputes that closure here, with no toolchain, and demands equality in
+  // both directions — a new transitive package fails it, a removed one does.
+  //
+  // EXP-1205: the previous gate only checked the two apps' DIRECT
+  // dependencies. EXP-887 then added the shadcn set to `@exp/ui`, which both
+  // apps reach through a workspace edge, and the inventories went 1 (web) and
+  // 128 (marketing) components short for weeks while the gate stayed green.
+  const lock = parseBunLock(read(`bun.lock`))
 
   const cases = [
     { scope: `apps/web`, inv: npmWeb },
     { scope: `apps/marketing`, inv: npmMarketing },
   ]
 
-  it.each(cases)(`$scope: nothing attributed has left bun.lock`, ({ inv }) => {
-    const stale = inv.components
-      .filter((c) => {
-        const known = resolved.get(c.name)
-        return known !== undefined && !known.has(c.version)
-      })
-      .map((c) => `${c.name}@${c.version}`)
-    expect(stale, `versions drifted from bun.lock`).toEqual([])
-  })
-
-  it.each(cases)(`$scope: every production dependency is covered`, ({ scope, inv }) => {
-    const direct = Object.keys(bunLock.workspaces[scope]?.dependencies ?? {})
-    expect(direct.length, `${scope} declares no dependencies?`).toBeGreaterThan(0)
-    const attributed = new Set(inv.components.map((c) => c.name))
-    const missing = direct.filter(
-      (name) => !name.startsWith(`@exp/`) && !attributed.has(name)
+  it.each(cases)(`$scope: the inventory IS bun.lock's production closure`, ({ scope, inv }) => {
+    const closure = productionClosure(lock, scope).map(
+      (c) => `${c.name}@${c.version}`
     )
+    expect(closure.length, `${scope} resolves no dependencies?`).toBeGreaterThan(0)
+    const attributed = inv.components.map((c) => `${c.name}@${c.version}`)
+    const missing = closure.filter((id) => !attributed.includes(id))
+    const stale = attributed.filter((id) => !closure.includes(id))
     expect(
       missing,
-      `${scope} production deps missing from the inventory — run ` +
-        `\`bun run --filter @exp/licenses collect:npm\``
+      `${scope}: in bun.lock's production closure but not attributed — run ` +
+        `\`bun run --filter @exp/licenses collect:npm && bun run notices\``
+    ).toEqual([])
+    expect(
+      stale,
+      `${scope}: attributed but no longer in bun.lock's production closure — run ` +
+        `\`bun run --filter @exp/licenses collect:npm && bun run notices\``
     ).toEqual([])
   })
 
   it.each(cases)(`$scope: no workspace package is attributed`, ({ inv }) => {
     // Our own code is covered by the repository LICENSE, not by a notice entry.
     expect(inv.components.filter((c) => c.name.startsWith(`@exp/`))).toEqual([])
+  })
+
+  it(`the shadcn CLI stays out of every production closure`, () => {
+    // EXP-1205: `shadcn` is the generator behind `bunx shadcn add`; nothing
+    // imports it. Declared under `dependencies` of `@exp/ui` it dragged ~200
+    // packages (msw, ts-morph, inquirer, ora, …) into both closures.
+    for (const inv of [npmWeb, npmMarketing]) {
+      expect(inv.components.map((c) => c.name)).not.toContain(`shadcn`)
+    }
+    const ui = lock.workspaces.get(`packages/ui`)!
+    expect(ui.dependencies).not.toHaveProperty(`shadcn`)
   })
 
   it(`platform-gated packages are attributed on every host`, () => {

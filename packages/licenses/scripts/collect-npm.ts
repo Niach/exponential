@@ -87,6 +87,11 @@ import {
   type Inventory,
   type LicenceText,
 } from "../src/schema"
+import {
+  lockLookup as lockLookupIn,
+  parseBunLock,
+  type LockEntry,
+} from "../src/bun-lock"
 
 const PKG_ROOT = resolve(import.meta.dirname, `..`)
 const REPO_ROOT = resolve(PKG_ROOT, `..`, `..`)
@@ -202,107 +207,16 @@ let gatedCount = 0
 const warn = (line: string) => process.stderr.write(`${line}\n`)
 
 // ---------------------------------------------------------------------------
-// bun.lock (JSONC — trailing commas, no comments)
+// bun.lock — parsed once; the graph helpers live in ../src/bun-lock.ts so the
+// drift gate (apps/web/src/lib/licenses.test.ts) walks the SAME key space.
 // ---------------------------------------------------------------------------
 
-const parseJsonc = (text: string): unknown => {
-  let out = ``
-  let inString = false
-  let escaped = false
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]!
-    if (inString) {
-      out += c
-      if (escaped) escaped = false
-      else if (c === `\\`) escaped = true
-      else if (c === `"`) inString = false
-      continue
-    }
-    if (c === `"`) {
-      inString = true
-      out += c
-      continue
-    }
-    if (c === `,`) {
-      let j = i + 1
-      while (j < text.length && /\s/.test(text[j]!)) j++
-      if (text[j] === `}` || text[j] === `]`) continue
-    }
-    out += c
-  }
-  return JSON.parse(out)
-}
+const LOCK = parseBunLock(readFileSync(join(REPO_ROOT, `bun.lock`), `utf8`))
 
-interface LockEntry {
-  key: string
-  name: string
-  version: string
-  isWorkspace: boolean
-  dependencies: Record<string, string>
-  optionalDependencies: Record<string, string>
-  os?: unknown
-  cpu?: unknown
-}
-
-const lockRaw = parseJsonc(
-  readFileSync(join(REPO_ROOT, `bun.lock`), `utf8`)
-) as {
-  workspaces: Record<string, { name?: string }>
-  packages: Record<string, unknown[]>
-}
-
-const parseLockEntry = (key: string, value: unknown[]): LockEntry => {
-  const ident = String(value[0] ?? key)
-  const at = ident.lastIndexOf(`@`)
-  const name = at > 0 ? ident.slice(0, at) : ident
-  const version = at > 0 ? ident.slice(at + 1) : ``
-  const meta = (
-    typeof value[2] === `object` && value[2] !== null ? value[2] : {}
-  ) as Record<string, unknown>
-  return {
-    key,
-    name,
-    version,
-    isWorkspace: version.startsWith(`workspace:`),
-    dependencies: (meta.dependencies as Record<string, string>) ?? {},
-    optionalDependencies:
-      (meta.optionalDependencies as Record<string, string>) ?? {},
-    os: meta.os,
-    cpu: meta.cpu,
-  }
-}
-
-const LOCK = new Map<string, LockEntry>()
-for (const [key, value] of Object.entries(lockRaw.packages)) {
-  LOCK.set(key, parseLockEntry(key, value))
-}
-
-/** Split a bun.lock key into segments, honouring `@scope/name` segments. */
-const splitLockKey = (key: string): string[] => {
-  if (key === ``) return []
-  const parts = key.split(`/`)
-  const out: string[] = []
-  for (let i = 0; i < parts.length; i++) {
-    if (parts[i]!.startsWith(`@`) && i + 1 < parts.length)
-      out.push(`${parts[i]}/${parts[++i]}`)
-    else out.push(parts[i]!)
-  }
-  return out
-}
-
-/** Node-style lookup inside bun.lock's flattened key space. */
 const lockLookup = (
   importerKey: string | null,
   name: string
-): LockEntry | undefined => {
-  const chain = splitLockKey(importerKey ?? ``)
-  for (let i = chain.length; i >= 0; i--) {
-    const candidate = [...chain.slice(0, i), name].join(`/`)
-    const hit = LOCK.get(candidate)
-    if (hit) return hit
-  }
-  return undefined
-}
+): LockEntry | undefined => lockLookupIn(LOCK, importerKey, name)
 
 // ---------------------------------------------------------------------------
 // Disk resolution
