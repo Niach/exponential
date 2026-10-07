@@ -32,6 +32,9 @@ cursor-overlay = { git = "https://github.com/trycua/cua", rev = "73387960d56a99d
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "73387960d56a99dd2f607cef9b2bdae57e373217", package = "cua-driver-sdk", features = ["portal-libei"], optional = true }
+# EXP-1235: parks cua's MPX master pointer after each call (`park.rs`); the
+# same Xlib/XI2 bindings cua's Linux backend already links.
+x11 = { version = "2.21", features = ["xlib", "xinput"], optional = true }
 
 # The worker's main thread on macOS: the AppKit run loop of the agent cursor.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -43,7 +46,7 @@ platform-macos = { git = "https://github.com/trycua/cua", rev = "73387960d56a99d
 # libX11, libxkbcommon and libpipewire at load time and a headless server
 # has none of them (the daemon is what servers run). Without it the crate
 # is the same API answering "not available here".
-cua = ["dep:cua-driver-sdk", "dep:cursor-overlay", "dep:platform-macos", "dep:tokio"]
+cua = ["dep:cua-driver-sdk", "dep:cursor-overlay", "dep:platform-macos", "dep:tokio", "dep:x11"]
 
 [[example]]
 name = "serve"

@@ -19,6 +19,8 @@
 mod channel;
 #[cfg(feature = "cua")]
 mod driver;
+#[cfg(all(feature = "cua", target_os = "linux"))]
+mod park;
 mod server;
 pub mod worker;
 
