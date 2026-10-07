@@ -36,6 +36,10 @@ const RecentRunsIcon = conceptIcon(`settings-sessions`)
 
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
+// EXP-1233: `?conflict=1` — the router parses a bare `1` as a NUMBER, so the
+// flag is normalised back to the seed's string form here.
+const flag = (value: unknown): string | undefined =>
+  value === `1` || value === 1 || value === true ? `1` : undefined
 
 // EXP-818: the team's AGENT page — the composer over the caller's sessions
 // list (Running, then Past). EXP-825 made that composer THE launcher: issues,
@@ -79,7 +83,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     device: str(search.device),
     text: str(search.text),
     icon: str(search.icon),
-    conflict: str(search.conflict),
+    conflict: flag(search.conflict),
     from: str(search.from),
   }),
   beforeLoad: async ({ context, location }) => {
