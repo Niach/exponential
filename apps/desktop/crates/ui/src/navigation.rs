@@ -477,6 +477,10 @@ pub(crate) struct ChatSeed {
     /// FEED-50: the board a Tidy up start cleans — fills the Tidy up
     /// builtin's `board` input (the board list's quick-action button).
     pub(crate) board_id: Option<String>,
+    /// EXP-1233: a merge refused by a REAL conflict opened this seed (web
+    /// `?conflict=1`) — the fix-conflicts card adds its refusal line. Only
+    /// meaningful on the fix-conflicts builtin; [`Self::with_conflict`] sets it.
+    pub(crate) conflict: bool,
 }
 
 impl ChatSeed {
@@ -496,8 +500,6 @@ impl ChatSeed {
         }
     }
 
-    /// The fix-conflicts builtin with its PR preselected (Reviews, the PR
-    /// diff, the issue header).
     /// FEED-50: the board list's Tidy up button — the Tidy up builtin as the
     /// composer's subject with its `board` input set to that board.
     pub(crate) fn tidy_up(board_id: impl Into<String>) -> Self {
@@ -508,12 +510,21 @@ impl ChatSeed {
         }
     }
 
+    /// The fix-conflicts builtin with its PR preselected (the action picker's
+    /// PR row, the styleguide); `conflict` stays false.
     pub(crate) fn fix_conflicts(pr_issue_id: impl Into<String>) -> Self {
         Self {
             action_id: Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
             pr_issue_id: Some(pr_issue_id.into()),
             ..Default::default()
         }
+    }
+
+    /// EXP-1233: the same seed, flagged as opened by a conflict-refused
+    /// merge (the Merge slot, the Reviews rows) — the card says why.
+    pub(crate) fn with_conflict(mut self) -> Self {
+        self.conflict = true;
+        self
     }
 
     /// EXP-1037 — the ONE rule that decides where this seed opens (×4): a
@@ -1005,6 +1016,8 @@ fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
             "icon" => seed.icon = Some(value.to_string()),
             // FEED-50: `chat?action=builtin:tidy-up&board=<uuid>`.
             "board" => seed.board_id = Some(value.to_string()),
+            // EXP-1233: `chat?action=builtin:fix-conflicts&pr=<uuid>&conflict=1`.
+            "conflict" => seed.conflict = value == "1" || value == "true",
             _ => {}
         }
     }
@@ -2261,6 +2274,7 @@ mod tests {
         assert!(!ChatSeed::issues(Vec::new()).has_subject());
         assert!(ChatSeed::action("act-1").has_subject());
         assert!(ChatSeed::fix_conflicts("issue-1").has_subject());
+        assert!(ChatSeed::fix_conflicts("issue-1").with_conflict().has_subject());
         let tidy = ChatSeed::tidy_up("board-1");
         assert!(tidy.has_subject());
         assert_eq!(tidy.action_id.as_deref(), Some("builtin:tidy-up"));
@@ -3002,7 +3016,7 @@ mod tests {
         assert_eq!(parse_dev_screen("chat?issues=a"), Some(Screen::Chat));
         let full = parse_dev_chat_seed(
             "chat?issues=a,b,%20&action=builtin:fix-conflicts&pr=i-1&device=dev-1\
-&text=Review%20%23EXP-1+please&icon=bug&bogus=1",
+&text=Review%20%23EXP-1+please&icon=bug&conflict=1&bogus=1",
         )
         .unwrap();
         assert_eq!(
@@ -3015,8 +3029,16 @@ mod tests {
                 pr_issue_id: Some("i-1".into()),
                 text: Some("Review #EXP-1 please".into()),
                 icon: Some("bug".into()),
+                conflict: true,
             }
         );
+        // EXP-1233: the views.json drive; anything but `1` is no conflict.
+        let drive = parse_dev_chat_seed("chat?action=builtin:fix-conflicts&pr=i-1&conflict=1")
+            .unwrap();
+        assert_eq!(drive, ChatSeed::fix_conflicts("i-1").with_conflict());
+        assert!(!parse_dev_chat_seed("chat?action=builtin:fix-conflicts&pr=i-1&conflict=0")
+            .unwrap()
+            .conflict);
         // A subset leaves the rest empty; blank values are absent.
         assert_eq!(
             parse_dev_chat_seed("chat?action=&text=hi"),
@@ -3063,5 +3085,11 @@ mod tests {
         assert_eq!(fix.action_id.as_deref(), Some("builtin:fix-conflicts"));
         assert_eq!(fix.pr_issue_id.as_deref(), Some("issue-9"));
         assert!(fix.issue_ids.is_empty());
+        // EXP-1233: only the refused merge's builder flags the conflict.
+        assert!(!fix.conflict);
+        let refused = fix.clone().with_conflict();
+        assert!(refused.conflict);
+        assert_eq!(refused.pr_issue_id, fix.pr_issue_id);
+        assert_eq!(refused.action_id, fix.action_id);
     }
 }

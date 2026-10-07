@@ -51,7 +51,8 @@ use std::rc::Rc;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    prelude::FluentBuilder as _, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
@@ -218,6 +219,10 @@ struct IssueSubject {
 struct ActionSubject {
     action_id: String,
     picks: ActionInputPicks,
+    /// EXP-1233: a merge refused by a REAL conflict opened the composer on
+    /// the Fix merge conflicts builtin (the seed's `conflict`), so its card
+    /// adds the refusal line. Lives on the subject, so any other pick clears it.
+    conflict_refused: bool,
 }
 
 /// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
@@ -290,6 +295,135 @@ fn placeholder_for_subject(
     SUBJECT_PLACEHOLDER.into()
 }
 
+/// EXP-1233 — one of the picked pull request's issues as a headline chip:
+/// THE issue chip the issues subject draws (status glyph · mono identifier ·
+/// title), id `chat-chip-issue-<IDENT>`, its ✕ titled "Clear the pull
+/// request" (the caller wires what it does). The styleguide draws it too.
+pub(crate) fn fix_conflicts_issue_chip(
+    issue: &domain::rows::Issue,
+    cx: &App,
+) -> crate::issue_chip::IssueChip {
+    crate::issue_chip::issue_chip(
+        SharedString::from(format!("chat-chip-issue-{}", issue.identifier)),
+        issue.identifier.clone(),
+        issue.title.clone(),
+    )
+    .status(queries::resolve_issue_status(cx, issue))
+    .max_title_width(px(220.))
+    .remove_tooltip("Clear the pull request")
+}
+
+/// EXP-1233 — the fix-conflicts card's PR ROW as a ghost [`Button`], so the
+/// composer can hang the `pr` dropdown on it: the open-PR glyph in the
+/// Reviews list's green, `#n` in mono foreground, the branch glyph and
+/// `branch → base` in mono at 70%, the chevron at 50%; nothing picked = the
+/// contract's muted placeholder alone. The glass picker row's 16/12 padding.
+pub(crate) fn fix_conflicts_pr_row(
+    id: impl Into<gpui::ElementId>,
+    pr: Option<&domain::fix_conflicts::FixConflictsPr>,
+    cx: &App,
+) -> Button {
+    let theme = cx.theme();
+    let foreground = theme.foreground;
+    let mono = theme.mono_font_family.clone();
+    let mut content = h_flex().w_full().min_w_0().items_center().gap_3().text_sm();
+    match pr {
+        Some(pr) => {
+            content = content.child(
+                Icon::new(registry::PR_OPEN)
+                    .size_4()
+                    .flex_shrink_0()
+                    .text_color(theme::tokens::GREEN.to_hsla()),
+            );
+            if let Some(number) = pr.pr_number {
+                content = content.child(
+                    div()
+                        .flex_shrink_0()
+                        .font_family(mono.clone())
+                        .text_color(foreground)
+                        .child(SharedString::from(format!("#{number}"))),
+                );
+            }
+            let line = pr.branch_line();
+            if !line.is_empty() {
+                content = content.child(
+                    h_flex()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1p5()
+                        .font_family(mono)
+                        .text_color(foreground.opacity(0.7))
+                        .child(Icon::new(registry::UI_BRANCH).size_3p5().flex_shrink_0())
+                        .child(div().min_w_0().truncate().child(SharedString::from(line))),
+                );
+            }
+        }
+        None => {
+            content = content.child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .truncate()
+                    .text_color(theme.muted_foreground)
+                    .child(domain::contract::COMPOSER_UI_PR_PLACEHOLDER),
+            );
+        }
+    }
+    content = content.child(
+        div().ml_auto().flex_shrink_0().child(
+            Icon::new(registry::UI_CHEVRON_DOWN)
+                .size_3p5()
+                .text_color(foreground.opacity(0.5)),
+        ),
+    );
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .w_full()
+        .h_auto()
+        .px_4()
+        .py_3()
+        .rounded_none()
+        .child(content)
+}
+
+/// EXP-1233 — the fix-conflicts card's SURFACE: the form ladder's glass
+/// group holding the PR `row` and, when `refused`, the refusal line under a
+/// hairline (the warning glyph + the contract's note, destructive tone).
+pub(crate) fn fix_conflicts_card(
+    id: impl Into<gpui::ElementId>,
+    row: AnyElement,
+    refused: bool,
+    cx: &App,
+) -> AnyElement {
+    let danger = cx.theme().danger;
+    crate::surface::glass_group()
+        .id(id)
+        .child(row)
+        .when(refused, |card| {
+            card.child(crate::surface::glass_row_divider(
+                h_flex()
+                    .id("chat-fix-conflicts-note")
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .px_4()
+                    .py(px(10.))
+                    .text_sm()
+                    .text_color(danger)
+                    .child(Icon::new(registry::UI_WARNING).size_4().flex_shrink_0())
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(domain::contract::COMPOSER_UI_CONFLICT_NOTE),
+                    ),
+            ))
+        })
+        .into_any_element()
+}
+
 /// EXP-1037 — WHERE this composer is drawn. One view, one set of state, one
 /// `send`/`start`; only the chrome around the launcher differs.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -337,6 +471,9 @@ pub(crate) struct ChatScreenView {
     pending_icon: Option<String>,
     /// FEED-50: a Tidy up seed's board, filling the builtin's `board` input.
     pending_board: Option<String>,
+    /// EXP-1233: the seed's `conflict` flag, riding the pending action to
+    /// [`Self::select_action`] (fix-conflicts builtin only).
+    pending_conflict: bool,
     /// Release review R5: the `#` picker's ranked list, memoised so a busy
     /// run's 60 fps repaint never re-ranks the pool. EXP-1030: the picker's
     /// QUERY and its keyboard cursor are the primitive's now — this memo is
@@ -505,6 +642,7 @@ impl ChatScreenView {
             pending_pr: None,
             pending_icon: None,
             pending_board: None,
+            pending_conflict: false,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -589,6 +727,7 @@ impl ChatScreenView {
         self.pending_pr = None;
         self.pending_icon = None;
         self.pending_board = None;
+        self.pending_conflict = false;
         self.error = None;
         self.mention_team = team_id.clone();
         self.mention.update(cx, |mention, _| {
@@ -641,12 +780,15 @@ impl ChatScreenView {
     /// a device seed is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if let Some(action_id) = seed.action_id {
+            self.pending_conflict =
+                seed.conflict && action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
             self.pending_action = Some(action_id);
             self.pending_pr = seed.pr_issue_id;
             self.pending_icon = seed.icon;
             self.pending_board = seed.board_id;
             self.refresh_actions(window, cx);
         } else if !seed.issue_ids.is_empty() {
+            self.pending_conflict = false;
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
@@ -909,9 +1051,12 @@ impl ChatScreenView {
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
         let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
+        let conflict_refused = std::mem::take(&mut self.pending_conflict)
+            && action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
         self.subject = Subject::Action(ActionSubject {
             action_id: action_id.clone(),
             picks: ActionInputPicks::default(),
+            conflict_refused,
         });
         if !had_subject {
             if let Some(launch) = self.launch.as_mut() {
@@ -1279,10 +1424,46 @@ impl ChatScreenView {
             Subject::Issues(issues) => SubjectKind::Issues {
                 count: issues.checked.len(),
             },
+            // EXP-1233: the Fix merge conflicts builtin with a PR picked
+            // wears its own verb and send.
+            Subject::Action(_) if self.fix_conflicts_pr_id().is_some() => SubjectKind::FixConflicts,
             Subject::Action(action) => SubjectKind::Action {
                 id: action.action_id.clone(),
             },
         }
+    }
+
+    /// EXP-1233: the representative issue id picked into the Fix merge
+    /// conflicts builtin's `pr` input; `None` for any other subject or while
+    /// nothing is picked.
+    fn fix_conflicts_pr_id(&self) -> Option<&str> {
+        let Subject::Action(subject) = &self.subject else {
+            return None;
+        };
+        if subject.action_id != api::actions::BUILTIN_FIX_CONFLICTS_ID {
+            return None;
+        }
+        subject.picks.pr_value(self.selected_action()?)
+    }
+
+    /// EXP-1233: the picked pull request off the synced issue rows (every
+    /// open issue it links — a batch PR — its number and branches).
+    fn fix_conflicts_pr(&self, cx: &App) -> Option<domain::fix_conflicts::FixConflictsPr> {
+        let pr_issue_id = self.fix_conflicts_pr_id()?;
+        let store = Store::try_global(cx)?;
+        let issues = store.collections().issues.read(cx);
+        domain::fix_conflicts::resolve_fix_conflicts_pr(Some(pr_issue_id), issues.iter())
+    }
+
+    /// EXP-1233: the headline chip's ✕ — clear the PR pick, keep the action.
+    fn clear_fix_conflicts_pr(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(action) = self.selected_action().cloned() else {
+            return;
+        };
+        if let Subject::Action(subject) = &mut self.subject {
+            subject.picks.clear_pr(&action);
+        }
+        cx.notify();
     }
 
     /// Why the submit is disabled right now; `None` = launchable. The order
@@ -2004,11 +2185,32 @@ impl ChatScreenView {
 
     /// The subject chips: one per checked issue, or the action's one. They
     /// sit in the HEADLINE (EXP-1019), not in the card's leading slot.
+    /// EXP-1233: the Fix merge conflicts builtin with a PR picked shows the
+    /// PR's ISSUE chips instead (the ones "Implement" draws); their ✕ clears
+    /// the pick, never the action.
     fn render_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let muted = cx.theme().muted_foreground;
         let mut chips: Vec<AnyElement> = Vec::new();
+        let fix_pr = self.fix_conflicts_pr(cx);
         match &self.subject {
             Subject::None => return None,
+            Subject::Action(_) if fix_pr.is_some() => {
+                for issue in fix_pr.iter().flat_map(|pr| pr.issues.iter()) {
+                    chips.push(
+                        fix_conflicts_issue_chip(issue, cx)
+                            .on_remove(
+                                SharedString::from(format!(
+                                    "chat-chip-issue-{}-remove",
+                                    issue.identifier
+                                )),
+                                cx.listener(|this, _: &ClickEvent, _, cx| {
+                                    this.clear_fix_conflicts_pr(cx);
+                                }),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
             Subject::Issues(issues) => {
                 for (ix, row) in issues
                     .rows
@@ -2089,6 +2291,8 @@ impl ChatScreenView {
     }
 
     /// The picked action's remaining typed inputs (repo/board/pr/icon).
+    /// EXP-1233: the Fix merge conflicts builtin's `pr` input is its CARD
+    /// ([`Self::render_fix_conflicts_card`]), not the generic dropdown.
     fn render_action_fields(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let Subject::Action(subject) = &self.subject else {
             return None;
@@ -2098,8 +2302,13 @@ impl ChatScreenView {
             return None;
         }
         let team_id = action.team_id.clone();
+        let fix_conflicts = action.id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
         let mut fields = v_flex().w_full().gap_2().px_1().py_1();
         for (ix, input) in action.inputs.iter().enumerate() {
+            if fix_conflicts && input.input_type == "pr" {
+                fields = fields.child(self.render_fix_conflicts_card(input, &team_id, cx));
+                continue;
+            }
             fields = fields.child(subject.picks.render_field(
                 "chat-input",
                 ix,
@@ -2122,6 +2331,33 @@ impl ChatScreenView {
             .w_full()
             .into_any_element(),
         )
+    }
+
+    /// EXP-1233 — the Fix merge conflicts CARD: a glass group whose first
+    /// row IS the `pr` picker (the open-PR glyph, `#n`, `branch → base`, the
+    /// chevron; the placeholder alone while nothing is picked) opening the
+    /// generic field's own dropdown ([`crate::action_inputs::pr_menu`]), and,
+    /// only when a refused merge opened the composer, the refusal line under
+    /// a hairline. Mirrors web `FixConflictsCard`.
+    fn render_fix_conflicts_card(
+        &self,
+        input: &api::actions::ActionInput,
+        team_id: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let pr = self.fix_conflicts_pr(cx);
+        let refused = matches!(&self.subject, Subject::Action(subject) if subject.conflict_refused);
+        let pulls = crate::action_inputs::pr_pick_options(cx, team_id);
+        let row = fix_conflicts_pr_row("chat-fix-conflicts-pr", pr.as_ref(), cx)
+            .dropdown_menu(crate::action_inputs::pr_menu(
+                cx.entity().downgrade(),
+                input.key.clone(),
+                !input.required,
+                pulls,
+                Self::picks_access,
+            ))
+            .into_any_element();
+        fix_conflicts_card("chat-fix-conflicts-card", row, refused && pr.is_some(), cx)
     }
 
     /// EXP-868: the open team pool behind the `#` tool, rebuilt only when
@@ -3467,6 +3703,7 @@ mod tests {
             Subject::Action(ActionSubject {
                 action_id: id.to_string(),
                 picks: ActionInputPicks::default(),
+                conflict_refused: false,
             })
         };
         let mut action = api::actions::builtin_fix_conflicts_action("team-1");

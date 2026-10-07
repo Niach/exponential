@@ -96,6 +96,8 @@ pub mod diff_tree;
 pub mod edit_card;
 pub mod entity_preview;
 pub mod enums;
+// EXP-1233: the Fix merge conflicts card's PR + `branch → base` (×4).
+pub mod fix_conflicts;
 pub mod hydrate;
 pub mod image_message;
 pub mod issue_draft;

@@ -107,9 +107,7 @@ impl PrDiffView {
             return;
         };
         // Moving OFF another issue's PR: a refusal captioned on the PREVIOUS
-        // PR describes a snapshot that is no longer on screen, and leaving it
-        // standing would keep "Fix conflicts" parked in the Merge slot. A
-        // first load never clears it: the Results face prefetches these files
+        // PR describes a snapshot that is no longer on screen. A first load never clears it: the Results face prefetches these files
         // for its Guide counts, and that must not wipe the CURRENT issue's
         // visible merge/Close PR failure.
         let clear = clears_merge_error(self.issue_id.as_deref(), &issue_id);

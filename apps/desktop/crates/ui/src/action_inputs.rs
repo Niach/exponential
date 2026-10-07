@@ -204,6 +204,21 @@ impl ActionInputPicks {
         true
     }
 
+    /// EXP-1233: the picked representative issue id of `action`'s (first)
+    /// `pr` input — what the fix-conflicts card resolves its PR from.
+    pub(crate) fn pr_value(&self, action: &api::actions::Action) -> Option<&str> {
+        let input = action.inputs.iter().find(|input| input.input_type == "pr")?;
+        self.pr.get(&input.key).map(|(issue_id, _)| issue_id.as_str())
+    }
+
+    /// EXP-1233: clear the `pr` pick (the fix-conflicts headline chip's ✕) —
+    /// the action stays, the card turns back into the picker.
+    pub(crate) fn clear_pr(&mut self, action: &api::actions::Action) {
+        for input in action.inputs.iter().filter(|input| input.input_type == "pr") {
+            self.pr.remove(&input.key);
+        }
+    }
+
     /// Whether `input` currently holds a usable value.
     pub(crate) fn filled(&self, input: &api::actions::ActionInput) -> bool {
         match input.input_type.as_str() {
@@ -410,48 +425,7 @@ impl ActionInputPicks {
                     .cursor_pointer()
                     .web_input_sm()
                     .label(pick_label)
-                    .dropdown_menu(move |mut menu, _window, _cx| {
-                        if optional {
-                            let view = view.clone();
-                            let key = key.clone();
-                            menu = menu.item(PopupMenuItem::new("None").on_click(
-                                move |_, _, cx| {
-                                    if let Some(view) = view.upgrade() {
-                                        view.update(cx, |view, cx| {
-                                            access(view).pr.remove(&key);
-                                            cx.notify();
-                                        });
-                                    }
-                                },
-                            ));
-                        }
-                        if pulls.is_empty() {
-                            menu = menu
-                                .item(PopupMenuItem::new("No open pull requests").disabled(true));
-                        }
-                        for (issue_id, label) in &pulls {
-                            let view = view.clone();
-                            let key = key.clone();
-                            let issue_id = issue_id.clone();
-                            let label = label.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(label.clone())).on_click(
-                                    move |_, _, cx| {
-                                        if let Some(view) = view.upgrade() {
-                                            view.update(cx, |view, cx| {
-                                                access(view).pr.insert(
-                                                    key.clone(),
-                                                    (issue_id.clone(), label.clone()),
-                                                );
-                                                cx.notify();
-                                            });
-                                        }
-                                    },
-                                ),
-                            );
-                        }
-                        menu
-                    })
+                    .dropdown_menu(pr_menu(view, key, optional, pulls, access))
                     .into_any_element()
             }
             // EXP-273: the curated icon set. Unlike the other pickers the
@@ -497,6 +471,60 @@ impl ActionInputPicks {
             .child(div().text_xs().text_color(muted).child(label))
             .child(field)
             .into_any_element()
+    }
+}
+
+/// The `pr` input's ONE dropdown — the open-PR list of [`pr_pick_options`]
+/// (a "None" row for an optional input). The generic field's button and the
+/// fix-conflicts card's row (EXP-1233, `chat_screen::render_fix_conflicts_card`)
+/// both open exactly this.
+pub(crate) fn pr_menu<V: 'static>(
+    view: gpui::WeakEntity<V>,
+    key: String,
+    optional: bool,
+    pulls: Vec<(String, String)>,
+    access: fn(&mut V) -> &mut ActionInputPicks,
+) -> impl Fn(
+    gpui_component::menu::PopupMenu,
+    &mut gpui::Window,
+    &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu
+       + 'static {
+    move |mut menu, _window, _cx| {
+        if optional {
+            let view = view.clone();
+            let key = key.clone();
+            menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |view, cx| {
+                        access(view).pr.remove(&key);
+                        cx.notify();
+                    });
+                }
+            }));
+        }
+        if pulls.is_empty() {
+            menu = menu.item(PopupMenuItem::new("No open pull requests").disabled(true));
+        }
+        for (issue_id, label) in &pulls {
+            let view = view.clone();
+            let key = key.clone();
+            let issue_id = issue_id.clone();
+            let label = label.clone();
+            menu = menu.item(PopupMenuItem::new(SharedString::from(label.clone())).on_click(
+                move |_, _, cx| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |view, cx| {
+                            access(view)
+                                .pr
+                                .insert(key.clone(), (issue_id.clone(), label.clone()));
+                            cx.notify();
+                        });
+                    }
+                },
+            ));
+        }
+        menu
     }
 }
 

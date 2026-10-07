@@ -617,9 +617,8 @@ impl IssueHeader {
         let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
         // EXP-760: Merge moved UP into the property tray beside Start coding
         // (`chip_row`) — one place for the two actions, where the eye already
-        // is. EXP-799: the fix-conflicts offer followed it there — on a real
-        // conflict the tray's Merge pill SWAPS to "Fix conflicts" + "Retry
-        // merge" (`merge_button`). What is left here is the merge ERROR
+        // is. EXP-1233: a real conflict there opens the fix-conflicts
+        // composer (`merge_button`). What is left here is the merge ERROR
         // caption, so a refusal that offers no run (offline, stale base, no
         // App) still has a visible message; empty, the row would render as
         // bare padding.
@@ -648,18 +647,18 @@ impl IssueHeader {
         Some(column.into_any_element())
     }
 
-    /// The header Merge button (EXP-268): the shared merge SLOT
-    /// (`work_header::merge_slot`, EXP-917) — two-click arm ("Merge PR" →
+    /// The header Merge button (EXP-268): the shared merge pill
+    /// (`work_header::merge_pill`, EXP-917) — two-click arm ("Merge PR" →
     /// "Confirm merge", auto-disarm ~5s), `issues.mergePr` on the background
     /// executor, the spinner held until the Electric echo flips `pr_state`
     /// away from `open` (which also drops the whole button). Merge always
-    /// closes (EXP-498). EXP-799: on a REAL conflict the slot swaps to
-    /// "Fix conflicts" + a glass "Retry merge" — the slot does that itself,
-    /// like every other Merge PR surface. Primary: with a PR open, merging is
+    /// closes (EXP-498). EXP-1233: a REAL conflict opens the fix-conflicts
+    /// composer — the pill does that itself, like every other Merge PR
+    /// surface. Primary: with a PR open, merging is
     /// what the reader came to do, and Start coding stands down to the glass
     /// paint beside it (`header_action_styles`).
     fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        crate::work_header::merge_slot(
+        crate::work_header::merge_pill(
             "header-merge-pr",
             &crate::changes_bar::MergeTarget::Issue {
                 issue_id: issue.id.clone(),

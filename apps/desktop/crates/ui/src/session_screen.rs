@@ -776,16 +776,16 @@ impl SessionScreenView {
         };
         // EXP-916: the Changes pane has no bar of its own any more, so the
         // ONE merge control lives in the header on every face. EXP-917: the
-        // shared SLOT, so a batch run's conflict swaps to Fix conflicts here
-        // exactly like the issue tray's, and any other refusal captions the
-        // header (`extra`) instead of dying in the log.
+        // shared pill, so a batch run's conflict opens the fix-conflicts
+        // composer (EXP-1233) exactly like the issue tray's, and any other
+        // refusal captions the header (`extra`) instead of dying in the log.
         let extra = merge_target
             .as_ref()
             .and_then(|target| crate::work_header::merge_error_caption(target, cx));
         if let Some(target) = merge_target {
             // EXP-926: this cluster stands beside the face toggle, so it
             // wears the TOGGLE's height, not a chip's.
-            right.push(crate::work_header::merge_slot(
+            right.push(crate::work_header::merge_pill(
                 "session-merge",
                 &target,
                 true,
