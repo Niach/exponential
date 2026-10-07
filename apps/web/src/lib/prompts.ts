@@ -153,6 +153,11 @@ export const resumeRunPrompt = (device?: string | null) => {
 export const deleteTriggerPrompt = () =>
   copyOf(P[`delete-trigger`], P[`delete-trigger`].title, P[`delete-trigger`].body)
 
+export const deleteActionPrompt = (name: string) =>
+  copyOf(P[`delete-action`], P[`delete-action`].title, P[`delete-action`].body, {
+    name,
+  })
+
 export const removeDevicePrompt = (name: string) =>
   copyOf(P[`remove-device`], P[`remove-device`].title, P[`remove-device`].body, {
     name,
@@ -269,13 +274,6 @@ const primaryConfirm = (
 const FREE = PLAN_LIMITS.free
 
 export const WEB_PROMPTS = {
-  deleteAction: (name: string) =>
-    destructiveConfirm(
-      `Delete "${name}"?`,
-      `Its triggers are deleted with it. Live runs keep going.`,
-      `delete`,
-      `Delete`
-    ),
   updateDevice: (name: string) =>
     primaryConfirm(
       `Update "${name}" now?`,

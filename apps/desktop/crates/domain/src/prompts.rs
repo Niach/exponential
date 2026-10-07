@@ -258,6 +258,17 @@ pub const DELETE_TRIGGER: Spec = Spec {
     focus: "cancel",
 };
 
+pub const DELETE_ACTION: Spec = Spec {
+    id: "delete-action",
+    copy: &[
+        ("title", "Delete \"{name}\"?"),
+        ("body", "Its triggers are deleted with it. Its runs stay and live ones keep going."),
+    ],
+    params: &["name"],
+    actions: confirm!(destructive "delete", "Delete"),
+    focus: "cancel",
+};
+
 pub const REMOVE_DEVICE: Spec = Spec {
     id: "remove-device",
     copy: &[
@@ -430,6 +441,7 @@ pub const ALL: &[Spec] = &[
     STOP_RUN,
     RESUME_RUN,
     DELETE_TRIGGER,
+    DELETE_ACTION,
     REMOVE_DEVICE,
     DELETE_TEAM,
     TRASH_BOARD,
@@ -507,6 +519,10 @@ pub fn resume_run(device: Option<&str>) -> Prompt {
 
 pub fn delete_trigger() -> Prompt {
     DELETE_TRIGGER.render("title", Some("body"), &[])
+}
+
+pub fn delete_action(name: &str) -> Prompt {
+    DELETE_ACTION.render("title", Some("body"), &[("name", name)])
 }
 
 pub fn remove_device(name: &str) -> Prompt {
@@ -693,6 +709,7 @@ mod tests {
             resume_run(Some("Mac")),
             resume_run(None),
             delete_trigger(),
+            delete_action("Triage"),
             remove_device("Mac"),
             delete_team("Acme"),
             trash_board("Web"),

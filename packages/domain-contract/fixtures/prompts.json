@@ -221,6 +221,29 @@
       ],
       "focus": "cancel"
     },
+    "delete-action": {
+      "title": "Delete \"{name}\"?",
+      "body": "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+      "params": [
+        {
+          "name": "name",
+          "meaning": "the action's name"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "delete",
+          "label": "Delete",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
     "remove-device": {
       "title": "Remove \"{name}\"?",
       "body": "A device with the daemon still running registers again on its next heartbeat.",
