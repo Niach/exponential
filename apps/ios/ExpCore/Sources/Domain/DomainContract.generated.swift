@@ -141,6 +141,10 @@ public enum DomainContract {
     public static let composerUiChatPlaceholder: String = "Ask the agent…"
     public static let composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     public static let composerUiDialogTitle: String = "Start a run"
+    public static let composerUiFixConflictsHeadline: String = "Fix merge conflicts"
+    public static let composerUiFixConflictsSubmit: String = "Fix conflicts"
+    public static let composerUiPrPlaceholder: String = "Select a pull request…"
+    public static let composerUiConflictNote: String = "Merge refused: the branch has conflicts."
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

@@ -141,6 +141,10 @@ pub const COMPOSER_UI_CHAT_HEADLINE: &str = "Ask the agent";
 pub const COMPOSER_UI_CHAT_PLACEHOLDER: &str = "Ask the agent…";
 pub const COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER: &str = "Additional instructions (optional)…";
 pub const COMPOSER_UI_DIALOG_TITLE: &str = "Start a run";
+pub const COMPOSER_UI_FIX_CONFLICTS_HEADLINE: &str = "Fix merge conflicts";
+pub const COMPOSER_UI_FIX_CONFLICTS_SUBMIT: &str = "Fix conflicts";
+pub const COMPOSER_UI_PR_PLACEHOLDER: &str = "Select a pull request…";
+pub const COMPOSER_UI_CONFLICT_NOTE: &str = "Merge refused: the branch has conflicts.";
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";

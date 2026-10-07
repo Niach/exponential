@@ -125,6 +125,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     clearAction: vi.fn(),
     setInput: vi.fn(),
     seedPrIssueId: undefined,
+    fixConflicts: null,
     text: ``,
     setText: vi.fn(),
     images: [],
@@ -239,6 +240,64 @@ describe(`LaunchComposer`, () => {
     })
     render(<LaunchComposer model={plain} users={[]} />)
     expect(screen.getByPlaceholderText(/Additional instructions/)).toBeTruthy()
+  })
+
+  // EXP-1233: the Fix merge conflicts builtin wears its own card once a
+  // pull request is picked — the PR's issue chips in the headline, the
+  // branch row (the picker) in the strip, and the refusal line when a
+  // refused merge opened the composer. No generic "Pull request" field.
+  it(`draws the conflict card for a picked Fix merge conflicts PR`, () => {
+    const fix = builtinFixConflictsAction(`t1`)
+    const pr = {
+      issueId: `i1`,
+      prNumber: 2117,
+      branch: `exp/APP-14`,
+      baseBranch: `master`,
+      issues: [issue(`i1`, `APP-14`)],
+    }
+    const model = fakeModel({
+      subject: { kind: `action`, id: fix.id, inputs: { pr: `i1` } },
+      selectedAction: fix,
+      fixConflicts: { pr, refused: true },
+      submitLabel: `Fix conflicts`,
+      blocked: false,
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    const headline = screen.getByTestId(`agent-composer-headline`)
+    expect(headline.textContent).toContain(`Fix merge conflicts`)
+    expect(headline.textContent).not.toContain(`Run`)
+    expect(screen.getByTestId(`agent-composer-chip-issue-APP-14`)).toBeTruthy()
+    expect(screen.queryByTestId(`agent-composer-chip-action`)).toBeNull()
+    const card = screen.getByTestId(`agent-composer-fix-conflicts`)
+    expect(card.textContent).toContain(`#2117`)
+    expect(card.textContent).toContain(`exp/APP-14 → master`)
+    expect(screen.getByTestId(`agent-composer-conflict-note`).textContent).toBe(
+      `Merge refused: the branch has conflicts.`
+    )
+    expect(screen.queryByText(`Pull request`)).toBeNull()
+    expect(
+      screen.getByTestId(`agent-composer-submit`).getAttribute(`aria-label`)
+    ).toBe(`Fix conflicts`)
+    // The chip's ✕ clears the PICK, not the action.
+    fireEvent.click(screen.getByTestId(`agent-composer-chip-issue-APP-14-remove`))
+    expect(model.setInput).toHaveBeenCalledWith(`pr`, ``)
+    expect(model.clearAction).not.toHaveBeenCalled()
+  })
+
+  it(`keeps the generic action chip and the picker while no PR is picked`, () => {
+    const fix = builtinFixConflictsAction(`t1`)
+    const model = fakeModel({
+      subject: { kind: `action`, id: fix.id, inputs: {} },
+      selectedAction: fix,
+      fixConflicts: { pr: null, refused: false },
+      submitLabel: `Run action`,
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    expect(screen.getByTestId(`agent-composer-headline`).textContent).toContain(`Run`)
+    expect(screen.getByTestId(`agent-composer-chip-action`)).toBeTruthy()
+    const card = screen.getByTestId(`agent-composer-fix-conflicts`)
+    expect(card.textContent).toContain(`Select a pull request…`)
+    expect(screen.queryByTestId(`agent-composer-conflict-note`)).toBeNull()
   })
 
   it(`Enter sends when not blocked, Shift+Enter breaks the line`, () => {

@@ -459,6 +459,77 @@ describe(`useLaunchComposer submit`, () => {
   })
 })
 
+// EXP-1233: the Fix merge conflicts builtin's own view — the picked PR off
+// the synced rows (every issue a batch PR links), the submit label, and the
+// refusal flag a refused merge seeds.
+describe(`useLaunchComposer fix conflicts`, () => {
+  const prIssue = (id: string, prUrl: string, extra: Record<string, unknown> = {}) => ({
+    ...issue(id, `b1`, `in_review`),
+    prUrl,
+    prNumber: 2117,
+    prState: `open`,
+    branch: `exp/batch-1`,
+    prBaseBranch: `master`,
+    ...extra,
+  })
+
+  it(`is null for every other subject`, () => {
+    const { result } = mount()
+    expect(result.current.fixConflicts).toBeNull()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.fixConflicts).toBeNull()
+    act(() => result.current.pickAction(`act-1`))
+    expect(result.current.fixConflicts).toBeNull()
+  })
+
+  it(`resolves the picked PR's linked issues, branches and number`, () => {
+    mockState.rows.issues = [
+      prIssue(`i1`, `https://github.com/o/r/pull/2117`),
+      prIssue(`i2`, `https://github.com/o/r/pull/2117`),
+      prIssue(`i3`, `https://github.com/o/r/pull/3`, { prNumber: 3 }),
+    ]
+    const { result } = mount({
+      issueIds: [],
+      actionId: BUILTIN_FIX_CONFLICTS_ID,
+      prIssueId: `i1`,
+      conflict: true,
+    })
+    // Nothing picked yet (the card's seed latch does the pick): the generic
+    // headline and "Run action" stay.
+    expect(result.current.fixConflicts).toEqual({ pr: null, refused: true })
+    expect(result.current.submitLabel).toBe(`Run action`)
+    act(() => result.current.setInput(`pr`, `i1`))
+    expect(result.current.fixConflicts?.pr).toEqual({
+      issueId: `i1`,
+      prNumber: 2117,
+      branch: `exp/batch-1`,
+      baseBranch: `master`,
+      issues: [
+        expect.objectContaining({ id: `i1` }),
+        expect.objectContaining({ id: `i2` }),
+      ],
+    })
+    expect(result.current.fixConflicts?.refused).toBe(true)
+    expect(result.current.submitLabel).toBe(`Fix conflicts`)
+    // Clearing the pick (the chip's ✕) keeps the builtin and the flag.
+    act(() => result.current.setInput(`pr`, ``))
+    expect(result.current.fixConflicts).toEqual({ pr: null, refused: true })
+    // A different subject drops the refusal.
+    act(() => result.current.pickAction(`act-1`))
+    act(() => result.current.pickAction(BUILTIN_FIX_CONFLICTS_ID))
+    expect(result.current.fixConflicts).toEqual({ pr: null, refused: false })
+  })
+
+  it(`a pick from the action picker is never flagged as refused`, () => {
+    mockState.rows.issues = [prIssue(`i1`, `https://github.com/o/r/pull/2117`)]
+    const { result } = mount()
+    act(() => result.current.pickAction(BUILTIN_FIX_CONFLICTS_ID))
+    act(() => result.current.setInput(`pr`, `i1`))
+    expect(result.current.fixConflicts?.refused).toBe(false)
+    expect(result.current.fixConflicts?.pr?.issues.map((row) => row.id)).toEqual([`i1`])
+  })
+})
+
 describe(`useLaunchComposer seed`, () => {
   it(`consumes issues, then reports`, () => {
     const { result, onSeedConsumed } = mount({ issueIds: [`i1`, `i2`, `i1`] })

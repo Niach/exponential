@@ -61,7 +61,6 @@ export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
 // and the desktop read the same names out of `packages/icons/icons.json`.
 const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
-const BranchIcon = conceptIcon(`ui-branch`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const BatchIcon = conceptIcon(`pr-batch`)
 
@@ -155,10 +154,7 @@ function ReviewsPage() {
 
   // A refusal describes ONE snapshot of the PR. Every entry stamps the issue
   // row its caption was taken from; when Electric echoes a newer `updatedAt`
-  // for that row the caption — and with it the "Fix conflicts" swap — is
-  // stale, so it clears itself and the plain Merge button comes back. Without
-  // this a conflict resolved OUTSIDE the recovery run (a teammate rebases and
-  // pushes) would hide Merge for the life of the open PR.
+  // for that row the caption is stale, so it clears itself.
   const stamps = useMemo(() => {
     const map: Record<string, string> = {}
     for (const group of groups) {
@@ -194,22 +190,20 @@ function ReviewsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stampSignature])
 
-  // "Fix conflicts" (EXP-323, desktop parity): the launch dialog opened on the
-  // builtin action with THIS pull request already picked. Presence is fetched
-  // only once a merge has actually failed — a plain Reviews visit must not
-  // poll for desktops, but waiting for the click would open the dialog on a
-  // momentary "no desktop online".
+  // The conflict recovery run (EXP-323, desktop parity): the composer opened
+  // on the builtin action with THIS pull request already picked. EXP-1233:
+  // a merge refused by a REAL conflict opens it at once — no "Fix conflicts"
+  // button in the row's slot, no caption — in the PR's OWN team (EXP-1186).
+  // Only where a run can start: a member, with the relay configured.
   const { isMember } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  // EXP-825: "Fix conflicts" is a navigation to the Agent page composer with
-  // the builtin picked and this PR pre-filled (the launch dialog is gone).
-  // EXP-1186: in the PR's OWN team.
   const openComposerInTeam = useOpenComposerInTeam()
   const openFixConflicts = (entry: ReviewEntry, rowTeamSlug: string) =>
     openComposerInTeam(rowTeamSlug, {
       actionId: BUILTIN_FIX_CONFLICTS_ID,
       prIssueId: entry.issue.id,
+      conflict: true,
     })
   // EXP-1154: the row opens the ISSUE on its Changes face (the PR's diff,
   // Merge in the tray, Close PR in the `…`); the review-detail page is gone.
@@ -239,8 +233,8 @@ function ReviewsPage() {
     })
   }
 
-  // A row's Merge (and its Retry merge): a stack member opens the stack
-  // dialog, anything else the plain confirm. The rows are already the team's
+  // A row's Merge: a stack member opens the stack dialog, anything else the
+  // plain confirm. The rows are already the team's
   // open pull requests, exactly what the chain is read from.
   const askMerge = (entry: ReviewEntry) => {
     const choice = stackMergeChoice(entry.issue, openIssues)
@@ -257,7 +251,7 @@ function ReviewsPage() {
 
   // EXP-1145: the stack dialog's two merges. A stack merge lands several pull
   // requests; its refusal captions the row with the server's message but
-  // never swaps in "Fix conflicts" (that run rebases ONE pull request).
+  // never opens the recovery run (that run rebases ONE pull request).
   const confirmStackMerge = (input: StackMergeInput) => {
     const target = stackTarget
     if (!target) return
@@ -315,17 +309,28 @@ function ReviewsPage() {
         )
       })
       .catch((error: unknown) => {
-        // Captioned on the row instead of toasted: the reason (GitHub's
-        // verbatim "not mergeable") has to stay next to the recovery button,
-        // and unstick the spinner so the merge can be retried.
         const failure = input.mergeStack
           ? {
               ...mergeFailure(error, `The stack could not be merged`),
               conflict: false,
             }
           : mergeFailure(error, `The pull request could not be merged`)
-        setMergeErrors((prev) => ({ ...prev, [entry.key]: failure }))
         release(spinning)
+        // EXP-1233: a REAL conflict (EXP-533) on a PR with a recorded branch
+        // (the run rebases it) opens the recovery run's composer at once —
+        // the composer says why. A stale base, a branch-protection refusal
+        // or an unreachable server fail the merge too, and a
+        // rebase-and-resolve run fixes none of them: those caption the row
+        // (GitHub's verbatim reason stays readable, and the spinner is
+        // unstuck for a retry).
+        if (failure.conflict && entry.issue.branch && steerEnabled) {
+          const rowTeam = groups.find((group) =>
+            group.entries.some((row) => row.key === entry.key)
+          )?.team
+          openFixConflicts(entry, rowTeam?.slug ?? team?.slug ?? teamSlug)
+          return
+        }
+        setMergeErrors((prev) => ({ ...prev, [entry.key]: failure }))
       })
   }
 
@@ -457,15 +462,6 @@ function ReviewsPage() {
                     const isBatch = entry.issues.length > 1
                     const merging = mergingIds.has(entry.key)
                     const mergeError = mergeErrors[entry.key]
-                    // The recovery run rebases the PR's branch, so it needs one
-                    // recorded — the same guard the desktop applies.
-                    // EXP-533: only for a real content conflict. A stale base,
-                    // a branch-protection refusal or an unreachable server all
-                    // fail the merge too, and a rebase-and-resolve run fixes
-                    // none of them.
-                    const canFixConflicts = Boolean(
-                      mergeError?.conflict && issue.branch && steerEnabled
-                    )
                     return (
                       <ReviewPrRow
                         key={entry.key}
@@ -498,75 +494,43 @@ function ReviewsPage() {
                             <PrOpenIcon className="h-4 w-4 text-emerald-500" />
                           )
                         }
-                        /* EXP-706: the recovery run takes the merge control's
-                            OWN slot on a real conflict — one trailing action
-                            per row, never two.
-                            EXP-698: the row's Merge and the review detail's
+                        /* EXP-698: the row's Merge and the review detail's
                             header Merge are ONE control at ONE weight —
-                            `Pill size="md" mode="action"`. */
+                            `Pill size="md" mode="action"`. EXP-1233: a real
+                            conflict opens the recovery composer instead of
+                            swapping this slot. */
                         trailing={
-                          canFixConflicts ? (
-                            <Pill
-                              size="md"
-                              mode="action"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                openFixConflicts(entry, rowTeam.slug)
-                              }}
-                            >
-                              <BranchIcon className="h-3.5 w-3.5" />
-                              Fix conflicts
-                            </Pill>
-                          ) : (
-                            <Pill
-                              size="md"
-                              mode="action"
-                              disabled={merging}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                askMerge(entry)
-                              }}
-                            >
-                              {merging ? (
-                                <>
-                                  <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
-                                  Merging…
-                                </>
-                              ) : (
-                                <>
-                                  <PrMergedIcon className="h-3.5 w-3.5" />
-                                  Merge
-                                </>
-                              )}
-                            </Pill>
-                          )
+                          <Pill
+                            size="md"
+                            mode="action"
+                            disabled={merging}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              askMerge(entry)
+                            }}
+                          >
+                            {merging ? (
+                              <>
+                                <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
+                                Merging…
+                              </>
+                            ) : (
+                              <>
+                                <PrMergedIcon className="h-3.5 w-3.5" />
+                                Merge
+                              </>
+                            )}
+                          </Pill>
                         }
-                        /* The refusal captions its own row (EXP-323) —
-                            spanning the grid so the full GitHub message stays
-                            readable. Message only since EXP-706, except while
-                            the recovery run holds the trailing slot: Merge
-                            then rides the caption as a quiet secondary so the
-                            swap is never a dead end (the conflict may have
-                            been resolved outside the recovery run). */
+                        /* A non-conflict refusal captions its own row
+                            (EXP-323) — spanning the grid so the full GitHub
+                            message stays readable. */
                         footer={
                           mergeError && (
                             <div className="col-span-4 flex flex-wrap items-center gap-2 pt-2">
                               <span className="text-destructive text-xs">
                                 {mergeError.message}
                               </span>
-                              {canFixConflicts && (
-                                <Pill
-                                  mode="action"
-                                  disabled={merging}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    askMerge(entry)
-                                  }}
-                                >
-                                  <PrMergedIcon className="size-3" />
-                                  Retry merge
-                                </Pill>
-                              )}
                             </div>
                           )
                         }
@@ -630,7 +594,7 @@ function ReviewsPage() {
                             </div>
                           )}
                         </div>
-                        {/* No "Fix conflicts" here: the recovery run takes a
+                        {/* No recovery run here: the builtin takes a
                             representative ISSUE, and a run PR has none. */}
                         <Pill
                           size="md"

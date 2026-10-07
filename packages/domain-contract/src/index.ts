@@ -167,6 +167,17 @@ export interface DomainContract {
     chatPlaceholder: string
     instructionsPlaceholder: string
     dialogTitle: string
+    /**
+     * EXP-1233: the Fix merge conflicts builtin wears its OWN look once a
+     * pull request is picked — `fixConflictsHeadline` is the verb in front
+     * of the PR's issue chips (no "Run"), `fixConflictsSubmit` the send's
+     * name, `prPlaceholder` the card's row while nothing is picked, and
+     * `conflictNote` the line a refused merge adds under the branch row.
+     */
+    fixConflictsHeadline: string
+    fixConflictsSubmit: string
+    prPlaceholder: string
+    conflictNote: string
   }
   /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so

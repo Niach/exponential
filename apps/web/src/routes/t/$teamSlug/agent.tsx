@@ -56,6 +56,8 @@ const str = (value: unknown): string | undefined =>
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft (a suggestion's description)
 //   icon    a curated icon name seeding Create action's `icon` input
+//   conflict `1` when a refused merge opened the Fix merge conflicts builtin
+//           (EXP-1233) — the composer's card says so
 //   from    where the launch came from (`lib/detail-origin.ts`) — the sidebar
 //           keeps that list beside the composer, and the run it starts
 //           inherits it (an issue origin lands on the issue's session route)
@@ -77,6 +79,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     device: str(search.device),
     text: str(search.text),
     icon: str(search.icon),
+    conflict: str(search.conflict),
     from: str(search.from),
   }),
   beforeLoad: async ({ context, location }) => {
@@ -124,6 +127,7 @@ function AgentPage() {
       search.device,
       search.text,
       search.icon,
+      search.conflict,
     ]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
@@ -191,7 +195,8 @@ function AgentPage() {
       !urlSeed.deviceId &&
       !urlSeed.prIssueId &&
       !urlSeed.text &&
-      !urlSeed.icon
+      !urlSeed.icon &&
+      !urlSeed.conflict
     if (mirrorOnly) return
     seedPendingRef.current = true
     setSeed(urlSeed)

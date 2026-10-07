@@ -255,6 +255,10 @@ const composerUiStrings: [string, string][] = [
   ["chatPlaceholder", composerUi.chatPlaceholder],
   ["instructionsPlaceholder", composerUi.instructionsPlaceholder],
   ["dialogTitle", composerUi.dialogTitle],
+  ["fixConflictsHeadline", composerUi.fixConflictsHeadline],
+  ["fixConflictsSubmit", composerUi.fixConflictsSubmit],
+  ["prPlaceholder", composerUi.prPlaceholder],
+  ["conflictNote", composerUi.conflictNote],
 ]
 const swiftComposerUi = composerUiStrings
   .map(([k, v]) => `    public static let composerUi${capFirst(k)}: String = "${v}"`)
