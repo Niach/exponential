@@ -1,4 +1,4 @@
-- Execuções: uma execução abre como um fio com uma linha de estado (Building on <device>, tempo decorrido, última linha de ferramenta) e os resultados integrados; Show work abre a transcrição completa
+- Execuções: uma execução abre como um fio com uma linha de estado (Building on your machine, tempo decorrido, última linha de ferramenta) e os resultados integrados; Show work abre a transcrição completa
 - Rascunhos: um issue criado a partir de um rascunho noutro dispositivo abre aqui como issue, e um rascunho descartado fecha em todo o lado
 - Ações: eliminar uma ação pede confirmação primeiro, no cartão de alerta partilhado
 - Dispositivos: o Codex já não precisa de instalar uma CLI; o IDE transfere-o no primeiro início de sessão

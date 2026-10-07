@@ -1,4 +1,4 @@
-- Kjøringer: en kjøring åpnes som en tråd med en statuslinje (Building on <device>, medgått tid, siste verktøylinje) og resultatene direkte i tråden; Show work åpner hele transkripsjonen
+- Kjøringer: en kjøring åpnes som en tråd med en statuslinje (Building on your machine, medgått tid, siste verktøylinje) og resultatene direkte i tråden; Show work åpner hele transkripsjonen
 - Utkast: et issue opprettet fra et utkast på en annen enhet åpnes her som issue, og et forkastet utkast lukkes overalt
 - Handlinger: sletting av en handling spør først, på det felles varselkortet
 - Enheter: Codex trenger ikke lenger en CLI-installasjon; IDE-en laster det ned ved første innlogging

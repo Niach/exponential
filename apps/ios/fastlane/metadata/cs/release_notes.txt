@@ -1,4 +1,4 @@
-- Běhy: běh se otevře jako vlákno se stavovým řádkem (Building on <device>, uplynulý čas, poslední řádek nástroje) a výsledky přímo v něm; Show work otevře celý přepis
+- Běhy: běh se otevře jako vlákno se stavovým řádkem (Building on your machine, uplynulý čas, poslední řádek nástroje) a výsledky přímo v něm; Show work otevře celý přepis
 - Koncepty: issue vytvořené z konceptu na jiném zařízení se zde otevře jako issue a zahozený koncept se zavře všude
 - Akce: smazání akce se nejprve zeptá, na sdílené kartě upozornění
 - Zařízení: Codex už nepotřebuje instalaci CLI; IDE ho stáhne při prvním přihlášení

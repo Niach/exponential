@@ -1,4 +1,4 @@
-- Runs: ein Lauf öffnet sich als Thread mit einer Statuszeile (Building on <device>, verstrichene Zeit, letzte Tool-Zeile) und seinen Ergebnissen direkt darin; Show work öffnet das vollständige Transkript
+- Runs: ein Lauf öffnet sich als Thread mit einer Statuszeile (Building on your machine, verstrichene Zeit, letzte Tool-Zeile) und seinen Ergebnissen direkt darin; Show work öffnet das vollständige Transkript
 - Entwürfe: ein Issue, das auf einem anderen Gerät aus einem Entwurf erstellt wurde, öffnet sich hier als Issue, und ein verworfener Entwurf schließt sich überall
 - Actions: das Löschen einer Action fragt zuerst nach, auf der gemeinsamen Hinweiskarte
 - Geräte: Codex braucht keine CLI-Installation mehr; die IDE lädt es bei der ersten Anmeldung herunter

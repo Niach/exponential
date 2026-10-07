@@ -1,4 +1,4 @@
-- Ejecuciones: una ejecución se abre como un hilo con una fila de estado (Building on <device>, tiempo transcurrido, última línea de herramienta) y sus resultados integrados; Show work abre la transcripción completa
+- Ejecuciones: una ejecución se abre como un hilo con una fila de estado (Building on your machine, tiempo transcurrido, última línea de herramienta) y sus resultados integrados; Show work abre la transcripción completa
 - Borradores: un issue creado a partir de un borrador en otro dispositivo se abre aquí como issue, y un borrador descartado se cierra en todas partes
 - Acciones: eliminar una acción pide confirmación primero, en la tarjeta de alerta compartida
 - Dispositivos: Codex ya no necesita instalar una CLI; el IDE lo descarga al iniciar sesión por primera vez

@@ -1,4 +1,4 @@
-- Runs: a run opens as a thread with a status row (Building on <device>, elapsed time, last tool line) and its results inline; Show work opens the full transcript
+- Runs: a run opens as a thread with a status row (Building on your machine, elapsed time, last tool line) and its results inline; Show work opens the full transcript
 - Drafts: an issue created from a draft on another device lands on the issue here, and a discarded draft closes everywhere
 - Actions: deleting an action asks first, on the shared alert card
 - Devices: Codex no longer needs a CLI install; the IDE fetches it on the first sign-in
