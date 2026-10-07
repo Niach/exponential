@@ -372,6 +372,36 @@ describe(`createPullRequest`, () => {
     const other = await createPullRequest(opts).catch((e: unknown) => e)
     expect(other).toBeInstanceOf(Error)
     expect(other).not.toBeInstanceOf(PullAlreadyExistsError)
+    expect((other as Error).message).toBe(
+      `GitHub PR create failed (422): No commits between`
+    )
+  })
+
+  // FEED-74: a 500 with an EMPTY body used to read `GitHub PR create failed
+  // (500): ` — the message names the empty body and GitHub's request id.
+  it(`names an empty body and the request id on a 5xx`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        headers: new Headers({ "x-github-request-id": `1234:ABCD` }),
+        text: async () => ``,
+        json: async () => null,
+      }))
+    )
+    await expect(
+      createPullRequest({
+        repo: `owner/repo`,
+        head: `exp/native-ci`,
+        base: `master`,
+        title: `t`,
+        body: ``,
+        token: `tok`,
+      })
+    ).rejects.toThrow(
+      `GitHub PR create failed (500): empty response body (request 1234:ABCD)`
+    )
   })
 })
 
@@ -479,6 +509,30 @@ describe(`updatePullRequest (EXP-1139)`, () => {
         fetchImpl,
       })
     ).rejects.toMatchObject({ status: 404, message: `Not Found` })
+  })
+
+  // FEED-74: the empty 500 behind "GitHub update failed:" — never an empty
+  // message again, and the request id rides along.
+  it(`names an empty body and the request id on a 5xx`, async () => {
+    const fetchImpl = (async () => ({
+      ok: false,
+      status: 500,
+      headers: new Headers({ "x-github-request-id": `1234:ABCD` }),
+      text: async () => ``,
+      json: async () => null,
+    })) as unknown as GitHubFetch
+    await expect(
+      updatePullRequest({
+        repo: `owner/repo`,
+        prNumber: 977,
+        body: `report`,
+        token: `tok`,
+        fetchImpl,
+      })
+    ).rejects.toMatchObject({
+      status: 500,
+      message: `empty response body (request 1234:ABCD)`,
+    })
   })
 })
 
