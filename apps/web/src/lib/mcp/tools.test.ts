@@ -1444,7 +1444,7 @@ describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
     expect(
       payload.uploadUrl.startsWith(`https://x.test/api/attachment-uploads/`)
     ).toBe(true)
-    expect(payload.curl).toBe(`curl -sS -T 'shot.png' "${payload.uploadUrl}"`)
+    expect(payload.curl).toBe(`curl -sS --retry 4 -T 'shot.png' "${payload.uploadUrl}"`)
     expect(Date.parse(payload.expiresAt)).toBeGreaterThan(Date.now())
     expect(payload.attachmentId).toMatch(/^[0-9a-f-]{36}$/)
     expect(uploadObject).not.toHaveBeenCalled()
@@ -3083,7 +3083,7 @@ describe(`exponential_sessions_show`, () => {
     }
     expect(payload.topic).toBe(`Progress`)
     expect(payload.curl).toBe(
-      `curl -sS -F file=@'/tmp/it'\\''s here.png' "${payload.uploadUrl}"`
+      `curl -sS --retry 4 -F file=@'/tmp/it'\\''s here.png' "${payload.uploadUrl}"`
     )
     const token = payload.uploadUrl.split(`/`).pop()!
     expect(verifySessionResultToken(token)).toMatchObject({
@@ -3222,7 +3222,7 @@ describe(`exponential_sessions_results`, () => {
       true
     )
     expect(payload.curl).toBe(
-      `curl -sS -F file=@screenshot.png "${payload.uploadUrl}"`
+      `curl -sS --retry 4 -F file=@screenshot.png "${payload.uploadUrl}"`
     )
     expect(Date.parse(payload.expiresAt)).toBeGreaterThan(Date.now())
     // The token carries the whole scope — it can write that picture and no
