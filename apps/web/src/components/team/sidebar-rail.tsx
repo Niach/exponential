@@ -265,7 +265,17 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
-        {/* Order ×4: Inbox, Devices, Reviews, Agent, Actions, Drafts. */}
+        {/* Order ×4 (EXP-1229): Agent, Inbox, Devices, Reviews, Actions, Drafts. */}
+        <RailItem
+          label="Agent"
+          link={{ to: `/t/$teamSlug/agent`, params }}
+          className={cn(
+            composerSeeded &&
+              `data-[status=active]:bg-transparent data-[status=active]:text-sidebar-foreground/80`
+          )}
+        >
+          <NavAgentIcon className="size-4" />
+        </RailItem>
         <RailItem label="Inbox" link={{ to: `/t/$teamSlug/inbox`, params }}>
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
@@ -279,16 +289,6 @@ export function TeamSidebarRail({
             <ReviewsOpenBadge boards={boards} teamId={team?.id} placement="icon" />
           </RailItem>
         )}
-        <RailItem
-          label="Agent"
-          link={{ to: `/t/$teamSlug/agent`, params }}
-          className={cn(
-            composerSeeded &&
-              `data-[status=active]:bg-transparent data-[status=active]:text-sidebar-foreground/80`
-          )}
-        >
-          <NavAgentIcon className="size-4" />
-        </RailItem>
         <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>
           <NavActionsIcon className="size-4" />
         </RailItem>
