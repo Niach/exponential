@@ -340,6 +340,14 @@ export const DEMO_SESSION_IDS = {
   /** The two finished automated runs (EXP-663). */
   nightlyTriageRun: `1f6a3c8d-5e24-4b9a-8d13-7c0e2f5a9b46`,
   updateDepsRun: `9e3b7d2a-4c61-4f8e-b5a2-3d9f1c6e8a04`,
+  /**
+   * EXP-1204: Jonas's finished chat run holding an OPEN pull request of its
+   * own — the `run-changes` view's row (EXP-1194: an issue-less run's PR diff,
+   * opened from the Reviews "Agent runs" band). A teammate's run on purpose:
+   * the web page is `TeammateRunChanges` (no steer ticket, no relay), and
+   * the natives' RunChanges screen reads the same `codingSessions.prFiles`.
+   */
+  runChanges: `4e7b2a9c-6d13-4f85-b0e7-9a2c5d8f1b36`,
 } as const
 
 /**

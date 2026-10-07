@@ -134,8 +134,10 @@ describe(`desktop attribution`, () => {
   test(`the session screen narrows to the session it draws`, () => {
     // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
     // steering view's own module, not the auth glue `session.rs` names.
+    // EXP-1204: `run-changes` is the same screen on its Diff face, so it
+    // rides along; nothing else does.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `run-changes`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -630,7 +632,18 @@ describe(`fail-safe`, () => {
       includeMissing: false,
     })
     expect(named.broad).toEqual([])
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`])
+    // EXP-1204: the two ui modules also draw `run-changes` (the run's Diff
+    // face); the engine and feed files alone claim steering only.
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `run-changes`])
+    const feedOnly = affectedScope({
+      changedFiles: [
+        `apps/desktop/crates/steer/src/viewer.rs`,
+        `apps/desktop/crates/engine/src/mapper.rs`,
+      ],
+      platforms: [`desktop`],
+      includeMissing: false,
+    })
+    expect(feedOnly.byPlatform.get(`desktop`)).toEqual([`steering`])
 
     // A grid picker rides the feed AND draws into the PTY grid, so it claims
     // both views rather than narrowing to one of them.
