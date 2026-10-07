@@ -6,8 +6,8 @@ import { defineConfig, type Plugin } from "vite"
 // EXP-1183 — the MCP Apps views ship as ONE self-contained HTML document: an
 // MCP Apps host (OpenClaw, Claude, ChatGPT…) reads it as a `ui://` resource
 // and mounts it in a sandboxed iframe with no network, so the script and the
-// stylesheet must ride inline. The web server serves the file as all three
-// `ui://exponential/*` resources (apps/web/src/lib/mcp/apps.ts), stamping the
+// stylesheet must ride inline. The web server serves the file as every
+// `ui://exponential/*` resource (apps/web/src/lib/mcp/apps.ts), stamping the
 // view name into it; like the widget it is built into the web public dir
 // BEFORE the web build, which copies it into `.output/public`.
 const OUT_DIR = fileURLToPath(

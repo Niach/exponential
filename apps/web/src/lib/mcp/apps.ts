@@ -35,7 +35,8 @@ const VIEW_TITLES: Record<McpAppView, string> = {
   devices: `Exponential devices`,
 }
 
-/** A tool's `_meta` binding to its view. `exponential_issues_list` also
+/** A tool's `_meta` binding to its view. `exponential_issues_show` (the
+ *  issues view's tool; `issues_list` has no byte budget for the binding) also
  *  advertises a global entrypoint (OpenAI's plugin extension, rendered by
  *  OpenClaw): the issue list opens without a model call, with `{}` = the
  *  caller's open issues. */
