@@ -282,6 +282,12 @@ async fn handle(
                 },
                 None => driver.call_tool_from_trusted_adapter(name, arguments).await,
             };
+            // EXP-1235: the gesture is over, the virtual pointer leaves the
+            // screen (X11 only; a hover or a held button keeps it).
+            #[cfg(target_os = "linux")]
+            if crate::park::parks_after(name) {
+                crate::park::park_virtual_pointers();
+            }
             outcome.map_err(|err| err.to_string()).and_then(|result| parse(result.raw_json))
         }
         "bind_session" => match request.arguments.map(serde_json::from_value) {

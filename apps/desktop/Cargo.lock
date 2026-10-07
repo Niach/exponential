@@ -1618,6 +1618,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "uuid",
+ "x11",
 ]
 
 [[package]]
