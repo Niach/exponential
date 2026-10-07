@@ -291,16 +291,19 @@ interface StartedRow {
  * insert. A resume (Resume, account switch, EXP-1005 rotation) of a
  * same-team predecessor is the report handoff (FEED-77), done EXACTLY ONCE
  * in one transaction so the live run is the report's only owner:
- *   1. `FOR UPDATE` on the predecessor, team-confined (the owner/host gate
- *      already ran in `resolveResumedFrom`) — the lock every report write
- *      takes (`publishSessionResultPicture`, `sessions_results`), so an
- *      upload racing this start either lands BEFORE the clear and is
- *      carried, or AFTER the commit on a row that no longer owns a report
- *      (the HMAC upload route ignores status and may still target the old
- *      row: nothing is silently erased).
- *   2. `UPDATE … SET results = NULL … RETURNING results` — the RETURNED
- *      value, never an earlier snapshot, is what the successor carries.
- *   3. The successor insert with that value.
+ *   1. `SELECT results … FOR UPDATE` on the predecessor, team-confined (the
+ *      owner/host gate already ran in `resolveResumedFrom`) — the lock every
+ *      report write takes (`publishSessionResultPicture`,
+ *      `sessions_results`), so an upload racing this start either lands
+ *      BEFORE the lock and is carried, or AFTER the commit on a row that no
+ *      longer owns a report (the HMAC upload route ignores status and may
+ *      still target the old row: nothing is silently erased). The LOCKED
+ *      read, never an earlier snapshot, is what the successor carries.
+ *   2. `UPDATE … SET results = NULL` on the locked row. FEED-78: NOT
+ *      `RETURNING results` — Postgres returns the row AFTER the update, i.e.
+ *      the NULL just written, so a carry read off it erased every resumed
+ *      run's report (and the PR body re-synced from the next lone topic).
+ *   3. The successor insert with the locked value.
  *   4. The picture rows (`session_attachments.session_id`, which a later
  *      `remove` deletes bytes through; the composer's start pictures with
  *      them) re-parent in the same transaction, so a crash never leaves two
@@ -324,7 +327,7 @@ async function insertStartRow(
   }
   return db.transaction(async (tx) => {
     const [locked] = await tx
-      .select({ id: codingSessions.id })
+      .select({ id: codingSessions.id, results: codingSessions.results })
       .from(codingSessions)
       .where(
         and(eq(codingSessions.id, predecessor.id), eq(codingSessions.teamId, teamId))
@@ -338,15 +341,14 @@ async function insertStartRow(
         .returning()
       return { session: session!, carriedReport: false }
     }
-    const [cleared] = await tx
+    const report: CodingSessionResult[] | null =
+      Array.isArray(locked.results) && locked.results.length
+        ? locked.results
+        : null
+    await tx
       .update(codingSessions)
       .set({ results: null, updatedAt: new Date() })
       .where(eq(codingSessions.id, predecessor.id))
-      .returning({ results: codingSessions.results })
-    const report: CodingSessionResult[] | null =
-      Array.isArray(cleared?.results) && cleared.results.length
-        ? cleared.results
-        : null
     const [session] = await tx
       .insert(codingSessions)
       .values({ ...values, resumedFromId: predecessor.id, results: report })
