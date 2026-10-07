@@ -1559,8 +1559,8 @@
         "file": "shots/steering/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 84852,
-        "sha256": "9ffbbc2786c987b53e56b2791d7b098ac28c6c018b1db966194605d21ffee244"
+        "bytes": 38276,
+        "sha256": "5ffffc2f08c5ef46fe1a16fb736470d25c8d7503d3b017c8efdfb5f8dc6fa872"
       },
       "desktop": {
         "file": "shots/steering/desktop.webp",
@@ -1573,8 +1573,8 @@
         "file": "shots/steering/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 83100,
-        "sha256": "d1ce15fa49217711e55d02de544cd6c09d1a7653fcf4ed9864f6024476f8f7bf"
+        "bytes": 39496,
+        "sha256": "14ca8c43eb66013caaab2d4e5584d6fe81df5fba113400258c81fa60f2b6c301"
       },
       "web": {
         "file": "shots/steering/web.webp",
