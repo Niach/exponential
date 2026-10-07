@@ -96,6 +96,8 @@ pub mod worktree_agents;
 /// EXP-1196: the device's computer-use server, re-exported so the hosts
 /// (engine, ui, cli) reach it through the launcher crate they already link.
 pub use computer;
+/// EXP-1236: the device's code-mode server, re-exported for the same reason.
+pub use codemode;
 
 pub use agent::{claude_model_alias, CodingAgent};
 pub use argv::{

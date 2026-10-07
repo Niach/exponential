@@ -20,7 +20,7 @@ log = "0.4"
 uuid = { workspace = true }
 # The loopback MCP endpoint: a blocking HTTP/1.1 server on its own thread.
 tiny_http = { version = "0.12", default-features = false }
-tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"], optional = true }
 
 # The cua driver SDK and its sibling crates, one pinned revision of the cua
 # monorepo (crates are `publish = false`). `cursor-overlay` = the agent

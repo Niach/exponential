@@ -360,6 +360,12 @@
   "codingModel": {
     "values": ["fable", "opus", "sonnet"]
   },
+  "computerUseModel": {
+    "values": ["haiku", "sonnet", "opus", "fable"]
+  },
+  "deviceComputerUseDefaults": {
+    "model": "haiku"
+  },
   "codingEffort": {
     "values": ["low", "medium", "high", "xhigh", "max"]
   },

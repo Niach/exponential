@@ -103,8 +103,8 @@ const COMMANDS_PER_HEARTBEAT = 32
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
 // client at the floors sends every key it knows, compat round 26) — except
-// `defaultAgent` and `computerUse`, which `setLaunchDefaults` carries forward
-// (EXP-1158, EXP-1196).
+// `defaultAgent`, `computerUse` and `computerUseModel`, which
+// `setLaunchDefaults` carries forward (EXP-1158, EXP-1196, EXP-1236).
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
@@ -116,6 +116,16 @@ function clampLaunchDefaults(
   // EXP-1196: a boolean passes, null (= off) is dropped like every toggle.
   if (typeof input.computerUse === `boolean`) {
     out.computerUse = input.computerUse
+  }
+  // EXP-1236: the screen-driving subagents' model, from the closed contract
+  // vocabulary; an unknown alias (version skew) is dropped, never an error.
+  if (
+    typeof input.computerUseModel === `string` &&
+    (contract.computerUseModel.values as readonly string[]).includes(
+      input.computerUseModel
+    )
+  ) {
+    out.computerUseModel = input.computerUseModel
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
@@ -882,6 +892,18 @@ export const devicesRouter = router({
         typeof storedComputerUse === `boolean`
       ) {
         clamped.computerUse = storedComputerUse
+      }
+      // EXP-1236: same contract for the computer-use model: a client that
+      // predates the key must not reset the stored pick.
+      const storedComputerUseModel = row.launchDefaults?.computerUseModel
+      if (
+        input.launchDefaults.computerUseModel === undefined &&
+        typeof storedComputerUseModel === `string` &&
+        (contract.computerUseModel.values as readonly string[]).includes(
+          storedComputerUseModel
+        )
+      ) {
+        clamped.computerUseModel = storedComputerUseModel
       }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {

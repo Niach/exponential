@@ -156,6 +156,8 @@ impl RunLifecycle {
         };
         // EXP-1196: the run's computer-use token dies with it.
         coding::computer::revoke(&ctx.session_id);
+        // EXP-1236: so does its code-mode grant (a script still running ends).
+        coding::codemode::revoke(&ctx.session_id);
         ctx.exit.finish(&exit);
         host.on_exit(exit);
         // The host got the full exit; `wait()` rebuilds it from the summary.

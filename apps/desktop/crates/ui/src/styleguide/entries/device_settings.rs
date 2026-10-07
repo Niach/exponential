@@ -8,11 +8,15 @@
 //! cleans them.
 //!
 //! EXP-1063: the demo is drawn by the dialog's OWN parts, in the dialog's
-//! order — the glass rows, `AgentDefaultsGroup` with real selects, then
-//! Update and the Remove row. The dialog view
+//! order — the glass rows, the readiness block (EXP-1236: its Computer use
+//! band with the switch on and the Computer use model picker under it, off
+//! the contract fixture's "computer use on" case), `AgentDefaultsGroup` with
+//! real selects, then Update and the Remove row. The dialog view
 //! itself is bound to a synced device row and the store, so the entry owns a
 //! small demo view holding the same entities instead; nothing it draws is a
 //! copy of a recipe.
+
+use std::rc::Rc;
 
 use gpui::{
     div, px, App, AppContext as _, Context, Div, Entity, IntoElement,
@@ -22,22 +26,46 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
+    select::Select,
     v_flex, ActiveTheme as _, Icon,
 };
 
+use coding::device_doctor::{DeviceDoctor, DoctorState, KEY_COMPUTER_USE};
 use coding::CodingAgent;
 
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, ChoiceSelect,
-    SUBAGENT_MODEL_CHOICES,
+    COMPUTER_USE_MODEL_CHOICES, SUBAGENT_MODEL_CHOICES,
 };
 use crate::controls::{glass_input, WebControl as _};
+use crate::device_readiness;
 use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
 
 pub(crate) const ID: &str = "device-settings";
 pub(crate) const OWNER: &str = "EXP-1020";
+
+/// The ONE contract fixture the readiness block replays (`device-doctor.json`).
+const DOCTOR_FIXTURE: &str =
+    include_str!("../../../../../../../packages/domain-contract/fixtures/device-doctor.json");
+
+/// EXP-1236: the fixture case whose Computer use switch is ON — the one that
+/// shows the model picker under it. `None` only if the fixture has no such
+/// case (the block is then left out, never faked).
+fn computer_use_on_doctor() -> Option<DeviceDoctor> {
+    let fixture: serde_json::Value = serde_json::from_str(DOCTOR_FIXTURE).ok()?;
+    fixture["cases"]
+        .as_array()?
+        .iter()
+        .filter_map(|case| device_readiness::parse(Some(&case["doctor"])))
+        .find(|doctor| {
+            doctor
+                .items
+                .iter()
+                .any(|item| item.key == KEY_COMPUTER_USE && item.state == DoctorState::Ok)
+        })
+}
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let demo = window.use_keyed_state("sg-device-settings", cx, DeviceSettingsDemo::new);
@@ -56,6 +84,11 @@ struct DeviceSettingsDemo {
     subagent_model: ChoiceSelect,
     ultracode: bool,
     plan_mode: bool,
+    /// EXP-1236: the readiness block's Computer use switch + the model
+    /// picker it reveals.
+    doctor: Option<DeviceDoctor>,
+    computer_use: bool,
+    computer_use_model: ChoiceSelect,
 }
 
 impl DeviceSettingsDemo {
@@ -102,7 +135,48 @@ impl DeviceSettingsDemo {
             ),
             ultracode: settings.claude_ultracode,
             plan_mode: settings.claude_plan_mode,
+            doctor: computer_use_on_doctor(),
+            computer_use: true,
+            computer_use_model: choice_select(
+                &COMPUTER_USE_MODEL_CHOICES,
+                &settings.computer_use_model,
+                window,
+                cx,
+            ),
         }
+    }
+
+    /// The dialog's readiness block: the fixture's "computer use on" case,
+    /// the switch live, the Computer use model row as the band's last row
+    /// while it is on (`device_settings::computer_use_model_row`'s twin).
+    fn readiness_block(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let doctor = self.doctor.as_ref()?;
+        let view = cx.entity().downgrade();
+        let props = device_readiness::BlockProps {
+            id: "sg-device-settings-readiness".into(),
+            on_toggle: Some(Rc::new(move |on, _window, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    this.computer_use = on;
+                    cx.notify();
+                });
+            })),
+            computer_use_tail: self.computer_use.then(|| {
+                surface::glass_picker_row(
+                    "Computer use model",
+                    None,
+                    surface::glass_picker_select(Select::new(&self.computer_use_model))
+                        .into_any_element(),
+                    cx,
+                )
+                .into_any_element()
+            }),
+            ..device_readiness::BlockProps::default()
+        };
+        Some(device_readiness::render_sections(
+            &device_readiness::sections(doctor, false, Some(self.computer_use)),
+            props,
+            cx,
+        ))
     }
 
     fn defaults_group(&self, cx: &mut Context<Self>) -> Div {
@@ -219,11 +293,13 @@ impl Render for DeviceSettingsDemo {
                 .into_any_element(),
             cx,
         );
+        let readiness = self.readiness_block(cx);
         let body = v_flex()
             .w_full()
             .gap_2()
             .child(surface::glass_group_rows(vec![identity_row]))
             .child(surface::glass_group_rows(vec![default_row]))
+            .children(readiness)
             .child(self.defaults_group(cx))
             .child(self.update_section(cx))
             .child(self.remove_row());

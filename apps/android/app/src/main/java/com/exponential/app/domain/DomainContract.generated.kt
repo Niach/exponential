@@ -42,6 +42,7 @@ object DomainContract {
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
     val codexModelValues: List<String> = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
+    val computerUseModelValues: List<String> = listOf("haiku", "sonnet", "opus", "fable")
     val actionInputTypeValues: List<String> = listOf("repo", "board", "pr", "icon")
     val mcpTransportValues: List<String> = listOf("http", "stdio")
     val mcpAuthValues: List<String> = listOf("none", "oauth", "secret")
@@ -100,6 +101,7 @@ object DomainContract {
     const val builtinTidyUpId: String = "builtin:tidy-up"
     const val deviceAgentDefaultsModel: String = "fable"
     const val deviceAgentDefaultsSubagentModel: String = ""
+    const val deviceComputerUseDefaultsModel: String = "haiku"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
     const val startPromptMaxLength: Int = 16384

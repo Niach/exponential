@@ -43,6 +43,14 @@ pub const DEFAULT_CLAUDE_SUBAGENT_MODEL: &str =
 /// The `--model` aliases the CLI accepts (and the ui selects offer) —
 /// [`Settings::load`] normalizes anything else back to the default.
 pub const MODEL_ALIASES: [&str; 3] = ["fable", "opus", "sonnet"];
+/// EXP-1236: the model aliases a run may hand its screen-driving subagents
+/// (`Settings::computer_use_model`); claude's `Agent` tool resolves each to
+/// the CLI's newest model of that family. Mirrors the contract's
+/// `computerUseModel.values`; [`Settings::load`] normalizes anything else
+/// back to [`DEFAULT_COMPUTER_USE_MODEL`].
+pub const COMPUTER_USE_MODELS: [&str; 4] = ["haiku", "sonnet", "opus", "fable"];
+/// EXP-1236: the fast one — computer use is many short look-and-click turns.
+pub const DEFAULT_COMPUTER_USE_MODEL: &str = "haiku";
 /// The `--effort` levels the CLI accepts (blank = omit the flag) —
 /// [`Settings::load`] normalizes anything else back to blank.
 pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -171,6 +179,12 @@ pub struct Settings {
     /// the person's consent. Device-level, so it rides the TOP of
     /// `launch_defaults` (`computerUse`), not an agent's entry.
     pub computer_use: bool,
+    /// EXP-1236: the model alias the run's screen-driving SUBAGENTS run on
+    /// (the computer-use section tells the agent to delegate screen work to
+    /// subagents on it). One of [`COMPUTER_USE_MODELS`], default
+    /// [`DEFAULT_COMPUTER_USE_MODEL`]. Device-level like `computer_use`
+    /// (`launch_defaults.computerUseModel`); claude-only in effect.
+    pub computer_use_model: String,
     /// EXP-288: program name or absolute path of the shell new terminal tabs
     /// spawn (launched as a login shell on unix). Not a launcher knob — it
     /// lives here because this file is the app's ONE merge-preserving
@@ -270,6 +284,7 @@ impl Default for Settings {
             claude_plan_mode: true,
             auto_rotate_accounts: true,
             computer_use: false,
+            computer_use_model: DEFAULT_COMPUTER_USE_MODEL.to_string(),
             terminal_shell: None,
             changelog_seen_id: None,
             tools_setup_seen: false,
@@ -325,6 +340,11 @@ impl Settings {
         // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
+        settings.computer_use_model = normalize_choice(
+            &settings.computer_use_model,
+            &COMPUTER_USE_MODELS,
+            DEFAULT_COMPUTER_USE_MODEL,
+        );
         // Blank/whitespace shell degrades to None (= auto-detect).
         settings.terminal_shell = settings
             .terminal_shell
@@ -582,6 +602,15 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// EXP-1236: the screen-driving model vocabulary is the contract's,
+    /// byte for byte, and the default is the contract's device default.
+    #[test]
+    fn computer_use_models_mirror_the_contract() {
+        assert_eq!(COMPUTER_USE_MODELS.as_slice(), domain::contract::COMPUTER_USE_MODEL_VALUES);
+        assert_eq!(DEFAULT_COMPUTER_USE_MODEL, domain::contract::DEVICE_COMPUTER_USE_DEFAULTS_MODEL);
+        assert_eq!(Settings::default().computer_use_model, "haiku");
     }
 
     #[test]
@@ -869,6 +898,7 @@ mod tests {
             claude_plan_mode: false,
             auto_rotate_accounts: false,
             computer_use: true,
+            computer_use_model: "sonnet".to_string(),
             terminal_shell: Some("/opt/homebrew/bin/fish".to_string()),
             changelog_seen_id: Some("2026-09-relations-and-design-refresh".to_string()),
             tools_setup_seen: true,

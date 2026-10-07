@@ -22,7 +22,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1020`,
   title: `Device settings`,
-  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
+  blurb: `One layout on all four clients (EXP-1020). Top to bottom: the identity row, the default-device toggle, sharing (server machines), then the computer-use card (the switch and, while it is on, the model the run's screen-driving subagents use, EXP-1236), then the agent-defaults card — agent tabs, model, subagent model (claude only), effort, ultracode, plan mode — and nothing after it. Update comes last but one; "Remove device" is a plain row, not a section of its own. No worktrees: a machine's worktrees are the IDE's local Settings → Worktrees. A headline only appears where something else shares the page, which is why the agent card has none.`,
   status: {
     web: {
       state: `ok`,
@@ -62,6 +62,29 @@ export const entry: StyleguideEntry = {
           label="Acme"
           checked
           onCheckedChange={noop}
+        />
+      </GlassGroup>
+      {/* EXP-1236: the model row shows only while the switch is on; the
+          aliases are contract `computerUseModel`, Haiku the default. */}
+      <GlassGroup>
+        <GlassToggleRow
+          id="demo-device-settings-computer-use"
+          label="Computer use"
+          checked
+          onCheckedChange={noop}
+        />
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Computer use model"
+          value="haiku"
+          onChange={noop}
+          options={[
+            { value: `haiku`, label: `Haiku` },
+            { value: `sonnet`, label: `Sonnet` },
+            { value: `opus`, label: `Opus` },
+            { value: `fable`, label: `Fable` },
+          ]}
         />
       </GlassGroup>
       <GlassGroup>

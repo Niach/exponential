@@ -36,6 +36,7 @@ import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
+import com.exponential.app.ui.components.COMPUTER_USE_MODEL_LABEL
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.DeviceReadinessBlock
 import com.exponential.app.ui.components.GlassPill
@@ -46,14 +47,18 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.components.computerUseModelLabel
+import com.exponential.app.ui.components.computerUseModelOptions
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelValuesFor
+import com.exponential.app.ui.components.seedComputerUseModel
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
@@ -143,6 +148,12 @@ fun DeviceSettingsSheet(
     // EXP-1196: the device-level Computer use switch. Null = never set (OFF),
     // echoed as absent so the server keeps whatever is stored.
     var computerUse by remember { mutableStateOf(device.launchDefaults?.computerUse) }
+    // EXP-1236: the alias the run's screen-driving subagents run on — the
+    // picker row under the switch (only while it is on), saved beside it.
+    // Always a contract value here (the seed clamps to the default).
+    var computerUseModel by remember {
+        mutableStateOf(seedComputerUseModel(device.launchDefaults?.computerUseModel))
+    }
     // "Remove device" waiting on its confirm. The sheet needs no dismiss of
     // its own afterwards: the caller re-resolves the live row, which is gone.
     var confirmRemove by remember { mutableStateOf(false) }
@@ -166,6 +177,7 @@ fun DeviceSettingsSheet(
             lastUsedAgent = seededDefaultAgent(device, editableAgents)
             drafts = editableAgents.associateWith { agentDraft(device, it) }
             computerUse = device.launchDefaults?.computerUse
+            computerUseModel = seedComputerUseModel(device.launchDefaults?.computerUseModel)
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
     }
@@ -180,10 +192,16 @@ fun DeviceSettingsSheet(
     fun queueDefaults(
         next: Map<String, AgentDraft> = drafts,
         nextComputerUse: Boolean? = computerUse,
+        nextComputerUseModel: String = computerUseModel,
     ) {
         viewModel.queueDefaults(
             device.deviceId,
-            buildDefaults(editableAgents, next, computerUse = nextComputerUse),
+            buildDefaults(
+                editableAgents,
+                next,
+                computerUse = nextComputerUse,
+                computerUseModel = nextComputerUseModel,
+            ),
         )
     }
 
@@ -365,6 +383,11 @@ fun DeviceSettingsSheet(
                             queueDefaults(nextComputerUse = next)
                         },
                         busyKeys = busyKeys,
+                        computerUseModel = computerUseModel,
+                        onComputerUseModelChange = { next ->
+                            computerUseModel = next
+                            queueDefaults(nextComputerUseModel = next)
+                        },
                     )
                     doctor.items.firstNotNullOfOrNull { item ->
                         commandStates[agentUpdateCommandKey(device.deviceId, item.key)]
@@ -380,6 +403,22 @@ fun DeviceSettingsSheet(
                                 queueDefaults(nextComputerUse = next)
                             },
                         )
+                        // EXP-1236: the model picker under the bare switch too,
+                        // while it is on.
+                        if (computerUse == true) {
+                            GroupDivider()
+                            PickerRow(
+                                label = COMPUTER_USE_MODEL_LABEL,
+                                value = computerUseModelLabel(computerUseModel),
+                                options = computerUseModelOptions(),
+                                selected = computerUseModel,
+                                optionLabel = ::computerUseModelLabel,
+                                onSelect = { next ->
+                                    computerUseModel = next
+                                    queueDefaults(nextComputerUseModel = next)
+                                },
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -671,8 +710,11 @@ internal fun buildDefaults(
     drafts: Map<String, AgentDraft>,
     // EXP-1196: the device-level switch; null (never set) stays absent.
     computerUse: Boolean? = null,
+    // EXP-1236: the switch's model alias; null stays absent the same way.
+    computerUseModel: String? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     computerUse = computerUse,
+    computerUseModel = computerUseModel,
     // EXP-1158: no `defaultAgent` — the last used agent is the device's to
     // write, and the request never carries it (`setLaunchDefaultsInput`).
     agents = agents.associateWith { agent ->

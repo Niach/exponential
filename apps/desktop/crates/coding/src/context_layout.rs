@@ -88,15 +88,26 @@ pub fn team_bytes(system_append: &str) -> Option<usize> {
 }
 
 /// The FIXED text at the head of a composed `system_append`, in bytes: the
-/// playbook, plus the EXP-1196 computer-use section when the launch carried
-/// it (so that section counts as playbook, never as the owners' prompt).
+/// playbook, plus the EXP-1196 computer-use and EXP-1236 code-mode sections
+/// when the launch carried them (so those count as playbook, never as the
+/// owners' prompt). The longest candidate that is a prefix wins.
 pub fn playbook_bytes(system_append: &str) -> usize {
-    let with_computer = crate::skill::fixed_append(true);
-    if system_append.starts_with(with_computer.trim_end()) {
-        with_computer.len().min(system_append.len())
-    } else {
-        crate::skill::RUN_SKILL.len().min(system_append.len())
+    let mut candidates: Vec<String> = Vec::new();
+    for code_mode in [true, false] {
+        for model in crate::settings::COMPUTER_USE_MODELS {
+            candidates.push(crate::skill::fixed_append(&crate::skill::Extras {
+                computer_use: Some(model.to_string()),
+                code_mode,
+            }));
+        }
+        candidates.push(crate::skill::fixed_append(&crate::skill::Extras { computer_use: None, code_mode }));
     }
+    candidates.sort_by_key(|text| std::cmp::Reverse(text.len()));
+    candidates
+        .iter()
+        .find(|fixed| system_append.starts_with(fixed.trim_end()))
+        .map(|fixed| fixed.len().min(system_append.len()))
+        .unwrap_or_else(|| crate::skill::RUN_SKILL.len().min(system_append.len()))
 }
 
 /// The memory files `agent` will load for a run whose cwd is `cwd`, in LOAD
@@ -251,19 +262,27 @@ mod tests {
         assert_eq!(team_bytes(&crate::skill::system_append(Some("  "))), None);
     }
 
-    /// EXP-1196: the computer-use section is fixed text, so it counts as
-    /// playbook; the team layer stays exactly the team block.
+    /// EXP-1196/EXP-1236: the computer-use and code-mode sections are fixed
+    /// text, so they count as playbook; the team layer stays exactly the
+    /// team block, whatever the launch carried.
     #[test]
-    fn the_computer_use_section_counts_as_playbook_not_team() {
-        let alone = crate::skill::system_append_with(None, true);
-        assert_eq!(team_bytes(&alone), None);
-        assert_eq!(playbook_bytes(&alone), alone.len());
+    fn the_extra_sections_count_as_playbook_not_team() {
+        use crate::skill::Extras;
         let prompt = "## Rules";
-        let with = crate::skill::system_append_with(Some(prompt), true);
-        let without = crate::skill::system_append_with(Some(prompt), false);
-        assert_eq!(team_bytes(&with), team_bytes(&without));
-        assert_eq!(playbook_bytes(&with), alone.len());
+        let without = crate::skill::system_append_with(Some(prompt), &Extras::NONE);
         assert_eq!(playbook_bytes(&without), crate::skill::RUN_SKILL.len());
+        for extras in [
+            Extras { computer_use: Some("haiku".into()), code_mode: false },
+            Extras { computer_use: Some("opus".into()), code_mode: true },
+            Extras { computer_use: None, code_mode: true },
+        ] {
+            let alone = crate::skill::system_append_with(None, &extras);
+            assert_eq!(team_bytes(&alone), None);
+            assert_eq!(playbook_bytes(&alone), alone.len(), "{extras:?}");
+            let with = crate::skill::system_append_with(Some(prompt), &extras);
+            assert_eq!(team_bytes(&with), team_bytes(&without), "{extras:?}");
+            assert_eq!(playbook_bytes(&with), alone.len(), "{extras:?}");
+        }
     }
 
     /// Everything the append carries beyond the playbook — heading, framing

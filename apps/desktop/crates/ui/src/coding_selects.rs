@@ -59,6 +59,13 @@ pub const SUBAGENT_MODEL_CHOICES: [(&str, &str); 4] = [
     ("Sonnet", "sonnet"),
 ];
 
+/// EXP-1236: the model a run's screen-driving subagents run on
+/// (`Settings::computer_use_model`), in contract order with the default
+/// (Haiku) first — `coding::settings::COMPUTER_USE_MODELS`, labelled like
+/// the Model picker's aliases. No blank row: the setting always holds a value.
+pub const COMPUTER_USE_MODEL_CHOICES: [(&str, &str); 4] =
+    [("Haiku", "haiku"), ("Sonnet", "sonnet"), ("Opus", "opus"), ("Fable", "fable")];
+
 /// Claude `--effort` levels; blank = leave the flag off (the CLI's own
 /// default).
 pub const EFFORT_CHOICES: [(&str, &str); 6] = [
@@ -578,6 +585,25 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// EXP-1236: the Computer use model picker offers exactly the aliases the
+    /// launcher accepts, in the contract's order, the default leading.
+    #[test]
+    fn computer_use_model_choices_mirror_the_settings_vocabulary() {
+        let values: Vec<&str> = super::COMPUTER_USE_MODEL_CHOICES
+            .iter()
+            .map(|(_, value)| *value)
+            .collect();
+        assert_eq!(values, coding::settings::COMPUTER_USE_MODELS.to_vec());
+        assert_eq!(values, domain::contract::COMPUTER_USE_MODEL_VALUES.to_vec());
+        assert_eq!(
+            super::COMPUTER_USE_MODEL_CHOICES[0].1,
+            coding::settings::DEFAULT_COMPUTER_USE_MODEL
+        );
+        for (label, value) in super::COMPUTER_USE_MODEL_CHOICES {
+            assert_eq!(label.to_lowercase(), value, "title-cased alias");
+        }
+    }
+
     /// EXP-1184: the spark steps 8 frames over its 720 ms loop, 90 ms each,
     /// never past the last; every state but working wears its badge.
     #[test]
