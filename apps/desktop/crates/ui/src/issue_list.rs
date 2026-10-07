@@ -33,7 +33,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
     v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Side, Sizable as _,
     VirtualListScrollHandle,
@@ -1265,31 +1265,28 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         )
             .tooltip("Delete selected")
             .disabled(busy)
-            .dropdown_menu(move |menu, _window, _cx| {
-                // Nested confirm (destructive actions confirm first).
-                let label = if ids.len() == 1 {
-                    "Confirm delete 1 issue".to_string()
-                } else {
-                    format!("Confirm delete {} issues", ids.len())
-                };
+            .on_click(move |_, window, cx| {
+                // EXP-1230: destructive actions confirm first, with the
+                // prompts fixture's `delete-issues` (it was an inline
+                // "Confirm delete N issues" menu item).
                 let ids = ids.clone();
                 let list = list.clone();
-                menu.item(
-                    PopupMenuItem::new(SharedString::from(label))
-                        .icon(Icon::new(registry::UI_DELETE))
-                        .on_click(move |_, _, cx| {
-                            spawn_bulk_op(
-                                list.clone(),
-                                cx,
-                                ids.clone(),
-                                true,
-                                "issues.bulkDelete",
-                                |trpc, chunk| {
-                                    api::issues::issues_bulk_delete(trpc, chunk).map(|_| ())
-                                },
-                            );
-                        }),
+                let spec = crate::native_dialog::AlertSpec::from_prompt(
+                    "Delete issues",
+                    &domain::prompts::delete_issues(ids.len()),
                 )
+                .on_ok(move |_, cx| {
+                    spawn_bulk_op(
+                        list.clone(),
+                        cx,
+                        ids.clone(),
+                        true,
+                        "issues.bulkDelete",
+                        |trpc, chunk| api::issues::issues_bulk_delete(trpc, chunk).map(|_| ()),
+                    );
+                    true
+                });
+                crate::native_dialog::open_alert(window, cx, spec);
             })
     };
 
@@ -2321,8 +2318,8 @@ pub(crate) fn build_row_context_menu(
     menu
 }
 
-/// The destructive confirm behind every "Delete issue" affordance (EXP-697) —
-/// the shared alert window the machines/actions removes already use.
+/// The destructive confirm behind every "Delete issue" affordance (EXP-697),
+/// the prompts fixture's `delete-issue` (EXP-1230).
 /// `on_deleted` runs once the delete is CONFIRMED (not once it lands — the
 /// row leaves through the Electric echo). EXP-760: the issue-detail header
 /// passes `go_back`, since the surface the delete was fired from is about to
@@ -2334,12 +2331,10 @@ pub(crate) fn prompt_issue_delete(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let spec = crate::native_dialog::AlertSpec::new(
+    let spec = crate::native_dialog::AlertSpec::from_prompt(
         "Delete issue",
-        format!("Delete {identifier}? This cannot be undone."),
-        "Delete",
+        &domain::prompts::delete_issue(&identifier),
     )
-    .ok_variant(gpui_component::button::ButtonVariant::Danger)
     .on_ok(move |window, cx| {
         spawn_issue_delete(cx, issue_id.clone());
         if let Some(on_deleted) = &on_deleted {
@@ -2448,7 +2443,7 @@ pub(crate) fn move_to_board_menu(
 
 /// EXP-428 "confirm everywhere": every board-move entry point asks first —
 /// the move renumbers the issue (EXP-42), breaking `#IDENT` references — with
-/// the canonical cross-client wording (web/iOS/Android share it). Shared by
+/// the prompts fixture's `move-issue` (EXP-1230). Shared by
 /// the row context submenu and the detail header's Board chip (EXP-426).
 pub(crate) fn confirm_issue_move(
     window: &mut Window,
@@ -2458,13 +2453,9 @@ pub(crate) fn confirm_issue_move(
     target_id: String,
     target_name: String,
 ) {
-    let spec = crate::native_dialog::AlertSpec::new(
+    let spec = crate::native_dialog::AlertSpec::from_prompt(
         "Move issue",
-        format!(
-            "Move {identifier} to \"{target_name}\"? The issue will get a new \
-             identifier in that board."
-        ),
-        "Move",
+        &domain::prompts::move_issue(&identifier, &target_name),
     )
     .on_ok(move |_, cx| {
         spawn_issue_move(cx, issue_id.clone(), target_id.clone());

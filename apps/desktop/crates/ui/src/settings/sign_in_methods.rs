@@ -21,7 +21,7 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::Button,
     h_flex,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -278,31 +278,18 @@ impl SignInMethodsSection {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let password = provider.kind == "password";
-        let (title, description, ok_label) = if password {
-            (
-                "Remove your password?".to_string(),
-                "You will no longer be able to sign in with a password. Your other \
-                 sign-in methods keep working."
-                    .to_string(),
-                "Remove",
-            )
+        let (window_title, prompt) = if provider.kind == "password" {
+            ("Remove password", domain::prompts::remove_password())
         } else {
             (
-                format!("Unlink {}?", provider.name),
-                format!(
-                    "{} will no longer sign you in. You can link it again any time; \
-                     your other sign-in methods keep working.",
-                    provider.name
-                ),
-                "Unlink",
+                "Unlink sign-in method",
+                domain::prompts::unlink_sign_in_method(&provider.name),
             )
         };
         let provider_id = provider.id.clone();
         self.confirm_removal(
-            title,
-            description,
-            ok_label,
+            window_title,
+            prompt,
             "Couldn't remove that sign-in method.",
             move |trpc| api::users::unlink_sign_in_method(trpc, &provider_id),
             window,
@@ -318,13 +305,8 @@ impl SignInMethodsSection {
     ) {
         let id = passkey.id.clone();
         self.confirm_removal(
-            "Remove passkey?".to_string(),
-            format!(
-                "{} will no longer sign you in. The copy on your device stays until \
-                 you delete it there.",
-                passkey_name(passkey)
-            ),
-            "Remove",
+            "Remove passkey",
+            domain::prompts::remove_passkey(passkey.name.as_deref()),
             "Couldn't remove the passkey.",
             move |trpc| api::users::delete_passkey(trpc, &id),
             window,
@@ -332,14 +314,13 @@ impl SignInMethodsSection {
         );
     }
 
-    /// The shared danger confirm → background mutation → refetch, with the
-    /// server's refusal (the last-way-in sentence) as an error notification.
-    #[allow(clippy::too_many_arguments)]
+    /// The shared danger confirm (a prompts-fixture entry) → background
+    /// mutation → refetch, with the server's refusal (the last-way-in
+    /// sentence) as an error notification.
     fn confirm_removal(
         &mut self,
-        title: String,
-        description: String,
-        ok_label: &'static str,
+        window_title: &'static str,
+        prompt: domain::prompts::Prompt,
         fallback: &'static str,
         call: impl Fn(&api::TrpcClient) -> Result<(), api::ApiError> + Send + Sync + 'static,
         window: &mut Window,
@@ -348,8 +329,7 @@ impl SignInMethodsSection {
         let section = cx.entity().downgrade();
         let handle = window.window_handle();
         let call = std::sync::Arc::new(call);
-        let spec = AlertSpec::new(title, description, ok_label)
-            .ok_variant(ButtonVariant::Danger)
+        let spec = AlertSpec::from_prompt(window_title, &prompt)
             .on_ok(move |_, cx| {
                 let Some(trpc) = queries::trpc_client(cx) else {
                     return true;

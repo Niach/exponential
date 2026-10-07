@@ -15,7 +15,7 @@ use gpui::{
     Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     v_flex, ActiveTheme as _, Disableable as _,
@@ -23,7 +23,7 @@ use gpui_component::{
 use sync::Store;
 
 use crate::controls::{glass_input, web_textarea, WebControl as _};
-use crate::native_dialog::{self, AlertSpec};
+use crate::native_dialog::{self, AlertEnter, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
@@ -659,16 +659,11 @@ impl GeneralPane {
         let prompt = format!("Type {team_name} to confirm");
         // The typed-confirm block rides as extra content between the
         // description and the ok/cancel footer.
-        let spec = AlertSpec::new(
-            "Delete team",
-            format!(
-                "This will permanently delete {team_name} and all its boards, \
-                 issues, and data. This cannot be undone."
-            ),
-            "Delete team",
-        )
-        .ok_variant(ButtonVariant::Danger)
-        .height(gpui::px(320.))
+        let spec = AlertSpec::from_prompt("Delete team", &domain::prompts::delete_team(&team_name))
+        // The fixture's slot: the type-the-name field holds focus, and Enter
+        // only deletes once the name matches (`on_ok` refuses a mismatch).
+        .enter(AlertEnter::Ok)
+        .height(gpui::px(340.))
         .content(move |window, cx| {
             v_flex()
                 .gap_1()

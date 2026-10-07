@@ -40,7 +40,6 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::ButtonVariant,
     h_flex,
     input::{InputEvent, InputState, TextareaState},
     text::TextView,
@@ -2089,14 +2088,10 @@ impl IssueDetailView {
         // The OPENER's window — the alert closes on confirm, so a failure
         // notification has to land back on the detail window.
         let handle = window.window_handle();
-        let spec = crate::native_dialog::AlertSpec::new(
-            format!("Delete \"{label}\"?"),
-            "The file is removed for everyone and its storage is reclaimed. \
-             Any description or comment still embedding it keeps a plain-text \
-             placeholder.",
+        let spec = crate::native_dialog::AlertSpec::from_prompt(
             "Delete file",
+            &domain::prompts::delete_file(&label),
         )
-        .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;

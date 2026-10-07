@@ -172,17 +172,10 @@ impl StoragePane {
         let handle = window.window_handle();
         let attachment_id = row.id.clone();
         let filename = row.filename.clone();
-        let spec = AlertSpec::new(
-            "Delete this attachment?",
-            format!(
-                "{filename} is deleted for everyone and cannot be restored. \
-                 Every description or comment that embeds it is rewritten in \
-                 the same step, replacing the image with a plain \u{201C}deleted \
-                 image\u{201D} note."
-            ),
+        let spec = AlertSpec::from_prompt(
             "Delete attachment",
+            &domain::prompts::delete_file(&filename),
         )
-        .ok_variant(ButtonVariant::Danger)
         .on_ok(move |_, cx| {
             let Some(trpc) = queries::trpc_client(cx) else {
                 return true;
