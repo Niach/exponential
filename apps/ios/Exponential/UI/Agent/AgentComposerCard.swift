@@ -214,12 +214,19 @@ struct AgentComposerCard: View {
 /// identifiers (`agent-composer-chip-action`,
 /// `agent-composer-chip-issue-<IDENT>`), so a pick still proves itself where
 /// the screenshot suites look for it; only their place changed.
+///
+/// EXP-1233: the Fix merge conflicts builtin with a PICKED pull request is
+/// the third verb — "Fix merge conflicts" leads and the chips are the PR's
+/// OWN issue chips (the ones "Implement" draws, a batch PR's several), so a
+/// refused merge lands on a headline that names the work. Their ✕ clears the
+/// PICK (back to "Run" + the action chip, the card's picker), never the action.
 struct AgentComposerHeadline: View {
     let model: AgentComposerModel
 
     var body: some View {
         let issues = model.checkedOptions
         let action = model.selectedAction
+        let fixPr = model.fixConflictsPr
         HStack(alignment: .center, spacing: 8) {
             Text(model.headline)
                 .font(.title2.weight(.semibold))
@@ -232,7 +239,9 @@ struct AgentComposerHeadline: View {
                 // a batch must not push the field off the first screen.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        if let action {
+                        if let fixPr {
+                            ForEach(fixPr.issues) { prIssueChip($0) }
+                        } else if let action {
                             actionChip(action)
                         } else {
                             ForEach(issues) { issueChip($0) }
@@ -258,6 +267,21 @@ struct AgentComposerHeadline: View {
             title: option.title,
             status: IssueStatus.from(option.status),
             onRemove: { model.toggleIssue(option.id) }
+        )
+        .accessibilityIdentifier(id)
+    }
+
+    /// EXP-1233: one of the picked pull request's issues — the SAME chip and
+    /// identifiers as a checked issue's; the ✕ clears the pull request.
+    private func prIssueChip(_ issue: FixConflictsPr.Issue) -> some View {
+        let id = "agent-composer-chip-issue-\(issue.identifier ?? issue.id)"
+        return IssueChip(
+            identifier: issue.identifier,
+            title: issue.title,
+            status: IssueStatus.from(issue.status),
+            onRemove: { model.clearPullRequest() },
+            removeLabel: "Clear the pull request",
+            removeIdentifier: "\(id)-remove"
         )
         .accessibilityIdentifier(id)
     }

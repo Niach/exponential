@@ -10,9 +10,12 @@ import SwiftUI
 /// .circle`, the merge glyph alone) right of their centre capsule, the
 /// floating capsule above them retired. The same flow
 /// everywhere: the confirm alert, or the stack dialog for a member of an open
-/// PR stack (EXP-1145 `PrStack.stackMergeChoice`) and, after a merge the
-/// server refused on a REAL content conflict, the "Fix conflicts" recovery
-/// run (EXP-706) in its place. The host resolves WHAT it merges (`target`):
+/// PR stack (EXP-1145 `PrStack.stackMergeChoice`). EXP-1233: a merge the
+/// server refused on a REAL content conflict OPENS the Agent page composer on
+/// the Fix merge conflicts builtin at once (this PR picked, the refusal
+/// flagged) — the control never swaps to "Fix conflicts" any more, so a
+/// conflict resolved elsewhere is one tap away. Every other refusal toasts.
+/// The host resolves WHAT it merges (`target`):
 /// the run's own merge target while the run can merge, else the issue's open
 /// PR, and mounts the capsule only then.
 struct WorkMergePill: View {
@@ -31,9 +34,8 @@ struct WorkMergePill: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
-    /// EXP-1154: the merge in flight and the last refusal are the SCREEN's
-    /// (`WorkMergeState`): each face mounts its own capsule, and a conflict
-    /// met on one face must offer Fix conflicts on all of them.
+    /// EXP-1154: the merge in flight is the SCREEN's (`WorkMergeState`): each
+    /// face mounts its own capsule, and all of them spin together.
     @Binding var state: WorkMergeState
     /// The capsule's UI-test handle: `work-merge-pr` on the Changes face (the
     /// store slide's pop-out), suffixed with the face elsewhere, since the
@@ -47,7 +49,6 @@ struct WorkMergePill: View {
     @State private var stackChoice: PrStack.StackMergeChoice?
 
     private var merging: Bool { state.merging }
-    private var mergeFailure: MergeFailure? { state.failure }
 
     var body: some View {
         Group {
@@ -103,22 +104,17 @@ struct WorkMergePill: View {
     }
 
     private var pill: some View {
-        let fix = canFixConflicts
-        return FloatingBarSolidPill(
-            accessibilityLabel: fix ? "Fix merge conflicts" : DomainContract.diffUiMergePr,
+        FloatingBarSolidPill(
+            accessibilityLabel: DomainContract.diffUiMergePr,
             enabled: !merging,
-            action: fix ? { openFixConflicts() } : { requestMerge() }
+            action: { requestMerge() }
         ) {
             if merging {
                 ProgressView().controlSize(.small).tint(.black.opacity(0.6))
             } else {
-                AppIcon(
-                    fix ? AppIcons.uiBranch : AppIcons.prMerged,
-                    size: FloatingBarTokens.glyph,
-                    weight: .medium
-                )
+                AppIcon(AppIcons.prMerged, size: FloatingBarTokens.glyph, weight: .medium)
             }
-            Text(fix ? "Fix conflicts" : DomainContract.diffUiMergePr)
+            Text(DomainContract.diffUiMergePr)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
         }
@@ -127,35 +123,30 @@ struct WorkMergePill: View {
     }
 
     /// EXP-1191: the bar circle — the SAME chrome as the bar's other circles,
-    /// the merge glyph alone (the branch glyph once a conflict swaps in Fix
-    /// conflicts), a spinner while the merge is in flight.
+    /// the merge glyph alone, a spinner while the merge is in flight.
     private var circle: some View {
-        let fix = canFixConflicts
-        return FloatingBarCircle(
-            accessibilityLabel: fix ? "Fix merge conflicts" : "Merge PR",
+        FloatingBarCircle(
+            accessibilityLabel: DomainContract.diffUiMergePr,
             enabled: !merging,
-            action: fix ? { openFixConflicts() } : { requestMerge() }
+            action: { requestMerge() }
         ) {
             if merging {
                 ProgressView().controlSize(.small).tint(.white)
             } else {
-                AppIcon(
-                    fix ? AppIcons.uiBranch : AppIcons.prMerged,
-                    size: FloatingBarTokens.glyph,
-                    weight: .medium
-                )
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                AppIcon(AppIcons.prMerged, size: FloatingBarTokens.glyph, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
             }
         }
         .accessibilityIdentifier(identifier)
     }
 
     /// Only a REAL content conflict on an ISSUE-linked PR with a recorded
-    /// branch gets the recovery run (EXP-533/734).
-    private var canFixConflicts: Bool {
+    /// branch, with the relay on, gets the recovery run (EXP-533/734); the
+    /// builtin takes a representative ISSUE, so a run's own PR never does.
+    private func canFixConflicts(_ failure: MergeFailure) -> Bool {
         guard case .issue = target else { return false }
         return steerEnabled
-            && mergeFailure?.isConflict == true
+            && failure.isConflict
             && !(issue?.branch ?? "").isEmpty
     }
 
@@ -184,7 +175,6 @@ struct WorkMergePill: View {
     /// No local surgery on success: the server ends the run and flips
     /// `pr_state`, and the pill leaves when that syncs back.
     private func merge() {
-        state.failure = nil
         state.merging = true
         let target = target
         Task {
@@ -197,8 +187,14 @@ struct WorkMergePill: View {
                 }
             } catch {
                 let failure = MergeFailure(error: error)
-                state.failure = failure
-                toaster.error(failure.message)
+                // EXP-1233: a real conflict opens the recovery run's composer
+                // at once (no toast: the composer's card says why it is up);
+                // every other refusal toasts.
+                if canFixConflicts(failure) {
+                    openFixConflicts()
+                } else {
+                    toaster.error(failure.message)
+                }
             }
             state.merging = false
         }
@@ -206,10 +202,9 @@ struct WorkMergePill: View {
 
     /// EXP-1145: the stack merge through `issueId` (the top for Merge stack,
     /// the member itself for Merge this). A refusal toasts the server's
-    /// message and never swaps the pill: the member that stopped the chain
-    /// may not be this pull request.
+    /// message and never opens the recovery run: the member that stopped the
+    /// chain may not be this pull request.
     private func mergeStack(issueId: String) {
-        state.failure = nil
         state.merging = true
         Task {
             do {
@@ -225,22 +220,22 @@ struct WorkMergePill: View {
 
     /// EXP-825: the recovery run is the Agent page composer with the "Fix
     /// merge conflicts" builtin picked and THIS pull request pre-picked.
+    /// EXP-1233: `conflict` flags the refusal, so the card says why.
     private func openFixConflicts() {
         guard case let .issue(issueId) = target else { return }
         pushRoute(.agent(
             accountId: accountId,
             seed: AgentComposerSeed(
                 actionId: DomainContract.builtinFixConflictsId,
-                prIssueId: issueId
+                prIssueId: issueId,
+                conflict: true
             )
         ))
     }
 }
 
-/// EXP-1154: what every face's Merge capsule shares — the merge in flight and
-/// the last refusal (a REAL conflict swaps Merge for Fix conflicts). The
-/// screen resets it when the merge target changes.
+/// EXP-1154: what every face's Merge capsule shares — the merge in flight.
+/// The screen resets it when the merge target changes.
 struct WorkMergeState: Equatable {
     var merging = false
-    var failure: MergeFailure?
 }

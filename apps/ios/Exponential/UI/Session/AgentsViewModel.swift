@@ -698,6 +698,17 @@ final class AgentsViewModel {
         )
     }
 
+    /// EXP-1233: the team's open-PR issue ROWS (the ones `openPullRequests`
+    /// collapses into options) — what the Fix merge conflicts card resolves
+    /// its picked pull request off (`FixConflictsPr.resolve`).
+    func openPullRequestIssues(teamId: String?) -> [IssueEntity] {
+        guard let teamId else { return [] }
+        let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
+        return issues.filter {
+            boardIds.contains($0.boardId) && $0.prState == DomainContract.prStateOpen
+        }
+    }
+
     private func rebuild() {
         // One clock for the whole pass (EXP-550): every row's offline-ness is
         // read against the same instant.

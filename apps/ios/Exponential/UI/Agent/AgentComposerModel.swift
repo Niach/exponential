@@ -61,6 +61,10 @@ final class AgentComposerModel {
     /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
     /// (blockers outside the picked set), and never for a resume.
     var blockedPrompt: BlockedStartPrompt?
+    /// EXP-1233: a REFUSED merge opened this composer on the Fix merge
+    /// conflicts builtin (the seed's `conflict`), so the card says why it is
+    /// up. Cleared with the subject: a different pick is a different story.
+    private(set) var conflictRefused = false
 
     /// The repo registry — one tRPC read; the chat picker and the `repo`
     /// inputs pick from it.
@@ -118,10 +122,12 @@ final class AgentComposerModel {
             self.actionId = actionId
             checked = []
             inputValues = [:]
+            conflictRefused = seed.conflict && actionId == DomainContract.builtinFixConflictsId
         } else if !seed.effectiveIssueIds.isEmpty {
             self.actionId = nil
             checked = seed.effectiveIssueIds
             inputValues = [:]
+            conflictRefused = false
         }
         if let icon = seed.icon, !icon.isEmpty {
             inputValues["icon"] = icon
@@ -327,7 +333,7 @@ final class AgentComposerModel {
     }
 
     var subject: AgentComposerPrompt.Subject {
-        if actionId != nil { return .action }
+        if actionId != nil { return fixConflictsPr != nil ? .fixConflicts : .action }
         let count = effectiveChecked.count
         return count == 0 ? .none : .issues(count: count)
     }
@@ -354,6 +360,37 @@ final class AgentComposerModel {
         )
     }
 
+    // MARK: - Fix merge conflicts (EXP-1233)
+
+    /// Whether the picked action is the Fix merge conflicts builtin — the
+    /// card replaces its generic "Pull request" field.
+    var isFixConflicts: Bool {
+        actionId == DomainContract.builtinFixConflictsId
+    }
+
+    /// The builtin's `pr` input def.
+    var fixConflictsPrInput: ActionInputDto? {
+        guard isFixConflicts else { return nil }
+        return selectedActionInputs.first { $0.type == "pr" }
+    }
+
+    /// The picked pull request resolved off the synced rows — the
+    /// representative issue and every open-PR row sharing its URL (a batch
+    /// PR). Nil for any other subject, and while nothing is picked.
+    var fixConflictsPr: FixConflictsPr? {
+        guard let def = fixConflictsPrInput else { return nil }
+        return FixConflictsPr.resolve(
+            prIssueId: value(for: def),
+            issues: sessions.openPullRequestIssues(teamId: teamId)
+        )
+    }
+
+    /// The headline chips' ✕: clears the PICK, never the action.
+    func clearPullRequest() {
+        guard let def = fixConflictsPrInput else { return }
+        setValue("", for: def)
+    }
+
     func isChecked(_ id: String) -> Bool {
         checked.contains(id)
     }
@@ -362,6 +399,7 @@ final class AgentComposerModel {
     /// subject (exclusivity by swap).
     func toggleIssue(_ id: String) {
         touched = true
+        conflictRefused = false
         if actionId != nil {
             actionId = nil
             inputValues = [:]
@@ -379,6 +417,7 @@ final class AgentComposerModel {
     func pickAction(_ action: ActionDto) {
         guard action.id != actionId else { return }
         touched = true
+        conflictRefused = false
         actionId = action.id
         checked = []
         inputValues = [:]
@@ -387,6 +426,7 @@ final class AgentComposerModel {
 
     func clearAction() {
         touched = true
+        conflictRefused = false
         actionId = nil
         inputValues = [:]
         refreshBlockers()
@@ -614,7 +654,7 @@ final class AgentComposerModel {
         switch subject {
         case .none:
             return trimmedDraft.isEmpty && pendingImages.isEmpty
-        case .action:
+        case .action, .fixConflicts:
             return actionId == DomainContract.builtinCreateActionId && trimmedDraft.isEmpty
         case .issues:
             return false
@@ -632,7 +672,7 @@ final class AgentComposerModel {
         switch subject {
         case .none: return true
         case .issues: return !effectiveChecked.isEmpty
-        case .action: return selectedAction != nil && requiredInputsFilled
+        case .action, .fixConflicts: return selectedAction != nil && requiredInputsFilled
         }
     }
 
@@ -829,6 +869,7 @@ final class AgentComposerModel {
                 actionId = nil
                 inputValues = [:]
                 pendingPrIssueId = nil
+                conflictRefused = false
                 seededDraft = ""
                 touched = true
                 refreshBlockers()
@@ -864,7 +905,7 @@ final class AgentComposerModel {
                 prompt: prompt
             )
             return .action(name: action.name)
-        case .action:
+        case .action, .fixConflicts:
             guard let action = selectedAction else { throw SteerStartError.rejected("Pick an action.") }
             // Values in wire form: blank optionals dropped (a required blank
             // can't get here — `canSubmit` gates it). `teamId` rides ONLY

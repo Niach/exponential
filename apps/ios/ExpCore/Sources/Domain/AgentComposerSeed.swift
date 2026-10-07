@@ -3,7 +3,7 @@ import Foundation
 /// EXP-825: what a play button hands the Agent page composer. Every launcher
 /// entry point is NAVIGATION now — the issue detail's Start coding, the bulk
 /// bar, an action's Run, New action / a suggestion, a machine's play glyph,
-/// the Fix conflicts pills — and this is the preselection it carries, mirrored
+/// a merge refused on a conflict — and this is the preselection it carries, mirrored
 /// ×4 (web search params on `/t/$teamSlug/agent`, desktop
 /// `Navigation::pending_chat_seed`, Android nav args).
 ///
@@ -32,6 +32,11 @@ public struct AgentComposerSeed: Hashable, Sendable {
     /// before it builds (web parity: the play button routes to THAT team's
     /// `/t/$teamSlug/agent`). nil = the active team.
     public var teamId: String?
+    /// EXP-1233: a REFUSED merge (a real content conflict) opened the
+    /// composer on the Fix merge conflicts builtin, so its card says why it
+    /// is up ("Merge refused: the branch has conflicts."). Read only with
+    /// that builtin seeded (web `?conflict=1`).
+    public var conflict: Bool = false
 
     public init(
         issueIds: [String] = [],
@@ -40,7 +45,8 @@ public struct AgentComposerSeed: Hashable, Sendable {
         prIssueId: String? = nil,
         text: String? = nil,
         icon: String? = nil,
-        teamId: String? = nil
+        teamId: String? = nil,
+        conflict: Bool = false
     ) {
         self.issueIds = issueIds
         self.actionId = actionId
@@ -49,6 +55,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
         self.text = text
         self.icon = icon
         self.teamId = teamId
+        self.conflict = conflict
     }
 
     /// The Chat FAB's seed: nothing preselected.

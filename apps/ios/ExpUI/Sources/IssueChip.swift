@@ -54,6 +54,10 @@ public struct IssueChip: View {
     private let fillsFrame: Bool
     private let onTap: (() -> Void)?
     private let onRemove: (() -> Void)?
+    /// EXP-1233: the ✕'s own VoiceOver name and UI-test handle — nil = the
+    /// default "Remove <IDENT Title>" and no identifier.
+    private let removeLabel: String?
+    private let removeIdentifier: String?
 
     /// - Parameters:
     ///   - bodySize: the prose measure the chip sits in (EXP-787's seam — the
@@ -70,7 +74,9 @@ public struct IssueChip: View {
         size: IssueChipSize = .md,
         fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
-        onRemove: (() -> Void)? = nil
+        onRemove: (() -> Void)? = nil,
+        removeLabel: String? = nil,
+        removeIdentifier: String? = nil
     ) {
         self.identifier = identifier
         self.title = title
@@ -81,6 +87,8 @@ public struct IssueChip: View {
         self.fillsFrame = fillsFrame
         self.onTap = onTap
         self.onRemove = onRemove
+        self.removeLabel = removeLabel
+        self.removeIdentifier = removeIdentifier
     }
 
     /// The resolved-status convenience (EXP-314): a chip never picks a glyph or
@@ -118,7 +126,9 @@ public struct IssueChip: View {
         size: IssueChipSize = .md,
         fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
-        onRemove: (() -> Void)? = nil
+        onRemove: (() -> Void)? = nil,
+        removeLabel: String? = nil,
+        removeIdentifier: String? = nil
     ) {
         self.init(
             identifier: identifier,
@@ -129,7 +139,9 @@ public struct IssueChip: View {
             size: size,
             fillsFrame: fillsFrame,
             onTap: onTap,
-            onRemove: onRemove
+            onRemove: onRemove,
+            removeLabel: removeLabel,
+            removeIdentifier: removeIdentifier
         )
     }
 
@@ -218,7 +230,8 @@ public struct IssueChip: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(accessibilityText)")
+            .accessibilityLabel(removeLabel ?? "Remove \(accessibilityText)")
+            .accessibilityIdentifier(removeIdentifier ?? "")
         }
     }
 }

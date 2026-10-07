@@ -156,4 +156,27 @@ final class AgentComposerPromptTests: XCTestCase {
             "Describe the action — what it should do, and its name if you have one…"
         )
     }
+
+    // EXP-1233: the Fix merge conflicts builtin with a PICKED pull request is
+    // its own subject — the contract's headline and send; the placeholder
+    // stays the action's (the instructions prompt unless it carries a hint).
+    func testFixConflictsHasItsOwnHeadlineAndSend() {
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .fixConflicts), "Fix merge conflicts")
+        XCTAssertEqual(
+            AgentComposerPrompt.headline(for: .fixConflicts),
+            DomainContract.composerUiFixConflictsHeadline
+        )
+        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .fixConflicts), "Fix conflicts")
+        XCTAssertEqual(
+            AgentComposerPrompt.submitTitle(for: .fixConflicts),
+            DomainContract.composerUiFixConflictsSubmit
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.placeholder(for: .fixConflicts, actionHint: nil),
+            "Additional instructions (optional)…"
+        )
+        // Unpicked, the builtin is a plain action: "Run" + "Run action".
+        XCTAssertEqual(AgentComposerPrompt.headline(for: .action), "Run")
+        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
+    }
 }

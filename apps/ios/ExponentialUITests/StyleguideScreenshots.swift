@@ -394,7 +394,7 @@ final class StyleguideScreenshots: XCTestCase {
         // arm opens the Agent page on the default device: an empty
         // composer is a chat; the `#` tool checks issues (two chips, a
         // batch); the ▶ tool picks an action (the Fix merge conflicts
-        // builtin, with its PR input). Nothing is ever submitted — a run
+        // builtin, its card's PR picked: EXP-1233). Nothing is ever submitted — a run
         // would land on a real machine.
         let chatButton = app.buttons["chat-button"].firstMatch
         XCTAssertTrue(
@@ -441,6 +441,22 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(
             anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
             "No action chip after picking"
+        )
+        // EXP-1233: the builtin draws its own card; picking the seeded open
+        // PR (APP-14) completes it into the Fix merge conflicts look — the
+        // headline's verb + the PR's issue chip, the card's PR row.
+        let fixCard = anyElement(app, identified: "agent-composer-fix-conflicts")
+        XCTAssertTrue(fixCard.waitForExistence(timeout: 15), "No Fix merge conflicts card")
+        anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
+        let prRow = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "#", "APP-14")
+        ).firstMatch
+        XCTAssertTrue(prRow.waitForExistence(timeout: 20), "The PR picker never listed APP-14's pull request")
+        prRow.tap()
+        _ = prRow.waitForNonExistence(timeout: 10)
+        XCTAssertTrue(
+            anyElement(app, identified: "agent-composer-chip-issue-APP-14").waitForExistence(timeout: 15),
+            "No APP-14 chip after picking its pull request"
         )
         snapshot("sg_chat-action", settle: 2)
         // The Agent page is a bar root now (the chat arm switches to it) —
