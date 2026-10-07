@@ -1,0 +1,154 @@
+// VAPP-85: the catalog's own invariants — the ones the issue states (shadcn
+// variants and sizes, natives vs macros, the lite subset, one description per
+// component and per prop, every basic component mapped) and the ones the
+// generator relies on (enums and shapes resolve, examples validate).
+
+import { describe, expect, test } from "bun:test"
+import {
+  A2UI_BASIC_CATALOG_ID,
+  CORE_CATALOG_ID,
+  CORE_LITE_CATALOG_ID,
+  SUPPORTED_CATALOG_IDS,
+  TOKEN_GROUPS,
+  componentNames,
+  coreCatalog,
+  coreLite,
+  coreMacros,
+} from "./catalog"
+import { basicMap } from "./basic-map"
+import { ICON_NAMES, LITE_COMPONENTS, MACRO_COMPONENTS, NATIVE_COMPONENTS, SPECIMEN_IDS } from "./catalog.generated"
+import { validateProps } from "./validate"
+import vendoredBasic from "../vendor/a2ui/v0_9/basic_catalog.json" with { type: "json" }
+
+const components = Object.entries(coreCatalog.components)
+
+describe(`catalog ids`, () => {
+  test(`the ids the issue names`, () => {
+    expect(CORE_CATALOG_ID).toBe(`https://ui.exponential.at/catalogs/core/v1`)
+    expect(CORE_LITE_CATALOG_ID).toBe(`https://ui.exponential.at/catalogs/core-lite/v1`)
+    expect(A2UI_BASIC_CATALOG_ID).toBe(`https://a2ui.org/specification/v0_9/basic_catalog.json`)
+    expect(SUPPORTED_CATALOG_IDS).toEqual([CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, A2UI_BASIC_CATALOG_ID])
+  })
+
+  test(`the vendored basic catalog carries the id the map starts from`, () => {
+    expect((vendoredBasic as { catalogId: string }).catalogId).toBe(A2UI_BASIC_CATALOG_ID)
+  })
+})
+
+describe(`components`, () => {
+  test(`the issue's component table is in the catalog`, () => {
+    const expected = [
+      `Box`, `Stack`, `Grid`, `Card`, `Separator`, `List`, `Heading`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`,
+      `Avatar`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Table`, `Carousel`, `Tabs`, `ToggleGroup`, `Accordion`,
+      `Collapsible`, `Pagination`, `ButtonGroup`, `Dialog`, `Drawer`, `Sheet`, `Popover`, `Tooltip`, `DropdownMenu`,
+      `Progress`, `Meter`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`,
+      `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`,
+      `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Markdown`, `Composer`, `TreeGuides`, `Chart`,
+    ]
+    for (const name of expected) expect(coreCatalog.components[name], name).toBeDefined()
+    expect(componentNames()).toHaveLength(expected.length)
+  })
+
+  test(`kinds follow the issue's table`, () => {
+    const kind = (name: string) => coreCatalog.components[name].kind
+    for (const native of [`Box`, `List`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `Carousel`, `Tabs`, `ToggleGroup`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `DropdownMenu`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Markdown`, `Composer`, `TreeGuides`, `Chart`])
+      expect(kind(native), native).toBe(`native`)
+    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Table`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`])
+      expect(kind(macro), macro).toBe(`macro`)
+    expect(([...NATIVE_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `native`).map(([n]) => n).sort())
+    expect(([...MACRO_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `macro`).map(([n]) => n).sort())
+  })
+
+  test(`every macro component has a template and every template a macro component`, () => {
+    const macroComponents = components.filter(([, d]) => d.kind === `macro`).map(([n]) => n).sort()
+    expect(Object.keys(coreMacros).sort()).toEqual(macroComponents)
+    for (const def of Object.values(coreMacros)) expect(def.root.part).toBe(`root`)
+  })
+
+  test(`shadcn's variant and size vocabularies`, () => {
+    expect([...coreCatalog.enums.variant]).toEqual([`default`, `secondary`, `outline`, `ghost`, `destructive`, `link`])
+    expect([...coreCatalog.enums.size]).toEqual([`sm`, `default`, `lg`, `icon`])
+    expect(coreCatalog.components.Button.props.variant.enum).toBe(`variant`)
+    expect(coreCatalog.components.Button.props.size.enum).toBe(`size`)
+    expect(coreCatalog.components.Badge.props.variant.enum).toBe(`variant`)
+  })
+
+  test(`core-lite = no overlays, media or Chart`, () => {
+    const lite = coreLite()
+    expect(lite).toEqual([...LITE_COMPONENTS] as string[])
+    for (const [name, def] of components) {
+      if (def.hidden) continue
+      const excluded = def.group === `overlay` || def.group === `media` || name === `Chart`
+      if (name === `Icon` || name === `Avatar`) continue // the two media natives every list needs
+      expect(lite.includes(name), name).toBe(!excluded)
+    }
+    expect(lite).toContain(`Icon`)
+    expect(lite).toContain(`Avatar`)
+  })
+
+  test(`one sentence per component and per prop, every enum and shape resolves`, () => {
+    for (const [name, def] of components) {
+      expect(def.description.length, name).toBeGreaterThan(10)
+      expect(def.description.endsWith(`.`), `${name} description ends with a full stop`).toBe(true)
+      for (const [prop, schema] of Object.entries(def.props)) {
+        expect(schema.description.length, `${name}.${prop}`).toBeGreaterThan(5)
+        if (schema.type === `enum` && !schema.values) expect(coreCatalog.enums[schema.enum!], `${name}.${prop} enum`).toBeDefined()
+        if (schema.type === `object`) expect(coreCatalog.defs[schema.shape!], `${name}.${prop} shape`).toBeDefined()
+        if (schema.type === `array` && schema.items?.type === `object`) expect(coreCatalog.defs[schema.items.shape!], `${name}.${prop} items`).toBeDefined()
+      }
+      if (def.slots) for (const slot of def.slots) expect(slot).toMatch(/^[a-z]+$/)
+    }
+    for (const [name, def] of Object.entries(coreCatalog.defs)) {
+      for (const [prop, schema] of Object.entries(def.properties)) expect(schema.description.length, `${name}.${prop}`).toBeGreaterThan(5)
+    }
+  })
+
+  test(`every visible component's example validates`, () => {
+    for (const [name, def] of components) {
+      if (def.hidden) continue
+      expect(def.example, `${name} has an example`).toBeDefined()
+      expect(validateProps(def, def.example ?? {}), name).toEqual([])
+    }
+  })
+
+  test(`specimen ids are unique and kebab-cased`, () => {
+    const ids = Object.values(SPECIMEN_IDS)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const id of ids) expect(id).toMatch(/^exponential-ui-[a-z0-9-]+$/)
+  })
+})
+
+describe(`tokens and icons`, () => {
+  test(`the token groups the issue names, every name unique`, () => {
+    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`])
+    for (const [group, names] of Object.entries(TOKEN_GROUPS)) {
+      expect(names.length, group).toBeGreaterThan(0)
+      expect(new Set(names).size, group).toBe(names.length)
+    }
+    for (const name of [`background`, `foreground`, `card`, `primary`, `primaryForeground`, `secondary`, `muted`, `mutedForeground`, `accent`, `destructive`, `border`, `input`, `ring`])
+      expect(TOKEN_GROUPS.color).toContain(name)
+  })
+
+  test(`the icon vocabulary is the icons.json registry`, () => {
+    const icons = [...ICON_NAMES] as string[]
+    expect(icons.length).toBeGreaterThan(300)
+    for (const concept of [`ui-check`, `ui-close`, `nav-inbox`, `ui-icon-placeholder`, `nav-search`]) expect(icons).toContain(concept)
+    for (const value of Object.values(basicMap.icons)) if (value) expect(icons, value).toContain(value)
+    expect(icons).toContain(basicMap.placeholderIcon)
+  })
+})
+
+describe(`basic map`, () => {
+  test(`every basic component, icon and function is mapped (or the explicit placeholder)`, () => {
+    const basic = vendoredBasic as unknown as {
+      components: Record<string, { allOf: { properties?: { name?: { oneOf: { enum: string[] }[] } } }[] }>
+      functions: Record<string, unknown>
+    }
+    expect(Object.keys(basicMap.components).sort()).toEqual(Object.keys(basic.components).sort())
+    const iconEnum = basic.components.Icon.allOf[2].properties!.name!.oneOf[0].enum
+    expect(Object.keys(basicMap.icons).sort()).toEqual([...iconEnum].sort())
+    expect(Object.keys(basicMap.functions).sort()).toEqual(Object.keys(basic.functions).sort())
+    expect([...coreCatalog.functions.names].sort()).toEqual(Object.keys(basic.functions).sort())
+    for (const rule of Object.values(basicMap.components)) expect(coreCatalog.components[rule.to], rule.to).toBeDefined()
+  })
+})

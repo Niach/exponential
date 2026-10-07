@@ -1,0 +1,8 @@
+{
+  "extends": "@exp/tsconfig/base.json",
+  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["bun"]
+  }
+}

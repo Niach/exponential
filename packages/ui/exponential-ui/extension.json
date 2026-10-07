@@ -1,0 +1,195 @@
+{
+  "$comment": "VAPP-85: the Exponential APP's extension catalog for Exponential UI — the first extension, living with the app (not in the SDK). Every component here is one the app already draws on all four clients (docs/shared-ui-inventory.md): the natives are painted by the app's own components (web: @exp/ui; iOS ExpUI; Android ui/components; desktop crates/ui), the macros expand through the core table. Validated by src/exponential-ui-extension.test.ts via @exponential-at/ui defineExtension; VAPP-83 extends it as the dogfood screens turn up more.",
+  "id": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "name": "Exponential app",
+  "extends": "https://ui.exponential.at/catalogs/core/v1",
+  "enums": {
+    "runTone": ["muted", "amber", "emerald", "sky"],
+    "resultKind": ["text", "picture", "files"]
+  },
+  "defs": {
+    "statusGlyph": {
+      "description": "An issue status as the app paints it: the icon concept plus the status colour.",
+      "properties": {
+        "icon": { "type": "icon", "required": true, "description": "The status icon concept (status-backlog … status-duplicate, or a progress-n-m custom glyph)." },
+        "color": { "type": "color", "description": "The status row's colour; omitted for a builtin's legacy token colour." }
+      }
+    },
+    "choice": {
+      "description": "One button of a choice dialog.",
+      "properties": {
+        "label": { "type": "string", "required": true, "description": "The button text." },
+        "value": { "type": "string", "required": true, "description": "The value reported on press." },
+        "variant": { "type": "enum", "enum": "variant", "description": "The button look; the recommended choice is `default`." },
+        "note": { "type": "string", "description": "A muted line under the button explaining it." }
+      }
+    }
+  },
+  "components": {
+    "IssueRow": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "An issue in a list: status glyph, identifier, title, priority, labels and the assignee avatar; the root of a nesting tree when sub-issues follow.",
+      "props": {
+        "identifier": { "type": "string", "required": true, "bindable": true, "description": "The issue identifier (EXP-12)." },
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The issue title." },
+        "status": { "type": "object", "shape": "statusGlyph", "required": true, "description": "The status glyph to paint." },
+        "priority": { "type": "enum", "values": ["none", "low", "medium", "high", "urgent"], "default": "none", "description": "The priority icon to paint." },
+        "labels": { "type": "array", "items": { "type": "object", "shape": "option" }, "description": "Label chips after the title (value = the label colour)." },
+        "assigneeName": { "type": "string", "description": "The assignee's name for the trailing avatar." },
+        "assigneeImage": { "type": "url", "description": "The assignee's picture." },
+        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent issue." },
+        "blocked": { "type": "boolean", "default": false, "description": "Shows the blocks badge or rail dot." },
+        "selected": { "type": "boolean", "default": false, "description": "Draws it as the active row." }
+      },
+      "events": ["press"],
+      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "status": { "icon": "status-in-progress" }, "priority": "high" }
+    },
+    "RunRow": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "A coding run's status row: agent mark, caption (building on which device, elapsed), the last tool line and a live dot.",
+      "props": {
+        "agent": { "type": "enum", "values": ["claude", "codex"], "description": "Whose brand mark leads the row." },
+        "caption": { "type": "string", "required": true, "bindable": true, "description": "The status caption (runRowCaption)." },
+        "toolLine": { "type": "string", "bindable": true, "description": "The last tool line under the caption." },
+        "tone": { "type": "enum", "enum": "runTone", "default": "muted", "description": "The caption's colour tone." },
+        "live": { "type": "boolean", "default": false, "description": "Shows the pulsing live dot." },
+        "busy": { "type": "boolean", "default": false, "description": "Shows the working spinner." }
+      },
+      "events": ["press"],
+      "example": { "agent": "claude", "caption": "Building on MacBook Pro · 4 min", "toolLine": "Edit src/reducer.ts", "tone": "emerald", "live": true, "busy": true }
+    },
+    "IssueChip": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "A compact chip naming an issue by identifier with its status glyph; stacks of them collapse to a count.",
+      "props": {
+        "identifier": { "type": "string", "required": true, "bindable": true, "description": "The issue identifier." },
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The title, shown as the tooltip and on the wide form." },
+        "status": { "type": "object", "shape": "statusGlyph", "required": true, "description": "The status glyph." },
+        "size": { "type": "enum", "values": ["sm", "default"], "default": "default", "description": "The chip height class." },
+        "removable": { "type": "boolean", "default": false, "description": "Shows a remove control that fires `remove`." }
+      },
+      "events": ["press", "remove"],
+      "example": { "identifier": "EXP-874", "title": "Batch runs", "status": { "icon": "status-done" } }
+    },
+    "LabelChip": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A label as a pill with its colour dot.",
+      "props": {
+        "name": { "type": "string", "required": true, "bindable": true, "description": "The label name." },
+        "color": { "type": "color", "required": true, "description": "The label colour." }
+      },
+      "example": { "name": "bug", "color": "#EF4444" }
+    },
+    "StatusGlyph": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "An issue status icon in its colour, the size of an inline icon.",
+      "props": {
+        "status": { "type": "object", "shape": "statusGlyph", "required": true, "description": "The glyph to paint." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Glyph size." }
+      },
+      "example": { "status": { "icon": "status-in-review", "color": "#3B82F6" } }
+    },
+    "LiveDot": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "The small state dot (live, attention, done, unread, idle, muted) with an optional ping halo.",
+      "props": {
+        "tone": { "type": "enum", "enum": "liveTone", "required": true, "description": "Which state it shows." },
+        "ping": { "type": "boolean", "default": false, "description": "Animates the halo." },
+        "label": { "type": "string", "description": "An accessibility label." }
+      },
+      "example": { "tone": "live", "ping": true, "label": "Running" }
+    },
+    "IconDisc": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "An icon on a tinted disc, the onboarding and empty-state glyph.",
+      "props": {
+        "icon": { "type": "icon", "required": true, "description": "The icon concept." },
+        "tone": { "type": "enum", "values": ["primary", "success", "danger", "muted"], "default": "primary", "description": "The disc tint." }
+      },
+      "example": { "icon": "nav-devices", "tone": "primary" }
+    },
+    "ComposerHeadline": {
+      "kind": "native", "group": "text", "lite": true, "children": "none",
+      "description": "The launcher's headline: the verb (Run, Implement, Chat) in front of the subject chips.",
+      "props": {
+        "verb": { "type": "enum", "values": ["run", "implement", "chat"], "required": true, "description": "Which contract headline to print (composerUi)." },
+        "subjects": { "type": "array", "items": { "type": "string" }, "description": "The subject identifiers (issues) or the one action name." }
+      },
+      "example": { "verb": "implement", "subjects": ["EXP-12", "EXP-13"] }
+    },
+    "DecisionCard": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "An agent's question or plan awaiting an answer: the prompt as markdown and the answer controls, answered in place.",
+      "props": {
+        "kind": { "type": "enum", "values": ["question", "plan"], "required": true, "description": "A question with options, or a plan to approve." },
+        "text": { "type": "markdown", "required": true, "bindable": true, "description": "The question or the plan body." },
+        "options": { "type": "array", "items": { "type": "object", "shape": "option" }, "description": "The answer options of a question." },
+        "answer": { "type": "string", "bindable": true, "description": "The chosen option or the typed answer, once given." }
+      },
+      "events": ["answer"],
+      "example": { "kind": "question", "text": "Which database?", "options": [{ "label": "Postgres", "value": "pg" }, { "label": "SQLite", "value": "sqlite" }] }
+    },
+    "ChoiceDialog": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "none",
+      "description": "A fixture-driven choice dialog (blocked start, stack merge): a title, a note and two or three buttons.",
+      "props": {
+        "title": { "type": "string", "required": true, "description": "The dialog title." },
+        "note": { "type": "markdown", "description": "The explanation under the title." },
+        "choices": { "type": "array", "items": { "type": "object", "shape": "choice" }, "required": true, "description": "The buttons in order; the first is Cancel." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it." }
+      },
+      "events": ["choose"],
+      "example": { "title": "EXP-12 is blocked", "choices": [{ "label": "Cancel", "value": "cancel", "variant": "ghost" }, { "label": "Start anyway", "value": "start", "variant": "outline" }, { "label": "Stacked PR", "value": "stacked", "variant": "default" }] }
+    },
+    "ResultTile": {
+      "kind": "native", "group": "data", "lite": true, "children": "none",
+      "description": "One published result of a run: text, a picture or a file list, under its label.",
+      "props": {
+        "kind": { "type": "enum", "enum": "resultKind", "required": true, "description": "What the tile holds." },
+        "label": { "type": "string", "description": "The tile caption (web, ios, …)." },
+        "text": { "type": "markdown", "description": "The text of a text tile." },
+        "image": { "type": "url", "description": "The picture of a picture tile." },
+        "files": { "type": "array", "items": { "type": "string" }, "description": "The paths of a files tile." }
+      },
+      "events": ["press"],
+      "example": { "kind": "picture", "label": "web", "image": "/api/attachments/abc" }
+    },
+    "ResultGroup": {
+      "kind": "macro", "group": "data", "lite": true, "children": "many",
+      "description": "A run's results for one topic: the topic band over its tiles.",
+      "props": {
+        "topic": { "type": "string", "required": true, "description": "The topic name (Summary first)." },
+        "count": { "type": "number", "description": "How many tiles, shown in the band." }
+      },
+      "example": { "topic": "Summary" }
+    },
+    "Diff": {
+      "kind": "native", "group": "data", "lite": false, "children": "none",
+      "description": "A unified diff of one file, the app's diff card with its +N −M counts.",
+      "props": {
+        "path": { "type": "string", "required": true, "description": "The file path." },
+        "patch": { "type": "string", "required": true, "bindable": true, "description": "The unified diff text." },
+        "additions": { "type": "number", "description": "Added line count for the header." },
+        "deletions": { "type": "number", "description": "Removed line count for the header." },
+        "collapsed": { "type": "boolean", "default": false, "description": "Starts folded." }
+      },
+      "example": { "path": "src/reducer.ts", "patch": "@@ -1,2 +1,2 @@\n-a\n+b", "additions": 1, "deletions": 1 }
+    }
+  },
+  "macros": {
+    "LabelChip": {
+      "recipeProps": [],
+      "root": { "part": "root", "component": "Pill", "props": { "label": "{props.name}", "dot": "{props.color}" } }
+    },
+    "ResultGroup": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Stack", "props": { "direction": "vertical", "gap": "sm" },
+        "children": [
+          { "part": "band", "component": "Band", "props": { "title": "{props.topic}", "count": "{props.count}" } },
+          { "part": "tiles", "component": "Grid", "props": { "columns": 2, "gap": "md" }, "children": ["$children"] }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,1544 @@
+{
+  "$comment": "VAPP-85: the kitchen sink, extended from the VAPP-4 spike (packages/domain-contract/fixtures/vapp-kitchen-sink.json on exp/VAPP-4) to the FULL core catalog: every visible component at least once, in the nested authoring form (id, component, props, style, children, slots, on). The spike's layout cases stay: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons. Every renderer paints this once as the view `exponential-ui-kitchen-sink`; kitchen-sink.expanded.json is what it receives.",
+  "id": "root",
+  "component": "Box",
+  "style": {
+    "display": "flex",
+    "flexDirection": "column",
+    "gap": "$spacing.lg",
+    "padding": "$spacing.lg",
+    "width": "100%",
+    "backgroundColor": "$color.background",
+    "direction": "ltr"
+  },
+  "children": [
+    {
+      "id": "header",
+      "component": "Stack",
+      "props": {
+        "direction": "horizontal",
+        "align": "center",
+        "gap": "md"
+      },
+      "children": [
+        {
+          "id": "hdr-avatar",
+          "component": "Avatar",
+          "props": {
+            "name": "Alex Chen",
+            "size": "default"
+          }
+        },
+        {
+          "id": "hdr-text",
+          "component": "Stack",
+          "props": {
+            "direction": "vertical",
+            "gap": "xs"
+          },
+          "style": {
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "minWidth": 0
+          },
+          "children": [
+            {
+              "id": "hdr-title",
+              "component": "Heading",
+              "props": {
+                "text": "Reddit radar",
+                "level": "h2"
+              }
+            },
+            {
+              "id": "hdr-sub",
+              "component": "Text",
+              "props": {
+                "text": "Kitchen sink · one catalog on every client",
+                "variant": "muted"
+              }
+            }
+          ]
+        },
+        {
+          "id": "hdr-badge",
+          "component": "Badge",
+          "props": {
+            "text": "3",
+            "variant": "secondary"
+          }
+        },
+        {
+          "id": "hdr-scan",
+          "component": "Button",
+          "props": {
+            "label": "Scan now",
+            "variant": "default"
+          },
+          "style": {
+            "flexShrink": 0,
+            ":pressed": {
+              "opacity": 0.6
+            }
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "scan"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "grid",
+      "component": "Box",
+      "style": {
+        "display": "grid",
+        "gap": "$spacing.md",
+        "gridTemplateColumns": "1fr",
+        "gridTemplateAreas": [
+          "nav",
+          "main",
+          "footer"
+        ],
+        "@media (min-width: 600px)": {
+          "gridTemplateColumns": "minmax(180px, 1fr) 2fr",
+          "gridTemplateRows": "auto auto",
+          "gridTemplateAreas": [
+            "nav main",
+            "nav footer"
+          ]
+        }
+      },
+      "children": [
+        {
+          "id": "nav-card",
+          "component": "Card",
+          "props": {
+            "padded": false
+          },
+          "style": {
+            "gridArea": "nav"
+          },
+          "children": [
+            {
+              "id": "nav-band",
+              "component": "Band",
+              "props": {
+                "title": "Sources",
+                "count": 3,
+                "icon": "nav-boards"
+              }
+            },
+            {
+              "id": "nav-rows",
+              "component": "RowList",
+              "props": {
+                "guides": false
+              },
+              "children": [
+                {
+                  "id": "row-1",
+                  "component": "ListRow",
+                  "props": {
+                    "title": "r/selfhosted",
+                    "meta": "312 posts",
+                    "selected": true
+                  },
+                  "on": {
+                    "press": {
+                      "event": {
+                        "name": "open",
+                        "context": {
+                          "source": "selfhosted"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "row-2",
+                  "component": "ListRow",
+                  "props": {
+                    "title": "r/opensource",
+                    "subtitle": "Open source",
+                    "meta": "88 posts",
+                    "icon": "ui-folder"
+                  }
+                },
+                {
+                  "id": "row-3",
+                  "component": "ListRow",
+                  "props": {
+                    "title": "r/webdev",
+                    "meta": "1.2k posts",
+                    "density": "compact",
+                    "chevron": true
+                  }
+                }
+              ]
+            },
+            {
+              "id": "nav-div",
+              "component": "Separator",
+              "props": {
+                "orientation": "horizontal"
+              }
+            },
+            {
+              "id": "nav-toggle",
+              "component": "Switch",
+              "props": {
+                "label": "Auto-scan",
+                "name": "autoScan",
+                "checked": true,
+                "description": "Every hour"
+              },
+              "style": {
+                "padding": "$spacing.md"
+              }
+            }
+          ]
+        },
+        {
+          "id": "main-card",
+          "component": "Card",
+          "props": {
+            "title": "Drafts",
+            "description": "Two ready to send"
+          },
+          "style": {
+            "gridArea": "main",
+            "minWidth": 0
+          },
+          "children": [
+            {
+              "id": "media",
+              "component": "Box",
+              "style": {
+                "position": "relative",
+                "width": "100%",
+                "aspectRatio": 1.7777778,
+                "borderRadius": "$radius.lg",
+                "overflow": "hidden",
+                "backgroundColor": "$color.info"
+              },
+              "children": [
+                {
+                  "id": "media-img",
+                  "component": "Image",
+                  "props": {
+                    "alt": "Cover",
+                    "fit": "cover"
+                  },
+                  "style": {
+                    "width": "100%",
+                    "height": "100%"
+                  }
+                },
+                {
+                  "id": "media-badge",
+                  "component": "Pill",
+                  "props": {
+                    "label": "LIVE",
+                    "tone": "success"
+                  },
+                  "style": {
+                    "position": "absolute",
+                    "top": 8,
+                    "right": 8
+                  }
+                }
+              ]
+            },
+            {
+              "id": "main-md",
+              "component": "Markdown",
+              "props": {
+                "text": "**Looking for a Linear alternative** — self-hostable, with agents.\n\n- Draft reply ready\n- 2 sources cited"
+              },
+              "style": {
+                "minWidth": 0
+              }
+            },
+            {
+              "id": "main-progress",
+              "component": "Progress",
+              "props": {
+                "value": 62,
+                "max": 100,
+                "label": "Scanning"
+              }
+            },
+            {
+              "id": "main-meter",
+              "component": "Meter",
+              "props": {
+                "segments": [
+                  {
+                    "value": 40,
+                    "tone": "primary",
+                    "label": "Posts"
+                  },
+                  {
+                    "value": 25,
+                    "tone": "warning",
+                    "label": "Comments"
+                  }
+                ],
+                "max": 100,
+                "label": "Quota",
+                "value": "65%"
+              }
+            }
+          ]
+        },
+        {
+          "id": "footer-card",
+          "component": "Card",
+          "style": {
+            "gridArea": "footer",
+            "minWidth": 0
+          },
+          "children": [
+            {
+              "id": "footer-pills",
+              "component": "Stack",
+              "props": {
+                "direction": "horizontal",
+                "wrap": true,
+                "align": "center",
+                "gap": "sm"
+              },
+              "children": [
+                {
+                  "id": "pill-1",
+                  "component": "Pill",
+                  "props": {
+                    "label": "All",
+                    "selected": true,
+                    "pressable": true
+                  },
+                  "on": {
+                    "press": {
+                      "event": {
+                        "name": "filter",
+                        "context": {
+                          "value": "all"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "pill-2",
+                  "component": "Pill",
+                  "props": {
+                    "label": "Drafts",
+                    "pressable": true
+                  }
+                },
+                {
+                  "id": "pill-3",
+                  "component": "Pill",
+                  "props": {
+                    "label": "Bug",
+                    "dot": "#EF4444"
+                  }
+                },
+                {
+                  "id": "pill-4",
+                  "component": "Pill",
+                  "props": {
+                    "label": "Archived",
+                    "icon": "ui-archive"
+                  }
+                },
+                {
+                  "id": "footer-spacer",
+                  "component": "Box",
+                  "style": {
+                    "flexGrow": 1,
+                    "flexBasis": 120,
+                    "minWidth": 40,
+                    "height": 1
+                  }
+                },
+                {
+                  "id": "footer-more",
+                  "component": "Button",
+                  "props": {
+                    "label": "More",
+                    "variant": "ghost"
+                  },
+                  "style": {
+                    ":pressed": {
+                      "opacity": 0.6
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "form",
+      "component": "Card",
+      "props": {
+        "title": "Draft reply"
+      },
+      "children": [
+        {
+          "id": "echo-field",
+          "component": "Input",
+          "props": {
+            "label": "Title",
+            "name": "title",
+            "placeholder": "Title (echoes after 150 ms)",
+            "value": {
+              "path": "/draft/title"
+            },
+            "checks": [
+              {
+                "condition": {
+                  "call": "required",
+                  "args": {
+                    "value": {
+                      "path": "/draft/title"
+                    }
+                  }
+                },
+                "message": "A title is required"
+              }
+            ],
+            "validateOn": "blur"
+          }
+        },
+        {
+          "id": "form-body",
+          "component": "Textarea",
+          "props": {
+            "label": "Body",
+            "name": "body",
+            "placeholder": "Body",
+            "rows": 3
+          },
+          "style": {
+            "minHeight": 72
+          }
+        },
+        {
+          "id": "form-row",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "wrap": true,
+            "align": "center",
+            "gap": "sm"
+          },
+          "children": [
+            {
+              "id": "form-sub",
+              "component": "Select",
+              "props": {
+                "label": "Subreddit",
+                "name": "subreddit",
+                "options": [
+                  {
+                    "label": "r/selfhosted",
+                    "value": "selfhosted"
+                  },
+                  {
+                    "label": "r/opensource",
+                    "value": "opensource"
+                  },
+                  {
+                    "label": "r/webdev",
+                    "value": "webdev"
+                  }
+                ],
+                "value": "selfhosted",
+                "searchable": true
+              },
+              "style": {
+                "flexGrow": 1,
+                "flexBasis": 160,
+                "maxWidth": 320
+              }
+            },
+            {
+              "id": "form-due",
+              "component": "DatePicker",
+              "props": {
+                "label": "Send on",
+                "name": "sendOn",
+                "value": "2026-10-14",
+                "min": "2026-10-07"
+              }
+            },
+            {
+              "id": "form-actions",
+              "component": "Stack",
+              "props": {
+                "direction": "horizontal",
+                "gap": "sm"
+              },
+              "style": {
+                "marginInlineStart": "auto"
+              },
+              "children": [
+                {
+                  "id": "form-cancel",
+                  "component": "Button",
+                  "props": {
+                    "label": "Cancel",
+                    "variant": "outline"
+                  },
+                  "style": {
+                    ":pressed": {
+                      "opacity": 0.6
+                    }
+                  }
+                },
+                {
+                  "id": "form-send",
+                  "component": "Button",
+                  "props": {
+                    "label": "Send",
+                    "icon": "ui-send"
+                  },
+                  "style": {
+                    ":pressed": {
+                      "opacity": 0.6
+                    }
+                  },
+                  "on": {
+                    "press": {
+                      "event": {
+                        "name": "send"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "form-plan",
+          "component": "Radio",
+          "props": {
+            "label": "Tone",
+            "name": "tone",
+            "options": [
+              {
+                "label": "Friendly",
+                "value": "friendly"
+              },
+              {
+                "label": "Direct",
+                "value": "direct"
+              }
+            ],
+            "value": "friendly",
+            "orientation": "horizontal"
+          }
+        },
+        {
+          "id": "form-agree",
+          "component": "Checkbox",
+          "props": {
+            "label": "Cite sources",
+            "name": "cite",
+            "checked": true
+          }
+        },
+        {
+          "id": "form-volume",
+          "component": "Slider",
+          "props": {
+            "label": "Length",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "value": 40
+          }
+        },
+        {
+          "id": "form-link",
+          "component": "Link",
+          "props": {
+            "label": "Posting guidelines",
+            "href": "https://example.com/rules",
+            "external": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "flex-demo",
+      "component": "Box",
+      "style": {
+        "display": "flex",
+        "flexDirection": "row",
+        "flexWrap": "wrap",
+        "gap": "$spacing.sm"
+      },
+      "children": [
+        {
+          "id": "fx-1",
+          "component": "Box",
+          "style": {
+            "flexBasis": "30%",
+            "flexGrow": 1,
+            "minWidth": 96,
+            "height": 40,
+            "borderRadius": "$radius.sm",
+            "backgroundColor": "$color.success",
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center"
+          },
+          "children": [
+            {
+              "id": "fx-1-t",
+              "component": "Text",
+              "props": {
+                "text": "basis 30% · grow 1",
+                "variant": "caption"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fx-2",
+          "component": "Box",
+          "style": {
+            "width": 160,
+            "flexShrink": 0,
+            "height": 40,
+            "borderRadius": "$radius.sm",
+            "backgroundColor": "$color.warning",
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center"
+          },
+          "children": [
+            {
+              "id": "fx-2-t",
+              "component": "Text",
+              "props": {
+                "text": "160 · shrink 0",
+                "variant": "caption"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fx-3",
+          "component": "Box",
+          "style": {
+            "flexGrow": 2,
+            "flexBasis": 80,
+            "maxWidth": "50%",
+            "height": 40,
+            "borderRadius": "$radius.sm",
+            "backgroundColor": "$color.destructive",
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center"
+          },
+          "children": [
+            {
+              "id": "fx-3-t",
+              "component": "Text",
+              "props": {
+                "text": "grow 2 · max 50%",
+                "variant": "caption"
+              }
+            }
+          ]
+        },
+        {
+          "id": "fx-4",
+          "component": "Box",
+          "style": {
+            "width": "25%",
+            "minWidth": 64,
+            "height": 40,
+            "borderRadius": "$radius.sm",
+            "backgroundColor": "$color.info",
+            "display": "flex",
+            "alignItems": "center",
+            "justifyContent": "center"
+          },
+          "children": [
+            {
+              "id": "fx-4-t",
+              "component": "Text",
+              "props": {
+                "text": "25%",
+                "variant": "caption"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stats",
+      "component": "Grid",
+      "props": {
+        "columns": 3,
+        "gap": "md"
+      },
+      "children": [
+        {
+          "id": "stat-1",
+          "component": "Card",
+          "props": {
+            "title": "Posts"
+          },
+          "children": [
+            {
+              "id": "stat-1-v",
+              "component": "Text",
+              "props": {
+                "text": "312",
+                "variant": "title"
+              }
+            }
+          ]
+        },
+        {
+          "id": "stat-2",
+          "component": "Card",
+          "props": {
+            "title": "Drafts"
+          },
+          "children": [
+            {
+              "id": "stat-2-v",
+              "component": "Text",
+              "props": {
+                "text": "2",
+                "variant": "title"
+              }
+            }
+          ]
+        },
+        {
+          "id": "stat-3",
+          "component": "Card",
+          "props": {
+            "title": "Sent"
+          },
+          "children": [
+            {
+              "id": "stat-3-v",
+              "component": "Text",
+              "props": {
+                "text": "17",
+                "variant": "title"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nav-demo",
+      "component": "Card",
+      "props": {
+        "title": "Navigation"
+      },
+      "children": [
+        {
+          "id": "tabs",
+          "component": "Tabs",
+          "props": {
+            "tabs": [
+              {
+                "label": "Issue",
+                "value": "issue",
+                "icon": "ui-issue"
+              },
+              {
+                "label": "Run",
+                "value": "run",
+                "count": 2
+              }
+            ],
+            "value": "issue"
+          },
+          "children": [
+            {
+              "id": "tab-issue",
+              "component": "Text",
+              "props": {
+                "text": "The issue panel"
+              }
+            },
+            {
+              "id": "tab-run",
+              "component": "Text",
+              "props": {
+                "text": "The run panel"
+              }
+            }
+          ]
+        },
+        {
+          "id": "segmented",
+          "component": "ToggleGroup",
+          "props": {
+            "items": [
+              {
+                "label": "List",
+                "value": "list"
+              },
+              {
+                "label": "Board",
+                "value": "board"
+              },
+              {
+                "label": "Graph",
+                "value": "graph",
+                "disabled": true
+              }
+            ],
+            "value": "list",
+            "variant": "segmented",
+            "fill": true
+          }
+        },
+        {
+          "id": "toggles",
+          "component": "ToggleGroup",
+          "props": {
+            "items": [
+              {
+                "label": "Bold",
+                "value": "bold",
+                "icon": "editor-bold"
+              },
+              {
+                "label": "Italic",
+                "value": "italic",
+                "icon": "editor-italic"
+              }
+            ],
+            "type": "multiple",
+            "value": "bold",
+            "variant": "outline",
+            "size": "sm"
+          }
+        },
+        {
+          "id": "accordion",
+          "component": "Accordion",
+          "props": {
+            "items": [
+              {
+                "title": "Details",
+                "value": "details"
+              },
+              {
+                "title": "History",
+                "value": "history",
+                "count": 4
+              }
+            ],
+            "type": "multiple",
+            "value": "details"
+          },
+          "children": [
+            {
+              "id": "acc-details",
+              "component": "Text",
+              "props": {
+                "text": "Everything about it"
+              }
+            },
+            {
+              "id": "acc-history",
+              "component": "Text",
+              "props": {
+                "text": "What happened"
+              }
+            }
+          ]
+        },
+        {
+          "id": "collapsible",
+          "component": "Collapsible",
+          "props": {
+            "title": "Advanced",
+            "open": true,
+            "count": 2
+          },
+          "children": [
+            {
+              "id": "coll-body",
+              "component": "Text",
+              "props": {
+                "text": "Hidden until opened",
+                "variant": "muted"
+              }
+            }
+          ]
+        },
+        {
+          "id": "pagination",
+          "component": "Pagination",
+          "props": {
+            "totalPages": 5,
+            "page": 2
+          },
+          "on": {
+            "change": {
+              "event": {
+                "name": "page"
+              }
+            }
+          }
+        },
+        {
+          "id": "button-group",
+          "component": "ButtonGroup",
+          "props": {
+            "buttons": [
+              {
+                "label": "Day",
+                "value": "day"
+              },
+              {
+                "label": "Week",
+                "value": "week"
+              },
+              {
+                "label": "Month",
+                "value": "month"
+              }
+            ],
+            "selected": "week"
+          },
+          "on": {
+            "change": {
+              "event": {
+                "name": "range"
+              }
+            }
+          }
+        },
+        {
+          "id": "toggle",
+          "component": "Toggle",
+          "props": {
+            "label": "Pin",
+            "icon": "ui-pin",
+            "pressed": true,
+            "variant": "outline"
+          }
+        }
+      ]
+    },
+    {
+      "id": "feedback-demo",
+      "component": "Card",
+      "props": {
+        "title": "Feedback"
+      },
+      "children": [
+        {
+          "id": "alert",
+          "component": "Alert",
+          "props": {
+            "title": "Saved",
+            "message": "Your changes have been saved.",
+            "type": "success"
+          }
+        },
+        {
+          "id": "alert-warn",
+          "component": "Alert",
+          "props": {
+            "title": "Quota at 80%",
+            "type": "warning"
+          }
+        },
+        {
+          "id": "status-row",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "align": "center",
+            "gap": "md"
+          },
+          "children": [
+            {
+              "id": "ring",
+              "component": "Ring",
+              "props": {
+                "value": 0.62,
+                "tone": "primary",
+                "label": "62% used"
+              }
+            },
+            {
+              "id": "spinner",
+              "component": "Spinner",
+              "props": {
+                "size": "sm",
+                "label": "Loading"
+              }
+            },
+            {
+              "id": "icon",
+              "component": "Icon",
+              "props": {
+                "name": "ui-success",
+                "tone": "success",
+                "label": "Done"
+              }
+            },
+            {
+              "id": "skeleton",
+              "component": "Skeleton",
+              "props": {
+                "width": "120px",
+                "height": "16px"
+              }
+            },
+            {
+              "id": "skeleton-round",
+              "component": "Skeleton",
+              "props": {
+                "width": "24px",
+                "height": "24px",
+                "rounded": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "empty",
+          "component": "EmptyState",
+          "props": {
+            "icon": "nav-inbox",
+            "title": "No notifications",
+            "description": "You are all caught up.",
+            "actionLabel": "Refresh"
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "refresh"
+              }
+            }
+          }
+        },
+        {
+          "id": "table",
+          "component": "Table",
+          "props": {
+            "columns": [
+              "Name",
+              "Role",
+              "Runs"
+            ],
+            "rows": [
+              [
+                "Alice",
+                "Owner",
+                "12"
+              ],
+              [
+                "Bob",
+                "Member",
+                "3"
+              ]
+            ],
+            "caption": "Two members"
+          }
+        },
+        {
+          "id": "chart",
+          "component": "Chart",
+          "props": {
+            "kind": "bar",
+            "categories": [
+              "Mon",
+              "Tue",
+              "Wed"
+            ],
+            "series": [
+              {
+                "name": "Runs",
+                "values": [
+                  3,
+                  5,
+                  2
+                ]
+              },
+              {
+                "name": "Merges",
+                "values": [
+                  1,
+                  2,
+                  2
+                ],
+                "tone": "success"
+              }
+            ],
+            "title": "This week",
+            "height": 160
+          }
+        }
+      ]
+    },
+    {
+      "id": "rows-demo",
+      "component": "Group",
+      "props": {
+        "title": "Properties",
+        "footer": "Read-only unless you own the board."
+      },
+      "children": [
+        {
+          "id": "prop-assignee",
+          "component": "PropertyRow",
+          "props": {
+            "label": "Assignee",
+            "value": "Alex Chen",
+            "icon": "ui-assignee"
+          }
+        },
+        {
+          "id": "pick-status",
+          "component": "PickerRow",
+          "props": {
+            "label": "Status",
+            "value": "In progress",
+            "icon": "settings-statuses"
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "pickStatus"
+              }
+            }
+          }
+        },
+        {
+          "id": "pick-label",
+          "component": "PickerRow",
+          "props": {
+            "label": "Labels",
+            "placeholder": "Add a label"
+          }
+        },
+        {
+          "id": "nav-inbox",
+          "component": "NavRow",
+          "props": {
+            "label": "Inbox",
+            "icon": "nav-inbox",
+            "count": 3,
+            "selected": true
+          }
+        },
+        {
+          "id": "nav-reviews",
+          "component": "NavRow",
+          "props": {
+            "label": "Reviews",
+            "icon": "nav-reviews"
+          }
+        }
+      ]
+    },
+    {
+      "id": "chips-demo",
+      "component": "Stack",
+      "props": {
+        "direction": "horizontal",
+        "wrap": true,
+        "gap": "sm",
+        "align": "center"
+      },
+      "children": [
+        {
+          "id": "card-row",
+          "component": "CardRow",
+          "props": {
+            "title": "MacBook Pro",
+            "subtitle": "Online · 2 runs",
+            "icon": "ui-device",
+            "meta": "now"
+          },
+          "style": {
+            "flexBasis": 240,
+            "flexGrow": 1
+          }
+        },
+        {
+          "id": "chip-board",
+          "component": "EntityChip",
+          "props": {
+            "label": "Sprint 12",
+            "icon": "nav-boards",
+            "detail": "APP",
+            "removable": true
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "openBoard"
+              }
+            },
+            "remove": {
+              "event": {
+                "name": "removeBoard"
+              }
+            }
+          }
+        },
+        {
+          "id": "chip-user",
+          "component": "EntityChip",
+          "props": {
+            "label": "Alex Chen",
+            "image": "https://example.com/alex.png"
+          }
+        },
+        {
+          "id": "tree",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "gap": "none",
+            "align": "center"
+          },
+          "children": [
+            {
+              "id": "tree-guides",
+              "component": "TreeGuides",
+              "props": {
+                "depth": 2,
+                "elbowAt": 1,
+                "tee": true,
+                "passThrough": [
+                  0
+                ]
+              }
+            },
+            {
+              "id": "tree-text",
+              "component": "Text",
+              "props": {
+                "text": "Nested row",
+                "variant": "caption"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "media-demo",
+      "component": "Card",
+      "props": {
+        "title": "Media"
+      },
+      "children": [
+        {
+          "id": "carousel",
+          "component": "Carousel",
+          "props": {
+            "page": 0,
+            "indicators": true
+          },
+          "children": [
+            {
+              "id": "page-1",
+              "component": "Image",
+              "props": {
+                "src": "https://example.com/1.jpg",
+                "alt": "One",
+                "aspectRatio": 1.7777778
+              }
+            },
+            {
+              "id": "page-2",
+              "component": "Image",
+              "props": {
+                "src": "https://example.com/2.jpg",
+                "alt": "Two",
+                "aspectRatio": 1.7777778
+              }
+            }
+          ]
+        },
+        {
+          "id": "video",
+          "component": "Video",
+          "props": {
+            "src": "https://example.com/clip.mp4",
+            "poster": "https://example.com/clip.jpg",
+            "durationMs": 12000
+          }
+        },
+        {
+          "id": "audio",
+          "component": "AudioPlayer",
+          "props": {
+            "src": "https://example.com/track.mp3",
+            "title": "Episode 12",
+            "durationMs": 1860000
+          }
+        },
+        {
+          "id": "list",
+          "component": "List",
+          "props": {
+            "direction": "vertical",
+            "divided": true
+          },
+          "template": {
+            "component": "list-item",
+            "path": "/posts"
+          },
+          "children": []
+        },
+        {
+          "id": "list-item",
+          "component": "ListRow",
+          "props": {
+            "title": {
+              "path": "title"
+            },
+            "meta": {
+              "path": "score"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "overlay-demo",
+      "component": "Stack",
+      "props": {
+        "direction": "horizontal",
+        "wrap": true,
+        "gap": "sm"
+      },
+      "children": [
+        {
+          "id": "dialog",
+          "component": "Dialog",
+          "props": {
+            "title": "Delete board?",
+            "description": "This cannot be undone.",
+            "open": {
+              "path": "/ui/confirmOpen"
+            },
+            "dismissible": true
+          },
+          "slots": {
+            "trigger": {
+              "id": "dialog-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Delete",
+                "variant": "destructive"
+              }
+            },
+            "footer": {
+              "id": "dialog-footer",
+              "component": "Button",
+              "props": {
+                "label": "Delete for good",
+                "variant": "destructive"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "deleteBoard"
+                  }
+                }
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "dialog-body",
+              "component": "Text",
+              "props": {
+                "text": "Issues move to the trash for 48 hours."
+              }
+            }
+          ]
+        },
+        {
+          "id": "drawer",
+          "component": "Drawer",
+          "props": {
+            "title": "Filters",
+            "side": "bottom",
+            "open": false
+          },
+          "slots": {
+            "trigger": {
+              "id": "drawer-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Filters",
+                "variant": "outline",
+                "icon": "ui-properties"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "drawer-body",
+              "component": "Checkbox",
+              "props": {
+                "label": "Only mine",
+                "name": "mine"
+              }
+            }
+          ]
+        },
+        {
+          "id": "sheet",
+          "component": "Sheet",
+          "props": {
+            "title": "Details",
+            "open": false
+          },
+          "slots": {
+            "trigger": {
+              "id": "sheet-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Details",
+                "variant": "secondary"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "sheet-body",
+              "component": "Text",
+              "props": {
+                "text": "Everything in a side sheet."
+              }
+            }
+          ]
+        },
+        {
+          "id": "popover",
+          "component": "Popover",
+          "props": {
+            "side": "bottom"
+          },
+          "slots": {
+            "trigger": {
+              "id": "popover-trigger",
+              "component": "Button",
+              "props": {
+                "icon": "ui-info",
+                "variant": "ghost",
+                "size": "icon",
+                "label": "About"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "popover-body",
+              "component": "Text",
+              "props": {
+                "text": "A small anchored panel.",
+                "variant": "caption"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tooltip",
+          "component": "Tooltip",
+          "props": {
+            "content": "Copy link",
+            "side": "top"
+          },
+          "children": [
+            {
+              "id": "tooltip-anchor",
+              "component": "Button",
+              "props": {
+                "icon": "ui-link",
+                "variant": "ghost",
+                "size": "icon",
+                "label": "Copy link"
+              }
+            }
+          ]
+        },
+        {
+          "id": "menu",
+          "component": "DropdownMenu",
+          "props": {
+            "label": "More",
+            "icon": "ui-more",
+            "items": [
+              {
+                "label": "Rename",
+                "value": "rename",
+                "icon": "ui-edit"
+              },
+              {
+                "label": "Archive",
+                "value": "archive",
+                "icon": "ui-archive"
+              },
+              {
+                "label": "Delete",
+                "value": "delete",
+                "destructive": true
+              }
+            ]
+          },
+          "on": {
+            "select": {
+              "event": {
+                "name": "menu"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "composer",
+      "component": "Composer",
+      "props": {
+        "placeholder": "Ask anything",
+        "attachments": true,
+        "submitLabel": "Send"
+      },
+      "on": {
+        "submit": {
+          "event": {
+            "name": "ask"
+          }
+        }
+      }
+    }
+  ]
+}
