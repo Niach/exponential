@@ -2680,9 +2680,13 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
   // successor with an EMPTY report — the next `sessions_results` listed only
   // its own topic and `pr_open` built the PR body from that one topic. The
   // report has one owner, the live run, and the handoff is EXACTLY ONCE: in
-  // the insert's transaction the predecessor is locked, cleared with
-  // RETURNING, the successor inserted with the RETURNED entries and the
-  // picture rows re-parented. The unlocked gate read never feeds the carry:
+  // the insert's transaction the predecessor is locked AND READ, cleared,
+  // the successor inserted with the LOCKED entries and the picture rows
+  // re-parented. FEED-78: the clear's RETURNING is modelled as Postgres
+  // answers it — the row AFTER the update, `results: null` — so a carry
+  // read off it fails here as it did in production (every resumed run lost
+  // its report; the next `sessions_results` re-synced a one-topic PR body).
+  // The unlocked gate read never feeds the carry:
   // an upload landing on the old row between that read and the lock (the
   // HMAC upload route ignores status; EXP-1005 resumes a walled run) is
   // either carried or refused, never erased.
@@ -2714,11 +2718,12 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     )
 
   it(`carries the report under the predecessor's lock, in ONE transaction with the insert (FEED-77)`, async () => {
-    // The gate read (unlocked, no `results` column), then the row lock.
+    // The gate read (unlocked, no `results` column), then the row lock,
+    // which reads the report as it is under the lock.
     selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
-    selectResults.push([{ id: RESUMED_FROM }])
-    // The clear's RETURNING = the report as it is under the lock.
-    updateResults.push([{ results: REPORT }])
+    selectResults.push([{ id: RESUMED_FROM, results: REPORT }])
+    // The clear's RETURNING = the row after the update (FEED-78).
+    updateResults.push([{ results: null }])
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
@@ -2762,15 +2767,16 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(updates.filter((update) => update.values.results === null)).toHaveLength(1)
   })
 
-  it(`carries the RETURNING value, never the gate read's snapshot (FEED-77)`, async () => {
+  it(`carries the LOCKED read, never the gate read's snapshot nor the clear's RETURNING (FEED-77/FEED-78)`, async () => {
     // The gate read still hands back a stale `results` (an older server, a
-    // widened select): it must be ignored in favour of what the clear
-    // returned under the lock — here a picture that landed in between.
+    // widened select): it must be ignored in favour of what the row lock
+    // read — here a picture that landed in between. The clear's RETURNING
+    // (the post-update NULL) must not feed the carry either.
     selectResults.push([
       { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: REPORT },
     ])
-    selectResults.push([{ id: RESUMED_FROM }])
-    updateResults.push([{ results: [...REPORT, LATE_PICTURE] }])
+    selectResults.push([{ id: RESUMED_FROM, results: [...REPORT, LATE_PICTURE] }])
+    updateResults.push([{ results: null }])
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
@@ -2783,12 +2789,12 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
   it(`keeps a report that landed after an EMPTY gate read (FEED-77)`, async () => {
     // The gate read saw no report; a `sessions_show` upload then hit the old
-    // row before the lock. The clear is unconditional, so it is carried.
+    // row before the lock. The lock reads it, so it is carried.
     selectResults.push([
       { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, results: [] },
     ])
-    selectResults.push([{ id: RESUMED_FROM }])
-    updateResults.push([{ results: [LATE_PICTURE] }])
+    selectResults.push([{ id: RESUMED_FROM, results: [LATE_PICTURE] }])
+    updateResults.push([{ results: null }])
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
@@ -2798,7 +2804,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
   it(`moves no report when the lock finds none, the start pictures still follow (FEED-77)`, async () => {
     selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
-    selectResults.push([{ id: RESUMED_FROM }])
+    selectResults.push([{ id: RESUMED_FROM, results: null }])
     updateResults.push([{ results: null }])
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
@@ -2865,8 +2871,8 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       transactions = 0
       selectResults.push([{ id: RESUMED_FROM, teamId: subject.teamId, userId: `actor` }])
       for (const rows of subject.before ?? []) selectResults.push(rows)
-      selectResults.push([{ id: RESUMED_FROM }])
-      updateResults.push([{ results: REPORT }])
+      selectResults.push([{ id: RESUMED_FROM, results: REPORT }])
+      updateResults.push([{ results: null }])
 
       await caller.start(subject.input)
 
@@ -2893,8 +2899,8 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     selectResults.push([
       { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
     ])
-    selectResults.push([{ id: RESUMED_FROM }])
-    updateResults.push([{ results: REPORT }])
+    selectResults.push([{ id: RESUMED_FROM, results: REPORT }])
+    updateResults.push([{ results: null }])
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
     expect(syncRunPrBody).toHaveBeenCalledTimes(1)
     expect(syncRunPrBody).toHaveBeenCalledWith(SESSION_ID)
@@ -2903,8 +2909,8 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     // Report, no PR: nothing to patch.
     vi.mocked(syncRunPrBody).mockClear()
     selectResults.push([{ id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor` }])
-    selectResults.push([{ id: RESUMED_FROM }])
-    updateResults.push([{ results: REPORT }])
+    selectResults.push([{ id: RESUMED_FROM, results: REPORT }])
+    updateResults.push([{ results: null }])
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
     expect(syncRunPrBody).not.toHaveBeenCalled()
 
@@ -2912,8 +2918,8 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     selectResults.push([
       { id: RESUMED_FROM, teamId: `ws-issue`, userId: `actor`, ...PR },
     ])
-    selectResults.push([{ id: RESUMED_FROM }])
-    updateResults.push([{ results: [] }])
+    selectResults.push([{ id: RESUMED_FROM, results: [] }])
+    updateResults.push([{ results: null }])
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
     expect(syncRunPrBody).not.toHaveBeenCalled()
   })
