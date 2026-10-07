@@ -108,6 +108,18 @@ use crate::transcript_rows::{
 const THREAD_REPLY_ID: FeedItemId = 1 << 40;
 const THREAD_CARD_BASE: FeedItemId = 1 << 41;
 
+gpui::actions!(
+    steer_viewer,
+    [
+        /// EXP-1228: the transcript menu's Copy row — copies the window text
+        /// selection exactly like ⌘C/Ctrl+C does over the transcript.
+        CopyTranscriptSelection,
+    ]
+);
+
+/// EXP-1228: the transcript's right-click menu row.
+const FEED_MENU_COPY: &str = "Copy";
+
 /// How long a body may run before it folds behind "Show more" (web
 /// `clampable`: >600 chars or >6 lines).
 const CLAMP_CHARS: usize = 600;
@@ -4381,6 +4393,48 @@ impl SteerSessionView {
         crate::scroll_pane::v_list_pane(list, &self.list).into_any_element()
     }
 
+    /// EXP-1228 — the transcript's right-click menu: the composer's own
+    /// native menu (gpui-component `Textarea` ships Cut · Copy · Paste ·
+    /// Select All), reduced to the one row a read-only transcript can take.
+    /// Copy is disabled without a selection. The view takes focus first
+    /// unless it already holds it (the composer keeps its caret), so the
+    /// row's action reaches [`Self::on_copy_transcript_selection`].
+    fn on_feed_context_menu(
+        &mut self,
+        event: &gpui::MouseDownEvent,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if !self.focus_handle.contains_focused(window, cx) {
+            window.focus(&self.focus_handle, cx);
+        }
+        let has_selection = gpui_base::TextSelection::has_selection(window, cx);
+        gpui_component::native_menu::NativeMenu::new()
+            .menu_with_disabled(
+                FEED_MENU_COPY,
+                !has_selection,
+                Box::new(CopyTranscriptSelection),
+            )
+            .show(event.position, window, cx);
+    }
+
+    /// EXP-1228: what ⌘C copies over the transcript (gpui-component `Root`'s
+    /// copy) — a focused composer's own Copy would swallow the keyboard
+    /// action, so the menu row is an action of its own.
+    fn on_copy_transcript_selection(
+        &mut self,
+        _: &CopyTranscriptSelection,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let text = gpui_base::TextSelection::selected_text(window, cx)
+            .trim()
+            .to_string();
+        if !text.is_empty() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+        }
+    }
+
     /// EXP-787 — the rhythm class of list row `ix`: the feed row's own class,
     /// or [`RowClass::Tool`] for the synthetic "Working…" line past the last
     /// spec (it is machine chatter like the calls it trails).
@@ -8269,6 +8323,14 @@ impl Render for SteerSessionView {
                         .flex_1()
                         .min_h_0()
                         .min_w_0()
+                        // EXP-1228: the transcript's right-click menu. A div
+                        // listener fires after its children's, so an image or
+                        // media tile's own menu claims the press first
+                        // (`controls::claim_right_click`).
+                        .on_mouse_down(
+                            gpui::MouseButton::Right,
+                            cx.listener(Self::on_feed_context_menu),
+                        )
                         .child(feed)
                         .child(crate::surface::composer_edge_fade())
                         .children(jump),
@@ -8292,6 +8354,7 @@ impl Render for SteerSessionView {
             .capture_action(cx.listener(Self::on_answer_down))
             .capture_action(cx.listener(Self::on_answer_enter))
             .capture_key_down(cx.listener(Self::on_answer_key_down))
+            .on_action(cx.listener(Self::on_copy_transcript_selection))
             .size_full()
             .min_h_0()
             .overflow_hidden()

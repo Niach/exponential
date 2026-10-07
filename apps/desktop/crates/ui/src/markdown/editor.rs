@@ -752,7 +752,7 @@ fn attach_image_context_menu(
     let url = fetch_url.to_string();
     let alt = alt.to_string();
     let editor = hooks.map(|hooks| (hooks.editor.clone(), hooks.block_id));
-    wrapper.context_menu(move |menu, _window, menu_cx| {
+    crate::controls::claim_right_click(wrapper).context_menu(move |menu, _window, menu_cx| {
         // Editor blocks: hold edit mode while the menu is open — the popup
         // focuses itself, and the resulting input blur would otherwise flip
         // the editor to preview and unmount this menu (see

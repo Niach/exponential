@@ -439,7 +439,7 @@ pub(crate) fn render_media_tile(
 
     let menu_tile = tile.clone();
     let menu_images = images.cloned();
-    clickable
+    crate::controls::claim_right_click(clickable)
         .context_menu(move |menu, _window, _cx| {
             let mut menu = menu.item(
                 PopupMenuItem::new("Open in player")
