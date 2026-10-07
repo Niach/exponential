@@ -475,6 +475,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     });
 
     let (mut advertised, mut doctor) = probe_agents(&ctx);
+    maybe_fetch_codex(&ctx, &doctor_soon);
     // What the two jsonb columns last SENT said: a beat attaches a map only
     // when it actually changed, so the steady-state body stays tiny and
     // `agent_usage_at` (which the server stamps on every write) does not move
@@ -1039,6 +1040,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             device_worker.send(DeviceWork::ReportWorktrees).ok();
             let (agents, report) = probe_agents(&ctx);
             doctor = report;
+            maybe_fetch_codex(&ctx, &doctor_soon);
             match advert_transition(&advertised, &agents, &mut pending_advert) {
                 AdvertStep::Keep => {}
                 AdvertStep::AwaitConfirmation => log::info!(
@@ -1135,6 +1137,27 @@ fn probe_agents(ctx: &Ctx) -> (coding::AgentAdvertisement, coding::DoctorReport)
     let report = coding::run_doctor(&settings, &ctx.data_dir);
     let advertisement = report.agent_advertisement(&settings);
     (advertisement, report)
+}
+
+/// EXP-1232: a stored Codex login with no managed build in place → fetch
+/// the pinned build now, off the loop, and re-probe when it lands (the row
+/// reads `Downloading…` meanwhile). At most one fetch per process.
+fn maybe_fetch_codex(ctx: &Ctx, doctor_soon: &Arc<AtomicBool>) {
+    let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
+    if !coding::managed_codex::should_fetch(&settings, &ctx.data_dir) {
+        return;
+    }
+    let doctor_soon = Arc::clone(doctor_soon);
+    let started = coding::managed_codex::fetch_in_background(ctx.data_dir.clone(), move |result| {
+        match result {
+            Ok(path) => log::info!("managed codex: fetched {}", path.display()),
+            Err(reason) => log::warn!("managed codex: fetch failed: {reason}"),
+        }
+        doctor_soon.store(true, Ordering::SeqCst);
+    });
+    if started {
+        log::info!("managed codex: a Codex login is stored here — fetching the pinned build");
+    }
 }
 
 /// What a doctor re-probe should do to the live advertisement (EXP-414).
@@ -2806,7 +2829,7 @@ fn run_device_command(
                 .name("exp-agent-update".to_string())
                 .spawn(move || {
                     log::info!("agent update (web): running {} update", agent.id());
-                    let (ok, message) = match coding::update_agent(&settings, agent) {
+                    let (ok, message) = match coding::update_agent(&settings, &ctx.data_dir, agent) {
                         Ok(outcome) => (true, outcome.message()),
                         Err(error) => (false, error),
                     };

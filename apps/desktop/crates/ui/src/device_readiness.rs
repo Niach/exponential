@@ -548,7 +548,7 @@ pub(crate) fn install_url(key: &str) -> Option<&'static str> {
     match key {
         KEY_GIT => Some("https://git-scm.com/downloads"),
         "claude" => Some("https://code.claude.com/docs/en/quickstart#step-1-install-claude-code"),
-        "codex" => Some("https://developers.openai.com/codex/cli"),
+        // EXP-1232: codex is a managed download — its row never offers Install.
         _ => None,
     }
 }
@@ -630,11 +630,12 @@ pub(crate) fn run_local_update(agent: CodingAgent, cx: &mut App) {
     }
     let hub = crate::coding_flow::CodingHub::global(cx);
     let settings = hub.read(cx).settings.clone();
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
     hub.update(cx, |_, cx| cx.notify());
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { coding::update_agent(&settings, agent) })
+            .spawn(async move { coding::update_agent(&settings, &data_dir, agent) })
             .await;
         let _ = cx.update(|cx| {
             cx.default_global::<LocalUpdates>().0.remove(&key);
@@ -897,12 +898,16 @@ mod tests {
         let cases = cases();
         // Case 1: everything claude needs is fine.
         assert!(blocking_row(&doctor(&cases[0]), CodingAgent::Claude, true).is_none());
+        // EXP-1232: the managed codex with no login — Sign in, remote too.
         let codex = blocking_row(&doctor(&cases[0]), CodingAgent::Codex, true).unwrap();
-        assert_eq!(summary(&codex), "Codex · Not installed");
-        assert!(blocking_row(&doctor(&cases[0]), CodingAgent::Codex, false)
-            .unwrap()
-            .pill
-            .is_none());
+        assert_eq!(summary(&codex), "Codex · Signed out");
+        assert_eq!(
+            blocking_row(&doctor(&cases[0]), CodingAgent::Codex, false)
+                .unwrap()
+                .pill
+                .map(|pill| pill.action),
+            Some(DoctorAction::SignIn)
+        );
         // Case 2: claude too old — Update, remote too.
         let claude = blocking_row(&doctor(&cases[1]), CodingAgent::Claude, false).unwrap();
         assert_eq!(summary(&claude), "Claude Code · 2.1.222 · needs 2.1.263");
@@ -962,8 +967,10 @@ mod tests {
         assert_eq!(fixture["copy"]["skip"], SKIP);
         assert_eq!(fixture["copy"]["recheck"], RECHECK);
         assert_eq!(fixture["copy"]["continue"], CONTINUE);
-        for key in ["git", "claude", "codex"] {
+        for key in ["git", "claude"] {
             assert!(install_url(key).unwrap().starts_with("https://"));
         }
+        // EXP-1232: codex is a managed download — nothing to install by hand.
+        assert_eq!(install_url("codex"), None);
     }
 }

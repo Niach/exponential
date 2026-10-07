@@ -66,6 +66,7 @@ pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
 pub mod lockfile;
+pub mod managed_codex;
 // EXP-1099: the rotating log file + the heartbeat failure policy.
 pub mod logging;
 pub mod mcp_json;

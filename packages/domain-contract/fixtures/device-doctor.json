@@ -38,6 +38,8 @@
     "notGranted": "Not granted",
     "unavailable": "Not available here",
     "notResponding": "Not responding",
+    "downloading": "Downloading…",
+    "downloadFailed": "Download failed",
     "needsVersion": "{version} · needs {min}"
   },
   "rules": [
@@ -51,7 +53,8 @@
     "A missing optional agent is `missing` (grey dash), never red. `error` (red) is only for a missing REQUIRED item.",
     "The composer shows, for the picked device + agent when that agent cannot run there, ONLY that agent's row (same row, same action) under the composer; when Git is the failure, the Git row.",
     "The first-run footer shows `continue` (filled) instead of `skip` when Git is ok and at least one agent is runnable; `recheck` always.",
-    "A device row with doctor = null (an older build) renders no block; device settings then still shows the bare Computer use switch row (no description) so the switch stays reachable."
+    "A device row with doctor = null (an older build) renders no block; device settings then still shows the bare Computer use switch row (no description) so the switch stays reachable.",
+    "EXP-1232: Codex is a MANAGED download — the device fetches the pinned build on the first sign-in, so its row never reads Not installed and never offers install. No login and no binary = missing · Signed out · sign_in (grey, never a problem; the sign-in fetches). A stored login with the fetch running = action · Downloading… with no pill. A failed fetch = action · Download failed · update (re-fetches; agent_update codex on another device)."
   ],
   "cases": [
     {
@@ -61,13 +64,13 @@
         "items": [
           { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
           { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
-          { "key": "codex", "group": "agents", "state": "missing", "detail": "Not installed", "action": "install" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
           { "key": "computer_use", "group": "computer_use", "state": "off" }
         ]
       },
       "runnable": ["claude"],
       "localPrimary": null,
-      "remotePills": {}
+      "remotePills": { "codex": "sign_in" }
     },
     {
       "name": "claude too old, computer use on with one macOS permission missing",
@@ -76,7 +79,7 @@
         "items": [
           { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
           { "key": "claude", "group": "agents", "state": "action", "detail": "2.1.222 · needs 2.1.263", "action": "update" },
-          { "key": "codex", "group": "agents", "state": "missing", "detail": "Not installed", "action": "install" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
           { "key": "computer_use", "group": "computer_use", "state": "action" },
           { "key": "screen_recording", "group": "computer_use", "parent": "computer_use", "state": "ok", "detail": "Granted" },
           { "key": "accessibility", "group": "computer_use", "parent": "computer_use", "state": "action", "detail": "Not granted", "action": "grant" }
@@ -84,7 +87,7 @@
       },
       "runnable": [],
       "localPrimary": "claude",
-      "remotePills": { "claude": "update" }
+      "remotePills": { "claude": "update", "codex": "sign_in" }
     },
     {
       "name": "git missing, claude signed out, codex ok, computer use on (no OS permissions here)",
@@ -100,6 +103,36 @@
       "runnable": [],
       "localPrimary": "git",
       "remotePills": { "claude": "sign_in" }
+    },
+    {
+      "name": "codex login stored, the managed build downloading (EXP-1232)",
+      "doctor": {
+        "checkedAt": "2026-10-07T02:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "action", "detail": "Downloading…" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": null,
+      "remotePills": {}
+    },
+    {
+      "name": "codex managed build failed to download (EXP-1232)",
+      "doctor": {
+        "checkedAt": "2026-10-07T02:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "ok", "detail": "2.1.289" },
+          { "key": "codex", "group": "agents", "state": "action", "detail": "Download failed", "action": "update" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" }
+        ]
+      },
+      "runnable": ["claude"],
+      "localPrimary": "codex",
+      "remotePills": { "codex": "update" }
     }
   ]
 }

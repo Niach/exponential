@@ -189,8 +189,9 @@ class DeviceDoctorTest {
         val ready = doctorOf(cases[0])
         assertNull(DeviceReadiness.failingRow(ready, "claude"))
         assertEquals("codex", DeviceReadiness.failingRow(ready, "codex")?.key)
-        // A remote phone cannot install.
-        assertNull(DeviceReadiness.failingRow(ready, "codex")?.action)
+        // EXP-1232: codex is a managed download — its missing row offers the
+        // (remote) sign-in, which fetches the build on the device.
+        assertEquals("sign_in", DeviceReadiness.failingRow(ready, "codex")?.action)
 
         val old = DeviceReadiness.failingRow(doctorOf(cases[1]), "claude")!!
         assertEquals("claude", old.key)

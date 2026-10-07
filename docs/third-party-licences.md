@@ -306,6 +306,20 @@ binding layer, MPL-2.0, unmodified) gets its source URL through
 `MPL_SOURCE_URLS`. Bumping the pin = the same four rev strings in the
 crate's `Cargo.toml`, then `collect:rust` + `generate`.
 
+### Codex, a managed download (EXP-1232, 2026-10-07)
+
+The desktop app and the `exponential` CLI no longer look for a `codex` the
+person installed: `apps/desktop/crates/coding/src/managed_codex.rs` pins ONE
+upstream release of OpenAI's Codex CLI (openai/codex, Apache-2.0) by tag and
+by the sha256 of each target's tarball, and the person's machine downloads
+that tarball from OpenAI's GitHub release the first time Codex is needed.
+Nothing of Codex is copied into this repository, compiled into any binary,
+or carried in any release asset or image of ours — the bytes travel from
+OpenAI to the user's data dir, so there is no redistribution and nothing to
+add to the notices. The pinned digests are an integrity check, not a
+licence determination. Bumping the pin = the version, the tag and the six
+digests in that one file.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

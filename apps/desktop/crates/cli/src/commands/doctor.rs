@@ -84,14 +84,19 @@ fn group_header(group: DoctorGroup) -> String {
 fn fix_hint(item: &DoctorItem) -> Option<String> {
     let agent = CodingAgent::parse(&item.key);
     let hint = match (item.action?, agent) {
+        // EXP-1232: Codex is a managed download — its Update re-fetches the
+        // pinned build and its Sign in fetches first; both run from any
+        // Exponential app pointed at this device, never a typed command.
+        (DoctorAction::Update, Some(CodingAgent::Codex)) => {
+            "fetch again from the app: Devices → this device → Update".to_string()
+        }
         (DoctorAction::Update, Some(agent)) => format!("run: {} update", agent.id()),
         (DoctorAction::SignIn, Some(CodingAgent::Claude)) => "run: claude".to_string(),
-        (DoctorAction::SignIn, Some(CodingAgent::Codex)) => "run: codex login".to_string(),
+        (DoctorAction::SignIn, Some(CodingAgent::Codex)) => {
+            "sign in from the app: Devices → this device → Sign in".to_string()
+        }
         (DoctorAction::Install, Some(CodingAgent::Claude)) => {
             "install: curl -fsSL https://claude.ai/install.sh | bash".to_string()
-        }
-        (DoctorAction::Install, Some(CodingAgent::Codex)) => {
-            "install: npm install -g @openai/codex".to_string()
         }
         (DoctorAction::Install, None) if item.key == KEY_GIT => git_install_hint().to_string(),
         (DoctorAction::Grant, _) => "System Settings > Privacy & Security".to_string(),
@@ -205,7 +210,7 @@ mod tests {
                 "",
                 "Coding agents (optional)",
                 "  ✓ Claude Code         2.1.289",
-                "  – Codex               Not installed",
+                "  – Codex               Signed out",
                 "",
                 "Computer use (optional)",
                 "  – Off",
@@ -233,7 +238,7 @@ mod tests {
             [
                 "Coding agents (optional)",
                 "  ! Claude Code         2.1.222 · needs 2.1.263  (run: claude update)",
-                "  – Codex               Not installed",
+                "  – Codex               Signed out",
                 "",
                 "Computer use (optional)",
                 "  ! On",

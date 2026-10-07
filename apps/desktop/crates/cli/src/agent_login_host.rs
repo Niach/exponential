@@ -163,36 +163,41 @@ pub fn run(
             let mut login_profile: Option<String> = None;
             let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
                 Err(message) => Some((false, message)),
-                Ok(profile_id) => {
-                    login_profile = Some(profile_id.clone());
-                    let env = agent_login::login_env(&data_dir, agent, &profile_id);
-                    // EXP-765: the slot the requester's code lands in while
-                    // this login runs. Keyed by agent — one login per agent
-                    // at a time is what the server's pending-dedupe already
-                    // guarantees.
-                    let (code_tx, code_rx) = flume::unbounded::<String>();
-                    if let Ok(mut inbox) = codes.lock() {
-                        inbox.insert(agent.id().to_string(), code_tx.clone());
-                    }
-                    let outcome = drive(
-                        &trpc,
-                        &settings,
-                        agent,
-                        switch,
-                        &profile_id,
-                        env.as_ref(),
-                        &command_id,
-                        &code_rx,
-                    );
-                    if let Ok(mut inbox) = codes.lock() {
-                        // Only OUR slot — a login started after this one
-                        // exited must keep its own.
-                        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
-                            inbox.remove(agent.id());
+                // EXP-1232: a managed Codex sign-in fetches the pinned build
+                // first; a failed fetch is the completion.
+                Ok(profile_id) => match coding::managed_codex::ensure_for(&settings, &data_dir, agent) {
+                    Err(message) => Some((false, message)),
+                    Ok(()) => {
+                        login_profile = Some(profile_id.clone());
+                        let env = agent_login::login_env(&data_dir, agent, &profile_id);
+                        // EXP-765: the slot the requester's code lands in while
+                        // this login runs. Keyed by agent — one login per agent
+                        // at a time is what the server's pending-dedupe already
+                        // guarantees.
+                        let (code_tx, code_rx) = flume::unbounded::<String>();
+                        if let Ok(mut inbox) = codes.lock() {
+                            inbox.insert(agent.id().to_string(), code_tx.clone());
                         }
+                        let outcome = drive(
+                            &trpc,
+                            &settings,
+                            agent,
+                            switch,
+                            &profile_id,
+                            env.as_ref(),
+                            &command_id,
+                            &code_rx,
+                        );
+                        if let Ok(mut inbox) = codes.lock() {
+                            // Only OUR slot — a login started after this one
+                            // exited must keep its own.
+                            if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+                                inbox.remove(agent.id());
+                            }
+                        }
+                        outcome
                     }
-                    outcome
-                }
+                },
             };
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);

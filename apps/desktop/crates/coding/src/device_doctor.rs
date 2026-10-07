@@ -34,6 +34,10 @@ pub const UNAVAILABLE: &str = "Not available here";
 /// An agent whose version passes the floor but whose deep ACP probe failed
 /// (`exponential doctor`'s codex handshake). Not in the fixture's copy.
 pub const NOT_RESPONDING: &str = "Not responding";
+/// EXP-1232: the managed Codex build is being fetched (no pill).
+pub const DOWNLOADING: &str = "Downloading…";
+/// EXP-1232: the fetch failed; Update re-fetches.
+pub const DOWNLOAD_FAILED: &str = "Download failed";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -237,6 +241,11 @@ fn needs_relogin(check: &ToolCheck) -> bool {
 fn agent_item(agent: CodingAgent, check: &ToolCheck) -> DoctorItem {
     let key = agent.id();
     let row = |state| item(key, DoctorGroup::Agents, state);
+    if agent == CodingAgent::Codex {
+        if let Some(managed) = managed_codex_item(check) {
+            return managed;
+        }
+    }
     let Some(version_line) = check.version.as_deref() else {
         return row(DoctorState::Missing)
             .detail(NOT_INSTALLED)
@@ -267,6 +276,40 @@ fn agent_item(agent: CodingAgent, check: &ToolCheck) -> DoctorItem {
             .action(DoctorAction::Update);
     }
     row(DoctorState::Ok).detail(version)
+}
+
+/// EXP-1232: Codex is a managed download, so its row never reads Not
+/// installed and never offers Install. With no binary in place the doctor's
+/// `error` says which of three things is true ([`crate::doctor::managed_codex_check`]):
+/// a fetch is running (`Downloading…`, no pill), the last one failed
+/// (`Download failed` · Update re-fetches), or there is no login yet
+/// (`Signed out` · Sign in, grey — the sign-in fetches). `None` = a binary
+/// is there (or a custom path): the ordinary rules apply.
+fn managed_codex_item(check: &ToolCheck) -> Option<DoctorItem> {
+    use crate::managed_codex::{DOWNLOADING_MESSAGE, DOWNLOAD_FAILED_PREFIX};
+    if check.version.is_some() {
+        return None;
+    }
+    let error = check.error.as_deref()?;
+    let row = |state| item(CodingAgent::Codex.id(), DoctorGroup::Agents, state);
+    if error == DOWNLOADING_MESSAGE {
+        return Some(row(DoctorState::Action).detail(DOWNLOADING));
+    }
+    if error.starts_with(DOWNLOAD_FAILED_PREFIX) {
+        return Some(
+            row(DoctorState::Action)
+                .detail(DOWNLOAD_FAILED)
+                .action(DoctorAction::Update),
+        );
+    }
+    if check.signed_out() {
+        return Some(
+            row(DoctorState::Missing)
+                .detail(SIGNED_OUT)
+                .action(DoctorAction::SignIn),
+        );
+    }
+    None
 }
 
 fn computer_items(settings: &Settings, computer: &ComputerState) -> Vec<DoctorItem> {
@@ -361,12 +404,12 @@ pub fn runnable_agents(doctor: &DeviceDoctor) -> Vec<&str> {
 }
 
 /// The row whose action is the PRIMARY pill on the device itself: the first
-/// `action`/`error` row of the block (the fixture's `localPrimary`).
+/// `action`/`error` row of the block THAT HAS an action (the fixture's
+/// `localPrimary`; EXP-1232: a `Downloading…` row has none to offer).
 pub fn first_action(doctor: &DeviceDoctor) -> Option<&DoctorItem> {
-    doctor
-        .items
-        .iter()
-        .find(|item| matches!(item.state, DoctorState::Action | DoctorState::Error))
+    doctor.items.iter().find(|item| {
+        matches!(item.state, DoctorState::Action | DoctorState::Error) && item.action.is_some()
+    })
 }
 
 /// The identity of a block for change detection: its items, never
@@ -407,6 +450,11 @@ mod tests {
         check
     }
 
+    /// EXP-1232: the managed Codex build in one of its three absent states.
+    fn managed_codex(state: crate::managed_codex::State) -> ToolCheck {
+        crate::doctor::managed_codex_check(state)
+    }
+
     fn settings(computer_use: bool) -> Settings {
         Settings {
             computer_use,
@@ -421,7 +469,7 @@ mod tests {
                 DoctorReport {
                     git: check(Tool::Git, Some("2.55.0 (Apple Git-156)")),
                     claude: check(Tool::Claude, Some("2.1.289 (Claude Code)")),
-                    codex: check(Tool::Codex, None),
+                    codex: managed_codex(crate::managed_codex::State::NotWanted),
                 },
                 settings(false),
                 ComputerState::Unsupported,
@@ -430,7 +478,7 @@ mod tests {
                 DoctorReport {
                     git: check(Tool::Git, Some("2.55.0")),
                     claude: check(Tool::Claude, Some("2.1.222 (Claude Code)")),
-                    codex: check(Tool::Codex, None),
+                    codex: managed_codex(crate::managed_codex::State::NotWanted),
                 },
                 settings(true),
                 ComputerState::Supported {
@@ -449,6 +497,26 @@ mod tests {
                 settings(true),
                 ComputerState::Supported { permissions: Vec::new() },
             ),
+            3 => (
+                DoctorReport {
+                    git: check(Tool::Git, Some("2.55.0")),
+                    claude: check(Tool::Claude, Some("2.1.289 (Claude Code)")),
+                    codex: managed_codex(crate::managed_codex::State::Downloading),
+                },
+                settings(false),
+                ComputerState::Unsupported,
+            ),
+            4 => (
+                DoctorReport {
+                    git: check(Tool::Git, Some("2.55.0")),
+                    claude: check(Tool::Claude, Some("2.1.289 (Claude Code)")),
+                    codex: managed_codex(crate::managed_codex::State::Failed(
+                        "download of codex-aarch64-apple-darwin.tar.gz failed: no network".into(),
+                    )),
+                },
+                settings(false),
+                ComputerState::Unsupported,
+            ),
             _ => panic!("no input for fixture case {index}: add one"),
         }
     }
@@ -457,7 +525,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 3, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 5, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -519,6 +587,8 @@ mod tests {
             ("granted", GRANTED),
             ("notGranted", NOT_GRANTED),
             ("unavailable", UNAVAILABLE),
+            ("downloading", DOWNLOADING),
+            ("downloadFailed", DOWNLOAD_FAILED),
         ] {
             assert_eq!(copy[key].as_str().unwrap(), text, "{key}");
         }
