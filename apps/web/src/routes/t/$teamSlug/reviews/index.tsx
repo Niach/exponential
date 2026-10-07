@@ -38,6 +38,7 @@ import {
 } from "@/components/stack-merge-choice-dialog"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
+import { sessionIdentity } from "@/lib/session-identity"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -622,7 +623,10 @@ function ReviewsPage() {
                         </span>
                         <div className="min-w-0 pr-3">
                           <div className="truncate text-sm">
-                            {session.actionName ?? `Batch run`}
+                            {/* EXP-1204: the run's own name, ×4 with the
+                                natives' rows — a chat's agent-named subject,
+                                an action's name snapshot. */}
+                            {sessionIdentity({ session, issue: undefined }).subject}
                           </div>
                           {session.branch && (
                             <div className="truncate font-mono text-xs text-muted-foreground">

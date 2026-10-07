@@ -89,6 +89,9 @@ final class StyleguideScreenshots: XCTestCase {
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// One of the four seeded open PRs on the Reviews queue.
     private static let reviewTitle = "Batch-edit labels from the board"
+    /// EXP-1204: the seeded chat run with an open PR of its own — its subject
+    /// is the Reviews "Agent runs" row title and the RunChanges header.
+    private static let runChangesTitle = "Fix the error-type comparison in the resolver"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -617,6 +620,25 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
+
+        // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
+        // The Reviews "Agent runs" band lists Jonas's finished chat run, whose
+        // own pull request is open; its row pushes `RunChangesView`, fed by
+        // `codingSessions.prFiles` — a real public PR the seed points the run
+        // at (SCREENSHOT_RUN_PR_URL), so there are actual files to show.
+        let runRow = app.staticTexts[Self.runChangesTitle].firstMatch
+        XCTAssertTrue(
+            runRow.waitForExistence(timeout: 60),
+            "Reviews tab never showed the seeded agent run"
+        )
+        runRow.tap()
+        let runFileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
+        XCTAssertTrue(
+            runFileRows.firstMatch.waitForExistence(timeout: 60),
+            "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
+        )
+        snapshot("sg_run-changes", settle: 2)
+        goBack(app)
 
         // ── sg_settings-root: the top-level settings list ────────────────────
         // The gear only lives on the issues tab's nav bar. The root is the
