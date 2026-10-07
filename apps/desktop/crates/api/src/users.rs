@@ -6,7 +6,10 @@
 //!   createdAt}` — `key` is the RAW `expu_…` credential, returned **exactly
 //!   once** (the server stores only a hash).
 //! - `users.listPersonalApiKeys()` → `{keys: [{id, name, start, prefix,
-//!   createdAt, lastRequest}]}`.
+//!   createdAt, lastRequest, scope}]}` — FEED-76: `scope` = `null` for an
+//!   unscoped key, else `{teams: [{id, name}], boards: [{id, name, prefix}]}`
+//!   (a scoped key is MCP-only; keys are scoped on the web, the IDE only
+//!   shows the caption).
 //! - `users.revokePersonalApiKey({id})` → `{ok: true}`.
 //! - `users.timezone()` → `{timezone: string | null}` and
 //!   `users.setTimezone({timezone, onlyIfUnset?})` → `{saved}` (EXP-369) — the
@@ -69,6 +72,60 @@ pub struct PersonalKeyMeta {
     pub created_at: Option<String>,
     #[serde(default)]
     pub last_request: Option<String>,
+    /// FEED-76: the key's team/board scope by name; `None` = all teams (and
+    /// every row from a server older than FEED-76).
+    #[serde(default)]
+    pub scope: Option<PersonalKeyScope>,
+}
+
+/// A scoped key's resolved selection (FEED-76).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalKeyScope {
+    #[serde(default)]
+    pub teams: Vec<ScopedTeam>,
+    #[serde(default)]
+    pub boards: Vec<ScopedBoard>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedTeam {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedBoard {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub prefix: String,
+}
+
+/// The row caption a key wears: "All teams" or "Scoped to Acme, Web (WEB)".
+/// Mirrors `@exp/ui` `scopeCaption` byte for byte.
+pub fn scope_caption(scope: Option<&PersonalKeyScope>) -> String {
+    let Some(scope) = scope else {
+        return "All teams".to_string();
+    };
+    let parts: Vec<String> = scope
+        .teams
+        .iter()
+        .map(|team| team.name.clone())
+        .chain(
+            scope
+                .boards
+                .iter()
+                .map(|board| format!("{} ({})", board.name, board.prefix)),
+        )
+        .collect();
+    if parts.is_empty() {
+        "Scoped to nothing reachable".to_string()
+    } else {
+        format!("Scoped to {}", parts.join(", "))
+    }
 }
 
 #[derive(Deserialize)]
@@ -504,15 +561,43 @@ mod tests {
             200,
             r#"{"result":{"data":{"keys":[
                 {"id":"key-1","name":"Device: a","start":"expu_ra","prefix":"expu_",
-                 "createdAt":"2026-07-01T00:00:00.000Z","lastRequest":null}]}}}"#,
+                 "createdAt":"2026-07-01T00:00:00.000Z","lastRequest":null},
+                {"id":"key-2","name":"Bot","start":"expu_bo","prefix":"expu_",
+                 "createdAt":"2026-07-01T00:00:00.000Z","lastRequest":null,
+                 "scope":{"teams":[{"id":"t-1","name":"Acme"}],
+                          "boards":[{"id":"b-1","name":"Web","prefix":"WEB"}]}}]}}}"#,
         );
         let keys = list_personal_api_keys(&client(&base)).unwrap();
-        assert_eq!(keys.len(), 1);
+        assert_eq!(keys.len(), 2);
         assert_eq!(keys[0].id, "key-1");
         assert_eq!(keys[0].last_request, None);
+        // FEED-76: a row without `scope` (every pre-FEED-76 server) is unscoped.
+        assert_eq!(keys[0].scope, None);
+        let scope = keys[1].scope.as_ref().expect("scoped row");
+        assert_eq!(scope.teams[0].name, "Acme");
+        assert_eq!(scope.boards[0].prefix, "WEB");
+        assert_eq!(scope_caption(keys[1].scope.as_ref()), "Scoped to Acme, Web (WEB)");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         // tRPC routes reads as GET — POST to a .query 405s (iOS-proven).
         assert!(request.starts_with("GET /api/trpc/users.listPersonalApiKeys HTTP/1.1"));
+    }
+
+    #[test]
+    fn scope_caption_mirrors_the_web() {
+        assert_eq!(scope_caption(None), "All teams");
+        assert_eq!(
+            scope_caption(Some(&PersonalKeyScope::default())),
+            "Scoped to nothing reachable"
+        );
+        let scope = PersonalKeyScope {
+            teams: vec![ScopedTeam { id: "t".into(), name: "Acme".into() }],
+            boards: vec![ScopedBoard {
+                id: "b".into(),
+                name: "Mobile".into(),
+                prefix: "MOB".into(),
+            }],
+        };
+        assert_eq!(scope_caption(Some(&scope)), "Scoped to Acme, Mobile (MOB)");
     }
 
     #[test]

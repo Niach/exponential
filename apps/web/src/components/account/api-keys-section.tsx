@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Check, Copy } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Check, Copy, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import {
@@ -18,6 +18,13 @@ import {
   Input,
   Label,
   Prompt,
+  EMPTY_SCOPE_SELECTION,
+  ScopePicker,
+  effectiveScopeSelection,
+  hasScopeSelection,
+  scopeCaption,
+  type ScopePickerTeam,
+  type ScopeSelection,
 } from "@exp/ui"
 
 type ApiKeyRow = Awaited<
@@ -57,13 +64,21 @@ function keyPreview(row: ApiKeyRow): string {
   return `expu_…`
 }
 
-// Self-service personal API keys (EXP-238). Keys act as the signed-in user
-// everywhere a session does: the MCP endpoint, tRPC, sync — and the CLI's
-// EXP_TOKEN. The raw key exists client-side only in the mint dialog.
+// Self-service personal API keys (EXP-238). An unscoped key acts as the
+// signed-in user everywhere a session does: the MCP endpoint, tRPC, sync — and
+// the CLI's EXP_TOKEN. FEED-76: the mint dialog offers the OAuth consent
+// screen's team/board selection (`ScopePicker`); a scoped key is MCP-only and
+// confined to its pick, and its row wears the pick as a caption. The raw key
+// exists client-side only in the mint dialog.
 export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const [keys, setKeys] = useState<ApiKeyRow[]>(initialKeys)
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState(``)
+  const [tree, setTree] = useState<ScopePickerTeam[] | null>(null)
+  const [treeError, setTreeError] = useState(``)
+  const [selection, setSelection] = useState<ScopeSelection>(
+    EMPTY_SCOPE_SELECTION
+  )
   const [minting, setMinting] = useState(false)
   const [mintError, setMintError] = useState(``)
   const [mintedKey, setMintedKey] = useState<string | null>(null)
@@ -74,22 +89,52 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const sessions = keys.filter(isDeviceKey)
   const apiKeys = keys.filter((row) => !isDeviceKey(row))
 
+  // The scope tree (the member's teams + live boards) loads once per open.
+  useEffect(() => {
+    if (!createOpen || tree) return
+    let cancelled = false
+    trpc.mcpGrants.scopeTree
+      .query()
+      .then((scopes) => {
+        if (!cancelled) setTree(scopes.teams)
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        setTreeError(
+          e instanceof Error && e.message
+            ? e.message
+            : `Couldn't load your teams.`
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [createOpen, tree])
+
   const closeCreate = () => {
     setCreateOpen(false)
     setName(``)
     setMintError(``)
     setMintedKey(null)
     setCopied(false)
+    setSelection(EMPTY_SCOPE_SELECTION)
   }
 
+  const canMint = hasScopeSelection(selection) && (selection.allTeams || tree !== null)
+
   const handleMint = async () => {
-    if (minting) return
+    if (minting || !canMint) return
     setMinting(true)
     setMintError(``)
     try {
-      const created = await trpc.users.mintPersonalApiKey.mutate(
-        name.trim() ? { name: name.trim() } : undefined
-      )
+      // "Everything" sends no scope: the key stays an ordinary full key.
+      const scope = selection.allTeams
+        ? undefined
+        : effectiveScopeSelection(tree ?? [], selection)
+      const created = await trpc.users.mintPersonalApiKey.mutate({
+        ...(name.trim() ? { name: name.trim() } : {}),
+        ...(scope ? { scope } : {}),
+      })
       // The mutation returns the display metadata too, so the list updates
       // without a follow-up query.
       setKeys((prev) => [
@@ -100,6 +145,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
           prefix: created.prefix,
           createdAt: created.createdAt,
           lastRequest: null,
+          scope: created.scope,
         },
         ...prev,
       ])
@@ -212,6 +258,12 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                       row.lastRequest ? formatDate(row.lastRequest) : `never`
                     }`}
                   </div>
+                  <div
+                    className="text-xs text-muted-foreground"
+                    data-slot="api-key-scope"
+                  >
+                    {scopeCaption(row.scope)}
+                  </div>
                 </div>
                 <Button
                   size="sm"
@@ -239,29 +291,57 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
               <DialogHeader>
                 <DialogTitle>Create API key</DialogTitle>
                 <DialogDescription>
-                  For scripts and MCP clients. The key acts as you with your
-                  full team membership; revoke it here at any time.
+                  For scripts and MCP clients. The key acts as you within the
+                  teams and boards you choose; revoke it here at any time.
                 </DialogDescription>
               </DialogHeader>
-              <DialogBody className="space-y-2">
-                <Label htmlFor="api-key-name">Name</Label>
-                <Input
-                  id="api-key-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Personal key"
-                  maxLength={180}
-                  onKeyDown={(e) => {
-                    if (e.key === `Enter`) void handleMint()
-                  }}
-                />
+              <DialogBody className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="api-key-name">Name</Label>
+                  <Input
+                    id="api-key-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Personal key"
+                    maxLength={180}
+                    onKeyDown={(e) => {
+                      if (e.key === `Enter`) void handleMint()
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Access</Label>
+                  {treeError ? (
+                    <p className="text-sm text-destructive">{treeError}</p>
+                  ) : !tree && !selection.allTeams ? (
+                    <div className="flex justify-center py-4">
+                      <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <ScopePicker
+                      tree={tree ?? []}
+                      value={selection}
+                      onChange={setSelection}
+                      idPrefix="api-key"
+                    />
+                  )}
+                  {!selection.allTeams && (
+                    <p className="text-xs text-muted-foreground">
+                      A scoped key works with the MCP endpoint only and cannot
+                      be re-scoped later — create a new key to widen it.
+                    </p>
+                  )}
+                </div>
                 {mintError && (
                   <p className="text-sm text-destructive">{mintError}</p>
                 )}
               </DialogBody>
               <DialogFooter>
                 <DialogCancel variant="outline" onClick={closeCreate} />
-                <Button onClick={() => void handleMint()} disabled={minting}>
+                <Button
+                  onClick={() => void handleMint()}
+                  disabled={minting || !canMint}
+                >
                   {minting ? `Creating…` : `Create key`}
                 </Button>
               </DialogFooter>

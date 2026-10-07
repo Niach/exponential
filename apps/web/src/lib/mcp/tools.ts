@@ -2149,11 +2149,11 @@ export function registerExponentialTools(
       try {
         // SLOP-4: a reporter reply EMAILS an outside address with text the
         // reporter chose, so it needs a person behind it: never a
-        // board-confined OAuth grant, never an unattended run.
+        // board-confined OAuth grant or scoped key, never an unattended run.
         if (audience === `reporter`) {
           if (!access.full) {
             throw new Error(
-              `audience "reporter" needs a full-access key: this OAuth grant is confined to chosen boards. Post a team comment instead.`
+              `audience "reporter" needs a full-access credential: this connection is confined to chosen teams/boards. Post a team comment instead.`
             )
           }
           const run = await loadCallerSession()

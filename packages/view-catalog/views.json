@@ -1662,7 +1662,7 @@
       "id": "settings-api-keys",
       "group": "settings",
       "title": "Settings · Security",
-      "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). Passkeys sat here from EXP-862 until EXP-1126 moved them to Account under Sign-in methods; the section keeps the Security name.",
+      "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). FEED-76: the mint dialog offers the consent screen's team/board scope picker; a scoped key is MCP-only and its row wears the pick as a caption. Passkeys sat here from EXP-862 until EXP-1126 moved them to Account under Sign-in methods; the section keeps the Security name.",
       "order": 12,
       "web": {
         "route": "/t/$teamSlug/settings/security",

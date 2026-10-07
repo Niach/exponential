@@ -44,6 +44,17 @@ vi.mock(`@/lib/auth`, () => ({
 // EXP-759: resolveSession touches the client-platform ledger. The db handle
 // is a stand-in (the touch is mocked) — DATABASE_URL is not set under vitest.
 vi.mock(`@/db/connection`, () => ({ db: {} }))
+// FEED-76: the scoped-key probe is mocked too; `null` = a real session or an
+// unscoped key, so every pre-FEED-76 case below holds unchanged.
+const { apiKeySessionMetadata } = vi.hoisted(() => ({
+  apiKeySessionMetadata: vi.fn(
+    async (): Promise<{ kind: string; scope: unknown } | null> => null
+  ),
+}))
+vi.mock(`@/lib/auth/api-key-kind`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/api-key-kind")>()),
+  apiKeySessionMetadata,
+}))
 const { touchUserClientPlatform } = vi.hoisted(() => ({
   touchUserClientPlatform: vi.fn(() => true),
 }))
@@ -55,6 +66,7 @@ vi.mock(`@/lib/client-platforms`, async (importOriginal) => ({
 import { noteAuthDbFailure } from "@/lib/auth/db-failure-signal"
 import {
   invalidateSessionCache,
+  resolveMcpCredential,
   resolveSession,
   resolveSessionUserId,
   SessionResolveError,
@@ -70,6 +82,80 @@ beforeEach(() => {
   // test starts cold (several tests reuse the same bearer literal).
   invalidateSessionCache()
   touchUserClientPlatform.mockClear()
+  apiKeySessionMetadata.mockClear()
+  apiKeySessionMetadata.mockImplementation(async () => null)
+})
+
+// FEED-76: a SCOPED `expu_` key is an MCP-only credential — the general
+// surface reads it as unauthenticated, /api/mcp gets the session plus the
+// scope it must confine to. One getSession + one key probe per TTL.
+describe(`scoped api keys (FEED-76)`, () => {
+  const SCOPE = { allTeams: false as const, teamIds: [`t-1`], boardIds: [] }
+  const keyRequest = () =>
+    new Request(`https://x/api/trpc/issues.list`, {
+      headers: { authorization: `Bearer expu_scoped` },
+    })
+
+  it(`resolveSession hides a scoped key; resolveMcpCredential carries its scope`, async () => {
+    apiKeySessionMetadata.mockImplementation(async () => ({
+      kind: `personal`,
+      scope: SCOPE,
+    }))
+    expect(await resolveSession(keyRequest())).toBeNull()
+    expect(await resolveSessionUserId(keyRequest())).toBeNull()
+    const resolved = await resolveMcpCredential(keyRequest())
+    expect(resolved.session?.user?.id).toBe(`user-token`)
+    expect(resolved.keyScope).toEqual(SCOPE)
+    // All three calls shared ONE cached resolution.
+    expect(h.state.calls).toBe(1)
+    expect(apiKeySessionMetadata).toHaveBeenCalledTimes(1)
+  })
+
+  it(`an unscoped key resolves everywhere, probed once per TTL`, async () => {
+    expect((await resolveSession(keyRequest()))?.user?.id).toBe(`user-token`)
+    const resolved = await resolveMcpCredential(keyRequest())
+    expect(resolved.keyScope).toBeNull()
+    expect(resolved.session?.user?.id).toBe(`user-token`)
+    expect(h.state.calls).toBe(1)
+    expect(apiKeySessionMetadata).toHaveBeenCalledTimes(1)
+  })
+
+  it(`probes only expu_ credentials: session bearers and cookies pay nothing`, async () => {
+    await resolveSession(
+      new Request(`https://x/api/shapes/issues`, {
+        headers: { authorization: `Bearer session-xyz` },
+      })
+    )
+    await resolveSession(
+      new Request(`https://x/api/trpc/x`, {
+        headers: { cookie: `__Secure-better-auth.session_token=web-user` },
+      })
+    )
+    expect(apiKeySessionMetadata).not.toHaveBeenCalled()
+    await resolveSession(
+      new Request(`https://x/api/shapes/issues`, {
+        headers: { "x-api-key": `expu_abc` },
+      })
+    )
+    expect(apiKeySessionMetadata).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a failed probe is a SessionResolveError and is not cached`, async () => {
+    apiKeySessionMetadata.mockImplementationOnce(async () => {
+      throw new Error(`db down`)
+    })
+    await expect(resolveSession(keyRequest())).rejects.toBeInstanceOf(
+      SessionResolveError
+    )
+    expect((await resolveSession(keyRequest()))?.user?.id).toBe(`user-token`)
+    expect(h.state.calls).toBe(2)
+  })
+
+  it(`never probes when getSession found no user`, async () => {
+    h.state.user = null
+    expect(await resolveSession(keyRequest())).toBeNull()
+    expect(apiKeySessionMetadata).not.toHaveBeenCalled()
+  })
 })
 
 describe(`resolveSession bearer/cookie isolation`, () => {

@@ -24,6 +24,16 @@ const h = vi.hoisted(() => ({
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 vi.mock(`@/lib/auth`, () => ({ auth: { api: { createApiKey: h.createApiKey } } }))
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({ invalidateSessionCache: vi.fn() }))
+// FEED-76: the scope clamp reads membership through the cached module-db
+// helper; the fake db below holds the teams/boards the names resolve from.
+const T1 = `11111111-1111-4111-8111-111111111111`
+const T2 = `22222222-2222-4222-8222-222222222222`
+const B1 = `33333333-3333-4333-8333-333333333333`
+const B_GONE = `44444444-4444-4444-8444-444444444444`
+vi.mock(`@/lib/auth/membership`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/membership")>()),
+  getUserTeamIds: vi.fn(async () => [T1, T2]),
+}))
 
 import { usersRouter } from "@/lib/trpc/users"
 import { createFakeDb, type FakeDb } from "@/lib/mcp-oauth/test-db"
@@ -59,6 +69,85 @@ beforeEach(() => {
     ],
     accounts: [{ id: `acc-1`, userId: `actor`, providerId: `google` }],
     passkeys: [{ id: `pk-1`, userId: `actor` }],
+    teams: [
+      { id: T1, name: `Acme` },
+      { id: T2, name: `Lab` },
+    ],
+    // B_GONE is deliberately NOT seeded: the fake matches eq/inArray only
+    // (never `boardVisible()`'s IS NULL), so a trashed board stands in as an
+    // unknown id — the resolver drops both the same way.
+    boards: [{ id: B1, teamId: T2, name: `Web`, prefix: `WEB` }],
+  })
+})
+
+// FEED-76: a key minted with the consent screen's selection stores it
+// (clamped) in its metadata and lists it by name; "Everything" stores no
+// scope; the agent's hidden key is never scoped.
+describe(`users — scoped API keys (FEED-76)`, () => {
+  it(`mints a scoped key with the clamped selection and returns it by name`, async () => {
+    const created = await callerFor().mintPersonalApiKey({
+      name: `Bot`,
+      scope: { teamIds: [T1, `55555555-5555-4555-8555-555555555555`], boardIds: [B1] },
+    })
+    expect(h.createApiKey).toHaveBeenCalledWith({
+      body: expect.objectContaining({
+        metadata: {
+          kind: `personal`,
+          scope: { allTeams: false, teamIds: [T1], boardIds: [B1] },
+        },
+      }),
+    })
+    expect(created.scope).toEqual({
+      teams: [{ id: T1, name: `Acme` }],
+      boards: [{ id: B1, name: `Web`, prefix: `WEB` }],
+    })
+  })
+
+  it(`"Everything" and no scope both store an unscoped key`, async () => {
+    const everything = await callerFor().mintPersonalApiKey({ scope: { allTeams: true } })
+    expect(everything.scope).toBeNull()
+    await callerFor().mintPersonalApiKey({ name: `Plain` })
+    for (const call of h.createApiKey.mock.calls as unknown as Array<[{ body: { metadata: unknown } }]>) {
+      expect(call[0].body.metadata).toEqual({ kind: `personal` })
+    }
+  })
+
+  it(`refuses a scope on the agent purpose and a selection reaching nothing`, async () => {
+    const agent = await rejectionOf(
+      callerFor().mintPersonalApiKey({ purpose: `agent`, scope: { teamIds: [T1] } })
+    )
+    expect(agent.code).toBe(`BAD_REQUEST`)
+    expect(agent.message).toBe(`An agent key cannot be scoped`)
+    const empty = await rejectionOf(callerFor().mintPersonalApiKey({ scope: {} }))
+    expect(empty.code).toBe(`BAD_REQUEST`)
+    const foreign = await rejectionOf(
+      callerFor().mintPersonalApiKey({
+        scope: { teamIds: [`55555555-5555-4555-8555-555555555555`] },
+      })
+    )
+    expect(foreign.code).toBe(`BAD_REQUEST`)
+    expect(h.createApiKey).not.toHaveBeenCalled()
+  })
+
+  it(`lists the scope by name, dropping a vanished board, and never the raw metadata`, async () => {
+    db.rows(`apikeys`).push({
+      id: `key-scoped`,
+      referenceId: `actor`,
+      name: `Bot`,
+      createdAt: new Date(1),
+      metadata: JSON.stringify({
+        kind: `personal`,
+        scope: { allTeams: false, teamIds: [T1], boardIds: [B1, B_GONE] },
+      }),
+    })
+    const { keys } = await callerFor().listPersonalApiKeys()
+    const scoped = keys.find((row) => row.id === `key-scoped`)!
+    expect(scoped.scope).toEqual({
+      teams: [{ id: T1, name: `Acme` }],
+      boards: [{ id: B1, name: `Web`, prefix: `WEB` }],
+    })
+    expect(`metadata` in scoped).toBe(false)
+    expect(keys.find((row) => row.id === `key-person`)!.scope).toBeNull()
   })
 })
 
