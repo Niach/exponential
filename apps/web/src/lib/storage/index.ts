@@ -11,6 +11,7 @@ import {
   S3ServiceException,
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3"
+import { StorageThrottledError } from "@/lib/storage/errors"
 
 const storageBucket = process.env.S3_BUCKET || `exponential-attachments`
 const storageEndpoint = process.env.S3_ENDPOINT || `http://localhost:3900`
@@ -34,6 +35,51 @@ function createStorageClient() {
 }
 
 const storageClient = createStorageClient()
+
+// FEED-75: the store's "slow down" answers. S3 proper says `SlowDown` (503);
+// Ceph RGW (Hetzner) the same; other fronts spell it 429 or `Throttling`.
+const THROTTLE_ERROR_NAMES = new Set([
+  `SlowDown`,
+  `Throttling`,
+  `ThrottlingException`,
+  `RequestLimitExceeded`,
+  `TooManyRequests`,
+  `TooManyRequestsException`,
+  `ServiceUnavailable`,
+])
+
+function isThrottlingError(error: unknown): error is S3ServiceException {
+  if (!(error instanceof S3ServiceException)) return false
+  const status = error.$metadata.httpStatusCode
+  return status === 503 || status === 429 || THROTTLE_ERROR_NAMES.has(error.name)
+}
+
+// The SDK already retries a throttled call three times within about a
+// second, which stays inside the same throttle window (the FEED-75 uploads
+// show `attempts: 3, totalRetryDelay: ~1000`). These waits come on top of
+// that: ~1, 2, 4 and 8 s with jitter, ~15 s in all, long enough for a
+// per-second budget to refill while the uploader's curl is still waiting.
+export const STORAGE_THROTTLE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000]
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** One storage call with the throttling retries above; past them the
+ *  caller gets a `StorageThrottledError` (503 + Retry-After on the routes). */
+async function sendWithThrottleRetry<T>(
+  send: () => Promise<T>,
+  delays: readonly number[] = STORAGE_THROTTLE_RETRY_DELAYS_MS
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await send()
+    } catch (error) {
+      if (!isThrottlingError(error)) throw error
+      const base = delays[attempt]
+      if (base === undefined) throw new StorageThrottledError({ cause: error })
+      await sleep(base + Math.floor(Math.random() * base * 0.5))
+    }
+  }
+}
 
 async function createBucketIfMissing() {
   try {
@@ -79,14 +125,16 @@ export async function uploadObject(options: {
   key: string
 }) {
   await ensureBucketReady()
-  await storageClient.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: options.key,
-      Body: options.body,
-      ContentLength: options.contentLength,
-      ContentType: options.contentType,
-    })
+  await sendWithThrottleRetry(() =>
+    storageClient.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: options.key,
+        Body: options.body,
+        ContentLength: options.contentLength,
+        ContentType: options.contentType,
+      })
+    )
   )
 }
 
@@ -97,15 +145,17 @@ export async function getObject(
   await ensureBucketReady()
 
   try {
-    return await storageClient.send(
-      new GetObjectCommand({
-        Bucket: storageBucket,
-        Key: key,
-        // Byte-range passthrough (EXP-297): the caller forwards an already
-        // validated single-range `Range` header so media players and
-        // resumable downloads work against the attachment route.
-        Range: options?.range,
-      })
+    return await sendWithThrottleRetry(() =>
+      storageClient.send(
+        new GetObjectCommand({
+          Bucket: storageBucket,
+          Key: key,
+          // Byte-range passthrough (EXP-297): the caller forwards an already
+          // validated single-range `Range` header so media players and
+          // resumable downloads work against the attachment route.
+          Range: options?.range,
+        })
+      )
     )
   } catch (error) {
     if (
@@ -137,8 +187,10 @@ export async function headObject(
   await ensureBucketReady()
 
   try {
-    const head = await storageClient.send(
-      new HeadObjectCommand({ Bucket: storageBucket, Key: key })
+    const head = await sendWithThrottleRetry(() =>
+      storageClient.send(
+        new HeadObjectCommand({ Bucket: storageBucket, Key: key })
+      )
     )
     return {
       sizeBytes:
@@ -159,11 +211,13 @@ export async function headObject(
 
 export async function deleteObject(key: string) {
   await ensureBucketReady()
-  await storageClient.send(
-    new DeleteObjectCommand({
-      Bucket: storageBucket,
-      Key: key,
-    })
+  await sendWithThrottleRetry(() =>
+    storageClient.send(
+      new DeleteObjectCommand({
+        Bucket: storageBucket,
+        Key: key,
+      })
+    )
   )
 }
 

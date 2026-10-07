@@ -115,6 +115,7 @@ vi.mock(`@/lib/storage/session-attachment-upload`, () => ({
 vi.stubEnv(`BETTER_AUTH_SECRET`, `session-result-route-test-secret`)
 
 import { Route } from "@/routes/api/session-results/$token"
+import { StorageThrottledError } from "@/lib/storage/errors"
 import { mintSessionResultToken } from "@/lib/storage/session-result-token"
 
 type Handler = (args: {
@@ -295,6 +296,20 @@ describe(`POST /api/session-results/$token`, () => {
     )
     const response = await post(token())
     expect(response.status).toBe(400)
+    expect(h.transaction).not.toHaveBeenCalled()
+  })
+
+  // FEED-75: the store throttled the put past every retry. The agent's curl
+  // must see 503 + Retry-After (its `--retry` honours it), never the 500
+  // that hid the cause.
+  it(`503s with a Retry-After when the store stays throttled, storing nothing`, async () => {
+    h.prepareSessionImage.mockRejectedValue(new StorageThrottledError())
+    const response = await post(token())
+    expect(response.status).toBe(503)
+    expect(response.headers.get(`retry-after`)).toBe(`5`)
+    expect(await response.json()).toEqual({
+      error: expect.stringContaining(`Retry the same command in 5 seconds`),
+    })
     expect(h.transaction).not.toHaveBeenCalled()
   })
 

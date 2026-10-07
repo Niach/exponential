@@ -3905,7 +3905,7 @@ export function registerExponentialTools(
           return ok({
             uploadUrl,
             expiresAt: expiresAt.toISOString(),
-            curl: `curl -sS -F file=@screenshot.png "${uploadUrl}"`,
+            curl: `curl -sS --retry 4 -F file=@screenshot.png "${uploadUrl}"`,
             topic,
             label,
             ...(prSync === `synced` ? { pr: `synced` } : {}),
@@ -4033,7 +4033,7 @@ export function registerExponentialTools(
             id: attachmentId,
             uploadUrl,
             expiresAt: expiresAt.toISOString(),
-            curl: `curl -sS -F file=@${path} "${uploadUrl}"`,
+            curl: `curl -sS --retry 4 -F file=@${path} "${uploadUrl}"`,
             topic,
             results: resultsSummary(published),
           })
