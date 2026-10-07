@@ -141,6 +141,15 @@ import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.OPEN_RESULTS_LABEL
 import com.exponential.app.domain.SESSION_INLINE_TILE_HEIGHT
 import com.exponential.app.domain.sessionResultPicture
+import com.exponential.app.ui.components.runningRowMarkState
+import com.exponential.app.domain.SessionResultEntry
+import com.exponential.app.domain.ThreadItem
+import com.exponential.app.domain.SessionThread
+import com.exponential.app.domain.sessionThread
+import com.exponential.app.domain.lastToolLine
+import com.exponential.app.domain.runRowCaption
+import com.exponential.app.domain.runRowState
+import com.exponential.app.domain.RunRowState
 import com.exponential.app.domain.sessionResultTileCaption
 import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.ui.work.ResultPreviewDialog
@@ -235,6 +244,7 @@ import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.awaitsAnswer
 import com.exponential.app.domain.label
 import com.exponential.app.domain.liveToolRowId
 import com.exponential.app.domain.localAnswerSummary
@@ -370,6 +380,9 @@ fun RunFace(
     /** EXP-933: switches the host to its Results face — the inline
      *  `sessions_results` card's `Open Results` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
+    /** EXP-1175: the shown run's ×4 display state (the status row's state
+     *  and mark); null reads as working. */
+    runState: CodingSessionDisplayState? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
@@ -379,7 +392,7 @@ fun RunFace(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, runState)
     }
 }
 
@@ -398,8 +411,12 @@ private fun RunFaceContent(
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
     mergeBarSlot: (@Composable () -> Unit)?,
+    runState: CodingSessionDisplayState?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
+    // EXP-1175: the viewer's Show work preference — the thread (off) or the
+    // full transcript (on), in the same slot.
+    val showWork by viewModel.showWork.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -540,6 +557,43 @@ private fun RunFaceContent(
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
+    // ── EXP-1175: the status row — state, mark, caption, tool line ─────────
+    val rowDisplayState = runState ?: CodingSessionDisplayState.Working
+    val rowPaused = hostDevice.isPaused(rowDisplayState, session?.status ?: "running")
+    val rowState = runRowState(rowDisplayState, paused = rowPaused, ended = sessionEnded)
+    // The elapsed clock ticks each second, ONLY while the row reads Building.
+    var rowNowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(rowState == RunRowState.Working) {
+        if (rowState != RunRowState.Working) return@LaunchedEffect
+        while (true) {
+            rowNowMs = System.currentTimeMillis()
+            delay(1_000L)
+        }
+    }
+    val rowCaption = runRowCaption(
+        state = rowState,
+        device = hostDevice.displayLabel,
+        startedAt = session?.startedAt,
+        endedAt = session?.let { it.endedAt ?: it.updatedAt },
+        nowMs = rowNowMs,
+    )
+    // Only a LIVE run shows what it last touched.
+    val rowToolLine = remember(feed, sessionEnded) { if (sessionEnded) null else lastToolLine(feed) }
+    val rowMarkState = runningRowMarkState(rowDisplayState, rowPaused, agentWorking)
+    val statusRow: @Composable () -> Unit = {
+        ReadingColumn {
+            RunStatusRow(
+                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+                markState = rowMarkState,
+                ended = sessionEnded,
+                caption = rowCaption.text,
+                tone = rowCaption.tone,
+                toolLine = rowToolLine,
+                showWork = showWork,
+                onToggle = { viewModel.setShowWork(!showWork) },
+            )
+        }
+    }
     // EXP-850 (S5/S7): the NEWEST running workflow — its caption is what the
     // working row says while it runs. Only while the run is LIVE: a replayed
     // transcript can end with a workflow frozen mid-flight, and an ended run
@@ -740,6 +794,140 @@ private fun RunFaceContent(
             phase == AgentPhase.Connecting || phase == AgentPhase.Starting ||
             (!everRendered && phase == AgentPhase.Live && latestDiff == null)
         )
+    // Every answer is one semantic `answer` frame keyed by the card's wire
+    // id (EXP-249) — shared by the transcript and the thread (EXP-1175).
+    val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit = { question, keys, text ->
+        // The picked labels (a typed free-text reply
+        // wins over its row's "Type something"
+        // label) — what the stepper shows for this
+        // step until the ask resolves (EXP-588).
+        val labels = keys.mapNotNull { key ->
+            val option = question.options.firstOrNull { it.key == key }
+                ?: return@mapNotNull null
+            if (option.freeText && !text.isNullOrBlank()) text else option.label
+        }
+        viewModel.sendQuestionAnswer(
+            question.wireId, question.askId, keys, text, labels,
+        )
+    }
+    // EXP-820: a plan rejected with feedback — the reject key answers the
+    // card, the text follows as the next message (iOS/web parity).
+    val onPlanFollowUp: (AgentFeedItem.Question, String, String) -> Unit = { question, key, text ->
+        val label = question.options.firstOrNull { it.key == key }?.label ?: key
+        viewModel.answerThenSend(
+            question.wireId, question.askId, listOf(key), listOf(label), text,
+        )
+    }
+    // EXP-1175: the THREAD — what the run published (`coding_sessions.results`)
+    // in publish order, the Summary as the agent's reply, then every card that
+    // still waits on this viewer (questions never hide).
+    val thread = remember(session?.results) { sessionThread(session?.results) }
+    val threadWorkflowIds = remember(activity.workflows) {
+        activity.workflows.mapTo(mutableSetOf()) { it.id }
+    }
+    val pendingCards = remember(feed, threadWorkflowIds, composerHidden) {
+        if (composerHidden) {
+            groupFeedRows(feed, 0, threadWorkflowIds).filter { it.awaitsAnswer }
+        } else {
+            emptyList()
+        }
+    }
+    val threadActiveQuestionIds = remember(feed) { activeQuestionIds(feed) }
+    val answerCards = AnswerCards(
+        answered = remember(answerStates) { answerStates.filterValues { it.locksCard() }.keys },
+        activeQuestionIds = threadActiveQuestionIds,
+        // Question cards are answerable while live (EXP-78; live implies
+        // ownership since EXP-312); the card itself also checks its own state.
+        answerEnabled = phase == AgentPhase.Live && !sessionEnded,
+        answerStates = answerStates,
+        answerLabels = answerLabels,
+        onAnswer = onAnswer,
+        onPlanFollowUp = onPlanFollowUp,
+    )
+    // The placeholder states (no feed yet): connecting, a paused host, an
+    // ended run's history fetch, an old desktop.
+    val placeholderBody: @Composable () -> Unit = {
+        when {
+            // EXP-773: a finished run's transcript lives on the
+            // machine that ran it, and the relay is asking that
+            // machine for it. Say which machine, and say plainly when
+            // it cannot answer — this is not a connection problem the
+            // viewer can wait out.
+            feed.isEmpty() && history != null -> CenteredState {
+                if (history == HistoryState.Pending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Text(
+                    historyStatus(history, hostDevice.displayLabel),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            // EXP-550: the machine is gone — an endless "waiting for
+            // the live stream" spinner was the bug. The run is parked,
+            // and it picks up when the machine comes back.
+            feed.isEmpty() && hostOffline && phase.isWaitingForStream ->
+                CenteredState {
+                    Icon(
+                        ExpIcons.uiDeviceOffline,
+                        contentDescription = null,
+                        tint = LostGray,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Text(
+                        "${hostDevice.displayLabel} is offline",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        DEVICE_OFFLINE_DETAIL,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
+                CenteredState {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        if (phase == AgentPhase.Starting) {
+                            "The agent is starting. Waiting for the live stream…"
+                        } else {
+                            "Connecting…"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                }
+            feed.isEmpty() && !everRendered && phase == AgentPhase.Live &&
+                latestDiff == null ->
+                CenteredState {
+                    Text(
+                        "Waiting for activity…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    )
+                    Text(
+                        "Update the Exponential desktop app to see the live feed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+            else -> Unit
+        }
+    }
+    // The thread only falls back to them while it has nothing to show.
+    val threadEmpty = thread.items.isEmpty() && thread.reply == null && pendingCards.isEmpty()
+    val bodyPlaceholder = feedPlaceholder && (showWork || threadEmpty)
     Box(
         modifier = Modifier
             .padding(
@@ -753,211 +941,136 @@ private fun RunFaceContent(
             .fillMaxSize()
             .imePadding(),
     ) {
+        // EXP-440: the feed renders markdown. Autolink is on — it
+        // is a render-only surface, so bare URLs may become links
+        // without diverging any stored bytes — and embedded images
+        // pre-size from the linked issue's probed attachments.
+        CompositionLocalProvider(
+            LocalMarkdownAutolink provides true,
+            LocalAttachmentDims provides attachmentDims,
+            // EXP-760: an identifier the agent names is a chip that
+            // opens the issue. Resolution is scoped to the RUN's
+            // team (a batch / action / chat run has no issue), and
+            // BARE `EXP-758` chips here too — this is the one
+            // surface agents write, and they omit the `#`.
+            // Display-only: the composer below is outside this
+            // provider, so what the user types stays the stored
+            // `#IDENTIFIER` contract.
+            LocalIssueRefs provides issueRefHandler,
+            LocalIssueRefBare provides true,
+            // EXP-920: what a tool row's entity chips resolve
+            // their preview sheets against — the run's team.
+            LocalEntityRefResolver provides entityRefResolver,
+            // EXP-698: inline `code` is TINTED in a chat feed —
+            // narration, the user's own bubbles, plan and ask
+            // cards, everything under this provider. Issue
+            // descriptions and comments keep the flat wash.
+            LocalInlineCodeStyle provides MdStyle.Chat,
+            // EXP-787: every markdown surface in the transcript —
+            // narration, the user's own bubbles, a plan card —
+            // reads at the shared body step (14 sp on a 22 sp
+            // line), not the 17 sp document measure an issue
+            // description uses.
+            LocalMarkdownBodyStyle provides TranscriptBodyStyle,
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp),
+                .padding(horizontal = 12.dp)
+                // The store-screenshot test waits on this tag so it never
+                // captures "Connecting…" / "Waiting for activity…" — the
+                // Run face body in BOTH modes, once it has something to show.
+                .then(if (bodyPlaceholder) Modifier else Modifier.testTag("agent-feed")),
         ) {
-            // ── The activity feed (bottom-anchored, follow-scroll) ───────────
             // EXP-893: the diff is the Changes face and Merge lives in the
             // header. An ended run's byline heads the feed as its first row
             // (so it scrolls with it), or sits above a placeholder.
-            if (feedPlaceholder) {
+            // EXP-1175: the status row sits on top in both modes.
+            if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
+                statusRow()
                 EndedRunHeader(
                     session = session,
                     hostLabel = hostDevice.displayLabel,
                     runState = launchRunState,
                 )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .then(if (feedPlaceholder) Modifier.padding(bottom = bandClearance) else Modifier),
-            ) {
-                when {
-                    // EXP-773: a finished run's transcript lives on the
-                    // machine that ran it, and the relay is asking that
-                    // machine for it. Say which machine, and say plainly when
-                    // it cannot answer — this is not a connection problem the
-                    // viewer can wait out.
-                    feed.isEmpty() && history != null -> CenteredState {
-                        if (history == HistoryState.Pending) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                        Text(
-                            historyStatus(history, hostDevice.displayLabel),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            textAlign = TextAlign.Center,
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(bottom = bandClearance),
+                ) { placeholderBody() }
+            } else if (!showWork) {
+                RunThread(
+                    thread = thread,
+                    pendingCards = pendingCards,
+                    cards = answerCards,
+                    statusRow = statusRow,
+                    header = {
+                        EndedRunHeader(
+                            session = session,
+                            hostLabel = hostDevice.displayLabel,
+                            runState = launchRunState,
                         )
-                    }
-                    // EXP-550: the machine is gone — an endless "waiting for
-                    // the live stream" spinner was the bug. The run is parked,
-                    // and it picks up when the machine comes back.
-                    feed.isEmpty() && hostOffline && phase.isWaitingForStream ->
-                        CenteredState {
-                            Icon(
-                                ExpIcons.uiDeviceOffline,
-                                contentDescription = null,
-                                tint = LostGray,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Text(
-                                "${hostDevice.displayLabel} is offline",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                DEVICE_OFFLINE_DETAIL,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
-                        CenteredState {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                if (phase == AgentPhase.Starting) {
-                                    "The agent is starting. Waiting for the live stream…"
-                                } else {
-                                    "Connecting…"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                    feed.isEmpty() && !everRendered && phase == AgentPhase.Live &&
-                        latestDiff == null ->
-                        CenteredState {
-                            Text(
-                                "Waiting for activity…",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                            Text(
-                                "Update the Exponential desktop app to see the live feed.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        }
-                    // EXP-440: the feed renders markdown. Autolink is on — it
-                    // is a render-only surface, so bare URLs may become links
-                    // without diverging any stored bytes — and embedded images
-                    // pre-size from the linked issue's probed attachments.
-                    else -> CompositionLocalProvider(
-                        LocalMarkdownAutolink provides true,
-                        LocalAttachmentDims provides attachmentDims,
-                        // EXP-760: an identifier the agent names is a chip that
-                        // opens the issue. Resolution is scoped to the RUN's
-                        // team (a batch / action / chat run has no issue), and
-                        // BARE `EXP-758` chips here too — this is the one
-                        // surface agents write, and they omit the `#`.
-                        // Display-only: the composer below is outside this
-                        // provider, so what the user types stays the stored
-                        // `#IDENTIFIER` contract.
-                        LocalIssueRefs provides issueRefHandler,
-                        LocalIssueRefBare provides true,
-                        // EXP-920: what a tool row's entity chips resolve
-                        // their preview sheets against — the run's team.
-                        LocalEntityRefResolver provides entityRefResolver,
-                        // EXP-698: inline `code` is TINTED in a chat feed —
-                        // narration, the user's own bubbles, plan and ask
-                        // cards, everything under this provider. Issue
-                        // descriptions and comments keep the flat wash.
-                        LocalInlineCodeStyle provides MdStyle.Chat,
-                        // EXP-787: every markdown surface in the transcript —
-                        // narration, the user's own bubbles, a plan card —
-                        // reads at the shared body step (14 sp on a 22 sp
-                        // line), not the 17 sp document measure an issue
-                        // description uses.
-                        LocalMarkdownBodyStyle provides TranscriptBodyStyle,
-                    ) {
-                        ActivityFeed(
-                            feed = feed,
-                            live = phase == AgentPhase.Live,
-                            // Hoisted (EXP-656) — see the declarations above.
-                            listState = feedListState,
-                            follow = follow,
-                            onFollowChange = { follow = it },
-                            agentTab = agentTab,
-                            onAgentTabChange = { agentTab = it },
-                            // EXP-783: past the feed's own first row, the next
-                            // page comes off the device's journal.
-                            onCanLoadEarlier = { viewModel.canLoadEarlier() },
-                            onLoadEarlier = { viewModel.loadEarlier() },
-                            working = agentWorking,
-                            // EXP-850 (S5): the working caption's inputs.
-                            turnStartedAt = activity.turnStartedAt,
-                            turnTokens = activity.turnTokens,
-                            workflowCaption = workflowCaption,
-                            workingAgent = workingAgent,
-                            // EXP-850 (S3): the cards, looked up by the id of
-                            // the `Workflow` tool row they replace.
-                            workflows = activity.workflows,
-                            // Question cards are answerable while live (EXP-78;
-                            // live implies ownership since EXP-312); the card
-                            // itself also checks its own state.
-                            answerEnabled = phase == AgentPhase.Live && !sessionEnded,
-                            answerStates = answerStates,
-                            answerLabels = answerLabels,
-                            // EXP-724: filters the command pill's catalog.
-                            agent = catalogAgent,
-                            // EXP-746: the run's own advertised
-                            // commands, so a steered agent command
-                            // renders as a command row, not prose.
-                            agentCommands = sessionConfig?.commands.orEmpty(),
-                            // Every answer is one semantic `answer` frame keyed
-                            // by the card's wire id (EXP-249).
-                            onAnswer = { question, keys, text ->
-                                // The picked labels (a typed free-text reply
-                                // wins over its row's "Type something"
-                                // label) — what the stepper shows for this
-                                // step until the ask resolves (EXP-588).
-                                val labels = keys.mapNotNull { key ->
-                                    val option = question.options.firstOrNull { it.key == key }
-                                        ?: return@mapNotNull null
-                                    if (option.freeText && !text.isNullOrBlank()) text else option.label
-                                }
-                                viewModel.sendQuestionAnswer(
-                                    question.wireId, question.askId, keys, text, labels,
-                                )
-                            },
-                            // EXP-820: a plan rejected with feedback — the
-                            // reject key answers the card, the text follows as
-                            // the next message (iOS/web parity).
-                            onPlanFollowUp = { question, key, text ->
-                                val label = question.options.firstOrNull { it.key == key }?.label ?: key
-                                viewModel.answerThenSend(
-                                    question.wireId, question.askId, listOf(key), listOf(label), text,
-                                )
-                            },
-                            // EXP-1162: the floating bottom band's height
-                            // (+ the nav bar) clears the tail; the header
-                            // band's height clears the head.
-                            bottomInset = bandClearance,
-                            topInset = topInset,
-                            header = {
-                                EndedRunHeader(
-                                    session = session,
-                                    hostLabel = hostDevice.displayLabel,
-                                    runState = launchRunState,
-                                )
-                            },
+                    },
+                    topInset = topInset,
+                    bottomInset = bandClearance,
+                )
+            } else {
+                ActivityFeed(
+                    feed = feed,
+                    live = phase == AgentPhase.Live,
+                    // Hoisted (EXP-656) — see the declarations above.
+                    listState = feedListState,
+                    follow = follow,
+                    onFollowChange = { follow = it },
+                    agentTab = agentTab,
+                    onAgentTabChange = { agentTab = it },
+                    // EXP-783: past the feed's own first row, the next
+                    // page comes off the device's journal.
+                    onCanLoadEarlier = { viewModel.canLoadEarlier() },
+                    onLoadEarlier = { viewModel.loadEarlier() },
+                    working = agentWorking,
+                    // EXP-850 (S5): the working caption's inputs.
+                    turnStartedAt = activity.turnStartedAt,
+                    turnTokens = activity.turnTokens,
+                    workflowCaption = workflowCaption,
+                    workingAgent = workingAgent,
+                    // EXP-850 (S3): the cards, looked up by the id of
+                    // the `Workflow` tool row they replace.
+                    workflows = activity.workflows,
+                    // Question cards are answerable while live (EXP-78;
+                    // live implies ownership since EXP-312); the card
+                    // itself also checks its own state.
+                    answerEnabled = phase == AgentPhase.Live && !sessionEnded,
+                    answerStates = answerStates,
+                    answerLabels = answerLabels,
+                    // EXP-724: filters the command pill's catalog.
+                    agent = catalogAgent,
+                    // EXP-746: the run's own advertised
+                    // commands, so a steered agent command
+                    // renders as a command row, not prose.
+                    agentCommands = sessionConfig?.commands.orEmpty(),
+                    // Every answer is one semantic `answer` frame keyed
+                    // by the card's wire id (EXP-249).
+                    onAnswer = onAnswer,
+                    onPlanFollowUp = onPlanFollowUp,
+                    // EXP-1162: the floating bottom band's height
+                    // (+ the nav bar) clears the tail; the header
+                    // band's height clears the head.
+                    bottomInset = bandClearance,
+                    topInset = topInset,
+                    statusRow = statusRow,
+                    header = {
+                        EndedRunHeader(
+                            session = session,
+                            hostLabel = hostDevice.displayLabel,
+                            runState = launchRunState,
                         )
-                    }
-                }
+                    },
+                )
             }
+        }
         }
 
         // ── The bottom band: floats over the transcript's tail ───────────────
@@ -1932,6 +2045,9 @@ private fun ActivityFeed(
     topInset: Dp = 0.dp,
     /** EXP-1162: the feed's leading row (an ended run's byline). */
     header: @Composable () -> Unit = {},
+    /** EXP-1175: the Run face's status row, pinned under the header band
+     *  above the tabs and the list. */
+    statusRow: @Composable () -> Unit = {},
 ) {
     // A card with a wire id stays answerable until it resolves; an id-less one
     // (a pre-EXP-249 desktop) is read-only (EXP-672).
@@ -1991,6 +2107,16 @@ private fun ActivityFeed(
     val answered = remember(answerStates) {
         answerStates.filterValues { it.locksCard() }.keys
     }
+    // EXP-1175: the card inputs, shared with the thread's pending cards.
+    val cards = AnswerCards(
+        answered = answered,
+        activeQuestionIds = activeQuestionIds,
+        answerEnabled = answerEnabled,
+        answerStates = answerStates,
+        answerLabels = answerLabels,
+        onAnswer = onAnswer,
+        onPlanFollowUp = onPlanFollowUp,
+    )
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     // EXP-529 batch: "at the bottom" carries ~96dp of slack — the pixel-exact
@@ -2032,12 +2158,12 @@ private fun ActivityFeed(
     }
 
     // Only composed once real activity has arrived (the placeholder states are
-    // siblings) — the store-screenshot test waits on this tag so it never
-    // captures "Connecting…" / "Waiting for activity…".
-    Column(modifier = Modifier.fillMaxSize().testTag("agent-feed")) {
-        // The subagent tabs stay put above the list (under the header band,
-        // not beneath it); the list then starts below them.
-        if (visibleTabs.isNotEmpty()) Spacer(Modifier.height(topInset))
+    // siblings). EXP-1175: the `agent-feed` tag moved to the Run face body.
+    Column(modifier = Modifier.fillMaxSize()) {
+        // EXP-1175: the status row, then the subagent tabs, stay put above the
+        // list (under the header band, not beneath it); the list starts below.
+        Spacer(Modifier.height(topInset))
+        statusRow()
         if (visibleTabs.isNotEmpty()) {
             AgentTabStrip(
                 agents = visibleTabs,
@@ -2056,7 +2182,7 @@ private fun ActivityFeed(
             // the top of the screen.
             verticalArrangement = Arrangement.Bottom,
             contentPadding = PaddingValues(
-                top = 8.dp + if (visibleTabs.isEmpty()) topInset else 0.dp,
+                top = 8.dp,
                 bottom = 8.dp + bottomInset,
             ),
         ) {
@@ -2142,16 +2268,7 @@ private fun ActivityFeed(
                             run = row,
                             liveTail = live && row.id == rows.last().id,
                         )
-                        is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
-                            askId = row.askId,
-                            steps = row.steps,
-                            answered = answered,
-                            activeQuestionIds = activeQuestionIds,
-                            answerEnabled = answerEnabled,
-                            answerStates = answerStates,
-                            answerLabels = answerLabels,
-                            onAnswer = onAnswer,
-                        )
+                        is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             is AgentFeedItem.Narration -> NarrationBubble(item.text)
                             is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
@@ -2214,15 +2331,7 @@ private fun ActivityFeed(
                                 ),
                                 liveTail = false,
                             )
-                            is AgentFeedItem.Question -> QuestionCard(
-                                item = item,
-                                active = item.id in activeQuestionIds,
-                                answerEnabled = answerEnabled,
-                                state = answerStates[item.wireId],
-                                stepLabel = null,
-                                onAnswer = { keys, text -> onAnswer(item, keys, text) },
-                                onPlanFollowUp = { key, text -> onPlanFollowUp(item, key, text) },
-                            )
+                            is AgentFeedItem.Question -> AnswerCardRow(row, cards)
                         }
                     }
                 }
@@ -2281,9 +2390,9 @@ private fun ActivityFeed(
                 .padding(bottom = bottomInset + 4.dp),
         )
         // EXP-1162: the EXP-698 top fade is the header band's edge strip now
-        // (`HeaderEdgeChrome`), over every face alike. With the subagent tabs
-        // up the list starts below them, so its own head still dissolves.
-        if (visibleTabs.isNotEmpty()) {
+        // (`HeaderEdgeChrome`), over every face alike. EXP-1175: the list
+        // starts below the status row (and the tabs), so its own head dissolves.
+        run {
             EdgeFade(
                 FadeEdge.Top,
                 modifier = Modifier
@@ -2292,6 +2401,170 @@ private fun ActivityFeed(
                     .height(DetailChrome.EDGE_TOP.dp),
             )
         }
+        }
+    }
+}
+
+/**
+ * EXP-1175: everything a plan/question card needs, held once so the
+ * transcript and the thread draw the SAME cards from the same inputs.
+ */
+private class AnswerCards(
+    /** Lock keys of the steps whose answer is out (sent or acknowledged). */
+    val answered: Set<String>,
+    val activeQuestionIds: Set<Long>,
+    val answerEnabled: Boolean,
+    val answerStates: Map<String, AnswerState>,
+    /** EXP-588: lock key → the locally picked answer summary. */
+    val answerLabels: Map<String, String>,
+    val onAnswer: (AgentFeedItem.Question, List<String>, String?) -> Unit,
+    val onPlanFollowUp: (AgentFeedItem.Question, String, String) -> Unit,
+)
+
+/** EXP-1175: one card row — an ask's stepper or a single question/plan card;
+ *  any other row draws nothing. */
+@Composable
+private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
+    when (row) {
+        is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
+            askId = row.askId,
+            steps = row.steps,
+            answered = cards.answered,
+            activeQuestionIds = cards.activeQuestionIds,
+            answerEnabled = cards.answerEnabled,
+            answerStates = cards.answerStates,
+            answerLabels = cards.answerLabels,
+            onAnswer = cards.onAnswer,
+        )
+        is AgentFeedRow.Single -> {
+            val item = row.item as? AgentFeedItem.Question ?: return
+            QuestionCard(
+                item = item,
+                active = item.id in cards.activeQuestionIds,
+                answerEnabled = cards.answerEnabled,
+                state = cards.answerStates[item.wireId],
+                stepLabel = null,
+                onAnswer = { keys, text -> cards.onAnswer(item, keys, text) },
+                onPlanFollowUp = { key, text -> cards.onPlanFollowUp(item, key, text) },
+            )
+        }
+        else -> Unit
+    }
+}
+
+/**
+ * EXP-1175: the Run face's THREAD, the default view — the status row over
+ * what the run published (`sessionThread`) in publish order, newest at the
+ * bottom: a topic's text under its name, a picture as the transcript's inline
+ * tile, the Summary as the agent's reply LAST, then every pending
+ * plan/question card through the transcript's own card composables.
+ * Bottom-anchored and follow-scrolled like the transcript.
+ */
+@Composable
+private fun RunThread(
+    thread: SessionThread,
+    pendingCards: List<AgentFeedRow>,
+    cards: AnswerCards,
+    statusRow: @Composable () -> Unit,
+    header: @Composable () -> Unit,
+    topInset: Dp,
+    bottomInset: Dp,
+) {
+    val listState = rememberLazyListState()
+    var follow by rememberSaveable { mutableStateOf(true) }
+    val followSlackPx = with(LocalDensity.current) { 96.dp.toPx() }
+    val jumpScope = rememberCoroutineScope()
+    LaunchedEffect(listState, followSlackPx) {
+        snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
+            .distinctUntilChanged()
+            .collect { (dragging, nearBottom) ->
+                if (dragging) follow = nearBottom
+            }
+    }
+    // header + items + the reply + the cards.
+    val count = 1 + thread.items.size + (if (thread.reply != null) 1 else 0) + pendingCards.size
+    LaunchedEffect(thread, pendingCards.size, follow) {
+        if (follow && count > 0) {
+            listState.scrollToItem(count - 1)
+            listState.scrollBy(1_000_000f)
+        }
+    }
+    LaunchedEffect(bottomInset) {
+        if (follow) listState.scrollBy(1_000_000f)
+    }
+    Column(modifier = Modifier.fillMaxSize().testTag("agent-thread")) {
+        Spacer(Modifier.height(topInset))
+        statusRow()
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().detailHazeSource(),
+                verticalArrangement = Arrangement.Bottom,
+                contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + bottomInset),
+            ) {
+                item(key = "thread-header") { header() }
+                itemsIndexed(
+                    thread.items,
+                    key = { index, item ->
+                        when (item) {
+                            is ThreadItem.Text -> "text-${item.topic}"
+                            is ThreadItem.Picture -> "picture-$index-${item.entry.attachmentId}"
+                        }
+                    },
+                ) { index, item ->
+                    TranscriptRow(if (index == 0) TranscriptGap.None else TranscriptGap.Block) {
+                        when (item) {
+                            is ThreadItem.Text -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    item.topic,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                MarkdownView(markdown = item.text, softBreaksAsNewlines = true)
+                            }
+                            is ThreadItem.Picture -> InlineResultPicture(
+                                entry = item.entry,
+                                modifier = Modifier.testTag("thread-picture"),
+                            )
+                        }
+                    }
+                }
+                thread.reply?.let { reply ->
+                    item(key = "thread-reply") {
+                        TranscriptRow(if (thread.items.isEmpty()) TranscriptGap.None else TranscriptGap.Turn) {
+                            NarrationBubble(reply)
+                        }
+                    }
+                }
+                itemsIndexed(pendingCards, key = { _, row -> "card-${row.id}" }) { _, row ->
+                    TranscriptRow(TranscriptGap.Turn) { AnswerCardRow(row, cards) }
+                }
+            }
+            JumpToBottomButton(
+                visible = !follow,
+                onClick = {
+                    jumpScope.launch {
+                        val last = listState.layoutInfo.totalItemsCount - 1
+                        if (last >= 0) {
+                            listState.animateScrollToItem(last)
+                            listState.scrollBy(1_000_000f)
+                        }
+                        follow = true
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomInset + 4.dp),
+            )
+            EdgeFade(
+                FadeEdge.Top,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(DetailChrome.EDGE_TOP.dp),
+            )
         }
     }
 }
@@ -4531,12 +4804,26 @@ private fun ExpToolCallRow(
 private fun ExpToolPicture(attachmentId: String?) {
     val results = LocalSessionResults.current
     val entry = remember(results, attachmentId) { sessionResultPicture(results, attachmentId) } ?: return
+    InlineResultPicture(
+        entry = entry,
+        modifier = Modifier
+            .padding(start = EXP_TOOL_PREVIEW_INSET, top = 6.dp)
+            .testTag("exp-tool-picture"),
+    )
+}
+
+/**
+ * One published picture as the transcript's inline tile (EXP-1172) — fitted to
+ * the width at the inline height, opening the full preview. Shared by a
+ * settled `sessions_show` row and the thread's pictures (EXP-1175).
+ */
+@Composable
+private fun InlineResultPicture(entry: SessionResultEntry, modifier: Modifier = Modifier) {
     var open by remember { mutableStateOf(false) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = EXP_TOOL_PREVIEW_INSET, top = 6.dp)
-            .testTag("exp-tool-picture"),
+            .then(modifier),
     ) {
         val available = maxWidth.value.toInt()
         val tileHeight = remember(entry, available) {
@@ -5382,18 +5669,8 @@ private fun EndedRunHeader(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            // The ×4 `pastRunByline` the list rows print, now that the row
-            // itself only carries a link.
-            pastRunByline(
-                deviceLabel = hostLabel,
-                timeLabel = relativeTime(session.endedAt ?: session.updatedAt),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // EXP-1175: no byline — the status row above already says
+        // `Ended on <device> · <elapsed>`. [hostLabel] stays for callers.
         // The shared "waiting for the desktop" / refusal caption every remote
         // start on every surface prints.
         SteerRunCaptionRow(state = runState)

@@ -1929,6 +1929,44 @@ pub fn live_tool_row_id(items: &[FeedItem]) -> Option<FeedItemId> {
     }
 }
 
+/// EXP-1175 — the Run face status row's muted second line: the NEWEST tool
+/// item (anything after it ignored); one of ours reads its contract caption
+/// plus its subject (settled: the single preview ref's title, else
+/// identifier, else the preview's title/identifier, else the detail;
+/// unsettled: the detail), any other tool its name plus detail; one space
+/// apart, blank parts dropped. Fixture `run-row.json` `toolLines` (×4).
+pub fn last_tool_line(items: &[FeedItem]) -> Option<String> {
+    let (name, detail, settled, preview) = items.iter().rev().find_map(|item| match &item.kind {
+        FeedKind::Tool { name, detail, settled, preview, .. } => {
+            Some((name.as_str(), detail.as_deref(), *settled, preview.as_ref()))
+        }
+        _ => None,
+    })?;
+    let (head, subject) = match crate::exp_tool::exp_tool_display(name, settled) {
+        Some(display) if settled => {
+            let single = preview.and_then(|preview| match preview.refs.as_slice() {
+                [only] => Some(only),
+                _ => None,
+            });
+            let subject = single
+                .and_then(|only| only.title.as_deref().or(only.identifier.as_deref()))
+                .or_else(|| preview.and_then(|p| p.title.as_deref().or(p.identifier.as_deref())))
+                .or(detail);
+            (display.caption, subject)
+        }
+        Some(display) => (display.caption, detail),
+        None => (name, detail),
+    };
+    let line = [Some(head), subject]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(line)
+}
+
 /// Group the flat feed into render rows — a PURE projection: the feed (and
 /// [`active_question_ids`] over it) is never restructured, so answerability is
 /// unaffected. Grouped items are pulled out of their in-place position into
@@ -5306,6 +5344,60 @@ mod exp_tool_group_fixture_tests {
             .join("\n");
         for needle in ["splits", "single", "running", "failed", "subagent", "window"] {
             assert!(names.contains(needle), "the fixture covers `{needle}`");
+        }
+    }
+}
+
+#[cfg(test)]
+mod last_tool_line_tests {
+    use super::*;
+
+    /// EXP-1175 — fixture `run-row.json` `toolLines` ×4.
+    #[test]
+    fn last_tool_line_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/run-row.json"
+        ))
+        .unwrap();
+        let cases = fixture["toolLines"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let items: Vec<FeedItem> = case["feed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .map(|(index, raw)| {
+                    let text = |key: &str| raw[key].as_str().map(str::to_string);
+                    let kind = match raw["kind"].as_str().unwrap() {
+                        "tool" => FeedKind::Tool {
+                            name: text("name").unwrap_or_default(),
+                            detail: text("detail"),
+                            subagent_id: None,
+                            call_id: None,
+                            tool_kind: None,
+                            settled: raw["settled"].as_bool() == Some(true),
+                            failed: false,
+                            diff: None,
+                            output: None,
+                            preview: (!raw["preview"].is_null())
+                                .then(|| serde_json::from_value(raw["preview"].clone()).unwrap()),
+                        },
+                        _ => FeedKind::Narration {
+                            text: text("text").unwrap_or_default(),
+                            message_id: None,
+                            subagent_id: None,
+                        },
+                    };
+                    FeedItem { id: index as FeedItemId, kind, seq: None }
+                })
+                .collect();
+            assert_eq!(
+                last_tool_line(&items).as_deref(),
+                case["expected"].as_str(),
+                "fixture case: {name}"
+            );
         }
     }
 }

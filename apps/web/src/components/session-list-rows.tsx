@@ -2,18 +2,17 @@ import {
   AgentRunMark,
   conceptIcon,
   ListRow,
-  type RunMarkState,
   TREE_BASE,
   TREE_INDENT,
   TreeGuides,
   type TreeGuide,
 } from "@exp/ui"
 import {
+  runningRowMarkState,
   sessionAgentCaption,
   sessionDisplayState,
   sessionRowIsWorking,
   sessionStatusLine,
-  type SessionDisplayState,
   type SessionStatusTone,
 } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
@@ -43,18 +42,6 @@ import { useNow } from "@/hooks/use-now"
 
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-
-/** EXP-1208: a live row's mark state — the ×4 display state, except that a
- *  paused run (offline host) wears the bare mark and only a row that is
- *  WORKING animates (EXP-848: `sessionRowIsWorking`, never `running` alone). */
-export function runningRowMarkState(
-  state: SessionDisplayState,
-  { paused, working }: { paused: boolean; working: boolean }
-): RunMarkState | undefined {
-  if (paused) return undefined
-  if (state === `working`) return working ? `working` : undefined
-  return state
-}
 
 /** The fold chevron of a parent row: 14px wide, AFTER the run mark. */
 function RowFoldToggle({

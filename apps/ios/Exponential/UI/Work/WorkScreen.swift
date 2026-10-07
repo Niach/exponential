@@ -812,6 +812,7 @@ struct WorkScreen: View {
             session: session,
             request: $runRequest,
             continuation: continuation,
+            runState: runState,
             startReadiness: offerStart ? readiness : nil,
             onStartCoding: startCodingTapped,
             mergeCircle: mergeCircle(on: .run)

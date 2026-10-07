@@ -32,8 +32,8 @@ vi.mock(`@/lib/collections`, () => ({
 import {
   PastSessionRow,
   RunningSessionRow,
-  runningRowMarkState,
 } from "@/components/session-list-rows"
+import { runningRowMarkState } from "@/lib/coding-session-display"
 
 const session = (id: string): CodingSession =>
   ({

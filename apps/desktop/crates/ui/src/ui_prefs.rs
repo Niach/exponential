@@ -51,6 +51,28 @@ struct UiPrefs {
         deserialize_with = "lenient_widths"
     )]
     sidebar_widths: BTreeMap<String, f32>,
+    /// EXP-1175: the Run face's Show work switch, keyed by the signed-in
+    /// USER id (a per-user preference). Only a value that differs from
+    /// [`crate::run_rows::SHOW_WORK_DEFAULT`] is stored.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "lenient_flags"
+    )]
+    show_work: BTreeMap<String, bool>,
+}
+
+/// EXP-1175: the [`lenient_widths`] rule for flags — a non-bool entry drops
+/// alone.
+fn lenient_flags<'de, D>(deserializer: D) -> Result<BTreeMap<String, bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(key, value)| Some((key, value.as_bool()?)))
+        .collect())
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -163,6 +185,40 @@ fn apply_width(prefs: &mut UiPrefs, key: &str, width: Option<f32>) -> bool {
     }
 }
 
+/// EXP-1175: whether `user` shows the full transcript on the Run face
+/// (default [`crate::run_rows::SHOW_WORK_DEFAULT`]: the thread).
+pub(crate) fn show_work(user: &str) -> bool {
+    prefs()
+        .lock()
+        .ok()
+        .and_then(|prefs| prefs.show_work.get(user).copied())
+        .unwrap_or(crate::run_rows::SHOW_WORK_DEFAULT)
+}
+
+/// EXP-1175: remember `user`'s Show work switch (debounced, see the module
+/// doc).
+pub(crate) fn set_show_work(user: &str, on: bool) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        if !apply_show_work(&mut prefs, user, on) {
+            return;
+        }
+    }
+    schedule_write();
+}
+
+/// The pure half of [`set_show_work`]: the default REMOVES the key; true when
+/// the prefs changed.
+fn apply_show_work(prefs: &mut UiPrefs, user: &str, on: bool) -> bool {
+    if on == crate::run_rows::SHOW_WORK_DEFAULT {
+        prefs.show_work.remove(user).is_some()
+    } else {
+        prefs.show_work.insert(user.to_string(), on) != Some(on)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +281,26 @@ mod tests {
         assert_eq!(stored_width(&loaded, "main"), None);
         assert_eq!(stored_width(&loaded, "list"), None);
         assert_eq!(stored_width(&loaded, "files"), Some(333.));
+
+        // EXP-1175: the Show work switch round-trips per user; a garbage
+        // entry drops alone.
+        let mut prefs = UiPrefs::default();
+        assert!(apply_show_work(&mut prefs, "user-1", true));
+        assert!(!apply_show_work(&mut prefs, "user-1", true), "unchanged");
+        assert!(!apply_show_work(&mut prefs, "user-2", false), "the default is never stored");
+        write_to(&path, &prefs).expect("write");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            r#"{"show_work":{"user-1":true}}"#
+        );
+        assert_eq!(load_from(&path).expect("load"), prefs);
+        std::fs::write(&path, r#"{"show_work":{"user-1":"yes","user-2":true}}"#).expect("write");
+        let loaded = load_from(&path).expect("load");
+        assert_eq!(loaded.show_work.get("user-1"), None);
+        assert_eq!(loaded.show_work.get("user-2"), Some(&true));
+        let mut prefs = loaded;
+        assert!(apply_show_work(&mut prefs, "user-2", false), "back to the default removes");
+        assert_eq!(prefs, UiPrefs::default());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

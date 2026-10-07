@@ -1240,6 +1240,12 @@ fn dev_run_face() -> Option<RunFace> {
     parse_run_face(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
 }
 
+/// EXP-1175 — `EXP_DEV_SHOW_WORK=1` opens every Run face on the full
+/// transcript, so the capture lane photographs it without a click.
+pub(crate) fn dev_show_work() -> bool {
+    std::env::var("EXP_DEV_SHOW_WORK").ok().as_deref() == Some("1")
+}
+
 impl ScreensPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // Full-page issue detail (§4.2): one instance, re-pointed on

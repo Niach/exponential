@@ -384,3 +384,51 @@ fun tallImageStripRanges(height: Int, rows: Int = 4096): List<Pair<Int, Int>> {
     }
     return ranges
 }
+
+// EXP-1175: the Run face's THREAD — what the run published, in the order it
+// published it, with the Summary text as the agent's reply at the end.
+// Fixture `session-results.json` `thread` (×4, web `sessionThread`).
+
+sealed class ThreadItem {
+    data class Text(val topic: String, val text: String) : ThreadItem()
+    data class Picture(val entry: SessionResultEntry) : ThreadItem()
+}
+
+data class SessionThread(
+    val items: List<ThreadItem>,
+    /** The Summary topic's text (its first non-blank one), drawn LAST as the
+     *  agent's reply; null without one. */
+    val reply: String?,
+)
+
+/**
+ * Array (publish) order, the group reader's tolerance and 60-picture cap: a
+ * picture is an item where it sits; a topic's FIRST non-blank text is an item
+ * where it sits (a later text of the same topic is dropped); the Summary
+ * topic's text is [SessionThread.reply], never an item, while pictures filed
+ * under Summary stay in the stream.
+ */
+fun sessionThread(raw: String?): SessionThread {
+    val items = mutableListOf<ThreadItem>()
+    val seenText = mutableSetOf<String>()
+    var reply: String? = null
+    var pictures = 0
+    for (row in records(raw)) {
+        val entry = picture(row)
+        if (entry != null) {
+            if (pictures >= MAX_SESSION_RESULTS) continue
+            pictures += 1
+            items += ThreadItem.Picture(entry)
+            continue
+        }
+        val topic = row.text("topic") ?: continue
+        val body = row.text("text") ?: continue
+        if (isSummaryTopic(topic)) {
+            if (reply == null) reply = body
+            continue
+        }
+        if (!seenText.add(topic)) continue
+        items += ThreadItem.Text(topic, body)
+    }
+    return SessionThread(items, reply)
+}

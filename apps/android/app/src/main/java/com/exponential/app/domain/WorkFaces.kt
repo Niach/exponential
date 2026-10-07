@@ -274,3 +274,78 @@ fun codingAction(
         canStart = canStart,
     )
 }
+
+// ── EXP-1175: the Run face's status row + Show work ─────────────────────────
+// The Run face opens as the THREAD: one status row (the agent's run mark as
+// the spinner, this caption, the last tool line muted, `Show work` on the
+// right) over the run's published results in publish order ([sessionThread]),
+// pending plan/question cards still in place. Show work swaps the thread for
+// the full transcript IN PLACE; the choice is remembered per user. Fixture
+// `packages/domain-contract/fixtures/run-row.json` (×4, web `work-faces.ts`).
+
+/** The viewer's Show work preference before they ever touched it. */
+const val SHOW_WORK_DEFAULT = false
+const val SHOW_WORK_LABEL = "Show work"
+const val HIDE_WORK_LABEL = "Hide work"
+
+/** The row's trailing button: what pressing it DOES next. */
+fun showWorkLabel(showWork: Boolean): String = if (showWork) HIDE_WORK_LABEL else SHOW_WORK_LABEL
+
+/** The ×4 display state plus the two the row alone tells apart: a paused
+ *  (offline host) run and an ended one. [wire] = the fixture's spelling. */
+enum class RunRowState(val wire: String) {
+    Working("working"),
+    NeedsInput("needs_input"),
+    Paused("paused"),
+    Review("review"),
+    Done("done"),
+    Ended("ended"),
+}
+
+/** The caption's colour, by NAME — the UI maps it onto the session row's
+ *  status-line colours. [wire] = the fixture's spelling. */
+enum class RunRowTone(val wire: String) { Muted("muted"), Amber("amber"), Emerald("emerald"), Sky("sky") }
+
+data class RunRowCaption(val text: String, val tone: RunRowTone)
+
+/** The row's state off the ×4 display state: an ended run first, then a
+ *  paused one (offline host), else the display state. */
+fun runRowState(display: CodingSessionDisplayState, paused: Boolean, ended: Boolean): RunRowState = when {
+    ended -> RunRowState.Ended
+    paused -> RunRowState.Paused
+    else -> when (display) {
+        CodingSessionDisplayState.Working -> RunRowState.Working
+        CodingSessionDisplayState.NeedsInput -> RunRowState.NeedsInput
+        CodingSessionDisplayState.Review -> RunRowState.Review
+        CodingSessionDisplayState.Done -> RunRowState.Done
+    }
+}
+
+private fun runRowStamp(value: String?): Long? = value?.let { WireTimestamps.parseEpochMs(it) }
+
+/**
+ * The status row's first line and tone: `Building on <device> · <elapsed>`
+ * while it works (now − start), `Ended on <device> · <elapsed>` once it is
+ * over (end − start; the caller passes `ended_at`, else `updated_at`), else
+ * the session list row's words. The elapsed part is the working caption's
+ * ladder ([formatDurationMs]) and drops when a stamp is missing or unparsable.
+ */
+fun runRowCaption(
+    state: RunRowState,
+    device: String,
+    startedAt: String?,
+    endedAt: String?,
+    nowMs: Long,
+): RunRowCaption = when (state) {
+    RunRowState.Paused -> RunRowCaption("Paused · $device", RunRowTone.Muted)
+    RunRowState.NeedsInput -> RunRowCaption("Needs input · $device", RunRowTone.Amber)
+    RunRowState.Review -> RunRowCaption("Ready for review · $device", RunRowTone.Emerald)
+    RunRowState.Done -> RunRowCaption("Done · $device", RunRowTone.Sky)
+    RunRowState.Working, RunRowState.Ended -> {
+        val verb = if (state == RunRowState.Working) "Building on" else "Ended on"
+        val start = runRowStamp(startedAt)
+        val end = if (state == RunRowState.Working) nowMs else runRowStamp(endedAt)
+        val elapsed = if (start != null && end != null) " · ${formatDurationMs(end - start)}" else ""
+        RunRowCaption("$verb $device$elapsed", RunRowTone.Muted)
+    }
+}

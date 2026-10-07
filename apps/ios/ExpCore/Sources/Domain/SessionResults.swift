@@ -413,3 +413,58 @@ public func sessionResultTileHeightFitting(
     guard widest > availableWidth else { return base }
     return max(1, (base * availableWidth / widest).rounded(.down))
 }
+
+// MARK: - EXP-1175: the Run face's THREAD
+
+/// What the run published, in the order it published it, with the Summary
+/// text as the agent's reply at the end. Fixture `session-results.json`
+/// `thread` (×4).
+public struct SessionThread: Equatable, Sendable {
+    public enum Item: Equatable, Sendable {
+        case text(topic: String, text: String)
+        case picture(SessionResultEntry)
+    }
+
+    public let items: [Item]
+    /// The Summary topic's text (its first non-blank one), drawn LAST as the
+    /// agent's reply; nil without one.
+    public let reply: String?
+
+    public init(items: [Item] = [], reply: String? = nil) {
+        self.items = items
+        self.reply = reply
+    }
+
+    public var isEmpty: Bool { items.isEmpty && reply == nil }
+}
+
+/// Array (publish) order, the group reader's tolerance and 60-picture cap: a
+/// picture is an item where it sits; a topic's FIRST non-blank text is an item
+/// where it sits (a later text of the same topic is dropped); the Summary
+/// topic's text is `reply`, never an item, while pictures filed under Summary
+/// stay in the stream.
+public func sessionThread(_ raw: String?) -> SessionThread {
+    var items: [SessionThread.Item] = []
+    var seenText = Set<String>()
+    var reply: String?
+    var pictures = 0
+    for record in resultRecords(raw) {
+        if let entry = resultPicture(record) {
+            if pictures >= maxSessionResults { continue }
+            pictures += 1
+            items.append(.picture(entry))
+            continue
+        }
+        guard let topic = resultText(record["topic"]),
+              let body = resultText(record["text"])
+        else { continue }
+        if isSummaryTopic(topic) {
+            if reply == nil { reply = body }
+            continue
+        }
+        if seenText.contains(topic) { continue }
+        seenText.insert(topic)
+        items.append(.text(topic: topic, text: body))
+    }
+    return SessionThread(items: items, reply: reply)
+}

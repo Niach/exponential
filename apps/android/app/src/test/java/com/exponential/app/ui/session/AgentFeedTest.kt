@@ -102,6 +102,14 @@ import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.groupFeedRows
 import com.exponential.app.domain.liveToolRowId
+import com.exponential.app.domain.lastToolLine
+import com.exponential.app.domain.ToolResultPreview
+import com.exponential.app.domain.contractFixtureJson
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
@@ -1152,6 +1160,49 @@ class AgentFeedTest {
         assertNull(
             liveToolRowId(listOf(tool(1, false), AgentFeedItem.UserMessage(id = 3, text = "stop"))),
         )
+    }
+
+    // EXP-1175: the Run face status row's muted second line — `run-row.json`
+    // `toolLines`, every case (×4, web `lastToolLine`).
+    @Test
+    fun `lastToolLine reads every fixture toolLines case`() {
+        val fixture = Json.parseToJsonElement(contractFixtureJson("run-row.json")).jsonObject
+        val cases = fixture["toolLines"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            fun JsonObject.str(key: String): String? =
+                this[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            val feed = case["feed"]!!.jsonArray.mapIndexed { index, itemElement ->
+                val item = itemElement.jsonObject
+                when (item.str("kind")) {
+                    "tool" -> AgentFeedItem.Tool(
+                        id = index.toLong(),
+                        name = item.str("name")!!,
+                        detail = item.str("detail"),
+                        settled = item["settled"]?.jsonPrimitive?.booleanOrNull == true,
+                        preview = (item["preview"] as? JsonObject)?.let { preview ->
+                            ToolResultPreview(
+                                title = preview.str("title"),
+                                identifier = preview.str("identifier"),
+                                refs = preview["refs"]?.jsonArray.orEmpty().map { refElement ->
+                                    val ref = refElement.jsonObject
+                                    EntityRef(
+                                        kind = ref.str("kind")!!,
+                                        id = ref.str("id")!!,
+                                        identifier = ref.str("identifier"),
+                                        title = ref.str("title"),
+                                    )
+                                },
+                            )
+                        },
+                    )
+                    else -> AgentFeedItem.Narration(id = index.toLong(), text = item.str("text").orEmpty())
+                }
+            }
+            assertEquals(name, case.str("expected"), lastToolLine(feed))
+        }
     }
 
     @Test

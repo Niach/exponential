@@ -76,6 +76,39 @@ struct AgentSessionView: View {
     /// style), right of the folded composer capsule and before the Start
     /// circle; gone with the folded bar while the composer is open. nil = none.
     var mergeCircle: AnyView? = nil
+    /// EXP-1175: the Work screen's ×4 display state for the shown run (its
+    /// Run tab mark's), nil when it has none — the status row then derives
+    /// it off this view's own row and working signal.
+    let runState: CodingSessionDisplayState?
+
+    /// EXP-1175: Show work — the full transcript in place of the thread.
+    /// Per ACCOUNT (= per user), never synced (`WorkFaces.showWorkDefaultsKey`),
+    /// so every Run face of that account flips together.
+    @AppStorage private var showWork: Bool
+
+    init(
+        accountId: String,
+        session: CodingSessionEntity,
+        request: Binding<RunRequest?>,
+        continuation: RunContinuation,
+        runState: CodingSessionDisplayState? = nil,
+        startReadiness: CodingReadiness.Readiness? = nil,
+        onStartCoding: @escaping () -> Void = {},
+        mergeCircle: AnyView? = nil
+    ) {
+        self.accountId = accountId
+        self.session = session
+        _request = request
+        self.continuation = continuation
+        self.runState = runState
+        self.startReadiness = startReadiness
+        self.onStartCoding = onStartCoding
+        self.mergeCircle = mergeCircle
+        _showWork = AppStorage(
+            wrappedValue: WorkFaces.showWorkDefault,
+            WorkFaces.showWorkDefaultsKey(accountId: accountId)
+        )
+    }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -471,19 +504,15 @@ struct AgentSessionView: View {
 
     // MARK: - Ended header (EXP-773)
 
-    /// A finished run's byline above the transcript, and the account
-    /// switch's progress captions. EXP-893: Resume moved to the Work
-    /// screen's nav bar; EXP-862 dropped the close-out summary — the
-    /// transcript right below is what a finished run has to say.
+    /// The account switch's progress captions above a finished run. EXP-893:
+    /// Resume moved to the Work screen's nav bar; EXP-862 dropped the
+    /// close-out summary; EXP-1175: the byline moved into the status row
+    /// (`Ended on <device> · <elapsed>`), so nothing shows without a switch.
     @ViewBuilder
     private func endedHeader(_ model: AgentSessionModel) -> some View {
-        if model.sessionEnded {
+        if model.sessionEnded,
+           continuation.watcher.failure != nil || continuation.watcher.sentCaption != nil {
             VStack(alignment: .leading, spacing: 8) {
-                Text(endedByline(model))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let failure = continuation.watcher.failure {
                     Text(failure)
                         .font(.caption2)
@@ -499,16 +528,6 @@ struct AgentSessionView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-    }
-
-    /// "macbook · 5m ago" — the ×4 `PastRuns` rule the list rows print, now
-    /// that the row itself only carries a link.
-    private func endedByline(_ model: AgentSessionModel) -> String {
-        let row = model.session ?? session
-        return PastRuns.byline(
-            device: model.hostDevice.displayLabel,
-            relativeTime: relativeWireDate(PastRuns.endedAt(row))
-        )
     }
 
     /// EXP-849: change the account this run uses — a RESUME on the same
@@ -557,11 +576,86 @@ struct AgentSessionView: View {
         }
     }
 
+    // MARK: - Status row + thread (EXP-1175)
+
+    /// The row's display state: the Work screen's when it has one, else this
+    /// row's own with the viewer's working signal while its socket is live.
+    private func displayState(_ model: AgentSessionModel) -> CodingSessionDisplayState {
+        runState ?? CodingSessionDisplayState.of(
+            session: model.session ?? session,
+            prState: nil,
+            agentBusy: model.phase == .live ? model.agentWorking : nil
+        )
+    }
+
+    /// Fixture `run-row.json`: a paused (offline host) run, an ended one,
+    /// else the ×4 display state.
+    private func runRowState(_ model: AgentSessionModel) -> RunRowState {
+        if hostPaused { return .paused }
+        if model.sessionEnded { return .ended }
+        switch displayState(model) {
+        case .working: return .working
+        case .needsInput: return .needsInput
+        case .review: return .review
+        case .done: return .done
+        }
+    }
+
+    private func runStatusRow(_ model: AgentSessionModel) -> some View {
+        let row = model.session ?? session
+        let state = runRowState(model)
+        let device = hostLabel
+        return RunStatusRow(
+            agent: row.agent,
+            markState: runningRowMarkState(
+                displayState(model), paused: hostPaused, working: model.agentWorking
+            ),
+            ended: model.sessionEnded,
+            rowState: state,
+            caption: { now in
+                WorkFaces.runRowCaption(
+                    state: state,
+                    device: device,
+                    startedAt: row.startedAt,
+                    endedAt: row.endedAt ?? row.updatedAt,
+                    now: now
+                )
+            },
+            toolLine: model.phase == .live ? AgentFeed.lastToolLine(model.feed) : nil,
+            showWork: showWork,
+            onToggle: { showWork.toggle() }
+        )
+    }
+
+    /// The run's published results, publish order, the Summary as the reply.
+    private func thread(_ model: AgentSessionModel) -> SessionThread {
+        sessionThread((model.session ?? session).results)
+    }
+
+    /// The empty-feed placeholders: the transcript's while it has no rows;
+    /// the thread's only while it is empty too and no card waits.
+    private func feedPlaceholder(_ model: AgentSessionModel) -> Bool {
+        model.feed.isEmpty && (showWork || (thread(model).isEmpty && !model.cardPending))
+    }
+
     // MARK: - Feed
 
-    @ViewBuilder
+    /// The status row over the body — the thread by default, the transcript
+    /// with Show work; only the row's button label flips.
     private func feedArea(_ model: AgentSessionModel) -> some View {
-        if model.feed.isEmpty, let status = historyStatus(model) {
+        VStack(spacing: 0) {
+            runStatusRow(model)
+            feedBody(model)
+        }
+        // The thread has ONE conversation: hiding the work drops a subagent tab.
+        .onChange(of: showWork) { _, now in
+            if !now { agentTab = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func feedBody(_ model: AgentSessionModel) -> some View {
+        if feedPlaceholder(model), let status = historyStatus(model) {
             // EXP-773: a finished run's transcript lives on the machine that
             // ran it, and the relay is asking that machine for it. Say which
             // machine, and say plainly when it can't answer — this is not a
@@ -575,12 +669,12 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
-        } else if model.feed.isEmpty, hostPaused {
+        } else if feedPlaceholder(model), hostPaused {
             // EXP-550: the machine hosting this run is asleep. The session is
             // NOT over — it resumes when the machine comes back — so say that
             // instead of spinning on "waiting for the live stream" forever.
             centeredState { hostOfflineState }
-        } else if model.feed.isEmpty,
+        } else if feedPlaceholder(model),
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             centeredState {
                 ProgressView().tint(.white)
@@ -591,7 +685,7 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
-        } else if model.feed.isEmpty, model.phase == .live, model.latestDiff == nil {
+        } else if feedPlaceholder(model), model.phase == .live, model.latestDiff == nil {
             centeredState {
                 Text("Waiting for activity…")
                     .font(.subheadline)
@@ -601,6 +695,10 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .multilineTextAlignment(.center)
             }
+        } else if !showWork {
+            threadList(model)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("agent-thread")
         } else {
             VStack(spacing: 0) {
                 agentTabStrip(model)
@@ -866,6 +964,65 @@ struct AgentSessionView: View {
                     .animation(motion.standard, value: atBottom)
                 }
             }
+        }
+    }
+
+    /// EXP-1175: the THREAD — the run's published results in publish order
+    /// (a text item = its topic caption over the GFM, a picture = the inline
+    /// result tile), the Summary LAST as the agent's reply, then any pending
+    /// plan/question card through the transcript's own rows. No Load earlier,
+    /// no Working… footer: the status row above is the indicator.
+    private func threadList(_ model: AgentSessionModel) -> some View {
+        let runThread = thread(model)
+        let cards = model.cardPending ? model.rows.filter(AgentFeed.isPendingCard) : []
+        return GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
+                            threadItem(item)
+                        }
+                        if let reply = runThread.reply {
+                            NarrationBubble(text: reply, context: markdownContext)
+                        }
+                        ForEach(cards, id: \.id) { row in
+                            feedRow(row, isLast: row.id == cards.last?.id)
+                        }
+                        Color.clear
+                            .frame(height: 1)
+                            .id(AgentSessionLayout.bottomAnchor)
+                    }
+                    .padding(.vertical, 8)
+                    .transcriptColumn()
+                    .frame(minHeight: geo.size.height, alignment: .top)
+                }
+                .onAppear {
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                }
+                // The thread grows as results publish and cards arrive.
+                .onChange(of: runThread) { _, _ in
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                }
+                .onChange(of: cards.count) { _, _ in
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func threadItem(_ item: SessionThread.Item) -> some View {
+        switch item {
+        case let .text(topic, text):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(topic)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                AgentMarkdownText(text: text, context: markdownContext)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case let .picture(entry):
+            SessionInlinePicture(entry: entry)
         }
     }
 

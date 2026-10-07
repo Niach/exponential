@@ -272,6 +272,65 @@ pub fn has_session_results(raw: Option<&Value>) -> bool {
     !parse_session_result_groups(raw).is_empty()
 }
 
+/// EXP-1175 — one item of the Run face's THREAD: a topic's report text or a
+/// picture, where the agent published it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThreadItem {
+    Text { topic: String, text: String },
+    Picture(SessionResultEntry),
+}
+
+/// EXP-1175 — the Run face's thread: the items in publish order and the
+/// Summary topic's text as the agent's reply, drawn LAST.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionThread {
+    pub items: Vec<ThreadItem>,
+    pub reply: Option<String>,
+}
+
+/// EXP-1175 — array (publish) order with the group reader's tolerance and
+/// picture cap: a picture is an item where it sits, a topic's FIRST
+/// non-blank text is an item where it sits, the Summary text is `reply`
+/// (pictures under Summary stay in the stream). The twin of `@exp/ui`
+/// `sessionThread`, fixture `session-results.json` `thread` (×4).
+pub fn session_thread(raw: Option<&Value>) -> SessionThread {
+    let mut thread = SessionThread::default();
+    let mut seen_text: Vec<String> = Vec::new();
+    let mut pictures = 0usize;
+    for item in blob_items(raw) {
+        if let Some(entry) = entry_from(&item) {
+            if pictures >= MAX_SESSION_RESULTS {
+                continue;
+            }
+            pictures += 1;
+            thread.items.push(ThreadItem::Picture(entry));
+            continue;
+        }
+        let Some(object) = item.as_object() else {
+            continue;
+        };
+        let field = |key: &str| -> Option<String> {
+            let value = object.get(key)?.as_str()?.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let (Some(topic), Some(text)) = (field("topic"), field("text")) else {
+            continue;
+        };
+        if is_summary_topic(&topic) {
+            if thread.reply.is_none() {
+                thread.reply = Some(text);
+            }
+            continue;
+        }
+        if seen_text.contains(&topic) {
+            continue;
+        }
+        seen_text.push(topic.clone());
+        thread.items.push(ThreadItem::Text { topic, text });
+    }
+    thread
+}
+
 /// Read `coding_sessions.results` — see the module docs for the tolerance
 /// rules. Anything that is not an array (or a JSON string holding one)
 /// yields an empty list.
@@ -575,6 +634,36 @@ mod tests {
             );
         }
         assert!(!has_session_results(None));
+    }
+
+    /// EXP-1175 — the fixture's `thread` block ×4.
+    #[test]
+    fn session_thread_matches_the_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap();
+        let cases = fixture["thread"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let thread = session_thread(Some(&case["raw"]));
+            let items: Vec<Value> = thread
+                .items
+                .iter()
+                .map(|item| match item {
+                    ThreadItem::Text { topic, text } => {
+                        serde_json::json!({"kind": "text", "topic": topic, "text": text})
+                    }
+                    ThreadItem::Picture(entry) => {
+                        serde_json::json!({"kind": "picture", "attachmentId": entry.attachment_id})
+                    }
+                })
+                .collect();
+            let actual = serde_json::json!({"items": items, "reply": thread.reply});
+            assert_eq!(actual, case["expected"], "fixture case: {name}");
+        }
+        assert_eq!(session_thread(None), SessionThread::default());
     }
 
     /// EXP-1154 — the fixture's `files` block: a group's files ride the

@@ -264,3 +264,87 @@ public enum WorkFaces {
         return value
     }
 }
+
+// MARK: - EXP-1175: the Run face's status row + Show work
+
+/// The ×4 display state (`CodingSessionDisplayState`) plus the two the status
+/// row alone tells apart: a paused (offline host) run and an ended one.
+public enum RunRowState: String, Equatable, Sendable {
+    case working
+    case needsInput = "needs_input"
+    case paused
+    case review
+    case done
+    case ended
+}
+
+/// The status row caption's tone — the session list row's tints (fixture
+/// `statusTone`); the app maps it to a colour.
+public enum RunRowTone: String, Equatable, Sendable {
+    case muted
+    case amber
+    case emerald
+    case sky
+}
+
+public struct RunRowCaption: Equatable, Sendable {
+    public let text: String
+    public let tone: RunRowTone
+
+    public init(text: String, tone: RunRowTone) {
+        self.text = text
+        self.tone = tone
+    }
+}
+
+public extension WorkFaces {
+    /// The Run face opens as the THREAD: one status row (the agent's run mark
+    /// as the spinner, `runRowCaption`, `AgentFeed.lastToolLine` muted, the
+    /// Show work button) over the run's published results (`sessionThread`),
+    /// pending plan/question cards still in place. Show work swaps the thread
+    /// for the full transcript IN PLACE; remembered per user. Fixture
+    /// `packages/domain-contract/fixtures/run-row.json` (×4).
+    static let showWorkDefault = false
+    static let showWorkText = "Show work"
+    static let hideWorkText = "Hide work"
+
+    /// The row's trailing button: what pressing it DOES next.
+    static func showWorkLabel(_ showWork: Bool) -> String {
+        showWork ? hideWorkText : showWorkText
+    }
+
+    /// The per-user preference's `UserDefaults` key.
+    static func showWorkDefaultsKey(accountId: String) -> String {
+        "run_show_work_\(accountId)"
+    }
+
+    /// The status row's first line and tone: `Building on <device> · <elapsed>`
+    /// while it works (now − start), `Ended on <device> · <elapsed>` once it
+    /// is over (end − start; the caller passes `ended_at`, else `updated_at`),
+    /// else the session list row's words. The elapsed part is the working
+    /// caption's ladder and drops when a stamp is missing or unparsable.
+    static func runRowCaption(
+        state: RunRowState,
+        device: String,
+        startedAt: String?,
+        endedAt: String?,
+        now: Date
+    ) -> RunRowCaption {
+        switch state {
+        case .paused: return RunRowCaption(text: "Paused · \(device)", tone: .muted)
+        case .needsInput: return RunRowCaption(text: "Needs input · \(device)", tone: .amber)
+        case .review: return RunRowCaption(text: "Ready for review · \(device)", tone: .emerald)
+        case .done: return RunRowCaption(text: "Done · \(device)", tone: .sky)
+        case .working, .ended:
+            let verb = state == .working ? "Building on" : "Ended on"
+            let start = startedAt.flatMap(WireTimestamps.parse)
+            let end = state == .working ? now : endedAt.flatMap(WireTimestamps.parse)
+            var elapsed = ""
+            if let start, let end {
+                let ms = Int((end.timeIntervalSince(start) * 1000).rounded())
+                elapsed = " · \(AgentFeed.workingDuration(ms: ms))"
+            }
+            return RunRowCaption(text: "\(verb) \(device)\(elapsed)", tone: .muted)
+        }
+    }
+}

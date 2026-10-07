@@ -276,4 +276,38 @@ class WorkFacesTest {
             )
         }
     }
+
+    // ── EXP-1175: the Run face's status row (`run-row.json`, ×4) ─────────────
+    private val runRowFixture = kotlinx.serialization.json.Json
+        .parseToJsonElement(contractFixtureJson("run-row.json")).jsonObject
+
+    @Test
+    fun `labels the Show work switch off the fixture`() {
+        assertEquals(runRowFixture["showWorkLabel"]!!.jsonPrimitive.content, showWorkLabel(false))
+        assertEquals(runRowFixture["hideWorkLabel"]!!.jsonPrimitive.content, showWorkLabel(true))
+        assertEquals(runRowFixture["showWorkDefault"]!!.jsonPrimitive.content.toBoolean(), SHOW_WORK_DEFAULT)
+    }
+
+    @Test
+    fun `every fixture captions case reads the expected caption and tone`() {
+        val cases = runRowFixture["captions"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun str(obj: JsonObject, key: String): String? =
+            obj[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = str(case, "name")
+            val state = RunRowState.entries.first { it.wire == str(case, "state") }
+            val caption = runRowCaption(
+                state = state,
+                device = str(case, "device")!!,
+                startedAt = str(case, "startedAt"),
+                endedAt = str(case, "endedAt"),
+                nowMs = WireTimestamps.parseEpochMs(str(case, "now")!!)!!,
+            )
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, str(expected, "text"), caption.text)
+            assertEquals(name, str(expected, "tone"), caption.tone.wire)
+        }
+    }
 }

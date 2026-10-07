@@ -35,7 +35,7 @@ desktop `apps/desktop/crates/ui/src/`.
 | 4 | List row (flat) | `ListRow` `glass-rows.tsx` | `FlatRow` / `.flatRow()` `GlassTheme.swift` | `Modifier.flatRow()` `Glass.kt` | `surface::flat_row` / `flat_row_compact` | `ListRow` | `list-row` | — |
 | 5 | Card row (gapped) | `GlassRow` `glass-rows.tsx` | `GlassRow` `GlassTheme.swift` | `Modifier.glassRow()` `Glass.kt` | `surface::glass_row_card` | `CardRow` | `row` | — |
 | 6 | Issue row | GAP-N: `web:components/issue-list.tsx` `IssueRow`, `issue-relations-card.tsx` `RelationIssueRow` | GAP-N: private `issueRow()` in `app:Issue/IssueListView.swift`, `app:MyIssues/MyIssuesView.swift`; `RelatedIssueRow` `app:Work/PrGraphBadge.swift` | GAP-N: internal `IssueRow` `issue/IssueListScreen.kt`, `LongPressIssueRow`, `RelationIssueRow` | GAP-N: `issue_list.rs` `render_issue_row`, `issue_relations.rs` `issue_row` | `IssueRow` | none | all four + styleguide |
-| 7 | Running row (live run in a list) | GAP-N: `web:components/session-list-rows.tsx` `RunningSessionRow` | GAP-N: `app:Session/RunningSessionRow.swift` (ended twin `EndedRunRow` is in ExpUI) | GAP-N: internal `session/RunningSessionRow.kt` | GAP-N: `run_rows::render_running_run_row` (`pub(crate)`) | `RunRow` | none | all four + styleguide |
+| 7 | Running row (live run in a list; the Run face's status row) | `RunStatusRow` `run-status-row.tsx` (the list row `RunningSessionRow` `web:components/session-list-rows.tsx` stays app-level) | GAP-N: `app:Session/RunningSessionRow.swift` (ended twin `EndedRunRow` is in ExpUI); status row `app:Session/RunStatusRow.swift` | GAP-N: internal `session/RunningSessionRow.kt`; status row `session/RunStatusRow.kt` | GAP-N: `run_rows::render_running_run_row` (`pub(crate)`); status row `steer_viewer::render_status_row` | `RunRow` | `run-status-row` | iOS, Android, desktop |
 | 8 | Pill | `Pill` `pill.tsx` | `GlassPill` `GlassPill.swift` | `GlassPill` `components/GlassPill.kt` | `surface::glass_pill` / `glass_pill_button` / `pill_dot` | `Pill` | `pill` | — |
 | 9 | Issue chip (+ stack) | `IssueChip`, `IssueChipStack` `issue-chip.tsx` | `IssueChip` `IssueChip.swift`, `IssueChipStack.swift` | `IssueChip` / `IssueChipStack` `components/IssueChip.kt` | `issue_chip` | `IssueChip` | `issue-chip` | — |
 | 10 | Entity chip | `EntityChip` `entity-chip.tsx` | `EntityChip` `EntityChip.swift` | `EntityChip` `components/EntityChip.kt` | `entity_chip` | `EntityChip` | `entity-chip` | — |
@@ -47,6 +47,7 @@ desktop `apps/desktop/crates/ui/src/`.
 | 16 | Glass card | `GlassCard` `glass-card.tsx` | `GlassCard` `GlassTheme.swift` | `Modifier.glassCard()` `Glass.kt` | `surface::glass_card` | `Card` (maps basic `Card`) | `glass-card` | — |
 | 17 | Composer box | `Composer` / `ComposerTool` / `ComposerSubmit` `composer.tsx` | `GlassComposer` `GlassComposer.swift` | `GlassComposer` `components/GlassComposer.kt` | `composer::glass_composer` | `Composer` | `composer` | — |
 | 18 | Results tiles | `SessionResultsView` `session-results-view.tsx` (tile private: `ResultTile`) | GAP-N: `app:Work/SessionResultsFace.swift` (private `SessionResultTile`) | GAP-N: `work/ResultsFace.kt` (private `ResultTile`) | GAP-N: `session_results::tile` (module-private) | `ResultTile` (+ `ResultGroup` per topic) | `session-results` | tile private ×4; iOS/Android face in app layer |
+| 18a | Results thread (status row + results timeline) | `SessionThreadView` `session-thread-view.tsx` (rule `sessionThread` `session-results.ts`) | GAP-N: `app:Session/AgentSessionView.swift` `threadList` | GAP-N: `RunThread` in `session/AgentSessionScreen.kt` | GAP-N: `steer_viewer::render_thread` | `Thread` | `session-thread` | iOS, Android, desktop |
 | 19 | Question / decision card (agent ask, plan) | GAP-N: private `AskCard` / `QuestionCard` `web:components/agent-session.tsx` | GAP-N: private `QuestionCard` `app:Session/AgentSessionView.swift` | GAP-N: private `QuestionCard` / `AnsweredAskCard` `session/AgentSessionScreen.kt` | GAP-N: `steer_viewer.rs` `render_ask` | `DecisionCard` | `markdown` (misfiled) | all four |
 | 20 | Choice dialog (blocked start, stack merge) | GAP-N: `web:components/blocked-start-dialog.tsx`, `stack-merge-choice-dialog.tsx` on `Dialog` | GAP-N: `app:Agent/BlockedStartSheet.swift`, `app:Work/WorkMergePill.swift` | GAP-N: in `agent/AgentScreen.kt`, `work/StackMergeDialog.kt` | GAP-N: `chat_screen.rs`, `pr_merge.rs` on `native_dialog::DialogShell` | `ChoiceDialog` (fixture-driven: `blocked-start.json`, `stack-merge-choice.json`) | `blocked-start-dialog`, `stack-merge-choice-dialog` | all four (shared spec = fixtures only) |
 | 21 | Toast | `Toaster`, `ToastKindIcon` `toast.tsx` | `Toaster` / `ToastCard` / `ToastHost` `Toast.swift` | `Toaster` / `ToastCard` / `ToastHost` `components/Toast.kt` | `toast::Toast` / `toast::show` | bridge `harness.toast` (not a tree node) | `toast` | — |
@@ -78,16 +79,19 @@ desktop `apps/desktop/crates/ui/src/`.
 
 ## Gap summary
 
-- **No shared primitive anywhere (×4):** issue row, running row, question/decision
-  card, choice dialog body, composer headline. These are exactly the surfaces
+- **No shared primitive anywhere (×4):** issue row, question/decision card,
+  choice dialog body, composer headline.
+- **Web-only shared primitive (EXP-1175):** the running/status row
+  (`RunStatusRow`) and the results thread (`SessionThreadView`); iOS, Android
+  and desktop draw them in the app layer. These are exactly the surfaces
   SLOP-16 found composed ad hoc; each gets a named spec in the extraction step.
 - **Private tiles:** the results tile exists ×4 but is private in every file.
 - **Native-only gaps:** iOS StatusGlyph view, LiveDot in the iOS/Android shared
   layers, the flat hairline list container on iOS/Android, empty state, badge,
   issue group band, disclosure header on iOS/Android, label chip on
   web/iOS/desktop, drawer rows on iOS/desktop, desktop menu.
-- **Styleguide gaps:** no specimen id for issue row, running row, StatusGlyph,
-  nav row; the ask/plan card sits under `markdown`.
+- **Styleguide gaps:** no specimen id for issue row, StatusGlyph, nav row
+  (the running/status row = `run-status-row`, the thread = `session-thread`); the ask/plan card sits under `markdown`.
 - **Catalog:** VAPP-5 names none of these yet (GAP-C for every row).
 
 ## Tokens (SLOP-18 step 2)

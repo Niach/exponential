@@ -32,6 +32,8 @@ pub(crate) mod readiness_checklist;
 pub(crate) mod device_readiness;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
+pub(crate) mod run_status_row;
+pub(crate) mod session_thread;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -84,4 +86,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
+    Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
+    Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
 ];

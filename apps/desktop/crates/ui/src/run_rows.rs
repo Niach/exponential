@@ -62,7 +62,7 @@ pub(crate) enum StatusTone {
 }
 
 impl StatusTone {
-    fn color(self, muted: Hsla) -> Hsla {
+    pub(crate) fn color(self, muted: Hsla) -> Hsla {
         match self {
             StatusTone::Muted => muted,
             StatusTone::Amber => theme::tokens::YELLOW.to_hsla(),
@@ -87,6 +87,9 @@ pub(crate) struct RunningRunFacts {
     /// EXP-1208: the run mark's state ([`running_row_mark`]) — `None` = the
     /// bare mark (a paused run).
     pub(crate) mark: Option<CodingSessionDisplay>,
+    /// EXP-1175: the display state the status line was read from (the Run
+    /// face's status row keys its caption on it).
+    pub(crate) display: CodingSessionDisplay,
     pub(crate) blocked: Option<SharedString>,
     /// The machine's name (the kill confirm names it).
     pub(crate) device_label: Option<String>,
@@ -205,6 +208,7 @@ pub(crate) fn running_run_facts(
         ),
         // EXP-1208: the list rows' mark.
         mark: running_row_mark(display, paused, working),
+        display,
         blocked: crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch)
             .map(SharedString::from),
         device_label: presentation.label,
@@ -275,6 +279,70 @@ pub(crate) fn running_status_line(
                 .collect::<Vec<_>>()
                 .join(" · ");
             (line, StatusTone::Muted)
+        }
+    }
+}
+
+/// EXP-1175 — the Show work preference's default: the Run face opens as the
+/// thread (fixture `run-row.json` `showWorkDefault`, ×4).
+pub(crate) const SHOW_WORK_DEFAULT: bool = false;
+
+/// EXP-1175 — the status row's trailing button: what pressing it DOES next.
+pub(crate) fn show_work_label(show_work: bool) -> &'static str {
+    if show_work {
+        "Hide work"
+    } else {
+        "Show work"
+    }
+}
+
+/// EXP-1175 — the Run face status row's state: the display state plus the two
+/// the row alone tells apart, a paused (offline host) run and an ended one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunRowState {
+    Working,
+    NeedsInput,
+    Paused,
+    Review,
+    Done,
+    Ended,
+}
+
+/// EXP-1175 — a timestamp column as epoch ms; unparsable = `None`.
+pub(crate) fn stamp_ms(value: Option<&str>) -> Option<i64> {
+    value
+        .and_then(crate::inbox::parse_timestamp)
+        .map(|parsed| parsed.timestamp_millis())
+}
+
+/// EXP-1175 — the status row's first line and tone: `Building on <device> ·
+/// <elapsed>` while it works (now − start), `Ended on <device> · <elapsed>`
+/// once over (end − start), else the session row's words; a missing stamp
+/// drops the elapsed part. Fixture `run-row.json` `captions` (×4).
+pub(crate) fn run_row_caption(
+    state: RunRowState,
+    device: &str,
+    started_ms: Option<i64>,
+    ended_ms: Option<i64>,
+    now_ms: i64,
+) -> (String, StatusTone) {
+    match state {
+        RunRowState::Paused => (format!("Paused · {device}"), StatusTone::Muted),
+        RunRowState::NeedsInput => (format!("Needs input · {device}"), StatusTone::Amber),
+        RunRowState::Review => (format!("Ready for review · {device}"), StatusTone::Green),
+        RunRowState::Done => (format!("Done · {device}"), StatusTone::Blue),
+        RunRowState::Working | RunRowState::Ended => {
+            let (verb, end) = match state {
+                RunRowState::Working => ("Building on", Some(now_ms)),
+                _ => ("Ended on", ended_ms),
+            };
+            let elapsed = match (started_ms, end) {
+                (Some(start), Some(end)) => {
+                    format!(" · {}", crate::session_rows::format_duration(end - start))
+                }
+                _ => String::new(),
+            };
+            (format!("{verb} {device}{elapsed}"), StatusTone::Muted)
         }
     }
 }
@@ -404,6 +472,87 @@ fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: 
             cx.stop_propagation();
             on_toggle(event, window, cx);
         })
+}
+
+/// EXP-1175 — the status row's lead: a live run's mark state (`None` = the
+/// bare mark) or the ended run's dimmed mark.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunStatusMark {
+    Live(Option<CodingSessionDisplay>),
+    Ended,
+}
+
+/// EXP-1175 — what the Run face's status row draws.
+pub(crate) struct RunStatusRowSpec {
+    pub(crate) id: SharedString,
+    pub(crate) agent: Option<coding::CodingAgent>,
+    pub(crate) mark: RunStatusMark,
+    pub(crate) caption: SharedString,
+    pub(crate) tone: StatusTone,
+    /// The newest tool call's line ([`steer::feed::last_tool_line`]); live
+    /// runs only.
+    pub(crate) tool_line: Option<SharedString>,
+    pub(crate) show_work: bool,
+    pub(crate) on_toggle: Option<RunRowAction>,
+}
+
+/// EXP-1175 — the Run face's ONE status row, over the thread or the
+/// transcript: the run mark, the caption in its tone, the tool line muted
+/// under it, the Show work / Hide work text button trailing (web
+/// `RunStatusRow`).
+pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyElement {
+    use crate::controls::WebText as _;
+    let muted = cx.theme().muted_foreground;
+    let lead = match spec.mark {
+        RunStatusMark::Live(state) => {
+            crate::coding_selects::run_lead(spec.agent, RUN_MARK_PX, RUN_BADGE_PX, state)
+        }
+        RunStatusMark::Ended => crate::coding_selects::ended_run_lead(spec.agent, RUN_MARK_PX),
+    };
+    let body = gpui_component::v_flex()
+        .flex_1()
+        .min_w_0()
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(spec.tone.color(muted))
+                .child(spec.caption),
+        )
+        .children(spec.tool_line.map(|line| {
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_2xs()
+                .text_color(muted.opacity(0.7))
+                .child(line)
+        }));
+    let mut toggle = crate::controls::text_button(
+        SharedString::from(format!("{}-toggle", spec.id)),
+        show_work_label(spec.show_work),
+        crate::controls::TextButtonVariant::Text,
+        cx,
+    )
+    .flex_shrink_0();
+    if let Some(on_toggle) = spec.on_toggle {
+        toggle = toggle.on_click(move |event, window, cx| on_toggle(event, window, cx));
+    }
+    div()
+        .id(spec.id)
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap(gpui::px(10.))
+        .py(gpui::px(6.))
+        .child(lead)
+        .child(body)
+        .child(toggle)
+        .into_any_element()
 }
 
 /// One LIVE run row (EXP-874). The whole row opens the run.
@@ -915,6 +1064,47 @@ mod tests {
         }
         assert_eq!(action_run_title(None), "Manual run");
         assert_eq!(action_run_title(Some("")), "Manual run");
+    }
+
+    /// EXP-1175 — fixture `run-row.json` ×4: the captions and the labels.
+    #[test]
+    fn run_row_caption_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/run-row.json"
+        ))
+        .unwrap();
+        assert_eq!(show_work_label(false), fixture["showWorkLabel"].as_str().unwrap());
+        assert_eq!(show_work_label(true), fixture["hideWorkLabel"].as_str().unwrap());
+        assert_eq!(SHOW_WORK_DEFAULT, fixture["showWorkDefault"].as_bool().unwrap());
+        let cases = fixture["captions"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let state = match case["state"].as_str().unwrap() {
+                "working" => RunRowState::Working,
+                "needs_input" => RunRowState::NeedsInput,
+                "paused" => RunRowState::Paused,
+                "review" => RunRowState::Review,
+                "done" => RunRowState::Done,
+                "ended" => RunRowState::Ended,
+                other => panic!("unknown state {other}"),
+            };
+            let (text, tone) = run_row_caption(
+                state,
+                case["device"].as_str().unwrap(),
+                stamp_ms(case["startedAt"].as_str()),
+                stamp_ms(case["endedAt"].as_str()),
+                stamp_ms(case["now"].as_str()).unwrap(),
+            );
+            let tone = match tone {
+                StatusTone::Muted => "muted",
+                StatusTone::Amber => "amber",
+                StatusTone::Green => "emerald",
+                StatusTone::Blue => "sky",
+            };
+            assert_eq!(text, case["expected"]["text"].as_str().unwrap(), "{name}");
+            assert_eq!(tone, case["expected"]["tone"].as_str().unwrap(), "{name}");
+        }
     }
 
     fn session(id: &str) -> domain::rows::CodingSession {

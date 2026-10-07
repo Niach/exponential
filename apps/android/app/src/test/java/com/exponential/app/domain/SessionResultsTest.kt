@@ -212,6 +212,41 @@ class SessionResultsTest {
         }
     }
 
+    // EXP-1175: the Run face's thread — the fixture's `thread` block, x4.
+    @Test
+    fun `every fixture thread case keeps publish order and lifts the summary`() {
+        val cases = sessionResultsFixture()["thread"]!!.jsonObject["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["raw"]!!.let { value ->
+                when {
+                    value is JsonNull -> null
+                    value is JsonPrimitive && value.isString -> value.content
+                    else -> value.toString()
+                }
+            }
+            val thread = sessionThread(raw)
+            val actual = thread.items.map { item ->
+                when (item) {
+                    is ThreadItem.Text -> listOf("text", item.topic, item.text)
+                    is ThreadItem.Picture -> listOf("picture", item.entry.attachmentId)
+                }
+            }
+            val expected = case["expected"]!!.jsonObject
+            val expectedItems = expected["items"]!!.jsonArray.map { itemElement ->
+                val item = itemElement.jsonObject
+                when (item["kind"]!!.jsonPrimitive.content) {
+                    "text" -> listOf("text", item["topic"]!!.jsonPrimitive.content, item["text"]!!.jsonPrimitive.content)
+                    else -> listOf("picture", item["attachmentId"]!!.jsonPrimitive.content)
+                }
+            }
+            assertEquals(name, expectedItems, actual)
+            assertEquals(name, expected["reply"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content, thread.reply)
+        }
+    }
+
     // EXP-1154: a text entry's `files` ride its group — the fixture's
     // `files` block, every case, x4.
     @Test
