@@ -31,6 +31,7 @@ import {
 import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_DEVICE_ID,
+  DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
   DEMO_WIDGET_ISSUE_ID,
   EMPTY_BOARD_SLUG,
@@ -88,6 +89,14 @@ export interface DemoIds {
    * `EXP_DEV_SCREEN=session:<id>` can name it (EXP-732).
    */
   steeredSessionId?: string
+  /**
+   * EXP-1204: the `coding_sessions` row the `run-changes` view is photographed
+   * on — Jonas's finished chat run with an open PR of its own, pinned as
+   * `DEMO_SESSION_IDS.runChanges` so the web route and the desktop's
+   * `EXP_DEV_SCREEN=session:<id>` can name it. Same presence check as the
+   * showcase run: absent = the view skips.
+   */
+  runChangesSessionId?: string
 }
 
 export async function resolveDemoIds(): Promise<DemoIds> {
@@ -184,6 +193,16 @@ export async function resolveDemoIds(): Promise<DemoIds> {
       and(eq(codingSessions.id, DEMO_STEERED_SESSION_ID), eq(codingSessions.teamId, team.id))
     )
     .limit(1)
+  const [runChangesSession] = await db
+    .select({ id: codingSessions.id })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.id, DEMO_SESSION_IDS.runChanges),
+        eq(codingSessions.teamId, team.id)
+      )
+    )
+    .limit(1)
 
   return {
     teamId: team.id,
@@ -203,5 +222,6 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     actionId: action.id,
     deviceId: device?.id,
     steeredSessionId: steeredSession?.id,
+    runChangesSessionId: runChangesSession?.id,
   }
 }

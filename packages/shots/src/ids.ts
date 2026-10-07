@@ -49,6 +49,12 @@ export interface DemoIds {
    * screen under its filename.
    */
   steeredSessionId?: string
+  /**
+   * EXP-1204: the seeded chat run holding an open PR of its own —
+   * `$runChangesSession`, the row the `run-changes` view is photographed on
+   * (a teammate's, so no relay is involved). Absent = the view skips.
+   */
+  runChangesSessionId?: string
 }
 
 /**
@@ -59,6 +65,7 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   action: (ids) => ids.actionId,
   device: (ids) => ids.deviceId,
   steeredSession: (ids) => ids.steeredSessionId,
+  runChangesSession: (ids) => ids.runChangesSessionId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
   prIssue: (ids) => ids.prIssueId,
@@ -93,6 +100,7 @@ export function parseDemoIds(stdout: string): DemoIds {
     actionId: parsed.actionId,
     deviceId: parsed.deviceId,
     steeredSessionId: parsed.steeredSessionId,
+    runChangesSessionId: parsed.runChangesSessionId,
   }
 }
 

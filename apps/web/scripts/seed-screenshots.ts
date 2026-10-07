@@ -138,6 +138,35 @@ if (!REVIEW_PR_NUMBER) {
   throw new Error(`SCREENSHOT_PR_URL must end in /pull/<number>: ${REVIEW_PR_URL}`)
 }
 
+// EXP-1204: the SECOND real PR — the one a seeded chat run opened for itself
+// (`run-changes`, EXP-1194: an issue-less run's diff, read through
+// `codingSessions.prFiles`). Two things that path does and `issues.prFiles`
+// does not, and that pick the repo:
+// - it insists the PR's repo is a `repositories` row OF THE TEAM, so the seed
+//   registers the repo below (its name shows only on Settings → Repositories;
+//   the Changes screens print branch, state and files, never the repo);
+// - a team repo feeds `repositories.openPulls`, which lists EVERY open PR of
+//   that GitHub repo in the Reviews queue as an external group. So the repo
+//   must have no open PRs — and never grow one: an ARCHIVED repo. android/kotlin
+//   is the archived KSP prototype (Apache-2.0, 0 open PRs for good); #125 is a
+//   three-file Kotlin fix small enough for a phone. Must differ from
+//   REVIEW_PR_URL: every client hides a run whose PR URL an open issue carries.
+// Override with SCREENSHOT_RUN_PR_URL (keep the archived-repo rule).
+const RUN_PR_URL =
+  process.env.SCREENSHOT_RUN_PR_URL?.trim() ||
+  `https://github.com/android/kotlin/pull/125`
+const RUN_PR_MATCH = RUN_PR_URL.match(/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)$/)
+if (!RUN_PR_MATCH) {
+  throw new Error(
+    `SCREENSHOT_RUN_PR_URL must be https://github.com/<owner>/<repo>/pull/<number>: ${RUN_PR_URL}`
+  )
+}
+const RUN_PR_REPO = RUN_PR_MATCH[1]!
+const RUN_PR_NUMBER = Number(RUN_PR_MATCH[2])
+if (RUN_PR_URL === REVIEW_PR_URL) {
+  throw new Error(`SCREENSHOT_RUN_PR_URL must name a different PR than SCREENSHOT_PR_URL`)
+}
+
 // Opt-in frozen clock (SCREENSHOT_FREEZE_NOW) — see lib/freeze-now.ts for why
 // the capture pipeline deliberately does NOT set it.
 const frozenNow = parseFreezeNow(process.env.SCREENSHOT_FREEZE_NOW)
@@ -411,6 +440,14 @@ async function main() {
     .insert(repositories)
     .values({ teamId: ws.id, fullName: `acme/mobile-app` })
     .returning()
+  // EXP-1204: the repo the run-changes PR lives in (see RUN_PR_URL) — the
+  // team must own a row for `codingSessions.prFiles` to read the PR. No board
+  // points at it; it only shows as a second row on Settings → Repositories.
+  await db.insert(repositories).values({
+    teamId: ws.id,
+    fullName: RUN_PR_REPO,
+    sortOrder: 10,
+  })
 
   const [board] = await db
     .insert(boards)
@@ -1141,6 +1178,36 @@ async function main() {
       startedAt: hoursAgo(27),
       endedAt: hoursAgo(26),
     },
+    // EXP-1204: Jonas's finished chat run that opened a pull request of its
+    // own (`pr_open{repositoryId, head}`, EXP-626) — the `run-changes` view and
+    // the Reviews "Agent runs" band (EXP-734/1194). A TEAMMATE's run on
+    // purpose: the demo user reviews it read-only (web `TeammateRunChanges`,
+    // no steer ticket), which is deterministic without a relay. The PR stays
+    // `open` on the row (the real PR's state is never read — only its files);
+    // `ended` keeps it out of the staleness sweep, which reaps live rows only.
+    // `agent_title` is the chat's subject (the natives' row title and the
+    // RunChanges header); the branch is a chat run's `exp/chat-<id8>`.
+    {
+      id: DEMO_SESSION_IDS.runChanges,
+      teamId: ws.id,
+      userId: jonas,
+      actionId: null,
+      actionName: `Chat`,
+      agentTitle: `Fix the error-type comparison in the resolver`,
+      deviceId: DEMO_SERVER_DEVICE_ID,
+      deviceLabel: `Acme build server`,
+      agent: `codex`,
+      status: `ended`,
+      endedBy: `user`,
+      branch: `exp/chat-${DEMO_SESSION_IDS.runChanges.slice(0, 8)}`,
+      prUrl: RUN_PR_URL,
+      prNumber: RUN_PR_NUMBER,
+      prState: `open`,
+      prBaseBranch: `main`,
+      createdAt: hoursAgo(6),
+      startedAt: hoursAgo(6),
+      endedAt: hoursAgo(5),
+    },
   ])
 
   // Team actions (EXP-253) so the Actions screenshot lists real saved actions
@@ -1574,6 +1641,7 @@ Seeded screenshot demo data:
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
   reviews     4 open pull requests
   review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)
+  run changes Jonas's chat run → ${RUN_PR_URL} (real diff; ${RUN_PR_REPO} registered as a team repo)
   actions     ${actionRows.length} saved team actions
   triggers    ${seededTriggers.length} (2 scheduled + 1 event, 1 paused) + 2 triggered runs
   storage     ${seedAttachments.length} attachments (1 unreferenced image to sweep)

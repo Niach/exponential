@@ -110,6 +110,10 @@ class StyleguideScreenshotsTest {
         // APP-15: an open PR in the Reviews queue.
         private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
 
+        // EXP-1204: the seeded chat run with an open PR of its own — its
+        // subject is the "Agent runs" row title and the RunChanges header.
+        private const val RUN_CHANGES_TITLE = "Fix the error-type comparison in the resolver"
+
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
 
@@ -509,6 +513,21 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_reviews")
+
+        // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
+        // finished chat run whose own pull request is open; its row opens
+        // RunChangesScreen, fed by codingSessions.prFiles — a real public PR
+        // the seed points the run at (SCREENSHOT_RUN_PR_URL), so there are
+        // actual files to show. Same expanded-card wait as the store review.
+        flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_run-changes")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+        flow.settle()
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case
