@@ -2,6 +2,10 @@ import {
   githubApiHeaders,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
+import {
+  formatGithubError,
+  githubErrorMessage,
+} from "@/lib/integrations/github-error"
 import type { GithubActorRef } from "@/lib/integrations/github-identity"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
@@ -60,7 +64,9 @@ export async function createPullRequest(opts: {
   })
   if (!res.ok) {
     const text = await res.text()
-    const message = `GitHub PR create failed (${res.status}): ${text.slice(0, 300)}`
+    // FEED-74: GitHub's own words (`Validation Failed: head invalid`, or
+    // `empty response body (request …)` on the 500 that sends nothing).
+    const message = `GitHub PR create failed (${res.status}): ${formatGithubError({ status: res.status, headers: res.headers, text })}`
     if (res.status === 422 && text.includes(`A pull request already exists`)) {
       throw new PullAlreadyExistsError(message)
     }
@@ -97,7 +103,7 @@ export async function findOpenPullByHead(
   )
   if (!res.ok) {
     throw new Error(
-      `GitHub returned ${res.status} listing open pulls by head for ${repo}`
+      `GitHub returned ${res.status} listing open pulls by head for ${repo}: ${await githubErrorMessage(res)}`
     )
   }
   const data = (await res.json()) as Array<{
@@ -180,15 +186,7 @@ export async function closePullRequest(opts: {
     }
   )
   if (!res.ok) {
-    const text = await res.text()
-    let message = text.slice(0, 300)
-    try {
-      const parsed = JSON.parse(text) as { message?: string }
-      if (parsed.message) message = parsed.message
-    } catch {
-      // Non-JSON error body — surface the raw text.
-    }
-    throw new GitHubMergeError(res.status, message)
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
   }
 }
 
@@ -212,15 +210,7 @@ export async function reopenPullRequest(opts: {
     }
   )
   if (!res.ok) {
-    const text = await res.text()
-    let message = text.slice(0, 300)
-    try {
-      const parsed = JSON.parse(text) as { message?: string }
-      if (parsed.message) message = parsed.message
-    } catch {
-      // Non-JSON error body — surface the raw text.
-    }
-    throw new GitHubMergeError(res.status, message)
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
   }
 }
 
@@ -257,7 +247,9 @@ export async function fetchPullState(
     { headers }
   )
   if (!res.ok) {
-    throw new Error(`GitHub returned ${res.status} for ${repo}#${prNumber}`)
+    throw new Error(
+      `GitHub returned ${res.status} for ${repo}#${prNumber}: ${await githubErrorMessage(res)}`
+    )
   }
   const data = (await res.json()) as {
     state: string
@@ -326,7 +318,9 @@ export async function getPullRequest(
     { headers: githubApiHeaders(token || process.env.GITHUB_TOKEN) }
   )
   if (!res.ok) {
-    throw new Error(`GitHub returned ${res.status} for ${repo}#${prNumber}`)
+    throw new Error(
+      `GitHub returned ${res.status} for ${repo}#${prNumber}: ${await githubErrorMessage(res)}`
+    )
   }
   const data = (await res.json()) as {
     state: string
@@ -382,15 +376,7 @@ export async function updatePullRequest(opts: {
     }
   )
   if (!res.ok) {
-    const text = await res.text()
-    let message = text.slice(0, 300)
-    try {
-      const parsed = JSON.parse(text) as { message?: string }
-      if (parsed.message) message = parsed.message
-    } catch {
-      // Non-JSON error body — surface the raw text.
-    }
-    throw new GitHubMergeError(res.status, message)
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
   }
 }
 
@@ -412,7 +398,7 @@ export async function listPullsByHead(
   )
   if (!res.ok) {
     throw new Error(
-      `GitHub returned ${res.status} listing pulls by head for ${repo}`
+      `GitHub returned ${res.status} listing pulls by head for ${repo}: ${await githubErrorMessage(res)}`
     )
   }
   const data = (await res.json()) as Array<{
@@ -442,7 +428,7 @@ export async function listOpenPullsByBase(
   )
   if (!res.ok) {
     throw new Error(
-      `GitHub returned ${res.status} listing pulls by base for ${repo}`
+      `GitHub returned ${res.status} listing pulls by base for ${repo}: ${await githubErrorMessage(res)}`
     )
   }
   const data = (await res.json()) as Array<{
@@ -470,7 +456,9 @@ export async function branchExists(
   )
   if (res.ok) return true
   if (res.status === 404) return false
-  throw new Error(`GitHub returned ${res.status} for branch ${repo}:${branch}`)
+  throw new Error(
+    `GitHub returned ${res.status} for branch ${repo}:${branch}: ${await githubErrorMessage(res)}`
+  )
 }
 
 // Change a PR's base branch (`PATCH /pulls/{n}` with `{base}`) — the stacked-PR
@@ -498,15 +486,7 @@ export async function retargetPullRequest(opts: {
     }
   )
   if (!res.ok) {
-    const text = await res.text()
-    let message = text.slice(0, 300)
-    try {
-      const parsed = JSON.parse(text) as { message?: string }
-      if (parsed.message) message = parsed.message
-    } catch {
-      // Non-JSON error body — surface the raw text.
-    }
-    throw new GitHubMergeError(res.status, message)
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
   }
 }
 
@@ -769,7 +749,7 @@ export async function listOpenPulls(
   if (!res.ok) {
     throw new Error(
       githubRateLimitMessage(res, repo, Boolean(authToken)) ??
-        `GitHub returned ${res.status} listing pulls for ${repo}`
+        `GitHub returned ${res.status} listing pulls for ${repo}: ${await githubErrorMessage(res)}`
     )
   }
   const data = (await res.json()) as Array<{
@@ -831,7 +811,7 @@ export async function fetchPullFiles(
     if (!res.ok) {
       throw new Error(
         githubRateLimitMessage(res, repo, Boolean(authToken)) ??
-          `GitHub returned ${res.status} for ${repo}#${prNumber}`
+          `GitHub returned ${res.status} for ${repo}#${prNumber}: ${await githubErrorMessage(res)}`
       )
     }
     const data = (await res.json()) as PullFile[]
@@ -855,29 +835,6 @@ function asyncMergeHeaders(token?: string | null): Record<string, string> {
     ...githubApiHeaders(token || process.env.GITHUB_TOKEN),
     "x-github-api-version": GITHUB_ASYNC_MERGE_API_VERSION,
   }
-}
-
-// FEED-64: a 5xx body says nothing ("Server Error"); GitHub's request id is
-// what their support can trace, so the message carries it when the response
-// exposes headers (the real `fetch` does; unit stubs may not).
-async function githubErrorMessage(res: {
-  status?: number
-  headers?: { get: (name: string) => string | null }
-  text: () => Promise<string>
-}): Promise<string> {
-  const text = await res.text()
-  let message = text.slice(0, 300)
-  try {
-    const parsed = JSON.parse(text) as { message?: string }
-    if (parsed.message) message = parsed.message
-  } catch {
-    // Non-JSON error body — surface the raw text.
-  }
-  const requestId =
-    res.status !== undefined && res.status >= 500
-      ? res.headers?.get(`x-github-request-id`)
-      : null
-  return requestId ? `${message} (request ${requestId})` : message
 }
 
 /** The async merge job's state, as GitHub reports it. */
@@ -1286,7 +1243,7 @@ export async function mergePullRequestSmart(opts: {
     // conflict/precondition split every client already gates on.
     throw new GitHubMergeError(
       405,
-      state.message ?? `GitHub could not merge PR #${prNumber}`
+      state.message || `GitHub could not merge PR #${prNumber}`
     )
   }
   if (state.status === `pending`) {

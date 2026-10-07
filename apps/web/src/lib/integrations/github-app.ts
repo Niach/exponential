@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import type { PullFile } from "@/lib/integrations/github-pr"
+import { githubErrorMessage } from "@/lib/integrations/github-error"
 
 // GitHub App auth: mint a short-lived **installation token** for a repo, scoped
 // to exactly the permissions the App was granted (contents + pull_requests).
@@ -183,8 +184,10 @@ async function installationToken(
       : {}),
   })
   if (!res.ok) {
+    // FEED-74: GitHub's reason rides along (a 404 "Not Found" is an
+    // uninstalled App, a 5xx carries GitHub's request id).
     throw new Error(
-      `GitHub installation token failed (${res.status})${repo ? ` for ${repo}` : ``}`
+      `GitHub installation token failed (${res.status})${repo ? ` for ${repo}` : ``}: ${await githubErrorMessage(res)}`
     )
   }
   const data = (await res.json()) as { token: string; expires_at: string }
