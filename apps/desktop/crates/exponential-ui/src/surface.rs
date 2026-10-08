@@ -136,6 +136,18 @@ pub enum OutEvent {
     Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
+    /// An `on.<event>` `functionCall` naming a HOST function (not one of the
+    /// catalog's 14 built-ins): the host looks it up in its registry and runs
+    /// it through the policy gate (`host::decide_function`). `args` = the
+    /// call's args resolved against the data model and scope.
+    /// Serialized `{kind: "functionCall", componentId, name, args}` (the
+    /// host API's camelCase; the older variants keep `component_id`).
+    FunctionCall {
+        #[serde(rename = "componentId")]
+        component_id: String,
+        name: String,
+        args: Value,
+    },
     /// A bound value was written through to the data model.
     DataChanged { path: String, value: Value },
     /// A host-owned input edit (the host forwards with its revision).
@@ -1173,12 +1185,20 @@ impl Surface {
             let context = ev.get("context").map(|c| crate::data::resolve_value(c, &ctx).unwrap_or(Value::Null)).unwrap_or_else(|| Value::Object(Map::new()));
             out.push(OutEvent::Action { name, component_id: id.to_string(), event: event.to_string(), context, payload });
         }
-        if let Some(f) = action.get("function") {
-            let resolved = crate::data::resolve_value(f, &ctx);
-            if f.get("call").and_then(Value::as_str) == Some("openUrl") {
-                if let Some(Value::String(url)) = resolved {
+        // A2UI's `functionCall` (VAPP-91) or the legacy `function` key.
+        if let Some(f) = action.get("functionCall").or_else(|| action.get("function")) {
+            let name = f.get("call").and_then(Value::as_str).unwrap_or("");
+            if name == "openUrl" {
+                if let Some(Value::String(url)) = crate::data::resolve_value(f, &ctx) {
                     out.push(OutEvent::OpenUrl { url });
                 }
+            } else if !name.is_empty() && !crate::host::is_builtin_function(name) {
+                // A host function: the host's registry + policy gate decide.
+                let args = match f.get("args") {
+                    Some(raw @ Value::Object(_)) => crate::data::resolve_value(raw, &ctx).unwrap_or_else(|| Value::Object(Map::new())),
+                    _ => Value::Object(Map::new()),
+                };
+                out.push(OutEvent::FunctionCall { component_id: id.to_string(), name: name.to_string(), args });
             }
         }
         out

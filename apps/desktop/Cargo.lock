@@ -2950,6 +2950,7 @@ dependencies = [
  "serde",
  "serde_json",
  "taffy",
+ "url",
 ]
 
 [[package]]

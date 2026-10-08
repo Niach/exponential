@@ -571,6 +571,364 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 
 /**
+ * Server messages in, ops out (`catalog/host.json` ops), one per connection.
+ */
+public protocol HostRouterProtocol: AnyObject, Sendable {
+    
+    /**
+     * Install a declarative package (JSON); returns its issues as a JSON
+     * array `[{path, message}]` (installed only when empty).
+     */
+    func installPackage(packageJson: String) throws  -> String
+    
+    /**
+     * The package whose template created the surface (its function policy).
+     */
+    func packageIdOf(surfaceId: String)  -> String?
+    
+    func registerExtension(id: String) 
+    
+    /**
+     * One server message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
+     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     */
+    func route(messageJson: String)  -> String
+    
+    func supportedCatalogIds()  -> [String]
+    
+    /**
+     * The live surfaces, in creation order.
+     */
+    func surfaceIds()  -> [String]
+    
+}
+/**
+ * Server messages in, ops out (`catalog/host.json` ops), one per connection.
+ */
+open class HostRouter: HostRouterProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_hostrouter(self.handle, $0) }
+    }
+    /**
+     * `extension_ids` = the extension catalog ids the host registered.
+     */
+public convenience init(extensionIds: [String]) {
+    let handle =
+        try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_hostrouter_new(
+        FfiConverterSequenceString.lower(extensionIds),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_hostrouter(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Install a declarative package (JSON); returns its issues as a JSON
+     * array `[{path, message}]` (installed only when empty).
+     */
+open func installPackage(packageJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_install_package(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(packageJson),$0
+    )
+})
+}
+    
+    /**
+     * The package whose template created the surface (its function policy).
+     */
+open func packageIdOf(surfaceId: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_package_id_of(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(surfaceId),$0
+    )
+})
+}
+    
+open func registerExtension(id: String)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_register_extension(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+    /**
+     * One server message (JSON) → the ops to perform, in order, as a JSON
+     * array (`[{op: create|components|data|bind|delete|send, …}]`). Never
+     * fails: unparseable text is an INVALID_MESSAGE `send` op.
+     */
+open func route(messageJson: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_route(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(messageJson),$0
+    )
+})
+}
+    
+open func supportedCatalogIds() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_ids(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The live surfaces, in creation order.
+     */
+open func surfaceIds() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostRouter: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = HostRouter
+
+    public static func lift(_ handle: UInt64) throws -> HostRouter {
+        return HostRouter(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: HostRouter) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostRouter {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HostRouter, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostRouter_lift(_ handle: UInt64) throws -> HostRouter {
+    return try FfiConverterTypeHostRouter.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostRouter_lower(_ value: HostRouter) -> UInt64 {
+    return FfiConverterTypeHostRouter.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ */
+public protocol JsonlDecoderProtocol: AnyObject, Sendable {
+    
+    func end()  -> String
+    
+    func push(chunk: String)  -> String
+    
+}
+/**
+ * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+ * Both return `{"messages": […], "issues": [{at, message}]}`.
+ */
+open class JsonlDecoder: JsonlDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_jsonldecoder(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_jsonldecoder_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_jsonldecoder(handle, $0) }
+    }
+
+    
+
+    
+open func end() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_jsonldecoder_end(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func push(chunk: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_jsonldecoder_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(chunk),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeJsonlDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = JsonlDecoder
+
+    public static func lift(_ handle: UInt64) throws -> JsonlDecoder {
+        return JsonlDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: JsonlDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> JsonlDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: JsonlDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeJsonlDecoder_lift(_ handle: UInt64) throws -> JsonlDecoder {
+    return try FfiConverterTypeJsonlDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeJsonlDecoder_lower(_ value: JsonlDecoder) -> UInt64 {
+    return FfiConverterTypeJsonlDecoder.lower(value)
+}
+
+
+
+
+
+
+/**
  * Implemented by the host (SwiftUI `sizeThatFits` / Compose intrinsics),
  * called in BATCHES: at most three times per layout pass.
  */
@@ -836,6 +1194,148 @@ public func FfiConverterTypeMeasurer_lift(_ handle: UInt64) throws -> Measurer {
 #endif
 public func FfiConverterTypeMeasurer_lower(_ value: Measurer) -> UInt64 {
     return FfiConverterTypeMeasurer.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Server-Sent Events (`data:` lines per event; an event = one message or
+ * JSONL). Same `{messages, issues}` JSON as `JsonlDecoder`.
+ */
+public protocol SseDecoderProtocol: AnyObject, Sendable {
+    
+    func end()  -> String
+    
+    func push(chunk: String)  -> String
+    
+}
+/**
+ * Server-Sent Events (`data:` lines per event; an event = one message or
+ * JSONL). Same `{messages, issues}` JSON as `JsonlDecoder`.
+ */
+open class SseDecoder: SseDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_ssedecoder(self.handle, $0) }
+    }
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_ssedecoder(handle, $0) }
+    }
+
+    
+
+    
+open func end() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_ssedecoder_end(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func push(chunk: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_ssedecoder_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(chunk),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSseDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = SseDecoder
+
+    public static func lift(_ handle: UInt64) throws -> SseDecoder {
+        return SseDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: SseDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SseDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: SseDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSseDecoder_lift(_ handle: UInt64) throws -> SseDecoder {
+    return try FfiConverterTypeSseDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSseDecoder_lower(_ value: SseDecoder) -> UInt64 {
+    return FfiConverterTypeSseDecoder.lower(value)
 }
 
 
@@ -1899,8 +2399,10 @@ public func FfiConverterTypeFfiControlBox_lower(_ value: FfiControlBox) -> RustB
 
 
 /**
- * One event for the host: `kind` = `action | openUrl | dataChanged | input |
- * relayout`, `json` = the event's fields.
+ * One event for the host: `kind` = `action | openUrl | functionCall |
+ * dataChanged | input | relayout`, `json` = the event's fields
+ * (`functionCall`: `{componentId, name, args}`, a host function for the
+ * registry + `decideFunction` gate).
  */
 public struct FfiEvent: Equatable, Hashable {
     public var kind: String
@@ -3257,6 +3759,30 @@ fileprivate struct FfiConverterOptionTypeFfiVisual: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
     typealias SwiftType = [UInt32]
 
@@ -3553,6 +4079,21 @@ fileprivate struct FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer {
         return seq
     }
 }
+/**
+ * A client action message (A2UI v0.9 `action`) JSON.
+ */
+public func actionMessageJson(surfaceId: String, componentId: String, name: String, contextJson: String, payloadJson: String?, timestamp: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_action_message_json(
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(componentId),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(contextJson),
+        FfiConverterOptionString.lower(payloadJson),
+        FfiConverterString.lower(timestamp),$0
+    )
+})
+}
 public func basicCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_basic_catalog_id($0
@@ -3586,6 +4127,27 @@ public func builtinThemeJson(id: String) -> String?  {
 })
 }
 /**
+ * A2UI `a2uiClientCapabilities` JSON.
+ */
+public func clientCapabilitiesJson(extensionIds: [String]) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(
+        FfiConverterSequenceString.lower(extensionIds),$0
+    )
+})
+}
+/**
+ * Two stacked decisions: the stricter wins.
+ */
+public func combineDecisions(a: String, b: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_combine_decisions(
+        FfiConverterString.lower(a),
+        FfiConverterString.lower(b),$0
+    )
+})
+}
+/**
  * The numeric box a control's recipe fixes (`{width, height, …}`), as JSON.
  */
 public func controlGeometryJson(themeJson: String, component: String, propsJson: String)throws  -> String  {
@@ -3603,9 +4165,58 @@ public func coreCatalogId() -> String  {
     )
 })
 }
+/**
+ * The function gate: `allow | ask | deny | not_found`. `policy_json` =
+ * `{allow?, ask?, deny?, default?}`.
+ */
+public func decideFunction(policyJson: String?, name: String, registered: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_decide_function(
+        FfiConverterOptionString.lower(policyJson),
+        FfiConverterString.lower(name),
+        FfiConverterBool.lower(registered),$0
+    )
+})
+}
+/**
+ * openUrl / Link: `{allowed, url?, reason?}` JSON. `policy_json` =
+ * `{schemes?, hosts?, baseUrl?}`.
+ */
+public func decideUrlJson(policyJson: String?, url: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_decide_url_json(
+        FfiConverterOptionString.lower(policyJson),
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * A whole JSONL document (or one JSON value / a JSON array) →
+ * `{messages, issues}` JSON.
+ */
+public func decodeJsonlJson(text: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(
+        FfiConverterString.lower(text),$0
+    )
+})
+}
 public func defaultThemeId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_default_theme_id($0
+    )
+})
+}
+/**
+ * A client error message (A2UI v0.9 `error`) JSON.
+ */
+public func errorMessageJson(code: String, surfaceId: String, message: String, path: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_error_message_json(
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterString.lower(message),
+        FfiConverterOptionString.lower(path),$0
     )
 })
 }
@@ -3616,6 +4227,15 @@ public func extensionErrors(extensionJson: String)throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_extension_errors(
         FfiConverterString.lower(extensionJson),$0
+    )
+})
+}
+/**
+ * `catalog/host.json` without its comments.
+ */
+public func hostContractJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_host_contract_json($0
     )
 })
 }
@@ -3651,6 +4271,61 @@ public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> Str
     uniffi_exponential_ui_ffi_fn_func_load_theme_json(
         FfiConverterString.lower(themeJson),
         FfiConverterOptionString.lower(parentsJson),$0
+    )
+})
+}
+/**
+ * A client message as the MCP `tools/call` that carries it back (`tool`
+ * defaults to `a2ui_event`).
+ */
+public func mcpActionCallJson(messageJson: String, tool: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
+        FfiConverterString.lower(messageJson),
+        FfiConverterOptionString.lower(tool),$0
+    )
+})
+}
+/**
+ * The media loader's request `{url, headers}` JSON (null when the url does
+ * not resolve). `options_json` = `{baseUrl?, rules?: [{prefix, headers}]}`.
+ */
+public func mediaRequestJson(url: String, optionsJson: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_media_request_json(
+        FfiConverterString.lower(url),
+        FfiConverterString.lower(optionsJson),$0
+    )
+})
+}
+/**
+ * The A2UI messages inside an MCP tool result (JSON) → `{messages, issues}`.
+ */
+public func messagesFromMcpResultJson(resultJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(
+        FfiConverterString.lower(resultJson),$0
+    )
+})
+}
+/**
+ * A package's `functions` list (JSON array, or null) as a policy JSON.
+ */
+public func packagePolicyJson(functionsJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_package_policy_json(
+        FfiConverterOptionString.lower(functionsJson),$0
+    )
+})
+}
+/**
+ * A binding source URI → `{uri, scheme, name, params}` JSON, null when it
+ * does not parse.
+ */
+public func parseSourceJson(uri: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_parse_source_json(
+        FfiConverterString.lower(uri),$0
     )
 })
 }
@@ -3713,6 +4388,30 @@ public func resolveRecipeJson(themeJson: String, component: String, part: String
 })
 }
 /**
+ * The core, the core lite, the basic catalog, then the extension ids.
+ */
+public func supportedCatalogIdsFor(extensionIds: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_supported_catalog_ids_for(
+        FfiConverterSequenceString.lower(extensionIds),$0
+    )
+})
+}
+/**
+ * A package template as its server messages (JSON array), null when the
+ * package has no such template. `data_json` = the caller's data.
+ */
+public func templateMessagesJson(packageJson: String, templateId: String, surfaceId: String, dataJson: String?)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_template_messages_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterString.lower(templateId),
+        FfiConverterString.lower(surfaceId),
+        FfiConverterOptionString.lower(dataJson),$0
+    )
+})
+}
+/**
  * The issues of a theme file (`[]` when it loads).
  */
 public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  {
@@ -3720,6 +4419,18 @@ public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  
     uniffi_exponential_ui_ffi_fn_func_theme_issues_json(
         FfiConverterString.lower(themeJson),
         FfiConverterOptionString.lower(parentsJson),$0
+    )
+})
+}
+/**
+ * A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
+ * three built-in catalogs).
+ */
+public func validatePackageJson(packageJson: String, catalogIds: [String]?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_validate_package_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterOptionSequenceString.lower(catalogIds),$0
     )
 })
 }
@@ -3748,6 +4459,9 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 2647) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3760,16 +4474,37 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 28171) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 60105) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 35263) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_decide_function() != 53224) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_decide_url_json() != 6103) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json() != 63269) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 10974) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474) {
@@ -3779,6 +4514,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 5104) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 38964) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 8649) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 10529) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395) {
@@ -3793,10 +4543,43 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_supported_catalog_ids_for() != 9150) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_template_messages_json() != 21577) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_version() != 37022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of() != 10640) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_register_extension() != 46286) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_route() != 34070) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids() != 37235) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45773) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 43219) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_push() != 9759) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 47158) {
@@ -3806,6 +4589,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_heights() != 22303) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_end() != 33049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_ssedecoder_push() != 38769) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
@@ -3947,6 +4736,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 27563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 1496) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new() != 47547) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 2920) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_surface_new() != 63721) {

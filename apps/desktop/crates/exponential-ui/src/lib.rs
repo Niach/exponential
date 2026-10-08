@@ -32,6 +32,7 @@ pub mod data;
 pub mod expr;
 pub mod extension;
 pub mod geometry;
+pub mod host;
 pub mod json;
 pub mod layout_tree;
 pub mod list;

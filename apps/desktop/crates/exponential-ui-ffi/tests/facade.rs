@@ -260,3 +260,143 @@ fn nodes_carry_the_part_states_and_the_macro_name() {
     let tab_a = nodes.iter().find(|n| n.id == "tabs.tab.0").unwrap();
     assert!(tab_a.part_states.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// The host API (VAPP-91): the host fixtures through the facade, as the Swift
+// and Kotlin suites replay them.
+// ---------------------------------------------------------------------------
+
+fn eq(got: &str, expected: &Value, label: &str) {
+    assert!(json_equal(got.to_string(), expected.to_string()), "{label}: {}", json_diff(got.to_string(), expected.to_string()));
+}
+
+fn feed_decoder(push: impl Fn(String) -> String, end: impl Fn() -> String, chunks: &Value) -> Value {
+    let mut messages = Vec::new();
+    let mut issues = Vec::new();
+    let mut take = |s: String| {
+        let v: Value = serde_json::from_str(&s).unwrap();
+        messages.extend(v["messages"].as_array().unwrap().iter().cloned());
+        issues.extend(v["issues"].as_array().unwrap().iter().cloned());
+    };
+    for c in chunks.as_array().unwrap() {
+        take(push(c.as_str().unwrap().to_string()));
+    }
+    take(end());
+    json!({"messages": messages, "issues": issues})
+}
+
+#[test]
+fn the_host_transport_fixture_replays_through_the_facade() {
+    let f = fixture("host-transport.json");
+    for c in f["jsonl"].as_array().unwrap() {
+        let d = JsonlDecoder::new();
+        let got = feed_decoder(|s| d.push(s), || d.end(), &c["chunks"]);
+        eq(&got.to_string(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["sse"].as_array().unwrap() {
+        let d = SseDecoder::new();
+        let got = feed_decoder(|s| d.push(s), || d.end(), &c["chunks"]);
+        eq(&got.to_string(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["mcp"].as_array().unwrap() {
+        eq(&messages_from_mcp_result_json(c["result"].to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["mcpAction"].as_array().unwrap() {
+        let got = mcp_action_call_json(c["message"].to_string(), c.get("tool").and_then(Value::as_str).map(str::to_string)).unwrap();
+        eq(&got, &c["expected"], c["name"].as_str().unwrap());
+    }
+    eq(&decode_jsonl_json("[{\"a\":1}]".into()), &json!({"messages": [{"a": 1}], "issues": []}), "decodeJsonl");
+}
+
+#[test]
+fn the_host_policy_fixture_replays_through_the_facade() {
+    let f = fixture("host-policy.json");
+    for c in f["functions"].as_array().unwrap() {
+        let got = decide_function(c.get("policy").map(Value::to_string), c["fn"].as_str().unwrap().into(), c["registered"].as_bool().unwrap()).unwrap();
+        assert_eq!(got, c["expected"].as_str().unwrap(), "{}", c["name"]);
+    }
+    for c in f["combine"].as_array().unwrap() {
+        assert_eq!(combine_decisions(c["a"].as_str().unwrap().into(), c["b"].as_str().unwrap().into()).unwrap(), c["expected"].as_str().unwrap());
+    }
+    for c in f["urls"].as_array().unwrap() {
+        eq(&decide_url_json(c.get("policy").map(Value::to_string), c["url"].as_str().unwrap().into()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["media"].as_array().unwrap() {
+        let got = media_request_json(c["url"].as_str().unwrap().into(), c["options"].to_string()).unwrap();
+        eq(&got.unwrap_or_else(|| "null".into()), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["sources"].as_array().unwrap() {
+        eq(&parse_source_json(c["uri"].as_str().unwrap().into()).unwrap_or_else(|| "null".into()), &c["expected"], c["uri"].as_str().unwrap());
+    }
+    for c in f["negotiation"].as_array().unwrap() {
+        let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
+        assert_eq!(json!(supported_catalog_ids_for(ids.clone())), c["expected"]["supportedCatalogIds"]);
+        eq(&client_capabilities_json(ids), &c["expected"]["clientCapabilities"], "clientCapabilities");
+    }
+    assert!(combine_decisions("allow".into(), "maybe".into()).is_err());
+    eq(&package_policy_json(Some("[\"harness.toast\"]".into())).unwrap(), &json!({"allow": ["harness.toast"], "default": "deny"}), "packagePolicy");
+}
+
+#[test]
+fn the_host_router_fixture_replays_through_the_facade() {
+    let f = fixture("host-router.json");
+    let packages = &f["packages"];
+    for v in f["validation"].as_array().unwrap() {
+        let id = v["package"].as_str().unwrap();
+        eq(&validate_package_json(packages[id].to_string(), None).unwrap(), &v["expected"], id);
+    }
+    for flow in f["flows"].as_array().unwrap() {
+        let name = flow["name"].as_str().unwrap();
+        let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();
+        let router = HostRouter::new(ext);
+        for id in flow.get("packages").and_then(Value::as_array).into_iter().flatten() {
+            let id = id.as_str().unwrap();
+            eq(&router.install_package(packages[id].to_string()).unwrap(), &flow["installIssues"][id], &format!("{name}: install {id}"));
+        }
+        for (i, step) in flow["steps"].as_array().unwrap().iter().enumerate() {
+            eq(&router.route(step["message"].to_string()), &step["expected"], &format!("{name}: step {i}"));
+        }
+    }
+    // State + the client messages.
+    let router = HostRouter::new(vec![]);
+    router.install_package(packages["acme.devices"].to_string()).unwrap();
+    router.route(json!({"version": "v0.9", "applyTemplate": {"surfaceId": "d", "templateId": "list"}}).to_string());
+    assert_eq!(router.surface_ids(), ["d"]);
+    assert_eq!(router.package_id_of("d".into()).as_deref(), Some("acme.devices"));
+    router.register_extension("https://acme.example/catalog/v1".into());
+    assert_eq!(router.supported_catalog_ids().len(), 4);
+    let ops: Value = serde_json::from_str(&router.route("not json".into())).unwrap();
+    assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
+    let msgs = template_messages_json(packages["acme.devices"].to_string(), "list".into(), "x".into(), Some("{\"filter\":\"online\"}".into())).unwrap().unwrap();
+    let msgs: Value = serde_json::from_str(&msgs).unwrap();
+    assert_eq!(msgs.as_array().unwrap().len(), 4);
+    assert_eq!(msgs[2]["updateDataModel"]["value"], json!({"title": "Devices", "filter": "online"}));
+    assert!(template_messages_json(packages["acme.devices"].to_string(), "nope".into(), "x".into(), None).unwrap().is_none());
+    eq(
+        &action_message_json("s".into(), "btn".into(), "save".into(), "{\"id\":1}".into(), Some("{\"value\":\"a\"}".into()), "t".into()).unwrap(),
+        &json!({"version": "v0.9", "action": {"name": "save", "surfaceId": "s", "sourceComponentId": "btn", "timestamp": "t", "context": {"id": 1}, "payload": {"value": "a"}}}),
+        "actionMessage",
+    );
+    eq(&error_message_json("FUNCTION_DENIED".into(), "s".into(), "m".into(), None), &json!({"version": "v0.9", "error": {"code": "FUNCTION_DENIED", "surfaceId": "s", "message": "m"}}), "errorMessage");
+    let contract: Value = serde_json::from_str(&host_contract_json()).unwrap();
+    assert_eq!(contract["transport"]["mcpActionTool"], "a2ui_event");
+}
+
+#[test]
+fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
+    let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface
+        .set_nested(
+            json!({"id": "root", "component": "Box", "children": [
+                {"id": "b", "component": "Button", "props": {"label": "Go"}, "on": {"press": {"functionCall": {"call": "harness.toast", "args": {"message": {"path": "/m"}}}}}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+    surface.set_data("/m".into(), Some("\"hi\"".into())).unwrap();
+    surface.set_viewport(400.0, 0.0, None);
+    surface.layout_fixed(None, false).unwrap();
+    let events = surface.event(surface.index_of("b".into()).unwrap(), "press".into(), None).unwrap();
+    let call = events.iter().find(|e| e.kind == "functionCall").expect("functionCall");
+    eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi"}}), "functionCall");
+}
