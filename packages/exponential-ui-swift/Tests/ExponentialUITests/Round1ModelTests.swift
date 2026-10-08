@@ -23,7 +23,7 @@ final class Round1Host: HostPlugin {
     func pickFiles(_ request: FilePickRequest) -> Bool { picks.append(request); return ownPicker }
 }
 
-/// The round-1 MODEL contract (lane L1 of VAPP-100): node slots + deltas,
+/// The round-1 MODEL contract (VAPP-100): node slots + deltas,
 /// settings into the core, every OutEvent kind, host commands, keyboard
 /// focus and the a11y keys, Form submit, toast timers, and the shared
 /// fixtures (`interactions-round1.json`, `bind-time.json` presses) replayed

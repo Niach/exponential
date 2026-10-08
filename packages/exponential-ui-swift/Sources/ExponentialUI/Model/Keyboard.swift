@@ -350,7 +350,7 @@ extension SurfaceModel {
             return true
         case ("ChipInput", "backspace"):
             guard fieldText(index).isEmpty, let ownerId = n.owner else { return false }
-            if let remove = nodes.last(where: { !$0.removed && $0.owner == ownerId && $0.part == "remove" }) {
+            if let remove = liveParts(ownerId, "remove").last {
                 fire(remove.index, "press")
                 return true
             }

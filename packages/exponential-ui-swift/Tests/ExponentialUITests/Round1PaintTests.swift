@@ -3,7 +3,7 @@ import SwiftUI
 import ExponentialUICore
 @testable import ExponentialUI
 
-/// VAPP-100 L2 (contract §2, §4, §5, §6): the round-1 paint keys parsed
+/// VAPP-100 (contract §2, §4, §5, §6): the round-1 paint keys parsed
 /// from the core's resolved visuals, motion, rtl glyphs, the layer stack
 /// and the accessibility mapping.
 @MainActor

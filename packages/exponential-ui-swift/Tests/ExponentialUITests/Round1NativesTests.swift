@@ -3,7 +3,7 @@ import SwiftUI
 import ExponentialUICore
 @testable import ExponentialUI
 
-/// VAPP-100 L3: the round-1 natives and parts the SwiftUI painter draws
+/// VAPP-100: the round-1 natives and parts the SwiftUI painter draws
 /// (contract §3, §9 SwiftUI 4–5): every specimen paints with no Unknown,
 /// the new controls measure to `control-geometry.json`, Table sorts /
 /// selects / windows through the core, CodeBlock lines carry the core's
