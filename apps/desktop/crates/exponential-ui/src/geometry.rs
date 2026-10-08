@@ -30,6 +30,11 @@ pub const CONTROL_PARTS: &[(&str, &str)] = &[
     ("Spinner", "root"),
     ("Ring", "root"),
     ("Tabs", "tab"),
+    // Round 1: the new fields keep the input height contract.
+    ("NumberField", "field"),
+    ("ChipInput", "field"),
+    ("TimePicker", "trigger"),
+    ("DateRangePicker", "trigger"),
 ];
 
 pub const GEOMETRY_KEYS: &[&str] =

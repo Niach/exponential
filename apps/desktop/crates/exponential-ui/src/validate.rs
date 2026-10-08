@@ -6,6 +6,8 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::catalog::{is_known_token, parse_token_ref, CatalogView};
+use crate::macros::{is_responsive_value, BREAKPOINTS};
+use crate::strings::{is_string_ref, parse_string_ref};
 use crate::style_check::{is_hex_color, validate_style};
 use crate::types::{ComponentDef, PropSchema, Props};
 
@@ -15,14 +17,7 @@ pub struct PropIssue {
     pub message: String,
 }
 
-/// An A2UI dynamic value: a data binding (`{path}` alone) or a function call.
-pub fn is_dynamic(value: &Value) -> bool {
-    let Some(obj) = value.as_object() else { return false };
-    if obj.get("path").is_some_and(Value::is_string) && obj.len() == 1 {
-        return true;
-    }
-    obj.get("call").is_some_and(Value::is_string)
-}
+pub use crate::expr::is_dynamic;
 
 /// `^\d{4}-\d{2}-\d{2}$`
 fn is_iso_date(s: &str) -> bool {
@@ -46,12 +41,29 @@ fn check_value(schema: &PropSchema, value: &Value, path: &str, view: &CatalogVie
     if schema.bindable == Some(true) && is_dynamic(value) {
         return;
     }
-    match schema.type_.as_str() {
-        "string" | "markdown" | "url" => {
-            if !value.is_string() {
-                issue(issues, path, "expected a string");
-            }
+    if schema.responsive == Some(true) && is_responsive_value(value) {
+        for (bp, v) in value.as_object().into_iter().flatten() {
+            check_scalar(schema, v, &format!("{path}.{bp}"), view, issues);
         }
+        return;
+    }
+    if schema.responsive == Some(true) && value.is_object() && !is_dynamic(value) {
+        issue(issues, path, format!("a responsive value needs base and only {} besides", BREAKPOINTS.join("|")));
+        return;
+    }
+    check_scalar(schema, value, path, view, issues);
+}
+
+fn check_scalar(schema: &PropSchema, value: &Value, path: &str, view: &CatalogView, issues: &mut Vec<PropIssue>) {
+    match schema.type_.as_str() {
+        "string" | "markdown" | "url" => match value.as_str() {
+            None => issue(issues, path, "expected a string"),
+            Some(s) => {
+                if parse_string_ref(s).is_some() && !is_string_ref(s) {
+                    issue(issues, path, format!("unknown built-in string {s} (catalog/strings.json)"));
+                }
+            }
+        },
         "date" => {
             if !value.as_str().is_some_and(|s| s.is_empty() || is_iso_date(s)) {
                 issue(issues, path, "expected yyyy-mm-dd");
@@ -116,8 +128,9 @@ fn check_value(schema: &PropSchema, value: &Value, path: &str, view: &CatalogVie
                 issue(issues, path, "expected an object");
                 return;
             };
-            let Some(def) = schema.shape.as_ref().and_then(|s| view.defs.get(s)) else {
-                issue(issues, path, format!("shape {} is not defined", schema.shape.as_deref().unwrap_or("undefined")));
+            let Some(shape) = &schema.shape else { return };
+            let Some(def) = view.defs.get(shape) else {
+                issue(issues, path, format!("shape {shape} is not defined"));
                 return;
             };
             check_props(&def.properties, obj, path, view, issues);
@@ -137,8 +150,7 @@ fn check_props(schemas: &IndexMap<String, PropSchema>, props: &Props, path: &str
             Some(value) => check_value(schema, value, &format!("{path}.{name}"), view, issues),
         }
     }
-    // `Props` iterates in its own key order (sorted without serde_json's
-    // `preserve_order`); the TS iterates the author's order.
+    // `Props` keeps the author's order (`preserve_order`), like the TS.
     for name in props.keys() {
         if !schemas.contains_key(name) {
             issue(issues, &format!("{path}.{name}"), "unknown prop");

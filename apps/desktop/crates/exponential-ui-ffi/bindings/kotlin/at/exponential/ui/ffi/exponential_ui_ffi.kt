@@ -674,9 +674,15 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_bind_tree_json(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_component_a11y_json(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_control_geometry_json(
     ): Short
@@ -686,11 +692,15 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
     ): Short
@@ -698,11 +708,27 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_string_table_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_text_direction(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_func_version(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id(
     ): Short
@@ -712,11 +738,19 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_apply(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_data_json(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_event(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_index_of(
     ): Short
@@ -734,33 +768,63 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_components(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_data(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_density(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_locale(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_nested(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_open(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_settings(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_states(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport(
     ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_settings(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_strings_json(
+    ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_structure_version(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(
+    ): Short
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
     ): Short
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
     ): Short
@@ -809,11 +873,19 @@ external fun uniffi_exponential_ui_ffi_fn_constructor_surface_new(`surfaceId`: R
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_method_surface_apply(`ptr`: Long,`messageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_command_json(`ptr`: Long,`commandJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`index`: Int,`name`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(`ptr`: Long,`owner`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_index_of(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -831,34 +903,64 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_node_count(`ptr`: Long,
 ): Int
 external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(`ptr`: Long,`indices`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_register_extension(`ptr`: Long,`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll(`ptr`: Long,`listId`: RustBuffer.ByValue,`offset`: Float,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(`ptr`: Long,`id`: RustBuffer.ByValue,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_components(`ptr`: Long,`componentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(`ptr`: Long,`contrast`: RustBuffer.ByValue,`systemHigh`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_data(`ptr`: Long,`path`: RustBuffer.ByValue,`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_density(`ptr`: Long,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(`ptr`: Long,`scale`: Float,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_insets(`ptr`: Long,`top`: Float,`right`: Float,`bottom`: Float,`left`: Float,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_locale(`ptr`: Long,`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode(`ptr`: Long,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(`ptr`: Long,`mode`: RustBuffer.ByValue,`systemDark`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_nested(`ptr`: Long,`nestedJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_open(`ptr`: Long,`id`: RustBuffer.ByValue,`open`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(`ptr`: Long,`hover`: Byte,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_settings(`ptr`: Long,`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_states(`ptr`: Long,`id`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(`ptr`: Long,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(`ptr`: Long,`themeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(`ptr`: Long,`width`: Float,`height`: Float,`maxHeight`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_surface_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_strings_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
+external fun uniffi_exponential_ui_ffi_fn_method_surface_submit_form(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_take_events(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -869,9 +971,15 @@ external fun uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffi_out_err: 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_bench_tree_json(`n`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_bind_tree_json(`nodeJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_component_a11y_json(`component`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_control_geometry_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -881,11 +989,15 @@ external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`max`: Double,`target`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -893,12 +1005,28 @@ external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_string_table_json(`overridesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_text_direction(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_version(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1024,10 +1152,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids() != 16938.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 31430.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 60105.toShort()) {
@@ -1042,6 +1179,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1049,6 +1189,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395.toShort()) {
@@ -1060,13 +1203,37 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 12682.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 16111.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_version() != 37022.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 47158.toShort()) {
@@ -1081,13 +1248,25 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 29382.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_event() != 18560.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 25004.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout() != 3003.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_index_of() != 6030.toShort()) {
@@ -1099,7 +1278,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_issues_json() != 12552.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 15377.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 59309.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 38533.toShort()) {
@@ -1111,13 +1290,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 42830.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 4838.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 51362.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 36007.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 2061.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744.toShort()) {
@@ -1126,10 +1311,28 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast() != 9302.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_data() != 29980.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 12667.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 43927.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 40915.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting() != 7979.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_nested() != 14592.toShort()) {
@@ -1138,13 +1341,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_open() != 30902.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 58287.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 9582.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding() != 56260.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_settings() != 54680.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 56941.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json() != 36009.toShort()) {
@@ -1153,7 +1365,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport() != 36786.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 47099.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 14666.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_structure_version() != 30765.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_submit_form() != 27583.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961.toShort()) {
@@ -1354,6 +1578,29 @@ private class JavaLangRefCleanable(
     val cleanable: java.lang.ref.Cleaner.Cleanable
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
 }
 
 /**
@@ -2026,7 +2273,8 @@ public object FfiConverterTypeMeasurer: FfiConverter<Measurer, Long> {
 
 
 /**
- * ONE surface. Every method locks it; the host calls from any thread.
+ * ONE surface. Every method locks it briefly; the host calls from any
+ * thread. `layout` releases the lock around each measurer upcall.
  */
 public interface SurfaceInterface {
     
@@ -2035,7 +2283,23 @@ public interface SurfaceInterface {
      */
     fun `apply`(`messageJson`: kotlin.String): FfiApplyOutcome
     
+    /**
+     * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
+     * `{"scrollIntoView": {"id"}}`.
+     */
+    fun `commandJson`(`commandJson`: kotlin.String): List<FfiEvent>
+    
     fun `dataJson`(): kotlin.String
+    
+    /**
+     * A Toast's timeout: `open: false`, `dismiss` + `change`.
+     */
+    fun `dismissToast`(`id`: kotlin.String): List<FfiEvent>
+    
+    /**
+     * The theme in effect (density + contrast applied), as JSON.
+     */
+    fun `effectiveThemeJson`(): kotlin.String?
     
     /**
      * An interaction on node `index`: `press`, `change`, `select`, `submit`,
@@ -2045,12 +2309,22 @@ public interface SurfaceInterface {
     
     fun `failingChecks`(`id`: kotlin.String): List<kotlin.String>
     
+    /**
+     * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
+     * overlay unless its trigger or content is hovered again.
+     */
+    fun `hoverTimeout`(`owner`: kotlin.String): List<FfiEvent>
+    
     fun `indexOf`(`id`: kotlin.String): kotlin.UInt?
     
     fun `invalidateMeasures`()
     
     fun `issuesJson`(): kotlin.String
     
+    /**
+     * One layout pass through the host's measurer (at most three batched
+     * upcalls, each made WITHOUT the surface locked).
+     */
     fun `layout`(`measurer`: Measurer): FfiLayout
     
     /**
@@ -2064,16 +2338,28 @@ public interface SurfaceInterface {
     fun `nodeCount`(): kotlin.UInt
     
     /**
-     * Every layout node, once per structure version.
+     * Every slot (removed ones as tombstones): fetch once, then patch with
+     * `FfiLayout.delta` through `nodes_at`.
      */
     fun `nodes`(): List<FfiNode>
+    
+    /**
+     * The given slots only (a delta's `added` + `changed`).
+     */
+    fun `nodesAt`(`indices`: List<kotlin.UInt>): List<FfiNode>
     
     /**
      * Register an extension catalog (its JSON definition), validated.
      */
     fun `registerExtension`(`extensionJson`: kotlin.String)
     
+    /**
+     * A scroll container (any overflow scroll node, a windowed List or
+     * Table) scrolled vertically.
+     */
     fun `scroll`(`listId`: kotlin.String, `offset`: kotlin.Float): kotlin.Boolean
+    
+    fun `scrollTo`(`id`: kotlin.String, `x`: kotlin.Float, `y`: kotlin.Float): kotlin.Boolean
     
     fun `setBuiltinTheme`(`id`: kotlin.String)
     
@@ -2082,12 +2368,34 @@ public interface SurfaceInterface {
      */
     fun `setComponents`(`componentsJson`: kotlin.String): FfiApplyOutcome
     
+    fun `setContrast`(`contrast`: kotlin.String, `systemHigh`: kotlin.Boolean)
+    
     /**
      * Write at a JSON pointer (`value_json` null/None removes).
      */
     fun `setData`(`path`: kotlin.String, `valueJson`: kotlin.String?)
     
+    fun `setDensity`(`density`: kotlin.String)
+    
+    /**
+     * Dynamic Type / font scale (1 = the theme's sizes).
+     */
+    fun `setFontScale`(`scale`: kotlin.Float)
+    
+    /**
+     * Safe-area insets layers keep clear of.
+     */
+    fun `setInsets`(`top`: kotlin.Float, `right`: kotlin.Float, `bottom`: kotlin.Float, `left`: kotlin.Float)
+    
+    fun `setLocale`(`locale`: kotlin.String)
+    
+    /**
+     * `light | dark`, or `system` (with `system_dark` = the platform's
+     * current preference; call again when it changes).
+     */
     fun `setMode`(`mode`: kotlin.String)
+    
+    fun `setModeSetting`(`mode`: kotlin.String, `systemDark`: kotlin.Boolean)
     
     /**
      * The nested authoring form (fixtures, MCP templates).
@@ -2096,6 +2404,11 @@ public interface SurfaceInterface {
     
     fun `setOpen`(`id`: kotlin.String, `open`: kotlin.Boolean): List<FfiEvent>
     
+    /**
+     * A hover-capable pointer, the reduced-motion preference.
+     */
+    fun `setPointer`(`hover`: kotlin.Boolean, `reducedMotion`: kotlin.Boolean)
+    
     fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean
     
     /**
@@ -2103,7 +2416,17 @@ public interface SurfaceInterface {
      */
     fun `setRounding`(`on`: kotlin.Boolean)
     
+    /**
+     * Every setting at once (what changed takes effect on the next layout).
+     */
+    fun `setSettings`(`settings`: FfiSettings)
+    
     fun `setStates`(`id`: kotlin.String, `states`: List<kotlin.String>): kotlin.Boolean
+    
+    /**
+     * Built-in string overrides `{id: text}`.
+     */
+    fun `setStringsJson`(`stringsJson`: kotlin.String)
     
     /**
      * Load a theme file (JSON; `extends` may name a built-in) and use it.
@@ -2115,7 +2438,25 @@ public interface SurfaceInterface {
      */
     fun `setViewport`(`width`: kotlin.Float, `height`: kotlin.Float, `maxHeight`: kotlin.Float?): kotlin.Boolean
     
+    fun `settings`(): FfiSettings
+    
+    /**
+     * The built-in string table in effect, as JSON.
+     */
+    fun `stringsJson`(): kotlin.String
+    
     fun `structureVersion`(): kotlin.ULong
+    
+    /**
+     * Submit a Form by id (what a `submit` Button or Enter does).
+     */
+    fun `submitForm`(`id`: kotlin.String): List<FfiEvent>
+    
+    /**
+     * Events raised outside a call that returns them (a hover opening a
+     * tooltip, a live region announcing).
+     */
+    fun `takeEvents`(): List<FfiEvent>
     
     fun `textStyle`(`index`: kotlin.UInt): FfiTextStyle?
     
@@ -2127,7 +2468,8 @@ public interface SurfaceInterface {
 }
 
 /**
- * ONE surface. Every method locks it; the host calls from any thread.
+ * ONE surface. Every method locks it briefly; the host calls from any
+ * thread. `layout` releases the lock around each measurer upcall.
  */
 open class Surface: Disposable, AutoCloseable, SurfaceInterface
 {
@@ -2254,11 +2596,61 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
+    
+    /**
+     * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
+     * `{"scrollIntoView": {"id"}}`.
+     */
+    @Throws(UiException::class)override fun `commandJson`(`commandJson`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_command_json(
+        it,
+        FfiConverterString.lower(`commandJson`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `dataJson`(): kotlin.String {
             return FfiConverterString.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_data_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * A Toast's timeout: `open: false`, `dismiss` + `change`.
+     */override fun `dismissToast`(`id`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The theme in effect (density + contrast applied), as JSON.
+     */override fun `effectiveThemeJson`(): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(
         it,
         _status)
 }
@@ -2292,6 +2684,23 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(
         it,
         FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
+     * overlay unless its trigger or content is hovered again.
+     */override fun `hoverTimeout`(`owner`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(
+        it,
+        FfiConverterString.lower(`owner`),_status)
 }
     }
     )
@@ -2336,7 +2745,11 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
-    override fun `layout`(`measurer`: Measurer): FfiLayout {
+    
+    /**
+     * One layout pass through the host's measurer (at most three batched
+     * upcalls, each made WITHOUT the surface locked).
+     */override fun `layout`(`measurer`: Measurer): FfiLayout {
             return FfiConverterTypeFfiLayout.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
@@ -2395,7 +2808,8 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     
     /**
-     * Every layout node, once per structure version.
+     * Every slot (removed ones as tombstones): fetch once, then patch with
+     * `FfiLayout.delta` through `nodes_at`.
      */override fun `nodes`(): List<FfiNode> {
             return FfiConverterSequenceTypeFfiNode.lift(
     callWithHandle {
@@ -2403,6 +2817,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_nodes(
         it,
         _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The given slots only (a delta's `added` + `changed`).
+     */override fun `nodesAt`(`indices`: List<kotlin.UInt>): List<FfiNode> {
+            return FfiConverterSequenceTypeFfiNode.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
+        it,
+        FfiConverterSequenceUInt.lower(`indices`),_status)
 }
     }
     )
@@ -2425,13 +2855,30 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
     
 
-    override fun `scroll`(`listId`: kotlin.String, `offset`: kotlin.Float): kotlin.Boolean {
+    
+    /**
+     * A scroll container (any overflow scroll node, a windowed List or
+     * Table) scrolled vertically.
+     */override fun `scroll`(`listId`: kotlin.String, `offset`: kotlin.Float): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll(
         it,
         FfiConverterString.lower(`listId`),FfiConverterFloat.lower(`offset`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `scrollTo`(`id`: kotlin.String, `x`: kotlin.Float, `y`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(
+        it,
+        FfiConverterString.lower(`id`),FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),_status)
 }
     }
     )
@@ -2469,6 +2916,19 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
 
     
+    @Throws(UiException::class)override fun `setContrast`(`contrast`: kotlin.String, `systemHigh`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(
+        it,
+        FfiConverterString.lower(`contrast`),FfiConverterBoolean.lower(`systemHigh`),_status)
+}
+    }
+    
+    
+
+    
     /**
      * Write at a JSON pointer (`value_json` null/None removes).
      */
@@ -2485,6 +2945,65 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
 
     
+    @Throws(UiException::class)override fun `setDensity`(`density`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_density(
+        it,
+        FfiConverterString.lower(`density`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Dynamic Type / font scale (1 = the theme's sizes).
+     */override fun `setFontScale`(`scale`: kotlin.Float)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(
+        it,
+        FfiConverterFloat.lower(`scale`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Safe-area insets layers keep clear of.
+     */override fun `setInsets`(`top`: kotlin.Float, `right`: kotlin.Float, `bottom`: kotlin.Float, `left`: kotlin.Float)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_insets(
+        it,
+        FfiConverterFloat.lower(`top`),FfiConverterFloat.lower(`right`),FfiConverterFloat.lower(`bottom`),FfiConverterFloat.lower(`left`),_status)
+}
+    }
+    
+    
+
+    override fun `setLocale`(`locale`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_locale(
+        it,
+        FfiConverterString.lower(`locale`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * `light | dark`, or `system` (with `system_dark` = the platform's
+     * current preference; call again when it changes).
+     */
     @Throws(UiException::class)override fun `setMode`(`mode`: kotlin.String)
         = 
     callWithHandle {
@@ -2492,6 +3011,19 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_mode(
         it,
         FfiConverterString.lower(`mode`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(UiException::class)override fun `setModeSetting`(`mode`: kotlin.String, `systemDark`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(
+        it,
+        FfiConverterString.lower(`mode`),FfiConverterBoolean.lower(`systemDark`),_status)
 }
     }
     
@@ -2527,6 +3059,21 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
+    
+    /**
+     * A hover-capable pointer, the reduced-motion preference.
+     */override fun `setPointer`(`hover`: kotlin.Boolean, `reducedMotion`: kotlin.Boolean)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(
+        it,
+        FfiConverterBoolean.lower(`hover`),FfiConverterBoolean.lower(`reducedMotion`),_status)
+}
+    }
+    
+    
+
     override fun `setPressed`(`ids`: List<kotlin.String>): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithHandle {
@@ -2555,6 +3102,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
     
 
+    
+    /**
+     * Every setting at once (what changed takes effect on the next layout).
+     */
+    @Throws(UiException::class)override fun `setSettings`(`settings`: FfiSettings)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_settings(
+        it,
+        FfiConverterTypeFfiSettings.lower(`settings`),_status)
+}
+    }
+    
+    
+
     override fun `setStates`(`id`: kotlin.String, `states`: List<kotlin.String>): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithHandle {
@@ -2566,6 +3129,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     )
     }
+    
+
+    
+    /**
+     * Built-in string overrides `{id: text}`.
+     */
+    @Throws(UiException::class)override fun `setStringsJson`(`stringsJson`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(
+        it,
+        FfiConverterString.lower(`stringsJson`),_status)
+}
+    }
+    
     
 
     
@@ -2600,11 +3179,73 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     }
     
 
+    override fun `settings`(): FfiSettings {
+            return FfiConverterTypeFfiSettings.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_settings(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The built-in string table in effect, as JSON.
+     */override fun `stringsJson`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_strings_json(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
     override fun `structureVersion`(): kotlin.ULong {
             return FfiConverterULong.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_structure_version(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Submit a Form by id (what a `submit` Button or Enter does).
+     */override fun `submitForm`(`id`: kotlin.String): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_submit_form(
+        it,
+        FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Events raised outside a call that returns them (a hover opening a
+     * tooltip, a live region announcing).
+     */override fun `takeEvents`(): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_take_events(
         it,
         _status)
 }
@@ -2731,9 +3372,23 @@ public object FfiConverterTypeFfiApplyOutcome: FfiConverterRustBuffer<FfiApplyOu
 
 
 data class FfiControlBox (
+    /**
+     * The averages of the two sides (adding `2 ×` gives the total).
+     */
     var `paddingHorizontal`: kotlin.Float
     , 
     var `paddingVertical`: kotlin.Float
+    , 
+    /**
+     * Every side (logical keys resolved by the direction).
+     */
+    var `paddingTop`: kotlin.Float
+    , 
+    var `paddingRight`: kotlin.Float
+    , 
+    var `paddingBottom`: kotlin.Float
+    , 
+    var `paddingLeft`: kotlin.Float
     , 
     var `borderWidth`: kotlin.Float
     , 
@@ -2766,6 +3421,10 @@ public object FfiConverterTypeFfiControlBox: FfiConverterRustBuffer<FfiControlBo
             FfiConverterFloat.read(buf),
             FfiConverterFloat.read(buf),
             FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalFloat.read(buf),
             FfiConverterOptionalFloat.read(buf),
@@ -2776,6 +3435,10 @@ public object FfiConverterTypeFfiControlBox: FfiConverterRustBuffer<FfiControlBo
     override fun allocationSize(value: FfiControlBox) = (
             FfiConverterFloat.allocationSize(value.`paddingHorizontal`) +
             FfiConverterFloat.allocationSize(value.`paddingVertical`) +
+            FfiConverterFloat.allocationSize(value.`paddingTop`) +
+            FfiConverterFloat.allocationSize(value.`paddingRight`) +
+            FfiConverterFloat.allocationSize(value.`paddingBottom`) +
+            FfiConverterFloat.allocationSize(value.`paddingLeft`) +
             FfiConverterFloat.allocationSize(value.`borderWidth`) +
             FfiConverterFloat.allocationSize(value.`gap`) +
             FfiConverterOptionalFloat.allocationSize(value.`minWidth`) +
@@ -2787,12 +3450,68 @@ public object FfiConverterTypeFfiControlBox: FfiConverterRustBuffer<FfiControlBo
     override fun write(value: FfiControlBox, buf: ByteBuffer) {
             FfiConverterFloat.write(value.`paddingHorizontal`, buf)
             FfiConverterFloat.write(value.`paddingVertical`, buf)
+            FfiConverterFloat.write(value.`paddingTop`, buf)
+            FfiConverterFloat.write(value.`paddingRight`, buf)
+            FfiConverterFloat.write(value.`paddingBottom`, buf)
+            FfiConverterFloat.write(value.`paddingLeft`, buf)
             FfiConverterFloat.write(value.`borderWidth`, buf)
             FfiConverterFloat.write(value.`gap`, buf)
             FfiConverterOptionalFloat.write(value.`minWidth`, buf)
             FfiConverterOptionalFloat.write(value.`minHeight`, buf)
             FfiConverterOptionalFloat.write(value.`width`, buf)
             FfiConverterOptionalFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+/**
+ * The node changes since the previous layout: fetch `added` + `changed`
+ * with `nodesAt`, drop `removed`; `renumbered` = fetch everything.
+ */
+data class FfiDelta (
+    var `added`: List<kotlin.UInt>
+    , 
+    var `removed`: List<kotlin.UInt>
+    , 
+    var `changed`: List<kotlin.UInt>
+    , 
+    var `renumbered`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiDelta: FfiConverterRustBuffer<FfiDelta> {
+    override fun read(buf: ByteBuffer): FfiDelta {
+        return FfiDelta(
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiDelta) = (
+            FfiConverterSequenceUInt.allocationSize(value.`added`) +
+            FfiConverterSequenceUInt.allocationSize(value.`removed`) +
+            FfiConverterSequenceUInt.allocationSize(value.`changed`) +
+            FfiConverterBoolean.allocationSize(value.`renumbered`)
+    )
+
+    override fun write(value: FfiDelta, buf: ByteBuffer) {
+            FfiConverterSequenceUInt.write(value.`added`, buf)
+            FfiConverterSequenceUInt.write(value.`removed`, buf)
+            FfiConverterSequenceUInt.write(value.`changed`, buf)
+            FfiConverterBoolean.write(value.`renumbered`, buf)
     }
 }
 
@@ -2937,6 +3656,12 @@ data class FfiIntrinsics (
     var `maxContentWidth`: kotlin.Float
     , 
     var `heightAtMaxContent`: kotlin.Float
+    , 
+    /**
+     * The first baseline from the top of the border box (`alignItems:
+     * baseline`); `None` = the bottom edge.
+     */
+    var `baseline`: kotlin.Float? = null 
     
 ){
     
@@ -2956,19 +3681,22 @@ public object FfiConverterTypeFfiIntrinsics: FfiConverterRustBuffer<FfiIntrinsic
             FfiConverterFloat.read(buf),
             FfiConverterFloat.read(buf),
             FfiConverterFloat.read(buf),
+            FfiConverterOptionalFloat.read(buf),
         )
     }
 
     override fun allocationSize(value: FfiIntrinsics) = (
             FfiConverterFloat.allocationSize(value.`minContentWidth`) +
             FfiConverterFloat.allocationSize(value.`maxContentWidth`) +
-            FfiConverterFloat.allocationSize(value.`heightAtMaxContent`)
+            FfiConverterFloat.allocationSize(value.`heightAtMaxContent`) +
+            FfiConverterOptionalFloat.allocationSize(value.`baseline`)
     )
 
     override fun write(value: FfiIntrinsics, buf: ByteBuffer) {
             FfiConverterFloat.write(value.`minContentWidth`, buf)
             FfiConverterFloat.write(value.`maxContentWidth`, buf)
             FfiConverterFloat.write(value.`heightAtMaxContent`, buf)
+            FfiConverterOptionalFloat.write(value.`baseline`, buf)
     }
 }
 
@@ -2988,10 +3716,25 @@ data class FfiLayer (
     var `placement`: FfiPlacement?
     , 
     /**
-     * `centered`, a viewport edge (`top|right|bottom|left`) or the side an
-     * anchored layer landed on.
+     * `centered`, a viewport edge (`top|right|bottom|left`), the side an
+     * anchored layer landed on, `point` (a context menu) or `toast`.
      */
     var `position`: kotlin.String
+    , 
+    /**
+     * `overlay` | `toast` (layers stack base < overlay < toast).
+     */
+    var `class`: kotlin.String
+    , 
+    /**
+     * A scrim under it and the focus trapped inside (Dialog, Drawer).
+     */
+    var `modal`: kotlin.Boolean
+    , 
+    /**
+     * Escape / a scrim press / a drag closes it (`event(root, "dismiss")`).
+     */
+    var `dismissible`: kotlin.Boolean
     , 
     var `frames`: List<FfiFrame>
     
@@ -3017,6 +3760,9 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterOptionalTypeFfiFrame.read(buf),
             FfiConverterOptionalTypeFfiPlacement.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterSequenceTypeFfiFrame.read(buf),
         )
     }
@@ -3029,6 +3775,9 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterOptionalTypeFfiFrame.allocationSize(value.`anchorFrame`) +
             FfiConverterOptionalTypeFfiPlacement.allocationSize(value.`placement`) +
             FfiConverterString.allocationSize(value.`position`) +
+            FfiConverterString.allocationSize(value.`class`) +
+            FfiConverterBoolean.allocationSize(value.`modal`) +
+            FfiConverterBoolean.allocationSize(value.`dismissible`) +
             FfiConverterSequenceTypeFfiFrame.allocationSize(value.`frames`)
     )
 
@@ -3040,6 +3789,9 @@ public object FfiConverterTypeFfiLayer: FfiConverterRustBuffer<FfiLayer> {
             FfiConverterOptionalTypeFfiFrame.write(value.`anchorFrame`, buf)
             FfiConverterOptionalTypeFfiPlacement.write(value.`placement`, buf)
             FfiConverterString.write(value.`position`, buf)
+            FfiConverterString.write(value.`class`, buf)
+            FfiConverterBoolean.write(value.`modal`, buf)
+            FfiConverterBoolean.write(value.`dismissible`, buf)
             FfiConverterSequenceTypeFfiFrame.write(value.`frames`, buf)
     }
 }
@@ -3074,6 +3826,38 @@ data class FfiLayout (
     var `upcalls`: kotlin.UInt
     , 
     var `layoutNs`: kotlin.ULong
+    , 
+    var `scrolls`: List<FfiScroll>
+    , 
+    var `toasts`: List<FfiToast>
+    , 
+    var `delta`: FfiDelta
+    , 
+    /**
+     * `ltr` | `rtl`.
+     */
+    var `direction`: kotlin.String
+    , 
+    /**
+     * The active breakpoint (`None` = base).
+     */
+    var `breakpoint`: kotlin.String?
+    , 
+    /**
+     * Nodes restyled this pass; whether the tree was rebuilt; the layout
+     * nodes built (a scroll re-window builds only the list's window).
+     */
+    var `restyled`: kotlin.UInt
+    , 
+    var `rebuilt`: kotlin.Boolean
+    , 
+    var `builtNodes`: kotlin.UInt
+    , 
+    /**
+     * This call came from inside the surface's own measurer: the previous
+     * result, no new pass.
+     */
+    var `reentrant`: kotlin.Boolean
     
 ){
     
@@ -3101,6 +3885,15 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterSequenceTypeFfiScroll.read(buf),
+            FfiConverterSequenceTypeFfiToast.read(buf),
+            FfiConverterTypeFfiDelta.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3115,7 +3908,16 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterBoolean.allocationSize(value.`overflow`) +
             FfiConverterUInt.allocationSize(value.`measureRounds`) +
             FfiConverterUInt.allocationSize(value.`upcalls`) +
-            FfiConverterULong.allocationSize(value.`layoutNs`)
+            FfiConverterULong.allocationSize(value.`layoutNs`) +
+            FfiConverterSequenceTypeFfiScroll.allocationSize(value.`scrolls`) +
+            FfiConverterSequenceTypeFfiToast.allocationSize(value.`toasts`) +
+            FfiConverterTypeFfiDelta.allocationSize(value.`delta`) +
+            FfiConverterString.allocationSize(value.`direction`) +
+            FfiConverterOptionalString.allocationSize(value.`breakpoint`) +
+            FfiConverterUInt.allocationSize(value.`restyled`) +
+            FfiConverterBoolean.allocationSize(value.`rebuilt`) +
+            FfiConverterUInt.allocationSize(value.`builtNodes`) +
+            FfiConverterBoolean.allocationSize(value.`reentrant`)
     )
 
     override fun write(value: FfiLayout, buf: ByteBuffer) {
@@ -3130,6 +3932,15 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterUInt.write(value.`measureRounds`, buf)
             FfiConverterUInt.write(value.`upcalls`, buf)
             FfiConverterULong.write(value.`layoutNs`, buf)
+            FfiConverterSequenceTypeFfiScroll.write(value.`scrolls`, buf)
+            FfiConverterSequenceTypeFfiToast.write(value.`toasts`, buf)
+            FfiConverterTypeFfiDelta.write(value.`delta`, buf)
+            FfiConverterString.write(value.`direction`, buf)
+            FfiConverterOptionalString.write(value.`breakpoint`, buf)
+            FfiConverterUInt.write(value.`restyled`, buf)
+            FfiConverterBoolean.write(value.`rebuilt`, buf)
+            FfiConverterUInt.write(value.`builtNodes`, buf)
+            FfiConverterBoolean.write(value.`reentrant`, buf)
     }
 }
 
@@ -3310,6 +4121,32 @@ data class FfiNode (
     var `triggerFor`: kotlin.String?
     , 
     var `accessibilityJson`: kotlin.String?
+    , 
+    /**
+     * Children in paint order.
+     */
+    var `children`: List<kotlin.UInt>
+    , 
+    /**
+     * The part states the core decided (`selected`, `open`, `checked`,
+     * `invalid`, `disabled`).
+     */
+    var `states`: List<kotlin.String>
+    , 
+    /**
+     * The enclosing Form's id.
+     */
+    var `form`: kotlin.String?
+    , 
+    /**
+     * A live region: `polite | assertive`.
+     */
+    var `live`: kotlin.String?
+    , 
+    /**
+     * A freed slot (indices are stable; `nodes()[i].index == i`).
+     */
+    var `removed`: kotlin.Boolean
     
 ){
     
@@ -3344,6 +4181,11 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -3365,7 +4207,12 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterBoolean.allocationSize(value.`pressable`) +
             FfiConverterBoolean.allocationSize(value.`hidden`) +
             FfiConverterOptionalString.allocationSize(value.`triggerFor`) +
-            FfiConverterOptionalString.allocationSize(value.`accessibilityJson`)
+            FfiConverterOptionalString.allocationSize(value.`accessibilityJson`) +
+            FfiConverterSequenceUInt.allocationSize(value.`children`) +
+            FfiConverterSequenceString.allocationSize(value.`states`) +
+            FfiConverterOptionalString.allocationSize(value.`form`) +
+            FfiConverterOptionalString.allocationSize(value.`live`) +
+            FfiConverterBoolean.allocationSize(value.`removed`)
     )
 
     override fun write(value: FfiNode, buf: ByteBuffer) {
@@ -3387,6 +4234,11 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterBoolean.write(value.`hidden`, buf)
             FfiConverterOptionalString.write(value.`triggerFor`, buf)
             FfiConverterOptionalString.write(value.`accessibilityJson`, buf)
+            FfiConverterSequenceUInt.write(value.`children`, buf)
+            FfiConverterSequenceString.write(value.`states`, buf)
+            FfiConverterOptionalString.write(value.`form`, buf)
+            FfiConverterOptionalString.write(value.`live`, buf)
+            FfiConverterBoolean.write(value.`removed`, buf)
     }
 }
 
@@ -3440,6 +4292,192 @@ public object FfiConverterTypeFfiPlacement: FfiConverterRustBuffer<FfiPlacement>
 
 
 
+/**
+ * A scroll container: its clamped offset and scrollable content. Frames
+ * are UNSCROLLED: translate the descendants by `-offset`, clip to the frame.
+ */
+data class FfiScroll (
+    var `index`: kotlin.UInt
+    , 
+    var `offsetX`: kotlin.Float
+    , 
+    var `offsetY`: kotlin.Float
+    , 
+    var `contentWidth`: kotlin.Float
+    , 
+    var `contentHeight`: kotlin.Float
+    , 
+    var `scrollX`: kotlin.Boolean
+    , 
+    var `scrollY`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiScroll: FfiConverterRustBuffer<FfiScroll> {
+    override fun read(buf: ByteBuffer): FfiScroll {
+        return FfiScroll(
+            FfiConverterUInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiScroll) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterFloat.allocationSize(value.`offsetX`) +
+            FfiConverterFloat.allocationSize(value.`offsetY`) +
+            FfiConverterFloat.allocationSize(value.`contentWidth`) +
+            FfiConverterFloat.allocationSize(value.`contentHeight`) +
+            FfiConverterBoolean.allocationSize(value.`scrollX`) +
+            FfiConverterBoolean.allocationSize(value.`scrollY`)
+    )
+
+    override fun write(value: FfiScroll, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterFloat.write(value.`offsetX`, buf)
+            FfiConverterFloat.write(value.`offsetY`, buf)
+            FfiConverterFloat.write(value.`contentWidth`, buf)
+            FfiConverterFloat.write(value.`contentHeight`, buf)
+            FfiConverterBoolean.write(value.`scrollX`, buf)
+            FfiConverterBoolean.write(value.`scrollY`, buf)
+    }
+}
+
+
+
+/**
+ * What a host sets per surface. `strings_json` = `{id: text}` overrides;
+ * `mode` = `light | dark | system`; `density` = `compact | default |
+ * comfortable`; `contrast` = `normal | high | system`.
+ */
+data class FfiSettings (
+    var `locale`: kotlin.String
+    , 
+    var `stringsJson`: kotlin.String
+    , 
+    var `mode`: kotlin.String
+    , 
+    var `systemDark`: kotlin.Boolean
+    , 
+    var `density`: kotlin.String
+    , 
+    var `contrast`: kotlin.String
+    , 
+    var `systemHighContrast`: kotlin.Boolean
+    , 
+    var `fontScale`: kotlin.Float
+    , 
+    var `hover`: kotlin.Boolean
+    , 
+    var `reducedMotion`: kotlin.Boolean
+    , 
+    var `insetTop`: kotlin.Float
+    , 
+    var `insetRight`: kotlin.Float
+    , 
+    var `insetBottom`: kotlin.Float
+    , 
+    var `insetLeft`: kotlin.Float
+    , 
+    var `today`: kotlin.String?
+    , 
+    /**
+     * `0` = a hover card / tooltip closes as soon as its trigger and
+     * content are left (the host delays the un-hover); `> 0` (150 like the
+     * web) = the core raises `hoverTimer {owner, delay_ms}` and closes on
+     * `hoverTimeout(owner)`.
+     */
+    var `hoverCloseMs`: kotlin.UInt = 0u 
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
+    override fun read(buf: ByteBuffer): FfiSettings {
+        return FfiSettings(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSettings) = (
+            FfiConverterString.allocationSize(value.`locale`) +
+            FfiConverterString.allocationSize(value.`stringsJson`) +
+            FfiConverterString.allocationSize(value.`mode`) +
+            FfiConverterBoolean.allocationSize(value.`systemDark`) +
+            FfiConverterString.allocationSize(value.`density`) +
+            FfiConverterString.allocationSize(value.`contrast`) +
+            FfiConverterBoolean.allocationSize(value.`systemHighContrast`) +
+            FfiConverterFloat.allocationSize(value.`fontScale`) +
+            FfiConverterBoolean.allocationSize(value.`hover`) +
+            FfiConverterBoolean.allocationSize(value.`reducedMotion`) +
+            FfiConverterFloat.allocationSize(value.`insetTop`) +
+            FfiConverterFloat.allocationSize(value.`insetRight`) +
+            FfiConverterFloat.allocationSize(value.`insetBottom`) +
+            FfiConverterFloat.allocationSize(value.`insetLeft`) +
+            FfiConverterOptionalString.allocationSize(value.`today`) +
+            FfiConverterUInt.allocationSize(value.`hoverCloseMs`)
+    )
+
+    override fun write(value: FfiSettings, buf: ByteBuffer) {
+            FfiConverterString.write(value.`locale`, buf)
+            FfiConverterString.write(value.`stringsJson`, buf)
+            FfiConverterString.write(value.`mode`, buf)
+            FfiConverterBoolean.write(value.`systemDark`, buf)
+            FfiConverterString.write(value.`density`, buf)
+            FfiConverterString.write(value.`contrast`, buf)
+            FfiConverterBoolean.write(value.`systemHighContrast`, buf)
+            FfiConverterFloat.write(value.`fontScale`, buf)
+            FfiConverterBoolean.write(value.`hover`, buf)
+            FfiConverterBoolean.write(value.`reducedMotion`, buf)
+            FfiConverterFloat.write(value.`insetTop`, buf)
+            FfiConverterFloat.write(value.`insetRight`, buf)
+            FfiConverterFloat.write(value.`insetBottom`, buf)
+            FfiConverterFloat.write(value.`insetLeft`, buf)
+            FfiConverterOptionalString.write(value.`today`, buf)
+            FfiConverterUInt.write(value.`hoverCloseMs`, buf)
+    }
+}
+
+
+
 data class FfiTextStyle (
     var `fontSize`: kotlin.Float
     , 
@@ -3488,6 +4526,53 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
 
 
 
+/**
+ * An open toast the host times (`duration_ms` 0 = sticky); on timeout call
+ * `dismissToast(id)`.
+ */
+data class FfiToast (
+    var `id`: kotlin.String
+    , 
+    var `durationMs`: kotlin.Double
+    , 
+    var `kind`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiToast: FfiConverterRustBuffer<FfiToast> {
+    override fun read(buf: ByteBuffer): FfiToast {
+        return FfiToast(
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiToast) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterDouble.allocationSize(value.`durationMs`) +
+            FfiConverterString.allocationSize(value.`kind`)
+    )
+
+    override fun write(value: FfiToast, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterDouble.write(value.`durationMs`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+    }
+}
+
+
+
 data class FfiVisual (
     var `backgroundColor`: kotlin.String?
     , 
@@ -3527,6 +4612,69 @@ data class FfiVisual (
     var `overflowHidden`: kotlin.Boolean
     , 
     var `overflowScroll`: kotlin.Boolean
+    , 
+    /**
+     * `{angle, stops: [{color, offset}]}`, painted over the background.
+     */
+    var `backgroundGradientJson`: kotlin.String?
+    , 
+    /**
+     * `[top, right, bottom, left]` when a side differs.
+     */
+    var `borderWidths`: List<kotlin.Float>?
+    , 
+    /**
+     * `solid | dashed | dotted`.
+     */
+    var `borderStyle`: kotlin.String?
+    , 
+    /**
+     * `[topLeft, topRight, bottomRight, bottomLeft]` when a corner is set.
+     */
+    var `cornerRadii`: List<kotlin.Float>?
+    , 
+    var `letterSpacing`: kotlin.Float?
+    , 
+    var `textDecoration`: kotlin.String?
+    , 
+    var `textTransform`: kotlin.String?
+    , 
+    var `fontStyle`: kotlin.String?
+    , 
+    /**
+     * A leaf's padding `[top, right, bottom, left]`.
+     */
+    var `padding`: List<kotlin.Float>?
+    , 
+    var `overflowX`: kotlin.String?
+    , 
+    var `overflowY`: kotlin.String?
+    , 
+    /**
+     * `[{op: translate|scale|rotate, …}]`, paint-only, around the centre.
+     */
+    var `transformJson`: kotlin.String?
+    , 
+    /**
+     * The duration changes animate with (0 under reduced motion) and the
+     * cubic bezier `[x1, y1, x2, y2]`.
+     */
+    var `transitionMs`: kotlin.Float?
+    , 
+    var `transitionEasing`: List<kotlin.Float>?
+    , 
+    var `visibilityHidden`: kotlin.Boolean
+    , 
+    var `pointerEventsNone`: kotlin.Boolean
+    , 
+    var `userSelect`: kotlin.String?
+    , 
+    var `cursor`: kotlin.String?
+    , 
+    /**
+     * A Chart's series colours, resolved.
+     */
+    var `seriesColors`: List<kotlin.String>?
     
 ){
     
@@ -3561,6 +4709,25 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalSequenceFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalSequenceFloat.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalSequenceFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalSequenceFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalSequenceString.read(buf),
         )
     }
 
@@ -3582,7 +4749,26 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalFloat.allocationSize(value.`gap`) +
             FfiConverterBoolean.allocationSize(value.`native`) +
             FfiConverterBoolean.allocationSize(value.`overflowHidden`) +
-            FfiConverterBoolean.allocationSize(value.`overflowScroll`)
+            FfiConverterBoolean.allocationSize(value.`overflowScroll`) +
+            FfiConverterOptionalString.allocationSize(value.`backgroundGradientJson`) +
+            FfiConverterOptionalSequenceFloat.allocationSize(value.`borderWidths`) +
+            FfiConverterOptionalString.allocationSize(value.`borderStyle`) +
+            FfiConverterOptionalSequenceFloat.allocationSize(value.`cornerRadii`) +
+            FfiConverterOptionalFloat.allocationSize(value.`letterSpacing`) +
+            FfiConverterOptionalString.allocationSize(value.`textDecoration`) +
+            FfiConverterOptionalString.allocationSize(value.`textTransform`) +
+            FfiConverterOptionalString.allocationSize(value.`fontStyle`) +
+            FfiConverterOptionalSequenceFloat.allocationSize(value.`padding`) +
+            FfiConverterOptionalString.allocationSize(value.`overflowX`) +
+            FfiConverterOptionalString.allocationSize(value.`overflowY`) +
+            FfiConverterOptionalString.allocationSize(value.`transformJson`) +
+            FfiConverterOptionalFloat.allocationSize(value.`transitionMs`) +
+            FfiConverterOptionalSequenceFloat.allocationSize(value.`transitionEasing`) +
+            FfiConverterBoolean.allocationSize(value.`visibilityHidden`) +
+            FfiConverterBoolean.allocationSize(value.`pointerEventsNone`) +
+            FfiConverterOptionalString.allocationSize(value.`userSelect`) +
+            FfiConverterOptionalString.allocationSize(value.`cursor`) +
+            FfiConverterOptionalSequenceString.allocationSize(value.`seriesColors`)
     )
 
     override fun write(value: FfiVisual, buf: ByteBuffer) {
@@ -3604,6 +4790,25 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterBoolean.write(value.`native`, buf)
             FfiConverterBoolean.write(value.`overflowHidden`, buf)
             FfiConverterBoolean.write(value.`overflowScroll`, buf)
+            FfiConverterOptionalString.write(value.`backgroundGradientJson`, buf)
+            FfiConverterOptionalSequenceFloat.write(value.`borderWidths`, buf)
+            FfiConverterOptionalString.write(value.`borderStyle`, buf)
+            FfiConverterOptionalSequenceFloat.write(value.`cornerRadii`, buf)
+            FfiConverterOptionalFloat.write(value.`letterSpacing`, buf)
+            FfiConverterOptionalString.write(value.`textDecoration`, buf)
+            FfiConverterOptionalString.write(value.`textTransform`, buf)
+            FfiConverterOptionalString.write(value.`fontStyle`, buf)
+            FfiConverterOptionalSequenceFloat.write(value.`padding`, buf)
+            FfiConverterOptionalString.write(value.`overflowX`, buf)
+            FfiConverterOptionalString.write(value.`overflowY`, buf)
+            FfiConverterOptionalString.write(value.`transformJson`, buf)
+            FfiConverterOptionalFloat.write(value.`transitionMs`, buf)
+            FfiConverterOptionalSequenceFloat.write(value.`transitionEasing`, buf)
+            FfiConverterBoolean.write(value.`visibilityHidden`, buf)
+            FfiConverterBoolean.write(value.`pointerEventsNone`, buf)
+            FfiConverterOptionalString.write(value.`userSelect`, buf)
+            FfiConverterOptionalString.write(value.`cursor`, buf)
+            FfiConverterOptionalSequenceString.write(value.`seriesColors`, buf)
     }
 }
 
@@ -3795,6 +5000,70 @@ public object FfiConverterOptionalFloat: FfiConverterRustBuffer<kotlin.Float?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalDouble: FfiConverterRustBuffer<kotlin.Double?> {
+    override fun read(buf: ByteBuffer): kotlin.Double? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterDouble.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Double?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterDouble.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Double?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterDouble.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalBoolean: FfiConverterRustBuffer<kotlin.Boolean?> {
+    override fun read(buf: ByteBuffer): kotlin.Boolean? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterBoolean.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Boolean?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterBoolean.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Boolean?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterBoolean.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
     override fun read(buf: ByteBuffer): kotlin.String? {
         if (buf.get().toInt() == 0) {
@@ -3945,6 +5214,70 @@ public object FfiConverterOptionalTypeFfiVisual: FfiConverterRustBuffer<FfiVisua
         } else {
             buf.put(1)
             FfiConverterTypeFfiVisual.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalSequenceFloat: FfiConverterRustBuffer<List<kotlin.Float>?> {
+    override fun read(buf: ByteBuffer): List<kotlin.Float>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceFloat.read(buf)
+    }
+
+    override fun allocationSize(value: List<kotlin.Float>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceFloat.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<kotlin.Float>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceFloat.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalSequenceString: FfiConverterRustBuffer<List<kotlin.String>?> {
+    override fun read(buf: ByteBuffer): List<kotlin.String>? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterSequenceString.read(buf)
+    }
+
+    override fun allocationSize(value: List<kotlin.String>?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterSequenceString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: List<kotlin.String>?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterSequenceString.write(value, buf)
         }
     }
 }
@@ -4263,6 +5596,62 @@ public object FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer<List<FfiNo
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiScroll: FfiConverterRustBuffer<List<FfiScroll>> {
+    override fun read(buf: ByteBuffer): List<FfiScroll> {
+        val len = buf.getInt()
+        return List<FfiScroll>(len) {
+            FfiConverterTypeFfiScroll.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiScroll>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiScroll.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiScroll>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiScroll.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiToast: FfiConverterRustBuffer<List<FfiToast>> {
+    override fun read(buf: ByteBuffer): List<FfiToast> {
+        val len = buf.getInt()
+        return List<FfiToast>(len) {
+            FfiConverterTypeFfiToast.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiToast>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiToast.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiToast>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiToast.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<FfiVisual>> {
     override fun read(buf: ByteBuffer): List<FfiVisual> {
         val len = buf.getInt()
@@ -4306,6 +5695,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     )
     }
     
+
+        /**
+         * The BIND pass over an expanded node for one data model (`src/dynamic.ts
+         * bindTree`): props, styles and recipe props resolved, falsy `visible`
+         * dropped (→ `None`), `$string.<id>` resolved through the default table +
+         * `strings_json` overrides.
+         */
+    @Throws(UiException::class) fun `bindTreeJson`(`nodeJson`: kotlin.String, `dataJson`: kotlin.String, `scope`: kotlin.String, `stringsJson`: kotlin.String?): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_tree_json(
+    
+        FfiConverterString.lower(`nodeJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+}
+    )
+    }
+    
  fun `builtinThemeIds`(): List<kotlin.String> {
             return FfiConverterSequenceString.lift(
     uniffiRustCall() { _status ->
@@ -4325,6 +5731,33 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(
     
         FfiConverterString.lower(`id`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `{min, max}` of a chart (`series_json` = the Chart's `series`).
+         */
+    @Throws(UiException::class) fun `chartExtentJson`(`kind`: kotlin.String, `seriesJson`: kotlin.String, `min`: kotlin.Double?, `max`: kotlin.Double?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_chart_extent_json(
+    
+        FfiConverterString.lower(`kind`),FfiConverterString.lower(`seriesJson`),FfiConverterOptionalDouble.lower(`min`),FfiConverterOptionalDouble.lower(`max`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A component's a11y contract `{role, keys}`, if any.
+         */ fun `componentA11yJson`(`component`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_component_a11y_json(
+    
+        FfiConverterString.lower(`component`),_status)
 }
     )
     }
@@ -4379,6 +5812,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * `{name}` placeholders filled from `params_json`.
+         */
+    @Throws(UiException::class) fun `formatString`(`template`: kotlin.String, `paramsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_string(
+    
+        FfiConverterString.lower(`template`),FfiConverterString.lower(`paramsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The first path where two JSON documents differ (`""` when equal).
          */ fun `jsonDiff`(`a`: kotlin.String, `b`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -4415,6 +5862,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_load_theme_json(
     
         FfiConverterString.lower(`themeJson`),FfiConverterOptionalString.lower(`parentsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `{min, max, step, ticks}`: nice axis ticks.
+         */ fun `niceTicksJson`(`min`: kotlin.Double, `max`: kotlin.Double, `target`: kotlin.UInt): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(
+    
+        FfiConverterDouble.lower(`min`),FfiConverterDouble.lower(`max`),FfiConverterUInt.lower(`target`),_status)
 }
     )
     }
@@ -4463,6 +5923,35 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * A style flattened for one context (`{width, height?, hover, reducedMotion,
+         * states, breakpoints}`), the reference `resolveConditions`.
+         */
+    @Throws(UiException::class) fun `resolveConditionsJson`(`styleJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(
+    
+        FfiConverterString.lower(`styleJson`),FfiConverterString.lower(`contextJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * A value with every binding and call resolved (`resolveDynamic`).
+         */
+    @Throws(UiException::class) fun `resolveDynamicJson`(`valueJson`: kotlin.String, `dataJson`: kotlin.String, `scope`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(
+    
+        FfiConverterString.lower(`valueJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A part's concrete visuals for one mode (`theme_json` = a RESOLVED theme,
          * e.g. from `builtin_theme_json`), as JSON.
          */
@@ -4472,6 +5961,48 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(
     
         FfiConverterString.lower(`themeJson`),FfiConverterString.lower(`component`),FfiConverterString.lower(`part`),FfiConverterString.lower(`propsJson`),FfiConverterSequenceString.lower(`states`),FfiConverterString.lower(`mode`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * What a press does (`runAction`): `{data, event?, call?}` — the context
+         * and args resolved against the data as it is, then the `set` write.
+         */
+    @Throws(UiException::class) fun `runActionJson`(`actionJson`: kotlin.String, `dataJson`: kotlin.String, `scope`: kotlin.String, `stringsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_action_json(
+    
+        FfiConverterString.lower(`actionJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The built-in strings with `overrides_json` merged over them.
+         */
+    @Throws(UiException::class) fun `stringTableJson`(`overridesJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_string_table_json(
+    
+        FfiConverterOptionalString.lower(`overridesJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `ltr | rtl`.
+         */ fun `textDirection`(`locale`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_text_direction(
+    
+        FfiConverterString.lower(`locale`),_status)
 }
     )
     }
@@ -4491,6 +6022,33 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * CodeBlock's tokenizer: `[[{kind, text}]]` per line.
+         */ fun `tokenizeCodeJson`(`code`: kotlin.String, `language`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(
+    
+        FfiConverterString.lower(`code`),FfiConverterString.lower(`language`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The issues of a style object (`[{path, message}]`).
+         */
+    @Throws(UiException::class) fun `validateStyleJson`(`styleJson`: kotlin.String, `root`: kotlin.Boolean?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_style_json(
+    
+        FfiConverterString.lower(`styleJson`),FfiConverterOptionalBoolean.lower(`root`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The crate version.
          */ fun `version`(): kotlin.String {
             return FfiConverterString.lift(
@@ -4498,6 +6056,19 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_version(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * 0 = Sunday … 6 = Saturday.
+         */ fun `weekStart`(`locale`: kotlin.String): kotlin.UByte {
+            return FfiConverterUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_week_start(
+    
+        FfiConverterString.lower(`locale`),_status)
 }
     )
     }

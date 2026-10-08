@@ -325,9 +325,24 @@ uint64_t uniffi_exponential_ui_ffi_fn_constructor_surface_new(RustBuffer surface
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_apply(uint64_t ptr, RustBuffer message_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_COMMAND_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_COMMAND_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_command_json(uint64_t ptr, RustBuffer command_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_DATA_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_DATA_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_data_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_DISMISS_TOAST
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_DISMISS_TOAST
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_EFFECTIVE_THEME_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_EFFECTIVE_THEME_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_EVENT
@@ -338,6 +353,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_event(uint64_t ptr, uint3
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_FAILING_CHECKS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_FAILING_CHECKS
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_failing_checks(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_HOVER_TIMEOUT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_HOVER_TIMEOUT
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(uint64_t ptr, RustBuffer owner, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_INDEX_OF
@@ -380,6 +400,11 @@ uint32_t uniffi_exponential_ui_ffi_fn_method_surface_node_count(uint64_t ptr, Ru
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_nodes(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_NODES_AT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_NODES_AT
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(uint64_t ptr, RustBuffer indices, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_REGISTER_EXTENSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_REGISTER_EXTENSION
 void uniffi_exponential_ui_ffi_fn_method_surface_register_extension(uint64_t ptr, RustBuffer extension_json, RustCallStatus *_Nonnull out_status
@@ -388,6 +413,11 @@ void uniffi_exponential_ui_ffi_fn_method_surface_register_extension(uint64_t ptr
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SCROLL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SCROLL
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_scroll(uint64_t ptr, RustBuffer list_id, float offset, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SCROLL_TO
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SCROLL_TO
+int8_t uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(uint64_t ptr, RustBuffer id, float x, float y, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_BUILTIN_THEME
@@ -400,14 +430,44 @@ void uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(uint64_t ptr,
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_set_components(uint64_t ptr, RustBuffer components_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_CONTRAST
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_CONTRAST
+void uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(uint64_t ptr, RustBuffer contrast, int8_t system_high, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_DATA
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_DATA
 void uniffi_exponential_ui_ffi_fn_method_surface_set_data(uint64_t ptr, RustBuffer path, RustBuffer value_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_DENSITY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_DENSITY
+void uniffi_exponential_ui_ffi_fn_method_surface_set_density(uint64_t ptr, RustBuffer density, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_FONT_SCALE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_FONT_SCALE
+void uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(uint64_t ptr, float scale, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_INSETS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_INSETS
+void uniffi_exponential_ui_ffi_fn_method_surface_set_insets(uint64_t ptr, float top, float right, float bottom, float left, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LOCALE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_LOCALE
+void uniffi_exponential_ui_ffi_fn_method_surface_set_locale(uint64_t ptr, RustBuffer locale, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_MODE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_MODE
 void uniffi_exponential_ui_ffi_fn_method_surface_set_mode(uint64_t ptr, RustBuffer mode, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_MODE_SETTING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_MODE_SETTING
+void uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(uint64_t ptr, RustBuffer mode, int8_t system_dark, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_NESTED
@@ -420,6 +480,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_set_nested(uint64_t ptr, 
 RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_set_open(uint64_t ptr, RustBuffer id, int8_t open, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_POINTER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_POINTER
+void uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(uint64_t ptr, int8_t hover, int8_t reduced_motion, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_PRESSED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_PRESSED
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(uint64_t ptr, RustBuffer ids, RustCallStatus *_Nonnull out_status
@@ -430,9 +495,19 @@ int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(uint64_t ptr, Rus
 void uniffi_exponential_ui_ffi_fn_method_surface_set_rounding(uint64_t ptr, int8_t on, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_SETTINGS
+void uniffi_exponential_ui_ffi_fn_method_surface_set_settings(uint64_t ptr, RustBuffer settings, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_STATES
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_STATES
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_states(uint64_t ptr, RustBuffer id, RustBuffer states, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_STRINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_STRINGS_JSON
+void uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(uint64_t ptr, RustBuffer strings_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SET_THEME_JSON
@@ -445,9 +520,29 @@ void uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(uint64_t ptr, Ru
 int8_t uniffi_exponential_ui_ffi_fn_method_surface_set_viewport(uint64_t ptr, float width, float height, RustBuffer max_height, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SETTINGS
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_settings(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_STRINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_STRINGS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_strings_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_STRUCTURE_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_STRUCTURE_VERSION
 uint64_t uniffi_exponential_ui_ffi_fn_method_surface_structure_version(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SUBMIT_FORM
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_SUBMIT_FORM
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_submit_form(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_TAKE_EVENTS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_TAKE_EVENTS
+RustBuffer uniffi_exponential_ui_ffi_fn_method_surface_take_events(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_METHOD_SURFACE_TEXT_STYLE
@@ -476,6 +571,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(RustCallStatus *_N
 RustBuffer uniffi_exponential_ui_ffi_fn_func_bench_tree_json(uint32_t n, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BIND_TREE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BIND_TREE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_bind_tree_json(RustBuffer node_json, RustBuffer data_json, RustBuffer scope, RustBuffer strings_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BUILTIN_THEME_IDS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BUILTIN_THEME_IDS
 RustBuffer uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(RustCallStatus *_Nonnull out_status
@@ -485,6 +585,16 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(RustCallStatus *_
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BUILTIN_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BUILTIN_THEME_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CHART_EXTENT_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CHART_EXTENT_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_chart_extent_json(RustBuffer kind, RustBuffer series_json, RustBuffer min, RustBuffer max, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_COMPONENT_A11Y_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_COMPONENT_A11Y_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_component_a11y_json(RustBuffer component, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_CONTROL_GEOMETRY_JSON
@@ -509,6 +619,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_default_theme_id(RustCallStatus *_N
 RustBuffer uniffi_exponential_ui_ffi_fn_func_extension_errors(RustBuffer extension_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_FORMAT_STRING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_FORMAT_STRING
+RustBuffer uniffi_exponential_ui_ffi_fn_func_format_string(RustBuffer template, RustBuffer params_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_DIFF
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_JSON_DIFF
 RustBuffer uniffi_exponential_ui_ffi_fn_func_json_diff(RustBuffer a, RustBuffer b, RustCallStatus *_Nonnull out_status
@@ -522,6 +637,11 @@ int8_t uniffi_exponential_ui_ffi_fn_func_json_equal(RustBuffer a, RustBuffer b, 
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_LOAD_THEME_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_load_theme_json(RustBuffer theme_json, RustBuffer parents_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(double min, double max, uint32_t target, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PLACE_OVERLAY
@@ -539,9 +659,34 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(RustBuffer neste
 RustBuffer uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(RustBuffer components_json, RustBuffer catalog_id, RustBuffer extensions_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_CONDITIONS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_CONDITIONS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(RustBuffer style_json, RustBuffer context_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_DYNAMIC_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_DYNAMIC_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(RustBuffer value_json, RustBuffer data_json, RustBuffer scope, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_RECIPE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_RECIPE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(RustBuffer theme_json, RustBuffer component, RustBuffer part, RustBuffer props_json, RustBuffer states, RustBuffer mode, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_ACTION_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_ACTION_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_run_action_json(RustBuffer action_json, RustBuffer data_json, RustBuffer scope, RustBuffer strings_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_STRING_TABLE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_STRING_TABLE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_string_table_json(RustBuffer overrides_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_DIRECTION
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TEXT_DIRECTION
+RustBuffer uniffi_exponential_ui_ffi_fn_func_text_direction(RustBuffer locale, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_THEME_ISSUES_JSON
@@ -549,10 +694,25 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(RustBuffer them
 RustBuffer uniffi_exponential_ui_ffi_fn_func_theme_issues_json(RustBuffer theme_json, RustBuffer parents_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TOKENIZE_CODE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_TOKENIZE_CODE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(RustBuffer code, RustBuffer language, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_STYLE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VALIDATE_STYLE_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_validate_style_json(RustBuffer style_json, RustBuffer root, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_VERSION
 RustBuffer uniffi_exponential_ui_ffi_fn_func_version(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_WEEK_START
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_WEEK_START
+uint8_t uniffi_exponential_ui_ffi_fn_func_week_start(RustBuffer locale, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_UI_FFI_RUSTBUFFER_ALLOC
@@ -827,6 +987,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BIND_TREE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BIND_TREE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_bind_tree_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BUILTIN_THEME_IDS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BUILTIN_THEME_IDS
 uint16_t uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(void
@@ -836,6 +1002,18 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BUILTIN_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BUILTIN_THEME_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CHART_EXTENT_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_CHART_EXTENT_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_COMPONENT_A11Y_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_COMPONENT_A11Y_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_component_a11y_json(void
     
 );
 #endif
@@ -863,6 +1041,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_extension_errors(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_FORMAT_STRING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_FORMAT_STRING
+uint16_t uniffi_exponential_ui_ffi_checksum_func_format_string(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_JSON_DIFF
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_JSON_DIFF
 uint16_t uniffi_exponential_ui_ffi_checksum_func_json_diff(void
@@ -878,6 +1062,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_json_equal(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_LOAD_THEME_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_load_theme_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NICE_TICKS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NICE_TICKS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(void
     
 );
 #endif
@@ -899,9 +1089,39 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_CONDITIONS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_CONDITIONS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_DYNAMIC_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_DYNAMIC_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_RECIPE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_RECIPE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_run_action_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_STRING_TABLE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_STRING_TABLE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_string_table_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_DIRECTION
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TEXT_DIRECTION
+uint16_t uniffi_exponential_ui_ffi_checksum_func_text_direction(void
     
 );
 #endif
@@ -911,9 +1131,27 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TOKENIZE_CODE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_TOKENIZE_CODE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_STYLE_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VALIDATE_STYLE_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_validate_style_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_VERSION
 uint16_t uniffi_exponential_ui_ffi_checksum_func_version(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_WEEK_START
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_WEEK_START
+uint16_t uniffi_exponential_ui_ffi_checksum_func_week_start(void
     
 );
 #endif
@@ -941,9 +1179,27 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_apply(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_COMMAND_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_COMMAND_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_command_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_DATA_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_DATA_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_data_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_DISMISS_TOAST
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_DISMISS_TOAST
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_EFFECTIVE_THEME_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_EFFECTIVE_THEME_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json(void
     
 );
 #endif
@@ -956,6 +1212,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_event(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FAILING_CHECKS
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_FAILING_CHECKS
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_HOVER_TIMEOUT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_HOVER_TIMEOUT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout(void
     
 );
 #endif
@@ -1007,6 +1269,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_nodes(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NODES_AT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_NODES_AT
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_REGISTER_EXTENSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_REGISTER_EXTENSION
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(void
@@ -1016,6 +1284,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_register_extension(vo
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SCROLL
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SCROLL
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_scroll(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SCROLL_TO
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SCROLL_TO
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to(void
     
 );
 #endif
@@ -1031,15 +1305,51 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_components(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_CONTRAST
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_CONTRAST
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_DATA
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_DATA
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_data(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_DENSITY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_DENSITY
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_density(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_FONT_SCALE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_FONT_SCALE
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_INSETS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_INSETS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_LOCALE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_LOCALE
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_locale(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_MODE
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_MODE
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_mode(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_MODE_SETTING
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_MODE_SETTING
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting(void
     
 );
 #endif
@@ -1055,6 +1365,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_open(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POINTER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_POINTER
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_PRESSED
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_PRESSED
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed(void
@@ -1067,9 +1383,21 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_SETTINGS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_settings(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_STATES
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_STATES
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_states(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_STRINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SET_STRINGS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(void
     
 );
 #endif
@@ -1085,9 +1413,33 @@ uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SETTINGS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SETTINGS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_settings(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_STRINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_STRINGS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_strings_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_STRUCTURE_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_STRUCTURE_VERSION
 uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_structure_version(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SUBMIT_FORM
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_SUBMIT_FORM
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_submit_form(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_TAKE_EVENTS
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_METHOD_SURFACE_TAKE_EVENTS
+uint16_t uniffi_exponential_ui_ffi_checksum_method_surface_take_events(void
     
 );
 #endif

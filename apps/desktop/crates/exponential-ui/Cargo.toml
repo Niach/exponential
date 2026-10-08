@@ -27,7 +27,11 @@ shaping = ["dep:cosmic-text"]
 # The exact version gpui pins (apps/desktop/Cargo.lock) — ONE taffy in the tree.
 taffy = "=0.12.2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `preserve_order`: JSON objects keep SOURCE order like the TS reference
+# (media blocks apply in source order, tokenizer prefix tables, issue order).
+# The desktop workspace already unifies it on through gpui; this makes the
+# standalone crate (tests, the FFI, crates.io) behave the same.
+serde_json = { version = "1", features = ["preserve_order"] }
 indexmap = { version = "2", features = ["serde"] }
 cosmic-text = { version = "0.19", optional = true }
 

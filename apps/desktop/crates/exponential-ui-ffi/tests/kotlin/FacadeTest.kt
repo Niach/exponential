@@ -203,6 +203,57 @@ fun main(args: Array<String>) {
     check(opened.layers.size == 1 && opened.layers[0].position == "centered") { "dialog layer" }
     check(s.nodes().any { it.id == "dlg.title" && it.ownerComponent == "Dialog" }) { "title part" }
 
+    // --- round 1: the bind pass, the tokenizer, settings, deltas, baselines --
+    val bind = load("bind-time.json")
+    fun findNode(n: Map<String, Any?>, id: String): Map<String, Any?>? {
+        if (n["id"] == id) return n
+        for (sl in (n["slots"] as Map<String, Any?>?)?.values ?: emptyList()) findNode(obj(sl), id)?.let { return it }
+        for (ch in (n["children"] as List<Any?>?) ?: emptyList()) findNode(obj(ch), id)?.let { return it }
+        return null
+    }
+    for (c in list(bind["cases"]).map(::obj)) for (d in list(c["datasets"]).map(::obj)) {
+        val got = bindTreeJson(Json.write(c["expanded"]), Json.write(d["data"]), "", null) ?: "null"
+        equal(got, d["bound"], "bind-time ${c["name"]}")
+        for (p in list(d["presses"]).map(::obj)) {
+            val node = findNode(obj(c["expanded"]), p["id"] as String)!!
+            equal(runActionJson(Json.write(obj(node["on"])["press"]), Json.write(d["data"]), "", null), p["outcome"], "bind-time press ${c["name"]} ${p["id"]}")
+        }
+    }
+    val code = load("code-tokens.json")
+    for (c in list(code["cases"]).map(::obj)) equal(tokenizeCodeJson(c["code"] as String, c["language"] as String), c["expected"], "code-tokens ${c["name"]}")
+    check(weekStart("de-DE") == 1.toUByte() && textDirection("ar") == "rtl") { "locale" }
+
+    val r1 = Surface("r1", coreCatalogId(), null, "light")
+    val rows = (0 until 200).map { mapOf("id" to "r$it", "component" to "Text", "props" to mapOf("text" to "Row $it")) }
+    r1.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "style" to mapOf("display" to "flex", "flexDirection" to "column", "width" to "100%"), "children" to listOf(
+        mapOf("id" to "list", "component" to "List", "style" to mapOf("height" to 400.0), "children" to rows)))))
+    r1.setViewport(390f, 844f, null)
+    r1.setSettings(r1.settings().copy(mode = "system", systemDark = true, insetBottom = 34f, fontScale = 1.25f))
+    check(r1.settings().mode == "system") { "settings round trip" }
+    r1.layoutFixed(null, true)
+    r1.layoutFixed(null, true)
+    r1.scroll("list", 3000f)
+    val sc = r1.layoutFixed(null, true)
+    check(sc.delta.added.isNotEmpty() && r1.nodesAt(sc.delta.added).size == sc.delta.added.size) { "delta: ${sc.delta}" }
+    check(sc.scrolls.any { it.scrollY && it.offsetY == 3000f }) { "scrolls ${sc.scrolls}" }
+
+    class BaselineMeasurer : Measurer {
+        override fun measureId(): ULong = 6u
+        override fun measureIntrinsics(leaves: List<FfiLeaf>): List<FfiIntrinsics> = leaves.map { l ->
+            val h = if (l.component == "Button") 40f else 20f
+            FfiIntrinsics(8f * l.text.length, 8f * l.text.length, h, if (l.component == "Button") 25f else 15f)
+        }
+        override fun measureHeights(leaves: List<FfiLeaf>, requests: List<FfiHeightRequest>): List<Float> = requests.map { 20f }
+    }
+    val bl = Surface("bl", coreCatalogId(), "", "light")
+    bl.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "style" to mapOf("display" to "flex", "flexDirection" to "row", "alignItems" to "baseline"), "children" to listOf(
+        mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go")), mapOf("id" to "t", "component" to "Text", "props" to mapOf("text" to "Label"))))))
+    bl.setViewport(300f, 0f, null)
+    val blOut = bl.layout(BaselineMeasurer())
+    val tFrame = blOut.frames.first { it.index == bl.indexOf("t") }
+    check(tFrame.y == 10f) { "baseline alignment: text at ${tFrame.y}" }
+    println("round 1: $checks checks so far")
+
     println("kotlin binding suite: $checks checks, $failures failures")
     exitProcess(if (failures == 0) 0 else 1)
 }

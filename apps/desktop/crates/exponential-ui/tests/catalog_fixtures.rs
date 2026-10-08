@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 309);
+    assert_eq!(cases.len(), 452);
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);
@@ -304,7 +304,7 @@ fn catalog_extension_an_extension_macro_expands_through_core_macros_to_natives_p
         kinds.insert(n.component.clone());
     });
     assert!(!kinds.contains("StatCard"));
-    assert!(kinds.contains("Sparkline"));
+    assert!(kinds.contains("TrendLine"));
     assert!(kinds.contains("Box"));
 }
 

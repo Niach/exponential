@@ -11,11 +11,25 @@ use serde_json::Value;
 
 use crate::basic_map::map_basic_component;
 use crate::catalog::{CatalogView, A2UI_BASIC_CATALOG_ID, UNKNOWN_COMPONENT};
-use crate::macros::expand_macros;
-use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, Template, UiNode};
+use crate::macros::expand_macros_with_issues;
+use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode};
 use crate::validate::validate_props;
 
-const RESERVED: &[&str] = &["id", "component", "children", "slots", "on", "style", "accessibility", "template"];
+/// The keys of a flat component that are not props (round 1 adds `visible`).
+pub const RESERVED_KEYS: &[&str] = &["id", "component", "children", "slots", "on", "style", "visible", "accessibility", "template"];
+const RESERVED: &[&str] = RESERVED_KEYS;
+
+/// A `visible` value is a boolean or a dynamic value (a binding or a call).
+pub fn valid_visible(value: &Value) -> bool {
+    value.is_boolean() || crate::expr::is_dynamic(value)
+}
+
+/// A component's slot list admits a name when it lists it or lists `*`.
+pub fn slot_allowed(slots: Option<&Vec<String>>, name: &str) -> bool {
+    slots.is_some_and(|s| s.iter().any(|x| x == "*" || x == name))
+}
+
+const VISIBLE_ISSUE: &str = "visible: expected a boolean, a binding or a function call";
 
 #[derive(Debug, Clone)]
 pub struct ReduceOptions {
@@ -82,14 +96,22 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
     if def.children == "none" && !node.children.is_empty() {
         issues.push(ReduceIssue { id: id.to_string(), message: format!("{} takes no children", node.component) });
     }
+    for slot in node.slots.iter().flat_map(|s| s.keys()) {
+        if !slot_allowed(def.slots.as_ref(), slot) {
+            issues.push(ReduceIssue { id: id.to_string(), message: format!("slots.{slot}: {} has no such slot", node.component) });
+        }
+    }
 }
 
 fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, options: &ReduceOptions) -> ReduceResult {
     if !options.expand {
         return ReduceResult { root, issues };
     }
-    match expand_macros(&root, &options.view) {
-        Ok(expanded) => ReduceResult { root: expanded, issues },
+    match expand_macros_with_issues(&root, &options.view) {
+        Ok((expanded, expansion_issues)) => {
+            issues.extend(expansion_issues);
+            ReduceResult { root: expanded, issues }
+        }
         Err(message) => {
             issues.push(ReduceIssue { id: root.id.clone(), message });
             ReduceResult { root, issues }
@@ -147,12 +169,17 @@ impl Builder<'_> {
             node.props = own_props(flat);
             match &flat.children {
                 Some(FlatChildren::Ids(ids)) => node.children = ids.iter().map(|c| self.build(c)).collect(),
-                Some(FlatChildren::Template { component_id, path }) => {
-                    node.template = Some(Template { component: component_id.clone(), path: path.clone() })
-                }
+                Some(t @ FlatChildren::Template { .. }) => node.template = t.template(),
                 None => {}
             }
             node.style = flat.style.clone();
+            if let Some(visible) = &flat.visible {
+                if valid_visible(visible) {
+                    node.visible = Some(visible.clone());
+                } else {
+                    self.issues.push(ReduceIssue { id: id.to_string(), message: VISIBLE_ISSUE.into() });
+                }
+            }
             node.on = flat.on.clone();
             for (slot, child_id) in flat.slots.iter().flatten() {
                 let child = self.build(child_id);
@@ -207,6 +234,13 @@ fn walk_nested(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceI
     node.props = n.props.clone().unwrap_or_default();
     node.children = n.children.iter().flatten().map(|c| walk_nested(c, options, issues)).collect();
     node.style = n.style.clone();
+    if let Some(visible) = &n.visible {
+        if valid_visible(visible) {
+            node.visible = Some(visible.clone());
+        } else {
+            issues.push(ReduceIssue { id: n.id.clone(), message: VISIBLE_ISSUE.into() });
+        }
+    }
     node.on = n.on.clone();
     node.accessibility = n.accessibility.clone().filter(js_truthy);
     node.template = n.template.clone();

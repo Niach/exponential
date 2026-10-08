@@ -13,11 +13,15 @@ use serde_json::{Map, Value};
 /// A props / style object.
 pub type Props = Map<String, Value>;
 
-/// A data-driven child list: one `component` per item at `path`.
+/// A data-driven child list: one `component` per item at `path`. Round 1:
+/// `key` = a pointer RELATIVE to each item whose value identifies it, so a
+/// reorder keeps the item's component state (the index when absent).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Template {
     pub component: String,
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 /// Which macro part a node came from; the theme keys its recipes on it.
@@ -40,6 +44,10 @@ pub struct UiNode {
     pub props: Props,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<Props>,
+    /// Round 1: `true | false | {path} | {call}`; falsy once resolved = not
+    /// rendered, no layout, not in the a11y tree. Absent = visible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on: Option<IndexMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +92,8 @@ pub struct NestedNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<Props>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on: Option<IndexMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
@@ -95,7 +105,7 @@ pub struct NestedNode {
     pub template: Option<Template>,
 }
 
-/// A2UI `children`: ids, or a template `{componentId, path}`.
+/// A2UI `children`: ids, or a template `{componentId, path, key?}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum FlatChildren {
@@ -104,7 +114,19 @@ pub enum FlatChildren {
         #[serde(rename = "componentId")]
         component_id: String,
         path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
     },
+}
+
+impl FlatChildren {
+    /// The normalized template of a `{componentId, path, key?}` list.
+    pub fn template(&self) -> Option<Template> {
+        match self {
+            FlatChildren::Template { component_id, path, key } => Some(Template { component: component_id.clone(), path: path.clone(), key: key.clone() }),
+            FlatChildren::Ids(_) => None,
+        }
+    }
 }
 
 /// A node as it rides A2UI's `updateComponents`: props at the top level,
@@ -121,6 +143,8 @@ pub struct FlatComponent {
     pub on: Option<IndexMap<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<Props>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
     #[serde(flatten)]
@@ -150,6 +174,9 @@ pub struct PropSchema {
     pub default: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bindable: Option<bool>,
+    /// Round 1: ALSO accepts `{base, sm?, md?, lg?, xl?}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responsive: Option<bool>,
     #[serde(default, rename = "enum", skip_serializing_if = "Option::is_none")]
     pub enum_: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,6 +228,10 @@ pub struct ComponentDef {
     pub example: Option<Props>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recipe: Option<PartSpec>,
+    /// `row` (Table): the slots are cell templates bound once per ROW
+    /// (`data::bind_row_slot`), never against the surface.
+    #[serde(default, rename = "slotScope", skip_serializing_if = "Option::is_none")]
+    pub slot_scope: Option<String>,
 }
 
 fn default_children() -> String {
@@ -214,11 +245,19 @@ impl ComponentDef {
     pub fn is_hidden(&self) -> bool {
         self.hidden == Some(true)
     }
+    /// True when the slots are ROW-SCOPED (`slotScope: "row"`, Table).
+    pub fn has_row_slots(&self) -> bool {
+        self.slot_scope.as_deref() == Some("row")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogFunctions {
     pub names: Vec<String>,
+    /// Round 1: the core functions (`percent`, `add`, …, `set`) by name →
+    /// `{description, args, returns}`.
+    #[serde(default)]
+    pub core: IndexMap<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -233,6 +272,10 @@ pub struct CatalogSource {
     pub enums: IndexMap<String, Vec<String>>,
     pub defs: IndexMap<String, DefSchema>,
     pub functions: CatalogFunctions,
+    /// Round 1: `<Component>.<part>[.<variant>]` → the icons.json name a
+    /// renderer draws for a part it owns.
+    #[serde(default, rename = "builtinIcons")]
+    pub builtin_icons: IndexMap<String, Value>,
     pub components: IndexMap<String, ComponentDef>,
 }
 
@@ -240,12 +283,25 @@ pub struct CatalogSource {
 // Macro templates (catalog/macros.json)
 // ---------------------------------------------------------------------------
 
-/// A child of a template: another template node or the `"$children"` splice.
+/// A child of a template: another template node, the `"$children"` splice
+/// or an author slot spliced in place (`"$slot:name"`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TemplateChild {
     Splice(String),
     Node(Box<MacroTemplate>),
+}
+
+/// A template `slots` entry: `"$slot:name"` copies the author's slot; a
+/// template node builds a part (AlertDialog's footer).
+pub type SlotRef = TemplateChild;
+
+/// Round 1 two-way binding: the macro prop a bound author value is written
+/// back to (`set`) when the part's event fires, and the value it takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetSpec {
+    pub prop: String,
+    pub value: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -259,7 +315,7 @@ pub struct MacroTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<TemplateChild>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slots: Option<IndexMap<String, String>>,
+    pub slots: Option<IndexMap<String, SlotRef>>,
     #[serde(default, rename = "$if", skip_serializing_if = "Option::is_none")]
     pub if_: Option<Value>,
     #[serde(default, rename = "$any", skip_serializing_if = "Option::is_none")]
@@ -274,6 +330,12 @@ pub struct MacroTemplate {
     pub context: Option<Props>,
     #[serde(default, rename = "$recipe", skip_serializing_if = "Option::is_none")]
     pub recipe: Option<Props>,
+    #[serde(default, rename = "$set", skip_serializing_if = "Option::is_none")]
+    pub set: Option<IndexMap<String, SetSpec>>,
+    /// The part's `accessibility` (role, states, name; contract §6),
+    /// evaluated like `props`.
+    #[serde(default, rename = "$a11y", skip_serializing_if = "Option::is_none")]
+    pub a11y: Option<Props>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

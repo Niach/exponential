@@ -213,5 +213,68 @@ check(opened.layers.count == 1 && opened.layers[0].position == "centered", "dial
 check(s.nodes().contains { $0.id == "dlg.title" && $0.ownerComponent == "Dialog" }, "title part")
 check(s.visuals().count == s.nodes().count, "visuals per node")
 
+// --- round 1: the bind pass, the tokenizer, settings, deltas, baselines -----
+func findNode(_ n: [String: Any], _ id: String) -> [String: Any]? {
+    if n["id"] as? String == id { return n }
+    for (_, slot) in (n["slots"] as? [String: Any]) ?? [:] { if let hit = findNode(slot as! [String: Any], id) { return hit } }
+    for child in (n["children"] as? [Any]) ?? [] { if let hit = findNode(child as! [String: Any], id) { return hit } }
+    return nil
+}
+let bind = load("bind-time.json") as! [String: Any]
+for c in bind["cases"] as! [[String: Any]] {
+    for d in c["datasets"] as! [[String: Any]] {
+        let got = (try! bindTreeJson(nodeJson: text(c["expanded"]!), dataJson: text(d["data"]!), scope: "", stringsJson: nil)) ?? "null"
+        equal(got, d["bound"]!, "bind-time \(c["name"]!)")
+        for p in d["presses"] as! [[String: Any]] {
+            let node = findNode(c["expanded"] as! [String: Any], p["id"] as! String)!
+            let on = node["on"] as! [String: Any]
+            equal(try! runActionJson(actionJson: text(on["press"]!), dataJson: text(d["data"]!), scope: "", stringsJson: nil), p["outcome"]!, "bind-time press \(c["name"]!) \(p["id"]!)")
+        }
+    }
+}
+let codeTokens = load("code-tokens.json") as! [String: Any]
+for c in codeTokens["cases"] as! [[String: Any]] {
+    equal(tokenizeCodeJson(code: c["code"] as! String, language: c["language"] as! String), c["expected"]!, "code-tokens \(c["name"]!)")
+}
+check(weekStart(locale: "de-DE") == 1 && textDirection(locale: "ar") == "rtl", "locale")
+
+let r1 = try! Surface(surfaceId: "r1", catalogId: coreCatalogId(), themeId: nil, mode: "light")
+let rows: [[String: Any]] = (0..<200).map { ["id": "r\($0)", "component": "Text", "props": ["text": "Row \($0)"]] }
+_ = try! r1.setNested(nestedJson: text(["id": "root", "component": "Box", "style": ["display": "flex", "flexDirection": "column", "width": "100%"], "children": [
+    ["id": "list", "component": "List", "style": ["height": 400], "children": rows]]]))
+_ = r1.setViewport(width: 390, height: 844, maxHeight: nil)
+var st = r1.settings()
+st.mode = "system"
+st.systemDark = true
+st.insetBottom = 34
+st.fontScale = 1.25
+try! r1.setSettings(settings: st)
+check(r1.settings().mode == "system", "settings round trip")
+_ = try! r1.layoutFixed(sizesJson: nil, wrap: true)
+_ = try! r1.layoutFixed(sizesJson: nil, wrap: true)
+_ = r1.scroll(listId: "list", offset: 3000)
+let sc = try! r1.layoutFixed(sizesJson: nil, wrap: true)
+check(!sc.delta.added.isEmpty && r1.nodesAt(indices: sc.delta.added).count == sc.delta.added.count, "delta \(sc.delta)")
+check(sc.scrolls.contains { $0.scrollY && $0.offsetY == 3000 }, "scrolls")
+
+final class BaselineMeasurer: Measurer, @unchecked Sendable {
+    func measureId() -> UInt64 { 6 }
+    func measureIntrinsics(leaves: [FfiLeaf]) -> [FfiIntrinsics] {
+        leaves.map { l in
+            let button = l.component == "Button"
+            return FfiIntrinsics(minContentWidth: 8 * Float(l.text.count), maxContentWidth: 8 * Float(l.text.count), heightAtMaxContent: button ? 40 : 20, baseline: button ? 25 : 15)
+        }
+    }
+    func measureHeights(leaves: [FfiLeaf], requests: [FfiHeightRequest]) -> [Float] { requests.map { _ in 20 } }
+}
+let bl = try! Surface(surfaceId: "bl", catalogId: coreCatalogId(), themeId: "", mode: "light")
+_ = try! bl.setNested(nestedJson: text(["id": "root", "component": "Box", "style": ["display": "flex", "flexDirection": "row", "alignItems": "baseline"], "children": [
+    ["id": "b", "component": "Button", "props": ["label": "Go"]], ["id": "t", "component": "Text", "props": ["text": "Label"]]]]))
+_ = bl.setViewport(width: 300, height: 0, maxHeight: nil)
+let blOut = bl.layout(measurer: BaselineMeasurer())
+let tIndex = bl.indexOf(id: "t")!
+check(blOut.frames.first { $0.index == tIndex }!.y == 10, "baseline alignment")
+print("round 1: \(checks) checks so far")
+
 print("swift binding suite: \(checks) checks, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

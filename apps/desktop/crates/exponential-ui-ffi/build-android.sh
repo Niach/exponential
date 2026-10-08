@@ -12,6 +12,7 @@ DESKTOP="$(cd "$HERE/../.." && pwd)"
 cd "$DESKTOP"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
+case "$(uname -s)" in Darwin) EXT=dylib ;; *) EXT=so ;; esac
 NDK_DIR="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Library/Android/sdk/ndk/* 2>/dev/null | sort | tail -1)}"
 export ANDROID_NDK_HOME="$NDK_DIR"
 echo "NDK: $ANDROID_NDK_HOME"
@@ -23,7 +24,7 @@ cargo build -p exponential-ui-ffi --release --features cli
 echo "== kotlin bindings"
 rm -rf "$HERE/out/kotlin" && mkdir -p "$HERE/out/kotlin" "$HERE/bindings/kotlin"
 cargo run -p exponential-ui-ffi --release --features cli --bin uniffi-bindgen -- generate \
-  --library "$TARGET/release/libexponential_ui_ffi.dylib" --language kotlin --out-dir "$HERE/out/kotlin" --config "$HERE/uniffi.toml"
+  --library "$TARGET/release/libexponential_ui_ffi.$EXT" --language kotlin --out-dir "$HERE/out/kotlin" --config "$HERE/uniffi.toml"
 rm -rf "$HERE/bindings/kotlin/at"
 cp -R "$HERE/out/kotlin/at" "$HERE/bindings/kotlin/"
 

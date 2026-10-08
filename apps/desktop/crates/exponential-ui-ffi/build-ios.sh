@@ -13,6 +13,7 @@ DESKTOP="$(cd "$HERE/../.." && pwd)"
 cd "$DESKTOP"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
+case "$(uname -s)" in Darwin) EXT=dylib ;; *) EXT=so ;; esac
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim >/dev/null
 
 echo "== host build (bindgen reads the dylib's metadata)"
@@ -20,7 +21,7 @@ cargo build -p exponential-ui-ffi --release --features cli
 echo "== swift bindings"
 rm -rf "$HERE/out/swift" && mkdir -p "$HERE/out/swift" "$HERE/bindings/swift"
 cargo run -p exponential-ui-ffi --release --features cli --bin uniffi-bindgen -- generate \
-  --library "$TARGET/release/libexponential_ui_ffi.dylib" --language swift --out-dir "$HERE/out/swift" --config "$HERE/uniffi.toml"
+  --library "$TARGET/release/libexponential_ui_ffi.$EXT" --language swift --out-dir "$HERE/out/swift" --config "$HERE/uniffi.toml"
 cp "$HERE/out/swift/ExponentialUIFFI.swift" "$HERE/bindings/swift/ExponentialUIFFI.swift"
 cp "$HERE/out/swift/ExponentialUIFFIFFI.h" "$HERE/bindings/swift/ExponentialUIFFIFFI.h"
 # uniffi names it <module>FFI.modulemap; an xcframework needs module.modulemap.

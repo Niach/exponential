@@ -47,6 +47,12 @@ fn walk_template(tpl: &MacroTemplate, parts: &mut Vec<String>, props: &mut Vec<S
             walk_template(node, parts, props);
         }
     }
+    // Round 1: template-built slot parts (AlertDialog's footer) count too.
+    for slot in tpl.slots.iter().flat_map(|s| s.values()) {
+        if let TemplateChild::Node(node) = slot {
+            walk_template(node, parts, props);
+        }
+    }
 }
 
 /// A macro's parts and recipe props, read off its template.
@@ -177,7 +183,7 @@ mod tests {
         assert_eq!(parts["ButtonGroup"].props, ["size", "selected"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        assert_eq!(parts.len(), 61);
+        assert_eq!(parts.len(), 82);
     }
 
     #[test]

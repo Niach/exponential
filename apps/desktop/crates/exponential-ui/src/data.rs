@@ -1,19 +1,27 @@
 //! The surface DATA MODEL and A2UI's dynamic values: a prop may be a `{path}`
 //! binding (a JSON Pointer into the model, relative inside a template item)
 //! or a `{call, args}` client function; `resolve_value` turns a prop tree
-//! into literals for one pass. Mirrors `packages/exponential-ui-react/src/data.ts`.
+//! into literals for one pass. Round 1 (docs/round-1-contract.md §1): the
+//! BIND pass of `src/dynamic.ts` — [`bind_tree`] (props resolved along their
+//! schema with DATA props verbatim, styles, recipe props and `accessibility`
+//! resolved at any depth, falsy `visible` dropped, `$string.<id>` through the
+//! surface's table, row-scoped slots left for [`bind_row_slot`]) and
+//! [`run_action`] (evaluate, then `set`, then the event);
+//! `fixtures/bind-time.json` locks both. The function table
+//! = the core functions (`expr::core_function`) + the basic catalog's
+//! `and`/`or`/`not`/`required` with the core truthiness (0 is TRUE) + the
+//! basic validators and formatters.
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::expr::truthy;
 use crate::json;
+use crate::strings::{resolve_string, StringTable};
+use crate::catalog::CatalogView;
+use crate::types::{ComponentDef, DefSchema, PropSchema, UiNode};
 
-pub fn is_binding(value: &Value) -> bool {
-    value.as_object().is_some_and(|o| o.len() == 1 && o.get("path").is_some_and(Value::is_string))
-}
-
-pub fn is_call(value: &Value) -> bool {
-    value.as_object().is_some_and(|o| o.get("call").is_some_and(Value::is_string))
-}
+pub use crate::expr::{is_binding, is_call, is_dynamic};
 
 fn unescape(token: &str) -> String {
     token.replace("~1", "/").replace("~0", "~")
@@ -27,19 +35,16 @@ pub fn pointer_tokens(pointer: &str) -> Vec<String> {
     pointer.strip_prefix('/').unwrap_or(pointer).split('/').map(unescape).collect()
 }
 
-/// `path` made absolute against a template scope (`/items/3`).
+/// `path` made absolute against a template scope (`/items/3`): `/a/b`
+/// stays, `b/c` joins the scope, `` (empty) is the scope itself.
 pub fn absolute_path(path: &str, scope: &str) -> String {
     if path.starts_with('/') {
         return path.to_string();
     }
-    if scope.is_empty() {
-        return format!("/{path}");
-    }
     if path.is_empty() {
-        scope.to_string()
-    } else {
-        format!("{scope}/{path}")
+        return scope.to_string();
     }
+    format!("{scope}/{path}")
 }
 
 pub fn get_pointer<'a>(data: &'a Value, pointer: &str) -> Option<&'a Value> {
@@ -54,8 +59,9 @@ pub fn get_pointer<'a>(data: &'a Value, pointer: &str) -> Option<&'a Value> {
     Some(cur)
 }
 
-/// Set (or remove with `None`) the value at `pointer`, creating objects (or
-/// arrays for numeric tokens) on the way.
+/// Set (or remove with `None`) the value at `pointer`, creating OBJECTS on
+/// the way (the TS `writePointer`); an existing array takes an index or `-`
+/// (append).
 pub fn set_pointer(data: &mut Value, pointer: &str, value: Option<Value>) {
     let tokens = pointer_tokens(pointer);
     if tokens.is_empty() {
@@ -65,9 +71,8 @@ pub fn set_pointer(data: &mut Value, pointer: &str, value: Option<Value>) {
     fn put(cur: &mut Value, tokens: &[String], value: Option<Value>) {
         let token = &tokens[0];
         let last = tokens.len() == 1;
-        let numeric = token.chars().all(|c| c.is_ascii_digit()) && !token.is_empty();
         if !(cur.is_object() || cur.is_array()) {
-            *cur = if numeric { Value::Array(Vec::new()) } else { Value::Object(Map::new()) };
+            *cur = Value::Object(Map::new());
         }
         match cur {
             Value::Array(items) => {
@@ -115,20 +120,74 @@ pub fn set_pointer(data: &mut Value, pointer: &str, value: Option<Value>) {
 }
 
 /// What `resolve_value` needs.
+#[derive(Clone, Copy)]
 pub struct ResolveContext<'a> {
     pub data: &'a Value,
     /// The template item's pointer, for relative paths.
     pub scope: &'a str,
+    /// The surface's built-in string table: a `$string.<id>` value resolves
+    /// through it (`None` = left as written).
+    pub strings: Option<&'a StringTable>,
+    /// A value standing in for a pointer prefix (a literal Table row is the
+    /// data scope of its slot cells): `(prefix, value)`.
+    pub overlay: Option<(&'a str, &'a Value)>,
+    /// A LITERAL item that is not in the data model (a Table row of literal
+    /// `rows`, the TS `DataScope.item`): relative paths read inside it,
+    /// absolute ones still the data, and a relative `set` writes nothing.
+    pub item: Option<&'a Value>,
+    /// The catalog whose prop schemas decide which props are DATA
+    /// ([`bind_tree`]); `None` = the core catalog.
+    pub view: Option<&'a CatalogView>,
 }
 
-fn empty(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::String(s) => s.is_empty(),
-        Value::Array(a) => a.is_empty(),
-        _ => false,
+impl<'a> ResolveContext<'a> {
+    pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None }
+    }
+
+    /// Relative paths read inside `item` (see [`ResolveContext::item`]).
+    pub fn with_item(self, item: &'a Value) -> ResolveContext<'a> {
+        ResolveContext { item: Some(item), ..self }
+    }
+
+    /// Bind against an extended catalog (its components' prop schemas).
+    pub fn with_view(self, view: &'a CatalogView) -> ResolveContext<'a> {
+        ResolveContext { view: Some(view), ..self }
+    }
+
+    /// The value a binding path names: inside the literal item for a
+    /// relative path under an item scope, else at its absolute pointer.
+    pub fn read_path(&self, path: &str) -> Option<&'a Value> {
+        if !path.starts_with('/') {
+            if let Some(item) = self.item {
+                return if path.is_empty() { Some(item) } else { get_pointer(item, &format!("/{path}")) };
+            }
+        }
+        self.read(&absolute_path(path, self.scope))
+    }
+
+    pub fn with_strings(self, strings: &'a StringTable) -> ResolveContext<'a> {
+        ResolveContext { strings: Some(strings), ..self }
+    }
+
+    pub fn with_overlay(self, prefix: &'a str, value: &'a Value) -> ResolveContext<'a> {
+        ResolveContext { overlay: Some((prefix, value)), ..self }
+    }
+
+    /// The value at an absolute pointer (through the overlay when it names
+    /// the overlay's prefix).
+    pub fn read(&self, pointer: &str) -> Option<&'a Value> {
+        if let Some((prefix, value)) = self.overlay {
+            if let Some(rest) = pointer.strip_prefix(prefix) {
+                if rest.is_empty() || rest.starts_with('/') {
+                    return get_pointer(value, rest);
+                }
+            }
+        }
+        get_pointer(self.data, pointer)
     }
 }
+
 
 fn num(v: Option<&Value>) -> f64 {
     v.map(json::to_number).unwrap_or(f64::NAN)
@@ -143,7 +202,7 @@ fn interpolate(text: &str, ctx: &ResolveContext) -> String {
         match after.find('}') {
             Some(end) => {
                 let expr = after[..end].trim();
-                let v = get_pointer(ctx.data, &absolute_path(expr, ctx.scope));
+                let v = ctx.read(&absolute_path(expr, ctx.scope));
                 if let Some(v) = v.filter(|v| !v.is_null()) {
                     out.push_str(&json::to_js_string(v));
                 }
@@ -266,13 +325,19 @@ fn format_date(value: &str, pattern: Option<&str>) -> String {
     out
 }
 
-/// The 14 client functions of the catalog. `openUrl` returns the url as a
-/// string the surface turns into an event for the host.
+/// The function table: the core functions first, then the 14 client
+/// functions of the basic catalog (`and`/`or`/`not`/`required` with the core
+/// truthiness, `src/dynamic.ts LOGIC_FUNCTIONS`). `openUrl` returns the url as
+/// a string the surface turns into an event for the host. `None` = unknown
+/// function or an undefined result.
 pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext) -> Option<Value> {
+    if let Some(result) = crate::expr::core_function(name, args) {
+        return result;
+    }
     let a = |k: &str| args.get(k);
     let s = |k: &str| a(k).filter(|v| !v.is_null()).map(json::to_js_string).unwrap_or_default();
     Some(match name {
-        "required" => Value::Bool(!a("value").is_none_or(empty)),
+        "required" => Value::Bool(a("value").is_some_and(|v| truthy(v) && !v.as_array().is_some_and(Vec::is_empty))),
         "regex" => Value::Bool(regex_test(&s("pattern"), &s("value"))),
         "length" => {
             let n = s("value").chars().count() as f64;
@@ -332,15 +397,6 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
     })
 }
 
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|x| x != 0.0 && !x.is_nan()),
-        Value::String(s) => !s.is_empty(),
-        _ => true,
-    }
-}
 
 /// A tiny regex subset for `regex` checks: literals, `.`, `*`, `+`, `?`,
 /// `^`/`$` anchors, character classes `[...]` (ranges, negation), `\d \w \s`
@@ -493,12 +549,13 @@ mod simple_regex {
     }
 }
 
-/// A prop value with its bindings and calls resolved. Plain objects recurse
-/// (a check's `condition`, a menu item's label). `None` = undefined.
+/// A prop or style value with its bindings and calls resolved at ANY depth
+/// (`resolveDynamic`). Plain objects recurse (a check's `condition`, a menu
+/// item's label); `$string.<id>` strings resolve through the context's
+/// table. `None` = undefined.
 pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
     if is_binding(value) {
-        let path = value["path"].as_str().unwrap_or("");
-        return get_pointer(ctx.data, &absolute_path(path, ctx.scope)).cloned();
+        return ctx.read_path(value["path"].as_str().unwrap_or("")).cloned();
     }
     if is_call(value) {
         let name = value["call"].as_str().unwrap_or("");
@@ -513,6 +570,7 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
         return call_function(name, &args, ctx);
     }
     match value {
+        Value::String(s) if ctx.strings.is_some() => Some(Value::String(resolve_string(s, ctx.strings.expect("strings")).to_string())),
         Value::Array(items) => Some(Value::Array(items.iter().map(|i| resolve_value(i, ctx).unwrap_or(Value::Null)).collect())),
         Value::Object(map) => {
             let mut out = Map::new();
@@ -540,6 +598,205 @@ pub fn binding_paths(value: &Value, scope: &str, out: &mut Vec<String>) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The bind pass (round 1, `src/dynamic.ts`)
+// ---------------------------------------------------------------------------
+
+/// A node's `visible`: absent = shown; else its resolved truthiness.
+pub fn is_visible(visible: Option<&Value>, ctx: &ResolveContext) -> bool {
+    match visible {
+        None => true,
+        Some(v) => resolve_value(v, ctx).is_some_and(|r| truthy(&r)),
+    }
+}
+
+/// A DATA schema: a shape-less `object` (any object) or an array of them —
+/// Table `rows` in the core catalog. A literal value there is the author's
+/// data, copied verbatim: no binding, call or `$string.<id>` inside it is
+/// interpreted. A dynamic value AT the position still resolves (and its
+/// result is never descended). `src/dynamic.ts isDataSchema`.
+pub fn is_data_schema(schema: Option<&PropSchema>) -> bool {
+    match schema {
+        Some(s) if s.type_ == "object" => s.shape.is_none(),
+        Some(s) if s.type_ == "array" => s.items.as_deref().is_some_and(|items| is_data_schema(Some(items))),
+        _ => false,
+    }
+}
+
+/// One prop value resolved along its schema: dynamic → resolved, DATA
+/// literal → verbatim, arrays and shaped objects → per item / property,
+/// anything else → [`resolve_value`] (any depth).
+pub fn resolve_prop(value: &Value, schema: Option<&PropSchema>, ctx: &ResolveContext, defs: &indexmap::IndexMap<String, DefSchema>) -> Option<Value> {
+    if is_dynamic(value) {
+        return resolve_value(value, ctx);
+    }
+    if is_data_schema(schema) {
+        return Some(value.clone());
+    }
+    if let (Some(s), Value::Array(items)) = (schema, value) {
+        if s.type_ == "array" {
+            if let Some(item_schema) = s.items.as_deref() {
+                return Some(Value::Array(items.iter().map(|i| resolve_prop(i, Some(item_schema), ctx, defs).unwrap_or(Value::Null)).collect()));
+            }
+        }
+    }
+    let shape = schema.filter(|s| s.type_ == "object").and_then(|s| s.shape.as_ref()).and_then(|name| defs.get(name));
+    if let (Some(shape), Value::Object(map)) = (shape, value) {
+        let mut out = Map::new();
+        for (k, v) in map {
+            if let Some(r) = resolve_prop(v, shape.properties.get(k), ctx, defs) {
+                out.insert(k.clone(), r);
+            }
+        }
+        return Some(Value::Object(out));
+    }
+    resolve_value(value, ctx)
+}
+
+/// A node's props resolved along its component's schema (an unknown
+/// component's props resolve at any depth).
+pub fn resolve_node_props(def: Option<&ComponentDef>, props: &Map<String, Value>, ctx: &ResolveContext, defs: &indexmap::IndexMap<String, DefSchema>) -> Map<String, Value> {
+    let mut out = Map::new();
+    for (k, v) in props {
+        if let Some(r) = resolve_prop(v, def.and_then(|d| d.props.get(k)), ctx, defs) {
+            out.insert(k.clone(), r);
+        }
+    }
+    out
+}
+
+/// The BIND pass a renderer runs over an expanded tree for one data model:
+/// every prop resolved along its schema ([`resolve_node_props`]: DATA props
+/// verbatim), every style value, recipe prop and `accessibility` value
+/// resolved, a node whose `visible` resolves falsy dropped with its subtree,
+/// `visible` itself removed. Actions stay unresolved (they evaluate at press
+/// time, [`run_action`]); a `template` and the slots of a ROW-SCOPED
+/// component (Table cells) stay UNBOUND — the painter binds them per item /
+/// per row ([`bind_row_slot`]). Pure; `fixtures/bind-time.json` locks it.
+pub fn bind_tree(node: &UiNode, ctx: &ResolveContext) -> Option<UiNode> {
+    match ctx.view {
+        Some(view) => bind_node(node, ctx, view),
+        None => bind_node(node, ctx, &CatalogView::core()),
+    }
+}
+
+fn bind_node(node: &UiNode, ctx: &ResolveContext, view: &CatalogView) -> Option<UiNode> {
+    if !is_visible(node.visible.as_ref(), ctx) {
+        return None;
+    }
+    let resolve_map = |m: &Map<String, Value>| match resolve_value(&Value::Object(m.clone()), ctx) {
+        Some(Value::Object(out)) => out,
+        _ => Map::new(),
+    };
+    let def = view.components.get(&node.component);
+    let mut out = UiNode::new(node.id.clone(), node.component.clone());
+    out.props = resolve_node_props(def, &node.props, ctx, &view.defs);
+    out.style = node.style.as_ref().map(resolve_map);
+    out.on = node.on.clone();
+    out.accessibility = match node.accessibility.as_ref().map(|a| resolve_value(a, ctx)) {
+        Some(Some(Value::Object(a))) if !a.is_empty() => Some(Value::Object(a)),
+        _ => None,
+    };
+    out.children = node.children.iter().filter_map(|c| bind_node(c, ctx, view)).collect();
+    if let Some(slots) = &node.slots {
+        if def.is_some_and(ComponentDef::has_row_slots) {
+            out.slots = Some(slots.clone());
+        } else {
+            let bound: indexmap::IndexMap<String, UiNode> = slots.iter().filter_map(|(k, c)| bind_node(c, ctx, view).map(|b| (k.clone(), b))).collect();
+            if !bound.is_empty() {
+                out.slots = Some(bound);
+            }
+        }
+    }
+    out.template = node.template.clone();
+    out.recipe = node.recipe.as_ref().map(|r| crate::types::Recipe { macro_: r.macro_.clone(), part: r.part.clone(), props: resolve_map(&r.props) });
+    Some(out)
+}
+
+/// A row-scoped slot cell bound for row `index` (`src/dynamic.ts
+/// bindRowSlot` + `rowScope`). `rows_prop` = the UNBOUND `rows` value: a
+/// binding → relative paths read the row at `<its pointer>/<index>` in the
+/// data model (and a `set` writes into it); a literal or a call → relative
+/// paths read inside `rows[index]` (a relative `set` writes nothing).
+/// `index` = the row's index in `rows` as given, before any local sort.
+pub fn bind_row_slot(slot: &UiNode, rows_prop: &Value, rows: &[Value], index: usize, ctx: &ResolveContext) -> Option<UiNode> {
+    if is_binding(rows_prop) {
+        let base = format!("{}/{index}", absolute_path(rows_prop["path"].as_str().unwrap_or(""), ctx.scope));
+        let row_ctx = ResolveContext { scope: &base, item: None, ..*ctx };
+        return bind_tree(slot, &row_ctx);
+    }
+    let null = Value::Null;
+    let row_ctx = ResolveContext { item: Some(rows.get(index).unwrap_or(&null)), ..*ctx };
+    bind_tree(slot, &row_ctx)
+}
+
+/// An event an action dispatches, its context resolved BEFORE any write.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionEvent {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<Value>,
+}
+
+/// A function other than `set` the host must run (`openUrl`…), args resolved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionCall {
+    pub call: String,
+    pub args: Map<String, Value>,
+}
+
+/// What a press does (`src/dynamic.ts ActionOutcome`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActionOutcome {
+    /// The data model after the action's `set` (unchanged without one).
+    pub data: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<ActionEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<ActionCall>,
+    /// The absolute pointer `set` wrote (not part of the TS outcome; the
+    /// surface reports it as `DataChanged`).
+    #[serde(skip)]
+    pub written: Option<(String, Value)>,
+}
+
+/// What a press does: resolve the function args and the event context
+/// against the data AS IT IS, then apply `set` (relative paths against the
+/// scope, missing objects created), then hand back the event.
+pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
+    let mut out = ActionOutcome { data: ctx.data.clone(), event: None, call: None, written: None };
+    let event = action.get("event").filter(|e| e.is_object()).map(|e| ActionEvent {
+        name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+        context: e.get("context").filter(|c| !c.is_null()).map(|c| resolve_value(c, ctx).unwrap_or(Value::Null)),
+    });
+    if let Some(function) = action.get("function").filter(|f| f.is_object()) {
+        let name = function.get("call").and_then(Value::as_str).unwrap_or("").to_string();
+        let args = match resolve_value(function.get("args").unwrap_or(&Value::Object(Map::new())), ctx) {
+            Some(Value::Object(a)) => a,
+            _ => Map::new(),
+        };
+        match (name.as_str(), args.get("path").and_then(Value::as_str)) {
+            // A relative path under a literal-item scope names no data: no write.
+            ("set", Some(path)) if !path.starts_with('/') && ctx.item.is_some() => {}
+            ("set", None) => {}
+            ("set", Some(path)) => {
+                let pointer = absolute_path(path, ctx.scope);
+                let value = args.get("value").cloned();
+                set_pointer(&mut out.data, &pointer, Some(value.clone().unwrap_or(Value::Null)));
+                if value.is_none() {
+                    // writePointer with `undefined`: the key exists without a
+                    // value, which JSON drops.
+                    set_pointer(&mut out.data, &pointer, None);
+                }
+                out.written = Some((pointer, value.unwrap_or(Value::Null)));
+            }
+            _ => out.call = Some(ActionCall { call: name, args }),
+        }
+    }
+    out.event = event;
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,12 +817,16 @@ mod tests {
         assert_eq!(absolute_path("", "/items/3"), "/items/3");
         assert_eq!(absolute_path("/x", "/items/3"), "/x");
         assert_eq!(absolute_path("x", ""), "/x");
+        assert_eq!(absolute_path("", ""), "");
+        let mut fresh = json!({});
+        set_pointer(&mut fresh, "/a/0/b", Some(json!(1)));
+        assert_eq!(fresh, json!({"a": {"0": {"b": 1}}}), "missing containers are objects (writePointer)");
     }
 
     #[test]
     fn functions_resolve() {
         let data = json!({"n": 3, "email": "a@b.co", "price": 1234.5});
-        let ctx = ResolveContext { data: &data, scope: "" };
+        let ctx = ResolveContext::new(&data, "");
         let call = |name: &str, args: Value| resolve_value(&json!({"call": name, "args": args}), &ctx);
         assert_eq!(call("required", json!({"value": {"path": "/email"}})), Some(json!(true)));
         assert_eq!(call("email", json!({"value": {"path": "/email"}})), Some(json!(true)));
@@ -587,7 +848,7 @@ mod tests {
     #[test]
     fn template_scope_resolves_relative_paths() {
         let data = json!({"items": [{"name": "one"}, {"name": "two"}]});
-        let ctx = ResolveContext { data: &data, scope: "/items/1" };
+        let ctx = ResolveContext::new(&data, "/items/1");
         assert_eq!(resolve_value(&json!({"path": "name"}), &ctx), Some(json!("two")));
         let mut paths = Vec::new();
         binding_paths(&json!({"a": {"path": "name"}, "b": [{"path": "/x"}]}), "/items/1", &mut paths);

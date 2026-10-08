@@ -425,6 +425,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt8: FfiConverterPrimitive {
+    typealias FfiType = UInt8
+    typealias SwiftType = UInt8
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt8 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: UInt8, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
     typealias FfiType = UInt16
     typealias SwiftType = UInt16
@@ -844,7 +860,8 @@ public func FfiConverterTypeMeasurer_lower(_ value: Measurer) -> UInt64 {
 
 
 /**
- * ONE surface. Every method locks it; the host calls from any thread.
+ * ONE surface. Every method locks it briefly; the host calls from any
+ * thread. `layout` releases the lock around each measurer upcall.
  */
 public protocol SurfaceProtocol: AnyObject, Sendable {
     
@@ -853,7 +870,23 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func apply(messageJson: String) throws  -> FfiApplyOutcome
     
+    /**
+     * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
+     * `{"scrollIntoView": {"id"}}`.
+     */
+    func commandJson(commandJson: String) throws  -> [FfiEvent]
+    
     func dataJson()  -> String
+    
+    /**
+     * A Toast's timeout: `open: false`, `dismiss` + `change`.
+     */
+    func dismissToast(id: String)  -> [FfiEvent]
+    
+    /**
+     * The theme in effect (density + contrast applied), as JSON.
+     */
+    func effectiveThemeJson()  -> String?
     
     /**
      * An interaction on node `index`: `press`, `change`, `select`, `submit`,
@@ -863,12 +896,22 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     func failingChecks(id: String)  -> [String]
     
+    /**
+     * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
+     * overlay unless its trigger or content is hovered again.
+     */
+    func hoverTimeout(owner: String)  -> [FfiEvent]
+    
     func indexOf(id: String)  -> UInt32?
     
     func invalidateMeasures() 
     
     func issuesJson()  -> String
     
+    /**
+     * One layout pass through the host's measurer (at most three batched
+     * upcalls, each made WITHOUT the surface locked).
+     */
     func layout(measurer: Measurer)  -> FfiLayout
     
     /**
@@ -882,16 +925,28 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func nodeCount()  -> UInt32
     
     /**
-     * Every layout node, once per structure version.
+     * Every slot (removed ones as tombstones): fetch once, then patch with
+     * `FfiLayout.delta` through `nodes_at`.
      */
     func nodes()  -> [FfiNode]
+    
+    /**
+     * The given slots only (a delta's `added` + `changed`).
+     */
+    func nodesAt(indices: [UInt32])  -> [FfiNode]
     
     /**
      * Register an extension catalog (its JSON definition), validated.
      */
     func registerExtension(extensionJson: String) throws 
     
+    /**
+     * A scroll container (any overflow scroll node, a windowed List or
+     * Table) scrolled vertically.
+     */
     func scroll(listId: String, offset: Float)  -> Bool
+    
+    func scrollTo(id: String, x: Float, y: Float)  -> Bool
     
     func setBuiltinTheme(id: String) throws 
     
@@ -900,12 +955,34 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func setComponents(componentsJson: String) throws  -> FfiApplyOutcome
     
+    func setContrast(contrast: String, systemHigh: Bool) throws 
+    
     /**
      * Write at a JSON pointer (`value_json` null/None removes).
      */
     func setData(path: String, valueJson: String?) throws 
     
+    func setDensity(density: String) throws 
+    
+    /**
+     * Dynamic Type / font scale (1 = the theme's sizes).
+     */
+    func setFontScale(scale: Float) 
+    
+    /**
+     * Safe-area insets layers keep clear of.
+     */
+    func setInsets(top: Float, right: Float, bottom: Float, left: Float) 
+    
+    func setLocale(locale: String) 
+    
+    /**
+     * `light | dark`, or `system` (with `system_dark` = the platform's
+     * current preference; call again when it changes).
+     */
     func setMode(mode: String) throws 
+    
+    func setModeSetting(mode: String, systemDark: Bool) throws 
     
     /**
      * The nested authoring form (fixtures, MCP templates).
@@ -914,6 +991,11 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     func setOpen(id: String, `open`: Bool)  -> [FfiEvent]
     
+    /**
+     * A hover-capable pointer, the reduced-motion preference.
+     */
+    func setPointer(hover: Bool, reducedMotion: Bool) 
+    
     func setPressed(ids: [String])  -> Bool
     
     /**
@@ -921,7 +1003,17 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func setRounding(on: Bool) 
     
+    /**
+     * Every setting at once (what changed takes effect on the next layout).
+     */
+    func setSettings(settings: FfiSettings) throws 
+    
     func setStates(id: String, states: [String])  -> Bool
+    
+    /**
+     * Built-in string overrides `{id: text}`.
+     */
+    func setStringsJson(stringsJson: String) throws 
     
     /**
      * Load a theme file (JSON; `extends` may name a built-in) and use it.
@@ -933,7 +1025,25 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      */
     func setViewport(width: Float, height: Float, maxHeight: Float?)  -> Bool
     
+    func settings()  -> FfiSettings
+    
+    /**
+     * The built-in string table in effect, as JSON.
+     */
+    func stringsJson()  -> String
+    
     func structureVersion()  -> UInt64
+    
+    /**
+     * Submit a Form by id (what a `submit` Button or Enter does).
+     */
+    func submitForm(id: String)  -> [FfiEvent]
+    
+    /**
+     * Events raised outside a call that returns them (a hover opening a
+     * tooltip, a live region announcing).
+     */
+    func takeEvents()  -> [FfiEvent]
     
     func textStyle(index: UInt32)  -> FfiTextStyle?
     
@@ -943,7 +1053,8 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
 }
 /**
- * ONE surface. Every method locks it; the host calls from any thread.
+ * ONE surface. Every method locks it briefly; the host calls from any
+ * thread. `layout` releases the lock around each measurer upcall.
  */
 open class Surface: SurfaceProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -1025,9 +1136,45 @@ open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
 })
 }
     
+    /**
+     * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
+     * `{"scrollIntoView": {"id"}}`.
+     */
+open func commandJson(commandJson: String)throws  -> [FfiEvent]  {
+    return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_command_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(commandJson),$0
+    )
+})
+}
+    
 open func dataJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_data_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * A Toast's timeout: `open: false`, `dismiss` + `change`.
+     */
+open func dismissToast(id: String) -> [FfiEvent]  {
+    return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * The theme in effect (density + contrast applied), as JSON.
+     */
+open func effectiveThemeJson() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -1057,6 +1204,19 @@ open func failingChecks(id: String) -> [String]  {
 })
 }
     
+    /**
+     * A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
+     * overlay unless its trigger or content is hovered again.
+     */
+open func hoverTimeout(owner: String) -> [FfiEvent]  {
+    return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_hover_timeout(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(owner),$0
+    )
+})
+}
+    
 open func indexOf(id: String) -> UInt32?  {
     return try!  FfiConverterOptionUInt32.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_index_of(
@@ -1081,6 +1241,10 @@ open func issuesJson() -> String  {
 })
 }
     
+    /**
+     * One layout pass through the host's measurer (at most three batched
+     * upcalls, each made WITHOUT the surface locked).
+     */
 open func layout(measurer: Measurer) -> FfiLayout  {
     return try!  FfiConverterTypeFfiLayout_lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_layout(
@@ -1122,12 +1286,25 @@ open func nodeCount() -> UInt32  {
 }
     
     /**
-     * Every layout node, once per structure version.
+     * Every slot (removed ones as tombstones): fetch once, then patch with
+     * `FfiLayout.delta` through `nodes_at`.
      */
 open func nodes() -> [FfiNode]  {
     return try!  FfiConverterSequenceTypeFfiNode.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_nodes(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The given slots only (a delta's `added` + `changed`).
+     */
+open func nodesAt(indices: [UInt32]) -> [FfiNode]  {
+    return try!  FfiConverterSequenceTypeFfiNode.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_nodes_at(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceUInt32.lower(indices),$0
     )
 })
 }
@@ -1143,12 +1320,27 @@ open func registerExtension(extensionJson: String)throws   {try rustCallWithErro
 }
 }
     
+    /**
+     * A scroll container (any overflow scroll node, a windowed List or
+     * Table) scrolled vertically.
+     */
 open func scroll(listId: String, offset: Float) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_scroll(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(listId),
         FfiConverterFloat.lower(offset),$0
+    )
+})
+}
+    
+open func scrollTo(id: String, x: Float, y: Float) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
     )
 })
 }
@@ -1173,6 +1365,15 @@ open func setComponents(componentsJson: String)throws  -> FfiApplyOutcome  {
 })
 }
     
+open func setContrast(contrast: String, systemHigh: Bool)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_contrast(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(contrast),
+        FfiConverterBool.lower(systemHigh),$0
+    )
+}
+}
+    
     /**
      * Write at a JSON pointer (`value_json` null/None removes).
      */
@@ -1185,10 +1386,64 @@ open func setData(path: String, valueJson: String?)throws   {try rustCallWithErr
 }
 }
     
+open func setDensity(density: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_density(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(density),$0
+    )
+}
+}
+    
+    /**
+     * Dynamic Type / font scale (1 = the theme's sizes).
+     */
+open func setFontScale(scale: Float)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(
+            self.uniffiCloneHandle(),
+        FfiConverterFloat.lower(scale),$0
+    )
+}
+}
+    
+    /**
+     * Safe-area insets layers keep clear of.
+     */
+open func setInsets(top: Float, right: Float, bottom: Float, left: Float)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_insets(
+            self.uniffiCloneHandle(),
+        FfiConverterFloat.lower(top),
+        FfiConverterFloat.lower(right),
+        FfiConverterFloat.lower(bottom),
+        FfiConverterFloat.lower(left),$0
+    )
+}
+}
+    
+open func setLocale(locale: String)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_locale(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(locale),$0
+    )
+}
+}
+    
+    /**
+     * `light | dark`, or `system` (with `system_dark` = the platform's
+     * current preference; call again when it changes).
+     */
 open func setMode(mode: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_method_surface_set_mode(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(mode),$0
+    )
+}
+}
+    
+open func setModeSetting(mode: String, systemDark: Bool)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_mode_setting(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(mode),
+        FfiConverterBool.lower(systemDark),$0
     )
 }
 }
@@ -1215,6 +1470,18 @@ open func setOpen(id: String, `open`: Bool) -> [FfiEvent]  {
 })
 }
     
+    /**
+     * A hover-capable pointer, the reduced-motion preference.
+     */
+open func setPointer(hover: Bool, reducedMotion: Bool)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_pointer(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(hover),
+        FfiConverterBool.lower(reducedMotion),$0
+    )
+}
+}
+    
 open func setPressed(ids: [String]) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_set_pressed(
@@ -1235,6 +1502,17 @@ open func setRounding(on: Bool)  {try! rustCall() {
 }
 }
     
+    /**
+     * Every setting at once (what changed takes effect on the next layout).
+     */
+open func setSettings(settings: FfiSettings)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_settings(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFfiSettings_lower(settings),$0
+    )
+}
+}
+    
 open func setStates(id: String, states: [String]) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_set_states(
@@ -1243,6 +1521,17 @@ open func setStates(id: String, states: [String]) -> Bool  {
         FfiConverterSequenceString.lower(states),$0
     )
 })
+}
+    
+    /**
+     * Built-in string overrides `{id: text}`.
+     */
+open func setStringsJson(stringsJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(stringsJson),$0
+    )
+}
 }
     
     /**
@@ -1270,9 +1559,52 @@ open func setViewport(width: Float, height: Float, maxHeight: Float?) -> Bool  {
 })
 }
     
+open func settings() -> FfiSettings  {
+    return try!  FfiConverterTypeFfiSettings_lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_settings(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The built-in string table in effect, as JSON.
+     */
+open func stringsJson() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_strings_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func structureVersion() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_structure_version(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Submit a Form by id (what a `submit` Button or Enter does).
+     */
+open func submitForm(id: String) -> [FfiEvent]  {
+    return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_submit_form(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Events raised outside a call that returns them (a hover opening a
+     * tooltip, a live region announcing).
+     */
+open func takeEvents() -> [FfiEvent]  {
+    return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_take_events(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -1407,8 +1739,18 @@ public func FfiConverterTypeFfiApplyOutcome_lower(_ value: FfiApplyOutcome) -> R
 
 
 public struct FfiControlBox: Equatable, Hashable {
+    /**
+     * The averages of the two sides (adding `2 ×` gives the total).
+     */
     public var paddingHorizontal: Float
     public var paddingVertical: Float
+    /**
+     * Every side (logical keys resolved by the direction).
+     */
+    public var paddingTop: Float
+    public var paddingRight: Float
+    public var paddingBottom: Float
+    public var paddingLeft: Float
     public var borderWidth: Float
     public var gap: Float
     public var minWidth: Float?
@@ -1418,9 +1760,19 @@ public struct FfiControlBox: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(paddingHorizontal: Float, paddingVertical: Float, borderWidth: Float, gap: Float, minWidth: Float?, minHeight: Float?, width: Float?, height: Float?) {
+    public init(
+        /**
+         * The averages of the two sides (adding `2 ×` gives the total).
+         */paddingHorizontal: Float, paddingVertical: Float, 
+        /**
+         * Every side (logical keys resolved by the direction).
+         */paddingTop: Float, paddingRight: Float, paddingBottom: Float, paddingLeft: Float, borderWidth: Float, gap: Float, minWidth: Float?, minHeight: Float?, width: Float?, height: Float?) {
         self.paddingHorizontal = paddingHorizontal
         self.paddingVertical = paddingVertical
+        self.paddingTop = paddingTop
+        self.paddingRight = paddingRight
+        self.paddingBottom = paddingBottom
+        self.paddingLeft = paddingLeft
         self.borderWidth = borderWidth
         self.gap = gap
         self.minWidth = minWidth
@@ -1447,6 +1799,10 @@ public struct FfiConverterTypeFfiControlBox: FfiConverterRustBuffer {
             try FfiControlBox(
                 paddingHorizontal: FfiConverterFloat.read(from: &buf), 
                 paddingVertical: FfiConverterFloat.read(from: &buf), 
+                paddingTop: FfiConverterFloat.read(from: &buf), 
+                paddingRight: FfiConverterFloat.read(from: &buf), 
+                paddingBottom: FfiConverterFloat.read(from: &buf), 
+                paddingLeft: FfiConverterFloat.read(from: &buf), 
                 borderWidth: FfiConverterFloat.read(from: &buf), 
                 gap: FfiConverterFloat.read(from: &buf), 
                 minWidth: FfiConverterOptionFloat.read(from: &buf), 
@@ -1459,6 +1815,10 @@ public struct FfiConverterTypeFfiControlBox: FfiConverterRustBuffer {
     public static func write(_ value: FfiControlBox, into buf: inout [UInt8]) {
         FfiConverterFloat.write(value.paddingHorizontal, into: &buf)
         FfiConverterFloat.write(value.paddingVertical, into: &buf)
+        FfiConverterFloat.write(value.paddingTop, into: &buf)
+        FfiConverterFloat.write(value.paddingRight, into: &buf)
+        FfiConverterFloat.write(value.paddingBottom, into: &buf)
+        FfiConverterFloat.write(value.paddingLeft, into: &buf)
         FfiConverterFloat.write(value.borderWidth, into: &buf)
         FfiConverterFloat.write(value.gap, into: &buf)
         FfiConverterOptionFloat.write(value.minWidth, into: &buf)
@@ -1481,6 +1841,72 @@ public func FfiConverterTypeFfiControlBox_lift(_ buf: RustBuffer) throws -> FfiC
 #endif
 public func FfiConverterTypeFfiControlBox_lower(_ value: FfiControlBox) -> RustBuffer {
     return FfiConverterTypeFfiControlBox.lower(value)
+}
+
+
+/**
+ * The node changes since the previous layout: fetch `added` + `changed`
+ * with `nodesAt`, drop `removed`; `renumbered` = fetch everything.
+ */
+public struct FfiDelta: Equatable, Hashable {
+    public var added: [UInt32]
+    public var removed: [UInt32]
+    public var changed: [UInt32]
+    public var renumbered: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(added: [UInt32], removed: [UInt32], changed: [UInt32], renumbered: Bool) {
+        self.added = added
+        self.removed = removed
+        self.changed = changed
+        self.renumbered = renumbered
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiDelta: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDelta: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDelta {
+        return
+            try FfiDelta(
+                added: FfiConverterSequenceUInt32.read(from: &buf), 
+                removed: FfiConverterSequenceUInt32.read(from: &buf), 
+                changed: FfiConverterSequenceUInt32.read(from: &buf), 
+                renumbered: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDelta, into buf: inout [UInt8]) {
+        FfiConverterSequenceUInt32.write(value.added, into: &buf)
+        FfiConverterSequenceUInt32.write(value.removed, into: &buf)
+        FfiConverterSequenceUInt32.write(value.changed, into: &buf)
+        FfiConverterBool.write(value.renumbered, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDelta_lift(_ buf: RustBuffer) throws -> FfiDelta {
+    return try FfiConverterTypeFfiDelta.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDelta_lower(_ value: FfiDelta) -> RustBuffer {
+    return FfiConverterTypeFfiDelta.lower(value)
 }
 
 
@@ -1666,13 +2092,23 @@ public struct FfiIntrinsics: Equatable, Hashable {
     public var minContentWidth: Float
     public var maxContentWidth: Float
     public var heightAtMaxContent: Float
+    /**
+     * The first baseline from the top of the border box (`alignItems:
+     * baseline`); `None` = the bottom edge.
+     */
+    public var baseline: Float?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(minContentWidth: Float, maxContentWidth: Float, heightAtMaxContent: Float) {
+    public init(minContentWidth: Float, maxContentWidth: Float, heightAtMaxContent: Float, 
+        /**
+         * The first baseline from the top of the border box (`alignItems:
+         * baseline`); `None` = the bottom edge.
+         */baseline: Float? = nil) {
         self.minContentWidth = minContentWidth
         self.maxContentWidth = maxContentWidth
         self.heightAtMaxContent = heightAtMaxContent
+        self.baseline = baseline
     }
 
     
@@ -1693,7 +2129,8 @@ public struct FfiConverterTypeFfiIntrinsics: FfiConverterRustBuffer {
             try FfiIntrinsics(
                 minContentWidth: FfiConverterFloat.read(from: &buf), 
                 maxContentWidth: FfiConverterFloat.read(from: &buf), 
-                heightAtMaxContent: FfiConverterFloat.read(from: &buf)
+                heightAtMaxContent: FfiConverterFloat.read(from: &buf), 
+                baseline: FfiConverterOptionFloat.read(from: &buf)
         )
     }
 
@@ -1701,6 +2138,7 @@ public struct FfiConverterTypeFfiIntrinsics: FfiConverterRustBuffer {
         FfiConverterFloat.write(value.minContentWidth, into: &buf)
         FfiConverterFloat.write(value.maxContentWidth, into: &buf)
         FfiConverterFloat.write(value.heightAtMaxContent, into: &buf)
+        FfiConverterOptionFloat.write(value.baseline, into: &buf)
     }
 }
 
@@ -1728,19 +2166,40 @@ public struct FfiLayer: Equatable, Hashable {
     public var anchorFrame: FfiFrame?
     public var placement: FfiPlacement?
     /**
-     * `centered`, a viewport edge (`top|right|bottom|left`) or the side an
-     * anchored layer landed on.
+     * `centered`, a viewport edge (`top|right|bottom|left`), the side an
+     * anchored layer landed on, `point` (a context menu) or `toast`.
      */
     public var position: String
+    /**
+     * `overlay` | `toast` (layers stack base < overlay < toast).
+     */
+    public var `class`: String
+    /**
+     * A scrim under it and the focus trapped inside (Dialog, Drawer).
+     */
+    public var modal: Bool
+    /**
+     * Escape / a scrim press / a drag closes it (`event(root, "dismiss")`).
+     */
+    public var dismissible: Bool
     public var frames: [FfiFrame]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(layer: UInt32, kind: String, owner: String, root: UInt32, anchorFrame: FfiFrame?, placement: FfiPlacement?, 
         /**
-         * `centered`, a viewport edge (`top|right|bottom|left`) or the side an
-         * anchored layer landed on.
-         */position: String, frames: [FfiFrame]) {
+         * `centered`, a viewport edge (`top|right|bottom|left`), the side an
+         * anchored layer landed on, `point` (a context menu) or `toast`.
+         */position: String, 
+        /**
+         * `overlay` | `toast` (layers stack base < overlay < toast).
+         */`class`: String, 
+        /**
+         * A scrim under it and the focus trapped inside (Dialog, Drawer).
+         */modal: Bool, 
+        /**
+         * Escape / a scrim press / a drag closes it (`event(root, "dismiss")`).
+         */dismissible: Bool, frames: [FfiFrame]) {
         self.layer = layer
         self.kind = kind
         self.owner = owner
@@ -1748,6 +2207,9 @@ public struct FfiLayer: Equatable, Hashable {
         self.anchorFrame = anchorFrame
         self.placement = placement
         self.position = position
+        self.`class` = `class`
+        self.modal = modal
+        self.dismissible = dismissible
         self.frames = frames
     }
 
@@ -1774,6 +2236,9 @@ public struct FfiConverterTypeFfiLayer: FfiConverterRustBuffer {
                 anchorFrame: FfiConverterOptionTypeFfiFrame.read(from: &buf), 
                 placement: FfiConverterOptionTypeFfiPlacement.read(from: &buf), 
                 position: FfiConverterString.read(from: &buf), 
+                class: FfiConverterString.read(from: &buf), 
+                modal: FfiConverterBool.read(from: &buf), 
+                dismissible: FfiConverterBool.read(from: &buf), 
                 frames: FfiConverterSequenceTypeFfiFrame.read(from: &buf)
         )
     }
@@ -1786,6 +2251,9 @@ public struct FfiConverterTypeFfiLayer: FfiConverterRustBuffer {
         FfiConverterOptionTypeFfiFrame.write(value.anchorFrame, into: &buf)
         FfiConverterOptionTypeFfiPlacement.write(value.placement, into: &buf)
         FfiConverterString.write(value.position, into: &buf)
+        FfiConverterString.write(value.`class`, into: &buf)
+        FfiConverterBool.write(value.modal, into: &buf)
+        FfiConverterBool.write(value.dismissible, into: &buf)
         FfiConverterSequenceTypeFfiFrame.write(value.frames, into: &buf)
     }
 }
@@ -1824,6 +2292,29 @@ public struct FfiLayout: Equatable, Hashable {
     public var measureRounds: UInt32
     public var upcalls: UInt32
     public var layoutNs: UInt64
+    public var scrolls: [FfiScroll]
+    public var toasts: [FfiToast]
+    public var delta: FfiDelta
+    /**
+     * `ltr` | `rtl`.
+     */
+    public var direction: String
+    /**
+     * The active breakpoint (`None` = base).
+     */
+    public var breakpoint: String?
+    /**
+     * Nodes restyled this pass; whether the tree was rebuilt; the layout
+     * nodes built (a scroll re-window builds only the list's window).
+     */
+    public var restyled: UInt32
+    public var rebuilt: Bool
+    public var builtNodes: UInt32
+    /**
+     * This call came from inside the surface's own measurer: the previous
+     * result, no new pass.
+     */
+    public var reentrant: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1833,7 +2324,21 @@ public struct FfiLayout: Equatable, Hashable {
          */frames: [FfiFrame], layers: [FfiLayer], lists: [FfiList], 
         /**
          * Node indices whose visual changed since the previous pass.
-         */visualChanges: [UInt32], structureVersion: UInt64, surfaceWidth: Float, surfaceHeight: Float, overflow: Bool, measureRounds: UInt32, upcalls: UInt32, layoutNs: UInt64) {
+         */visualChanges: [UInt32], structureVersion: UInt64, surfaceWidth: Float, surfaceHeight: Float, overflow: Bool, measureRounds: UInt32, upcalls: UInt32, layoutNs: UInt64, scrolls: [FfiScroll], toasts: [FfiToast], delta: FfiDelta, 
+        /**
+         * `ltr` | `rtl`.
+         */direction: String, 
+        /**
+         * The active breakpoint (`None` = base).
+         */breakpoint: String?, 
+        /**
+         * Nodes restyled this pass; whether the tree was rebuilt; the layout
+         * nodes built (a scroll re-window builds only the list's window).
+         */restyled: UInt32, rebuilt: Bool, builtNodes: UInt32, 
+        /**
+         * This call came from inside the surface's own measurer: the previous
+         * result, no new pass.
+         */reentrant: Bool) {
         self.frames = frames
         self.layers = layers
         self.lists = lists
@@ -1845,6 +2350,15 @@ public struct FfiLayout: Equatable, Hashable {
         self.measureRounds = measureRounds
         self.upcalls = upcalls
         self.layoutNs = layoutNs
+        self.scrolls = scrolls
+        self.toasts = toasts
+        self.delta = delta
+        self.direction = direction
+        self.breakpoint = breakpoint
+        self.restyled = restyled
+        self.rebuilt = rebuilt
+        self.builtNodes = builtNodes
+        self.reentrant = reentrant
     }
 
     
@@ -1873,7 +2387,16 @@ public struct FfiConverterTypeFfiLayout: FfiConverterRustBuffer {
                 overflow: FfiConverterBool.read(from: &buf), 
                 measureRounds: FfiConverterUInt32.read(from: &buf), 
                 upcalls: FfiConverterUInt32.read(from: &buf), 
-                layoutNs: FfiConverterUInt64.read(from: &buf)
+                layoutNs: FfiConverterUInt64.read(from: &buf), 
+                scrolls: FfiConverterSequenceTypeFfiScroll.read(from: &buf), 
+                toasts: FfiConverterSequenceTypeFfiToast.read(from: &buf), 
+                delta: FfiConverterTypeFfiDelta.read(from: &buf), 
+                direction: FfiConverterString.read(from: &buf), 
+                breakpoint: FfiConverterOptionString.read(from: &buf), 
+                restyled: FfiConverterUInt32.read(from: &buf), 
+                rebuilt: FfiConverterBool.read(from: &buf), 
+                builtNodes: FfiConverterUInt32.read(from: &buf), 
+                reentrant: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -1889,6 +2412,15 @@ public struct FfiConverterTypeFfiLayout: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.measureRounds, into: &buf)
         FfiConverterUInt32.write(value.upcalls, into: &buf)
         FfiConverterUInt64.write(value.layoutNs, into: &buf)
+        FfiConverterSequenceTypeFfiScroll.write(value.scrolls, into: &buf)
+        FfiConverterSequenceTypeFfiToast.write(value.toasts, into: &buf)
+        FfiConverterTypeFfiDelta.write(value.delta, into: &buf)
+        FfiConverterString.write(value.direction, into: &buf)
+        FfiConverterOptionString.write(value.breakpoint, into: &buf)
+        FfiConverterUInt32.write(value.restyled, into: &buf)
+        FfiConverterBool.write(value.rebuilt, into: &buf)
+        FfiConverterUInt32.write(value.builtNodes, into: &buf)
+        FfiConverterBool.write(value.reentrant, into: &buf)
     }
 }
 
@@ -2086,10 +2618,47 @@ public struct FfiNode: Equatable, Hashable {
     public var hidden: Bool
     public var triggerFor: String?
     public var accessibilityJson: String?
+    /**
+     * Children in paint order.
+     */
+    public var children: [UInt32]
+    /**
+     * The part states the core decided (`selected`, `open`, `checked`,
+     * `invalid`, `disabled`).
+     */
+    public var states: [String]
+    /**
+     * The enclosing Form's id.
+     */
+    public var form: String?
+    /**
+     * A live region: `polite | assertive`.
+     */
+    public var live: String?
+    /**
+     * A freed slot (indices are stable; `nodes()[i].index == i`).
+     */
+    public var removed: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(index: UInt32, id: String, component: String, part: String?, owner: String?, ownerComponent: String?, catalogId: String?, extensionKind: String?, depth: UInt32, parent: UInt32?, layer: UInt32, isLeaf: Bool, propsJson: String, lines: UInt32?, pressable: Bool, hidden: Bool, triggerFor: String?, accessibilityJson: String?) {
+    public init(index: UInt32, id: String, component: String, part: String?, owner: String?, ownerComponent: String?, catalogId: String?, extensionKind: String?, depth: UInt32, parent: UInt32?, layer: UInt32, isLeaf: Bool, propsJson: String, lines: UInt32?, pressable: Bool, hidden: Bool, triggerFor: String?, accessibilityJson: String?, 
+        /**
+         * Children in paint order.
+         */children: [UInt32], 
+        /**
+         * The part states the core decided (`selected`, `open`, `checked`,
+         * `invalid`, `disabled`).
+         */states: [String], 
+        /**
+         * The enclosing Form's id.
+         */form: String?, 
+        /**
+         * A live region: `polite | assertive`.
+         */live: String?, 
+        /**
+         * A freed slot (indices are stable; `nodes()[i].index == i`).
+         */removed: Bool) {
         self.index = index
         self.id = id
         self.component = component
@@ -2108,6 +2677,11 @@ public struct FfiNode: Equatable, Hashable {
         self.hidden = hidden
         self.triggerFor = triggerFor
         self.accessibilityJson = accessibilityJson
+        self.children = children
+        self.states = states
+        self.form = form
+        self.live = live
+        self.removed = removed
     }
 
     
@@ -2143,7 +2717,12 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
                 pressable: FfiConverterBool.read(from: &buf), 
                 hidden: FfiConverterBool.read(from: &buf), 
                 triggerFor: FfiConverterOptionString.read(from: &buf), 
-                accessibilityJson: FfiConverterOptionString.read(from: &buf)
+                accessibilityJson: FfiConverterOptionString.read(from: &buf), 
+                children: FfiConverterSequenceUInt32.read(from: &buf), 
+                states: FfiConverterSequenceString.read(from: &buf), 
+                form: FfiConverterOptionString.read(from: &buf), 
+                live: FfiConverterOptionString.read(from: &buf), 
+                removed: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2166,6 +2745,11 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
         FfiConverterBool.write(value.hidden, into: &buf)
         FfiConverterOptionString.write(value.triggerFor, into: &buf)
         FfiConverterOptionString.write(value.accessibilityJson, into: &buf)
+        FfiConverterSequenceUInt32.write(value.children, into: &buf)
+        FfiConverterSequenceString.write(value.states, into: &buf)
+        FfiConverterOptionString.write(value.form, into: &buf)
+        FfiConverterOptionString.write(value.live, into: &buf)
+        FfiConverterBool.write(value.removed, into: &buf)
     }
 }
 
@@ -2247,6 +2831,211 @@ public func FfiConverterTypeFfiPlacement_lower(_ value: FfiPlacement) -> RustBuf
 }
 
 
+/**
+ * A scroll container: its clamped offset and scrollable content. Frames
+ * are UNSCROLLED: translate the descendants by `-offset`, clip to the frame.
+ */
+public struct FfiScroll: Equatable, Hashable {
+    public var index: UInt32
+    public var offsetX: Float
+    public var offsetY: Float
+    public var contentWidth: Float
+    public var contentHeight: Float
+    public var scrollX: Bool
+    public var scrollY: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(index: UInt32, offsetX: Float, offsetY: Float, contentWidth: Float, contentHeight: Float, scrollX: Bool, scrollY: Bool) {
+        self.index = index
+        self.offsetX = offsetX
+        self.offsetY = offsetY
+        self.contentWidth = contentWidth
+        self.contentHeight = contentHeight
+        self.scrollX = scrollX
+        self.scrollY = scrollY
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiScroll: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiScroll: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiScroll {
+        return
+            try FfiScroll(
+                index: FfiConverterUInt32.read(from: &buf), 
+                offsetX: FfiConverterFloat.read(from: &buf), 
+                offsetY: FfiConverterFloat.read(from: &buf), 
+                contentWidth: FfiConverterFloat.read(from: &buf), 
+                contentHeight: FfiConverterFloat.read(from: &buf), 
+                scrollX: FfiConverterBool.read(from: &buf), 
+                scrollY: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiScroll, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.index, into: &buf)
+        FfiConverterFloat.write(value.offsetX, into: &buf)
+        FfiConverterFloat.write(value.offsetY, into: &buf)
+        FfiConverterFloat.write(value.contentWidth, into: &buf)
+        FfiConverterFloat.write(value.contentHeight, into: &buf)
+        FfiConverterBool.write(value.scrollX, into: &buf)
+        FfiConverterBool.write(value.scrollY, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiScroll_lift(_ buf: RustBuffer) throws -> FfiScroll {
+    return try FfiConverterTypeFfiScroll.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiScroll_lower(_ value: FfiScroll) -> RustBuffer {
+    return FfiConverterTypeFfiScroll.lower(value)
+}
+
+
+/**
+ * What a host sets per surface. `strings_json` = `{id: text}` overrides;
+ * `mode` = `light | dark | system`; `density` = `compact | default |
+ * comfortable`; `contrast` = `normal | high | system`.
+ */
+public struct FfiSettings: Equatable, Hashable {
+    public var locale: String
+    public var stringsJson: String
+    public var mode: String
+    public var systemDark: Bool
+    public var density: String
+    public var contrast: String
+    public var systemHighContrast: Bool
+    public var fontScale: Float
+    public var hover: Bool
+    public var reducedMotion: Bool
+    public var insetTop: Float
+    public var insetRight: Float
+    public var insetBottom: Float
+    public var insetLeft: Float
+    public var today: String?
+    /**
+     * `0` = a hover card / tooltip closes as soon as its trigger and
+     * content are left (the host delays the un-hover); `> 0` (150 like the
+     * web) = the core raises `hoverTimer {owner, delay_ms}` and closes on
+     * `hoverTimeout(owner)`.
+     */
+    public var hoverCloseMs: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(locale: String, stringsJson: String, mode: String, systemDark: Bool, density: String, contrast: String, systemHighContrast: Bool, fontScale: Float, hover: Bool, reducedMotion: Bool, insetTop: Float, insetRight: Float, insetBottom: Float, insetLeft: Float, today: String?, 
+        /**
+         * `0` = a hover card / tooltip closes as soon as its trigger and
+         * content are left (the host delays the un-hover); `> 0` (150 like the
+         * web) = the core raises `hoverTimer {owner, delay_ms}` and closes on
+         * `hoverTimeout(owner)`.
+         */hoverCloseMs: UInt32 = UInt32(0)) {
+        self.locale = locale
+        self.stringsJson = stringsJson
+        self.mode = mode
+        self.systemDark = systemDark
+        self.density = density
+        self.contrast = contrast
+        self.systemHighContrast = systemHighContrast
+        self.fontScale = fontScale
+        self.hover = hover
+        self.reducedMotion = reducedMotion
+        self.insetTop = insetTop
+        self.insetRight = insetRight
+        self.insetBottom = insetBottom
+        self.insetLeft = insetLeft
+        self.today = today
+        self.hoverCloseMs = hoverCloseMs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSettings: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSettings {
+        return
+            try FfiSettings(
+                locale: FfiConverterString.read(from: &buf), 
+                stringsJson: FfiConverterString.read(from: &buf), 
+                mode: FfiConverterString.read(from: &buf), 
+                systemDark: FfiConverterBool.read(from: &buf), 
+                density: FfiConverterString.read(from: &buf), 
+                contrast: FfiConverterString.read(from: &buf), 
+                systemHighContrast: FfiConverterBool.read(from: &buf), 
+                fontScale: FfiConverterFloat.read(from: &buf), 
+                hover: FfiConverterBool.read(from: &buf), 
+                reducedMotion: FfiConverterBool.read(from: &buf), 
+                insetTop: FfiConverterFloat.read(from: &buf), 
+                insetRight: FfiConverterFloat.read(from: &buf), 
+                insetBottom: FfiConverterFloat.read(from: &buf), 
+                insetLeft: FfiConverterFloat.read(from: &buf), 
+                today: FfiConverterOptionString.read(from: &buf), 
+                hoverCloseMs: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSettings, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.locale, into: &buf)
+        FfiConverterString.write(value.stringsJson, into: &buf)
+        FfiConverterString.write(value.mode, into: &buf)
+        FfiConverterBool.write(value.systemDark, into: &buf)
+        FfiConverterString.write(value.density, into: &buf)
+        FfiConverterString.write(value.contrast, into: &buf)
+        FfiConverterBool.write(value.systemHighContrast, into: &buf)
+        FfiConverterFloat.write(value.fontScale, into: &buf)
+        FfiConverterBool.write(value.hover, into: &buf)
+        FfiConverterBool.write(value.reducedMotion, into: &buf)
+        FfiConverterFloat.write(value.insetTop, into: &buf)
+        FfiConverterFloat.write(value.insetRight, into: &buf)
+        FfiConverterFloat.write(value.insetBottom, into: &buf)
+        FfiConverterFloat.write(value.insetLeft, into: &buf)
+        FfiConverterOptionString.write(value.today, into: &buf)
+        FfiConverterUInt32.write(value.hoverCloseMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSettings_lift(_ buf: RustBuffer) throws -> FfiSettings {
+    return try FfiConverterTypeFfiSettings.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSettings_lower(_ value: FfiSettings) -> RustBuffer {
+    return FfiConverterTypeFfiSettings.lower(value)
+}
+
+
 public struct FfiTextStyle: Equatable, Hashable {
     public var fontSize: Float
     public var fontWeight: UInt16
@@ -2309,6 +3098,68 @@ public func FfiConverterTypeFfiTextStyle_lower(_ value: FfiTextStyle) -> RustBuf
 }
 
 
+/**
+ * An open toast the host times (`duration_ms` 0 = sticky); on timeout call
+ * `dismissToast(id)`.
+ */
+public struct FfiToast: Equatable, Hashable {
+    public var id: String
+    public var durationMs: Double
+    public var kind: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, durationMs: Double, kind: String) {
+        self.id = id
+        self.durationMs = durationMs
+        self.kind = kind
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiToast: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiToast: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiToast {
+        return
+            try FfiToast(
+                id: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterDouble.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiToast, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterDouble.write(value.durationMs, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToast_lift(_ buf: RustBuffer) throws -> FfiToast {
+    return try FfiConverterTypeFfiToast.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToast_lower(_ value: FfiToast) -> RustBuffer {
+    return FfiConverterTypeFfiToast.lower(value)
+}
+
+
 public struct FfiVisual: Equatable, Hashable {
     public var backgroundColor: String?
     public var color: String?
@@ -2331,13 +3182,82 @@ public struct FfiVisual: Equatable, Hashable {
     public var native: Bool
     public var overflowHidden: Bool
     public var overflowScroll: Bool
+    /**
+     * `{angle, stops: [{color, offset}]}`, painted over the background.
+     */
+    public var backgroundGradientJson: String?
+    /**
+     * `[top, right, bottom, left]` when a side differs.
+     */
+    public var borderWidths: [Float]?
+    /**
+     * `solid | dashed | dotted`.
+     */
+    public var borderStyle: String?
+    /**
+     * `[topLeft, topRight, bottomRight, bottomLeft]` when a corner is set.
+     */
+    public var cornerRadii: [Float]?
+    public var letterSpacing: Float?
+    public var textDecoration: String?
+    public var textTransform: String?
+    public var fontStyle: String?
+    /**
+     * A leaf's padding `[top, right, bottom, left]`.
+     */
+    public var padding: [Float]?
+    public var overflowX: String?
+    public var overflowY: String?
+    /**
+     * `[{op: translate|scale|rotate, …}]`, paint-only, around the centre.
+     */
+    public var transformJson: String?
+    /**
+     * The duration changes animate with (0 under reduced motion) and the
+     * cubic bezier `[x1, y1, x2, y2]`.
+     */
+    public var transitionMs: Float?
+    public var transitionEasing: [Float]?
+    public var visibilityHidden: Bool
+    public var pointerEventsNone: Bool
+    public var userSelect: String?
+    public var cursor: String?
+    /**
+     * A Chart's series colours, resolved.
+     */
+    public var seriesColors: [String]?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(backgroundColor: String?, color: String?, borderWidth: Float?, borderColor: String?, borderRadius: Float?, opacity: Float?, 
         /**
          * `[{x, y, blur, spread, color}]`, or null.
-         */boxShadowJson: String?, fontSize: Float?, fontWeight: UInt16?, lineHeight: Float?, fontFamily: String?, textAlign: String?, paddingHorizontal: Float?, paddingVertical: Float?, gap: Float?, native: Bool, overflowHidden: Bool, overflowScroll: Bool) {
+         */boxShadowJson: String?, fontSize: Float?, fontWeight: UInt16?, lineHeight: Float?, fontFamily: String?, textAlign: String?, paddingHorizontal: Float?, paddingVertical: Float?, gap: Float?, native: Bool, overflowHidden: Bool, overflowScroll: Bool, 
+        /**
+         * `{angle, stops: [{color, offset}]}`, painted over the background.
+         */backgroundGradientJson: String?, 
+        /**
+         * `[top, right, bottom, left]` when a side differs.
+         */borderWidths: [Float]?, 
+        /**
+         * `solid | dashed | dotted`.
+         */borderStyle: String?, 
+        /**
+         * `[topLeft, topRight, bottomRight, bottomLeft]` when a corner is set.
+         */cornerRadii: [Float]?, letterSpacing: Float?, textDecoration: String?, textTransform: String?, fontStyle: String?, 
+        /**
+         * A leaf's padding `[top, right, bottom, left]`.
+         */padding: [Float]?, overflowX: String?, overflowY: String?, 
+        /**
+         * `[{op: translate|scale|rotate, …}]`, paint-only, around the centre.
+         */transformJson: String?, 
+        /**
+         * The duration changes animate with (0 under reduced motion) and the
+         * cubic bezier `[x1, y1, x2, y2]`.
+         */transitionMs: Float?, transitionEasing: [Float]?, visibilityHidden: Bool, pointerEventsNone: Bool, userSelect: String?, cursor: String?, 
+        /**
+         * A Chart's series colours, resolved.
+         */seriesColors: [String]?) {
         self.backgroundColor = backgroundColor
         self.color = color
         self.borderWidth = borderWidth
@@ -2356,6 +3276,25 @@ public struct FfiVisual: Equatable, Hashable {
         self.native = native
         self.overflowHidden = overflowHidden
         self.overflowScroll = overflowScroll
+        self.backgroundGradientJson = backgroundGradientJson
+        self.borderWidths = borderWidths
+        self.borderStyle = borderStyle
+        self.cornerRadii = cornerRadii
+        self.letterSpacing = letterSpacing
+        self.textDecoration = textDecoration
+        self.textTransform = textTransform
+        self.fontStyle = fontStyle
+        self.padding = padding
+        self.overflowX = overflowX
+        self.overflowY = overflowY
+        self.transformJson = transformJson
+        self.transitionMs = transitionMs
+        self.transitionEasing = transitionEasing
+        self.visibilityHidden = visibilityHidden
+        self.pointerEventsNone = pointerEventsNone
+        self.userSelect = userSelect
+        self.cursor = cursor
+        self.seriesColors = seriesColors
     }
 
     
@@ -2391,7 +3330,26 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
                 gap: FfiConverterOptionFloat.read(from: &buf), 
                 native: FfiConverterBool.read(from: &buf), 
                 overflowHidden: FfiConverterBool.read(from: &buf), 
-                overflowScroll: FfiConverterBool.read(from: &buf)
+                overflowScroll: FfiConverterBool.read(from: &buf), 
+                backgroundGradientJson: FfiConverterOptionString.read(from: &buf), 
+                borderWidths: FfiConverterOptionSequenceFloat.read(from: &buf), 
+                borderStyle: FfiConverterOptionString.read(from: &buf), 
+                cornerRadii: FfiConverterOptionSequenceFloat.read(from: &buf), 
+                letterSpacing: FfiConverterOptionFloat.read(from: &buf), 
+                textDecoration: FfiConverterOptionString.read(from: &buf), 
+                textTransform: FfiConverterOptionString.read(from: &buf), 
+                fontStyle: FfiConverterOptionString.read(from: &buf), 
+                padding: FfiConverterOptionSequenceFloat.read(from: &buf), 
+                overflowX: FfiConverterOptionString.read(from: &buf), 
+                overflowY: FfiConverterOptionString.read(from: &buf), 
+                transformJson: FfiConverterOptionString.read(from: &buf), 
+                transitionMs: FfiConverterOptionFloat.read(from: &buf), 
+                transitionEasing: FfiConverterOptionSequenceFloat.read(from: &buf), 
+                visibilityHidden: FfiConverterBool.read(from: &buf), 
+                pointerEventsNone: FfiConverterBool.read(from: &buf), 
+                userSelect: FfiConverterOptionString.read(from: &buf), 
+                cursor: FfiConverterOptionString.read(from: &buf), 
+                seriesColors: FfiConverterOptionSequenceString.read(from: &buf)
         )
     }
 
@@ -2414,6 +3372,25 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
         FfiConverterBool.write(value.native, into: &buf)
         FfiConverterBool.write(value.overflowHidden, into: &buf)
         FfiConverterBool.write(value.overflowScroll, into: &buf)
+        FfiConverterOptionString.write(value.backgroundGradientJson, into: &buf)
+        FfiConverterOptionSequenceFloat.write(value.borderWidths, into: &buf)
+        FfiConverterOptionString.write(value.borderStyle, into: &buf)
+        FfiConverterOptionSequenceFloat.write(value.cornerRadii, into: &buf)
+        FfiConverterOptionFloat.write(value.letterSpacing, into: &buf)
+        FfiConverterOptionString.write(value.textDecoration, into: &buf)
+        FfiConverterOptionString.write(value.textTransform, into: &buf)
+        FfiConverterOptionString.write(value.fontStyle, into: &buf)
+        FfiConverterOptionSequenceFloat.write(value.padding, into: &buf)
+        FfiConverterOptionString.write(value.overflowX, into: &buf)
+        FfiConverterOptionString.write(value.overflowY, into: &buf)
+        FfiConverterOptionString.write(value.transformJson, into: &buf)
+        FfiConverterOptionFloat.write(value.transitionMs, into: &buf)
+        FfiConverterOptionSequenceFloat.write(value.transitionEasing, into: &buf)
+        FfiConverterBool.write(value.visibilityHidden, into: &buf)
+        FfiConverterBool.write(value.pointerEventsNone, into: &buf)
+        FfiConverterOptionString.write(value.userSelect, into: &buf)
+        FfiConverterOptionString.write(value.cursor, into: &buf)
+        FfiConverterOptionSequenceString.write(value.seriesColors, into: &buf)
     }
 }
 
@@ -2594,6 +3571,54 @@ fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
+    typealias SwiftType = Double?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterDouble.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterDouble.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
+    typealias SwiftType = Bool?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterBool.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterBool.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2706,6 +3731,54 @@ fileprivate struct FfiConverterOptionTypeFfiVisual: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeFfiVisual.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceFloat: FfiConverterRustBuffer {
+    typealias SwiftType = [Float]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -2989,6 +4062,56 @@ fileprivate struct FfiConverterSequenceTypeFfiNode: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiScroll: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiScroll]
+
+    public static func write(_ value: [FfiScroll], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiScroll.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiScroll] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiScroll]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiScroll.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiToast: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiToast]
+
+    public static func write(_ value: [FfiToast], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiToast.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiToast] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiToast]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiToast.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer {
     typealias SwiftType = [FfiVisual]
 
@@ -3026,6 +4149,22 @@ public func benchTreeJson(n: UInt32) -> String  {
     )
 })
 }
+/**
+ * The BIND pass over an expanded node for one data model (`src/dynamic.ts
+ * bindTree`): props, styles and recipe props resolved, falsy `visible`
+ * dropped (→ `None`), `$string.<id>` resolved through the default table +
+ * `strings_json` overrides.
+ */
+public func bindTreeJson(nodeJson: String, dataJson: String, scope: String, stringsJson: String?)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_bind_tree_json(
+        FfiConverterString.lower(nodeJson),
+        FfiConverterString.lower(dataJson),
+        FfiConverterString.lower(scope),
+        FfiConverterOptionString.lower(stringsJson),$0
+    )
+})
+}
 public func builtinThemeIds() -> [String]  {
     return try!  FfiConverterSequenceString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids($0
@@ -3039,6 +4178,29 @@ public func builtinThemeJson(id: String) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(
         FfiConverterString.lower(id),$0
+    )
+})
+}
+/**
+ * `{min, max}` of a chart (`series_json` = the Chart's `series`).
+ */
+public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max: Double?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_chart_extent_json(
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(seriesJson),
+        FfiConverterOptionDouble.lower(min),
+        FfiConverterOptionDouble.lower(max),$0
+    )
+})
+}
+/**
+ * A component's a11y contract `{role, keys}`, if any.
+ */
+public func componentA11yJson(component: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_component_a11y_json(
+        FfiConverterString.lower(component),$0
     )
 })
 }
@@ -3077,6 +4239,17 @@ public func extensionErrors(extensionJson: String)throws  -> [String]  {
 })
 }
 /**
+ * `{name}` placeholders filled from `params_json`.
+ */
+public func formatString(template: String, paramsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_format_string(
+        FfiConverterString.lower(template),
+        FfiConverterString.lower(paramsJson),$0
+    )
+})
+}
+/**
  * The first path where two JSON documents differ (`""` when equal).
  */
 public func jsonDiff(a: String, b: String) -> String  {
@@ -3108,6 +4281,18 @@ public func loadThemeJson(themeJson: String, parentsJson: String?)throws  -> Str
     uniffi_exponential_ui_ffi_fn_func_load_theme_json(
         FfiConverterString.lower(themeJson),
         FfiConverterOptionString.lower(parentsJson),$0
+    )
+})
+}
+/**
+ * `{min, max, step, ticks}`: nice axis ticks.
+ */
+public func niceTicksJson(min: Double, max: Double, target: UInt32) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(
+        FfiConverterDouble.lower(min),
+        FfiConverterDouble.lower(max),
+        FfiConverterUInt32.lower(target),$0
     )
 })
 }
@@ -3154,6 +4339,30 @@ public func reduceSurfaceJson(componentsJson: String, catalogId: String, extensi
 })
 }
 /**
+ * A style flattened for one context (`{width, height?, hover, reducedMotion,
+ * states, breakpoints}`), the reference `resolveConditions`.
+ */
+public func resolveConditionsJson(styleJson: String, contextJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(
+        FfiConverterString.lower(styleJson),
+        FfiConverterString.lower(contextJson),$0
+    )
+})
+}
+/**
+ * A value with every binding and call resolved (`resolveDynamic`).
+ */
+public func resolveDynamicJson(valueJson: String, dataJson: String, scope: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(
+        FfiConverterString.lower(valueJson),
+        FfiConverterString.lower(dataJson),
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+/**
  * A part's concrete visuals for one mode (`theme_json` = a RESOLVED theme,
  * e.g. from `builtin_theme_json`), as JSON.
  */
@@ -3170,6 +4379,40 @@ public func resolveRecipeJson(themeJson: String, component: String, part: String
 })
 }
 /**
+ * What a press does (`runAction`): `{data, event?, call?}` — the context
+ * and args resolved against the data as it is, then the `set` write.
+ */
+public func runActionJson(actionJson: String, dataJson: String, scope: String, stringsJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_run_action_json(
+        FfiConverterString.lower(actionJson),
+        FfiConverterString.lower(dataJson),
+        FfiConverterString.lower(scope),
+        FfiConverterOptionString.lower(stringsJson),$0
+    )
+})
+}
+/**
+ * The built-in strings with `overrides_json` merged over them.
+ */
+public func stringTableJson(overridesJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_string_table_json(
+        FfiConverterOptionString.lower(overridesJson),$0
+    )
+})
+}
+/**
+ * `ltr | rtl`.
+ */
+public func textDirection(locale: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_text_direction(
+        FfiConverterString.lower(locale),$0
+    )
+})
+}
+/**
  * The issues of a theme file (`[]` when it loads).
  */
 public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  {
@@ -3181,11 +4424,43 @@ public func themeIssuesJson(themeJson: String, parentsJson: String?) -> String  
 })
 }
 /**
+ * CodeBlock's tokenizer: `[[{kind, text}]]` per line.
+ */
+public func tokenizeCodeJson(code: String, language: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(
+        FfiConverterString.lower(code),
+        FfiConverterString.lower(language),$0
+    )
+})
+}
+/**
+ * The issues of a style object (`[{path, message}]`).
+ */
+public func validateStyleJson(styleJson: String, root: Bool?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_validate_style_json(
+        FfiConverterString.lower(styleJson),
+        FfiConverterOptionBool.lower(root),$0
+    )
+})
+}
+/**
  * The crate version.
  */
 public func version() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_version($0
+    )
+})
+}
+/**
+ * 0 = Sunday … 6 = Saturday.
+ */
+public func weekStart(locale: String) -> UInt8  {
+    return try!  FfiConverterUInt8.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_week_start(
+        FfiConverterString.lower(locale),$0
     )
 })
 }
@@ -3211,10 +4486,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids() != 16938) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 31430) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_control_geometry_json() != 60105) {
@@ -3229,6 +4513,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_json_diff() != 38474) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3236,6 +4523,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_place_overlay() != 44395) {
@@ -3247,13 +4537,37 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 12682) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_string_table_json() != 50623) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_text_direction() != 32593) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_theme_issues_json() != 53537) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 16111) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_version() != 37022) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_measurer_measure_id() != 47158) {
@@ -3268,13 +4582,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 29382) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_event() != 18560) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_failing_checks() != 25004) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_hover_timeout() != 3003) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_index_of() != 6030) {
@@ -3286,7 +4612,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_issues_json() != 12552) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 15377) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_layout() != 59309) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_layout_fixed() != 38533) {
@@ -3298,13 +4624,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_node_count() != 13599) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 42830) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes() != 4838) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_nodes_at() != 51362) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_register_extension() != 9834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 36007) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll() != 2061) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744) {
@@ -3313,10 +4645,28 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_contrast() != 9302) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_data() != 29980) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 12667) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_locale() != 43927) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode() != 40915) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_mode_setting() != 7979) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_nested() != 14592) {
@@ -3325,13 +4675,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_open() != 30902) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pointer() != 58287) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_pressed() != 9582) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_rounding() != 56260) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_settings() != 54680) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 56941) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json() != 36009) {
@@ -3340,7 +4699,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport() != 36786) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 47099) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 14666) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_structure_version() != 30765) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_submit_form() != 27583) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_take_events() != 5811) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_text_style() != 3961) {

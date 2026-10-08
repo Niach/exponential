@@ -9,28 +9,67 @@ bindings), so an embedder never builds Rust.
 
 - `Surface(surfaceId, catalogId, themeId?, mode)` once; A2UI messages in as
   JSON (`apply`), or `setNested` / `setComponents` / `setData`.
-- `nodes()` once per `structureVersion`; `visuals()` / `visual(index)` for
-  the resolved looks; `layout(measurer)` returns one flat frame list, the
-  overlay `layers` (frames in surface coordinates, `placement` for anchored
-  ones, `position` = `centered` or an edge) and the windowed `lists`.
+- `nodes()` once (every slot; removed ones as tombstones so
+  `nodes()[i].index == i`), then patch with `FfiLayout.delta`: fetch
+  `added` + `changed` through `nodesAt(indices)`, drop `removed`;
+  `renumbered` = fetch everything. Indices are STABLE slots; paint order is
+  the order of `frames`, not the index order.
+- `visuals()` / `visual(index)` for the resolved looks (per-side borders,
+  corner radii, gradients, transforms, transitions as ms + cubic bezier,
+  text decoration/transform/style, letter spacing, visibility, pointer
+  events, cursor, chart colours).
+- `layout(measurer)` returns one flat frame list, the overlay `layers`
+  (class `overlay|toast`, `modal`, `dismissible`, frames in surface
+  coordinates, `placement` for anchored ones), the windowed `lists`, the
+  scroll containers (`scrolls`: clamped offsets + content sizes; frames are
+  UNSCROLLED), the open `toasts` (the host times them →
+  `dismissToast(id)`), `direction` and `breakpoint`.
 - `Measurer` (foreign trait, implemented by the host): `measureIntrinsics`
-  and `measureHeights`, each a BATCH; at most three crossings per pass
-  (`FfiLayout.upcalls`). `layoutFixed(sizesJson, wrap)` is the geometry-test
-  measure for suites.
+  (min/max content width, height, the first `baseline`) and
+  `measureHeights`, each a BATCH; at most three crossings per pass
+  (`FfiLayout.upcalls`). **Upcalls run without the surface locked**: a
+  measurer may call `nodes()` / `visual()`; passes are serialized and a
+  `layout` re-entered from inside its own measurer returns the previous
+  result with `reentrant = true` instead of deadlocking; a measurer that
+  THROWS ends that pass (the error reaches the caller) and the next
+  `layout` starts clean. Snapshots taken mid-pass (`nodes()`) never rebuild
+  under it: a tree change lands on the next pass. `layoutFixed(sizesJson,
+  wrap)` is the geometry-test measure for suites.
+- Settings: `setSettings(FfiSettings)` / `settings()` or one at a time:
+  `setLocale`, `setStringsJson`, `setModeSetting(light|dark|system,
+  systemDark)`, `setDensity`, `setContrast(normal|high|system,
+  systemHigh)`, `setFontScale`, `setInsets(top, right, bottom, left)`,
+  `setPointer(hover, reducedMotion)`; `effectiveThemeJson()` (density +
+  contrast applied), `stringsJson()`.
 - `event(index, name, payloadJson)` → `[FfiEvent {kind, json}]` with
-  `action | openUrl | dataChanged | input | relayout`; `setOpen`,
-  `scroll`, `setStates`, `setPressed`, `setTheme*`, `setMode`,
+  `action | openUrl | call | dataChanged | input | focus | announce | copy |
+  pickFiles | relayout | hoverTimer`; `setOpen`, `scroll`, `scrollTo`, `setStates`
+  (`hover`, `pressed`, `focus`, `focus-visible`, …), `setPressed`,
+  `submitForm`, `dismissToast`, `commandJson` (`focus`, `announce`,
+  `scrollIntoView`), `takeEvents` (events raised outside a call: a hover
+  opening a tooltip, a hover-close timer, a live region), `hoverTimeout(owner)`
+  (with `FfiSettings.hoverCloseMs > 0` — natives: 150 — leaving a hover
+  card's trigger and content raises `hoverTimer {owner, delay_ms}`; call
+  this when it fires: it closes unless the trigger or content is hovered
+  again; with 0 it closes at once and the host delays the un-hover),
+  `setTheme*`, `setMode`,
   `registerExtension`.
 - Free functions for suites and hosts: `reduceSurfaceJson`,
   `reduceNestedJson`, `extensionErrors`, `loadThemeJson`, `themeIssuesJson`,
   `builtinThemeJson`, `resolveRecipeJson`, `controlGeometryJson`,
-  `placeOverlay`, `jsonEqual` / `jsonDiff`, `benchTreeJson`.
+  `placeOverlay`, `jsonEqual` / `jsonDiff`, `benchTreeJson`; round 1: the
+  BIND pass (`bindTreeJson`, `runActionJson`, `resolveDynamicJson`) so a
+  native never re-implements it, `tokenizeCodeJson`, `chartExtentJson`,
+  `niceTicksJson`, `weekStart`, `textDirection`, `stringTableJson`,
+  `formatString`, `resolveConditionsJson`, `componentA11yJson`,
+  `validateStyleJson`.
 
 ## Build
 
 ```bash
-bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh       # xcframework + bindings/swift
-bash apps/desktop/crates/exponential-ui-ffi/build-android.sh   # jniLibs (.so) + bindings/kotlin
+bash apps/desktop/crates/exponential-ui-ffi/generate-bindings.sh  # bindings/swift + bindings/kotlin from the host library (.dylib/.so)
+bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh          # xcframework + bindings/swift
+bash apps/desktop/crates/exponential-ui-ffi/build-android.sh      # jniLibs (.so) + bindings/kotlin
 bash apps/desktop/crates/exponential-ui-ffi/run-binding-tests.sh [swift|kotlin|all]
 ```
 
