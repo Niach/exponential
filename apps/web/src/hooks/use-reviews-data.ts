@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import {
+  and,
+  eq,
+  inArray,
+  isNull,
+  not,
+  or,
+  useLiveQuery,
+} from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
   useBoardsForTeams,
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import { byCreatedAtDesc } from "@/lib/ordering"
+import { reviewsQueue } from "@/lib/reviews-queue"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { CodingSession, Issue, Board, Team } from "@/db/schema"
 
@@ -95,7 +103,9 @@ export function useReviewsData(
             .where(({ issues }) =>
               and(
                 inArray(issues.boardId, boardIds),
-                eq(issues.prState, `open`)
+                // EXP-1244: every PR-carrying row, whatever its state — a
+                // linked PR never lists as unlinked (`reviewsQueue` rule 5).
+                or(eq(issues.prState, `open`), not(isNull(issues.prUrl)))
               )
             )
         : undefined,
@@ -115,7 +125,7 @@ export function useReviewsData(
             .where(({ sessions }) =>
               and(
                 inArray(sessions.teamId, teamIds),
-                eq(sessions.prState, `open`)
+                not(isNull(sessions.prUrl))
               )
             )
         : undefined,
@@ -191,105 +201,42 @@ export function useReviewsData(
   )
 
   return useMemo(() => {
-    const list = (issues ?? []) as Issue[]
-
-    // Collapse issues sharing a prUrl into ONE entry (EXP-131: a batch PR must
-    // not render flattened). Issues without a prUrl can't collide — keyed by id.
-    const entriesByKey = new Map<string, ReviewEntry>()
-    for (const issue of list) {
-      const key = issue.prUrl ?? issue.id
-      const entry = entriesByKey.get(key)
-      if (entry) {
-        entry.issues.push(issue)
-      } else {
-        entriesByKey.set(key, { key, issue, issues: [issue] })
-      }
-    }
-
-    const allEntries: ReviewEntry[] = []
-    for (const entry of entriesByKey.values()) {
-      entry.issues.sort(byCreatedAtDesc)
-      entry.issue = entry.issues[0]
-      allEntries.push(entry)
-    }
-    allEntries.sort((a, b) => byCreatedAtDesc(a.issue, b.issue))
-
-    // A batch PR's issues may span boards sharing one repo — the entry lives
-    // under the representative (newest) issue's board.
-    const byBoard = new Map<string, ReviewEntry[]>()
-    for (const entry of allEntries) {
-      const bucket = byBoard.get(entry.issue.boardId)
-      if (bucket) bucket.push(entry)
-      else byBoard.set(entry.issue.boardId, [entry])
-    }
-
-    const groups: ReviewGroup[] = []
-    // `boards` is already ordered by sortOrder.
-    for (const board of boards) {
-      const bucket = byBoard.get(board.id)
-      if (!bucket) continue
-      groups.push({ board, team: teamById.get(board.teamId), entries: bucket })
-    }
-
-    // EXP-734: the run's OWN PR (no linked issue), newest per prUrl. A batch
-    // run's combined PR links issues, so it already rides their entry.
-    const issuePrUrls = new Set(
-      list.map((issue) => issue.prUrl).filter((url): url is string => !!url)
+    const rows = (issues ?? []) as Issue[]
+    // EXP-1244: the ONE queue ×4 (`lib/reviews-queue.ts`, fixture-locked).
+    const queue = reviewsQueue({
+      teams: scopeTeams,
+      boards,
+      issues: rows,
+      sessions: (sessionRows ?? []) as CodingSession[],
+      pulls: externalGroups,
+    })
+    const groups: ReviewGroup[] = queue.boardGroups.map((group) => ({
+      board: group.board,
+      team: teamById.get(group.board.teamId),
+      entries: group.entries.map((entry) => ({
+        key: entry.key,
+        issue: entry.issues[0]!,
+        issues: entry.issues,
+      })),
+    }))
+    const sessionGroups: SessionReviewGroup[] = queue.runGroups.map(
+      (group) => ({
+        team: teamById.get(group.teamId),
+        entries: group.sessions.map((session) => ({
+          key: `session:${session.id}`,
+          session,
+        })),
+      })
     )
-    const sessionByUrl = new Map<string, CodingSession>()
-    for (const session of (sessionRows ?? []) as CodingSession[]) {
-      if (session.issueId != null || !session.prUrl) continue
-      if (issuePrUrls.has(session.prUrl)) continue
-      const current = sessionByUrl.get(session.prUrl)
-      if (
-        !current ||
-        new Date(session.createdAt).getTime() >
-          new Date(current.createdAt).getTime()
-      ) {
-        sessionByUrl.set(session.prUrl, session)
-      }
-    }
-    const sessionEntries: SessionReviewEntry[] = [...sessionByUrl.values()]
-      .sort(byCreatedAtDesc)
-      .map((session) => ({ key: `session:${session.id}`, session }))
-
-    // EXP-1186: one "Agent runs" band per team, in team order.
-    const sessionGroups: SessionReviewGroup[] = orderedTeamIds
-      .map((teamId) => ({
-        team: teamById.get(teamId),
-        entries: sessionEntries.filter(
-          (entry) => entry.session.teamId === teamId
-        ),
-      }))
-      .filter((group) => group.entries.length > 0)
-
-    // The server already excludes linked PRs from `openPulls`, but its 60 s
-    // cache (and a fetch taken before `pr_open` stamped the row, kept for as
-    // long as the page stays open, EXP-1244) can still hand back one an issue
-    // or a run just claimed — drop it here so the same PR never renders twice
-    // nor as "not linked to an issue".
-    const linkedUrls = new Set([...issuePrUrls, ...sessionByUrl.keys()])
-    const externalPullGroups = externalGroups
-      .map((group) => ({
-        ...group,
-        pulls: group.pulls.filter((pull) => !linkedUrls.has(pull.url)),
-      }))
-      .filter((group) => group.pulls.length > 0)
-
-    const externalCount = externalPullGroups.reduce(
-      (sum, group) => sum + group.pulls.length,
-      0
-    )
+    const sessionEntries = sessionGroups.flatMap((group) => group.entries)
+    const list = rows.filter((issue) => issue.prState === `open`)
 
     return {
       groups,
       sessionEntries,
       sessionGroups,
-      externalGroups: externalPullGroups,
-      count:
-        entriesByKey.size +
-        sessionEntries.length +
-        externalCount,
+      externalGroups: queue.repoGroups,
+      count: queue.count,
       // A team with no boards skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
       // external fetch has its own flag so the synced queue renders without
@@ -311,7 +258,7 @@ export function useReviewsData(
     externalGroups,
     externalLoading,
     removeExternalPull,
-    orderedTeamIds,
+    scopeTeams,
     teamById,
   ])
 }

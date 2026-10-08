@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
+  mergeExternalPrPrompt,
   mergeIssuePrPrompt,
   mergeRunPrPrompt,
   promptActions,
-  WEB_PROMPTS,
 } from "@/lib/prompts"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import type { OpenPull } from "@/lib/integrations/github-pr"
@@ -39,6 +39,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 import { sessionIdentity } from "@/lib/session-identity"
+import { REPO_BAND_CAPTION } from "@/lib/reviews-queue"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -410,7 +411,7 @@ function ReviewsPage() {
   const sessionMergeCopy = mergeRunPrPrompt(
     sessionMergeTarget?.session.prNumber
   )
-  const externalMergeCopy = WEB_PROMPTS.mergeExternalPr(
+  const externalMergeCopy = mergeExternalPrPrompt(
     externalMergeTarget?.fullName ?? ``,
     externalMergeTarget?.pull.number ?? 0,
     externalMergeTarget?.pull.baseBranch ?? ``
@@ -644,7 +645,7 @@ function ReviewsPage() {
                   label={group.fullName}
                   trailing={
                     teamCaption(group.teamId) ?? (
-                      <span className="text-xs text-foreground/50">not linked to an issue</span>
+                      <span className="text-xs text-foreground/50">{REPO_BAND_CAPTION}</span>
                     )
                   }
                 />
