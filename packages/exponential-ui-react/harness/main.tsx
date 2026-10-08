@@ -6,6 +6,9 @@
 //   ?view=geometry&case=900|390|900-rtl|390-rtl        (fixed fake measure)
 //   ?view=overlay&case=<n>                              (overlay-geometry.json)
 //   ?view=catalog                                        (every fixture case)
+//   ?view=conditions&case=<n>&ctx=<n>                    (style-conditions.json)
+//   ?view=tree&tree=<json>&data=<json>&width=&height=&viewportHeight=&locale=&dir=  (any tree)
+//     &gen=<key>:<n>  adds data[key] = n rows {id: "r<i>", title: "Item <i>"} (long lists without a long URL)
 // No app code: the SDK, its fixtures and a stub host with a 150 ms echo.
 
 import { StrictMode, useMemo, useState } from "react"
@@ -16,6 +19,8 @@ import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
 import geometry from "@exponential-at/ui/fixtures/layout-geometry.json"
 import overlays from "@exponential-at/ui/fixtures/overlay-geometry.json"
 import components from "@exponential-at/ui/fixtures/catalog-components.json"
+import conditions from "@exponential-at/ui/fixtures/style-conditions.json"
+import sinkData from "../fixtures/kitchen-sink.data.json"
 import { ExponentialSurface, useSurface } from "../src/index"
 import type { HostPlugin, SurfaceInputEvent } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -33,6 +38,7 @@ declare global {
     __xuiFrames?: (rootId?: string) => { id: string; x: number; y: number; w: number; h: number }[]
     __xuiLog: unknown[]
     __xuiOverlay?: () => { x: number; y: number; w: number; h: number; side: string } | null
+    __xuiData?: () => unknown
   }
 }
 window.__xuiLog = []
@@ -49,7 +55,9 @@ window.__xuiFrames = (rootId = `root`) => {
 }
 
 function KitchenSink() {
-  const surface = useSurface({ surfaceId: `ks`, initial: kitchenSink as unknown as NestedNode, data: { draft: { title: `` } } })
+  const { $comment: _c, ...data } = sinkData as Record<string, unknown>
+  const surface = useSurface({ surfaceId: `ks`, initial: kitchenSink as unknown as NestedNode, data })
+  window.__xuiData = () => surface.data
   const [host, setHost] = useState(``)
   const plugin = useMemo<HostPlugin>(
     () => ({
@@ -75,7 +83,7 @@ function KitchenSink() {
   )
   return (
     <div style={{ display: `flex`, flexDirection: `column`, gap: 8, alignItems: `flex-start` }}>
-      <ExponentialSurface id="ks" surface={surface} host={plugin} theme={themeId} mode={mode} direction={rtl ? `rtl` : `ltr`} width={width ?? `100%`} />
+      <ExponentialSurface id="ks" surface={surface} host={plugin} theme={themeId} mode={mode} direction={rtl ? `rtl` : `ltr`} width={width ?? `100%`} locale={params.get(`locale`) ?? undefined} />
       <div id="host-echo" data-testid="host-echo" style={{ font: `12px ui-monospace, monospace`, opacity: 0.7, padding: 8 }}>
         host: {host}
       </div>
@@ -138,7 +146,49 @@ function Catalog() {
   )
 }
 
+/** One style-conditions.json case × context: a Box wearing the case's style
+ *  on a surface of the context's size (the theme's breakpoints overridden
+ *  when the context names its own), its states forced. */
+function Conditions() {
+  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number> }
+  const c = (conditions.cases as { style: Record<string, unknown>; contexts: Ctx[] }[])[Number(params.get(`case`) ?? 0)]
+  const ctx = c.contexts[Number(params.get(`ctx`) ?? 0)]
+  const theme = ctx.breakpoints ? { id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
+  const { root } = reduceNested({ id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
+  return <ExponentialSurface id="cond" root={root} theme={theme as never} mode="light" width={ctx.width} viewportHeight={ctx.height} style={{ height: ctx.height ?? 120 }} states={ctx.states?.map((s) => s)} />
+}
+
+/** Any nested tree from the query (keyboard + overlay suites). */
+function Tree() {
+  const nested = JSON.parse(params.get(`tree`) ?? `{}`) as NestedNode
+  const data = JSON.parse(params.get(`data`) ?? `{}`) as Record<string, unknown>
+  const gen = params.get(`gen`)?.split(`:`)
+  if (gen?.length === 2) data[gen[0]] = Array.from({ length: Number(gen[1]) }, (_, i) => ({ id: `r${i}`, title: `Item ${i}` }))
+  const surface = useSurface({ surfaceId: `tree`, initial: nested, data })
+  window.__xuiData = () => surface.data
+  const plugin = useMemo<HostPlugin>(() => ({ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, event: e.event, componentId: e.componentId, context: e.context }) }), [])
+  const h = params.get(`height`)
+  const vh = params.get(`viewportHeight`)
+  const dir = params.get(`dir`)
+  return (
+    <ExponentialSurface
+      id="tree"
+      surface={surface}
+      host={plugin}
+      theme={themeId}
+      mode={mode}
+      width={width ?? `100%`}
+      locale={params.get(`locale`) ?? undefined}
+      direction={dir === `rtl` || dir === `ltr` ? dir : undefined}
+      viewportHeight={vh ? Number(vh) : undefined}
+      style={h ? { height: Number(h) } : undefined}
+    />
+  )
+}
+
 function App() {
+  if (view === `conditions`) return <Conditions />
+  if (view === `tree`) return <Tree />
   if (view === `geometry`) return <Geometry />
   if (view === `overlay`) return <Overlay />
   if (view === `catalog`) return <Catalog />

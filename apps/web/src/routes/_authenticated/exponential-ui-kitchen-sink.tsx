@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { CORE_CATALOG_ID, BUILTIN_THEME_IDS, DEFAULT_THEME_ID } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
 import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
+import kitchenSinkData from "@exponential-at/ui-react/fixtures/kitchen-sink.data.json"
 import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential-at/ui-react"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 import { pageTitle } from "@/lib/page-title"
@@ -12,7 +13,9 @@ import { pageTitle } from "@/lib/page-title"
 // every painter is compared against). `?theme=` picks a built-in,
 // `?mode=light|dark`, `?width=N` forces the surface width, `?rtl=1` flips
 // it. The host stub echoes every input edit back after 150 ms and logs
-// actions to the console — the app's real host plugin is VAPP-91.
+// actions to the console — the app's real host plugin is VAPP-91. Round 1:
+// the sink renders against the renderer's shared data model
+// (`kitchen-sink.data.json`: the template list, bound macros, form fields).
 type SinkSearch = { theme?: string; mode?: `light` | `dark`; width?: number; rtl?: boolean }
 
 const flag = (v: unknown) => v === 1 || v === `1` || v === true || v === `true`
@@ -32,9 +35,11 @@ export const Route = createFileRoute(`/_authenticated/exponential-ui-kitchen-sin
   component: KitchenSinkPage,
 })
 
+const { $comment: _comment, ...SINK_DATA } = kitchenSinkData as Record<string, unknown>
+
 function KitchenSinkPage() {
   const { theme, mode, width, rtl } = Route.useSearch()
-  const surface = useSurface({ surfaceId: `kitchen-sink`, catalogId: CORE_CATALOG_ID, initial: kitchenSink as unknown as NestedNode, data: { draft: { title: `` } } })
+  const surface = useSurface({ surfaceId: `kitchen-sink`, catalogId: CORE_CATALOG_ID, initial: kitchenSink as unknown as NestedNode, data: SINK_DATA })
   const [echo, setEcho] = useState(``)
   const host = useMemo<HostPlugin>(
     () => ({

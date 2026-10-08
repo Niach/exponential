@@ -61,6 +61,21 @@ export interface HostPlugin {
   resolveUrl?: (src: string) => string
   /** Called with the node for every Unknown placeholder painted. */
   onUnknown?: (node: UiNode) => void
+  /** Round 1, FileUpload: the picked/dropped files' BYTES (the `upload`
+   *  event carries only `{name, size, type}`). Return a promise to keep the
+   *  drop zone busy until it settles. */
+  onUpload?: (files: File[], target: { nodeId: string; name: string }) => void | Promise<void>
+  /** Round 1, Select `source`: a host list id (`exp:statuses`) → its
+   *  options for a query (`""` when not searchable). */
+  optionSource?: (source: string, query: string) => SourceOption[] | Promise<SourceOption[]>
+}
+
+/** One option a host source supplies (the catalog's `option` shape). */
+export interface SourceOption {
+  label: string
+  value: string
+  icon?: string
+  disabled?: boolean
 }
 
 /** What an extension component receives: the node, its props resolved, the

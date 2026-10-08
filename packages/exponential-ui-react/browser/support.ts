@@ -55,7 +55,7 @@ export async function openPage(h: Harness, query: Record<string, string | number
     if (m.type() === `error`) errors.push(m.text())
   })
   await page.goto(h.url(query))
-  await page.waitForSelector(`.xui-surface`, { timeout: 30_000 })
+  await page.waitForSelector(`.xui-surface`, { timeout: 30_000, state: `attached` })
   await page.waitForTimeout(250)
   if (errors.length) throw new Error(`page errors: ${errors.join(`\n`)}`)
   return page

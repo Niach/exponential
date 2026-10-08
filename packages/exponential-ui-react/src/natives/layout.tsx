@@ -1,17 +1,21 @@
-// VAPP-87: Box, List and the Unknown placeholder.
+// VAPP-87 + round 1: Box, List and the Unknown placeholder. A List renders
+// its children then its data template's items (keyed by `template.key`, so
+// reordering keeps each item's state); past `WINDOW_THRESHOLD` (50, the
+// catalog's) items a vertical List windows.
 
-import { useContext, useMemo, type KeyboardEvent, type ReactNode } from "react"
-import { ScopeContext, useSurfaceContext } from "../context"
-import { absolutePath, getPointer } from "../data"
+import { type KeyboardEvent, type ReactNode } from "react"
+import { WINDOW_THRESHOLD as CATALOG_WINDOW_THRESHOLD } from "@exponential-at/ui"
+import { useSurfaceContext } from "../context"
 import { WindowedList } from "../list"
 import type { NativeProps } from "../node-view"
-import { NodeView } from "../node-view"
-import { bool, str, useParts } from "./shared"
+import { NodeView, TemplateItemView, mergeStyle, templateItems } from "../node-view"
+import { bool, BuiltinIcon, str, useParts, type PartFn } from "./shared"
 
 export function BoxNative({ node, props, rootProps, emit, children }: NativeProps) {
   const pressable = bool(props.pressable) || Boolean(node.on?.press)
   if (!pressable) return <div {...(rootProps as Record<string, unknown>)}>{children}</div>
   const onKey = (e: KeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
     if (e.key === `Enter` || e.key === ` `) {
       e.preventDefault()
       void emit(`press`)
@@ -25,8 +29,8 @@ export function BoxNative({ node, props, rootProps, emit, children }: NativeProp
 }
 
 /** Past this many items a List windows (fewer render flat, so fixtures
- *  snapshot every row). */
-export const WINDOW_THRESHOLD = 24
+ *  snapshot every row). The catalog's number (`chart.ts`). */
+export const WINDOW_THRESHOLD = CATALOG_WINDOW_THRESHOLD
 
 export function ListNative({ node, props, rootProps, scope }: NativeProps) {
   const ctx = useSurfaceContext()
@@ -34,38 +38,20 @@ export function ListNative({ node, props, rootProps, scope }: NativeProps) {
   const divided = bool(props.divided)
   const horizontal = props.direction === `horizontal`
   const gap = str(props.gap, `none`)
-  const templateItems = useMemo(() => {
-    if (!node.template) return null
-    const path = absolutePath(node.template.path, scope)
-    const items = getPointer(ctx.data, path)
-    const tpl = ctx.templateNode(node.template.component)
-    if (!Array.isArray(items) || !tpl) return null
-    return { path, tpl, count: items.length }
-  }, [node.template, scope, ctx])
-  const count = node.children.length + (templateItems?.count ?? 0)
-  const style = { gap: gap === `none` ? undefined : `var(--xui-spacing-${gap})` }
+  const tpl = templateItems(ctx, node, scope)
+  const count = node.children.length + (tpl?.items.length ?? 0)
+  const style = mergeStyle(rootProps, { gap: gap === `none` ? undefined : `var(--xui-spacing-${gap})` })
+  const keyOf = (i: number) => (i < node.children.length ? node.children[i].id : `t:${tpl!.items[i - node.children.length].key}`)
   const windowed = count > WINDOW_THRESHOLD && !horizontal
   if (windowed) {
-    const keys: string[] = [...node.children.map((c) => c.id), ...Array.from({ length: templateItems?.count ?? 0 }, (_, i) => `${templateItems!.tpl.id}.${i}`)]
     return (
       <div {...(rootProps as Record<string, unknown>)} style={style} role="list">
-        <WindowedList
-          count={count}
-          itemKey={(i) => keys[i]}
-          estimatedItemHeight={40}
-          overscan={6}
-          renderItem={(i) => (
-            <ListItem index={i} node={node} templateItems={templateItems} divided={divided} part={part} />
-          )}
-        />
+        <WindowedList count={count} itemKey={keyOf} estimatedItemHeight={40} overscan={6} renderItem={(i) => <ListItem index={i} node={node} tpl={tpl} divided={divided} part={part} />} />
       </div>
     )
   }
   const rows: ReactNode[] = []
-  for (let i = 0; i < count; i++) {
-    if (i > 0 && divided) rows.push(<div key={`d${i}`} {...(part(`divider`) as Record<string, string>)} role="separator" />)
-    rows.push(<ListItem key={i} index={i} node={node} templateItems={templateItems} divided={false} part={part} />)
-  }
+  for (let i = 0; i < count; i++) rows.push(<ListItem key={keyOf(i)} index={i} node={node} tpl={tpl} divided={divided} part={part} />)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={style} role="list">
       {rows}
@@ -73,9 +59,7 @@ export function ListNative({ node, props, rootProps, scope }: NativeProps) {
   )
 }
 
-function ListItem({ index, node, templateItems, divided, part }: { index: number; node: NativeProps[`node`]; templateItems: { path: string; tpl: NativeProps[`node`]; count: number } | null; divided: boolean; part: ReturnType<typeof useParts> }) {
-  const scope = useContext(ScopeContext)
-  void scope
+function ListItem({ index, node, tpl, divided, part }: { index: number; node: NativeProps[`node`]; tpl: ReturnType<typeof templateItems>; divided: boolean; part: PartFn }) {
   const divider = divided && index > 0 ? <div {...(part(`divider`) as Record<string, string>)} role="separator" /> : null
   if (index < node.children.length) {
     return (
@@ -85,32 +69,25 @@ function ListItem({ index, node, templateItems, divided, part }: { index: number
       </>
     )
   }
-  const i = index - node.children.length
-  if (!templateItems) return null
+  const item = tpl?.items[index - node.children.length]
+  if (!tpl || !item) return null
   return (
     <>
       {divider}
-      <ScopeContext.Provider value={`${templateItems.path}/${i}`}>
-        <NodeView node={suffix(templateItems.tpl, `.${i}`)} />
-      </ScopeContext.Provider>
+      <TemplateItemView tpl={tpl.tpl} item={item} />
     </>
   )
 }
 
-function suffix(node: NativeProps[`node`], s: string): NativeProps[`node`] {
-  const out = { ...node, id: `${node.id}${s}`, children: node.children.map((c) => suffix(c, s)) }
-  if (node.slots) {
-    out.slots = {}
-    for (const [k, v] of Object.entries(node.slots)) out.slots[k] = suffix(v, s)
-  }
-  return out
-}
-
 export function UnknownNative({ node, props, rootProps }: NativeProps) {
+  const ctx = useSurfaceContext()
   const part = useParts(node, props)
   return (
-    <div {...(rootProps as Record<string, unknown>)} role="note">
-      <span {...(part(`label`) as Record<string, string>)}>Unknown component {str(props.component, node.component)}</span>
+    <div {...(rootProps as Record<string, unknown>)} role="note" data-xui-unknown={str(props.component, node.component)}>
+      <BuiltinIcon slot="Unknown.root" size={16} />
+      <span {...(part(`label`) as Record<string, string>)}>
+        {ctx.t(`unknownComponent`)} {str(props.component, node.component)}
+      </span>
     </div>
   )
 }

@@ -1,10 +1,16 @@
-// VAPP-87: the WINDOWED list — the core's API shape (item key, estimated
-// height, overscan), no dependency. Items are positioned absolutely inside a
-// spacer sized by measured + estimated heights; a ResizeObserver corrects
-// each rendered item's estimate, and the window follows the nearest
-// scrolling ancestor (the List itself when it has a bounded height).
+// VAPP-87 + round 1: the WINDOWED list — the core's API shape (item key,
+// estimated height, overscan), no dependency. Items are positioned
+// absolutely inside a spacer sized by measured + estimated heights; ONE
+// ResizeObserver corrects each rendered item's estimate (an item leaving
+// the window is unobserved, the observer disconnects on unmount), and the
+// window follows the nearest ancestor that ACTUALLY scrolls (overflow
+// auto/scroll AND content taller than its box: the List itself when it has a
+// bounded height), else the window. Every List wears `overflow: auto`, so an
+// unbounded one (as tall as its spacer) is not a scroller and the page's
+// scroll drives the window. `scrollToIndex` brings an item into view (the
+// `scrollIntoView` host command uses the same).
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 
 export interface WindowedListProps {
   count: number
@@ -15,21 +21,33 @@ export interface WindowedListProps {
   className?: string
 }
 
+export interface WindowedListHandle {
+  /** Scroll the item at `index` into view (`start` | `center` | `end` |
+   *  `nearest`, default nearest). */
+  scrollToIndex: (index: number, align?: `start` | `center` | `end` | `nearest`) => void
+}
+
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
 
-function scrollParent(el: HTMLElement | null): HTMLElement | null {
+/** The nearest ancestor that scrolls: overflow-y auto/scroll AND a box
+ *  shorter than its content (a content-sized `overflow: auto` box is not a
+ *  viewport). Null = the document scrolls (the window). */
+export function scrollParent(el: HTMLElement | null): HTMLElement | null {
   let cur = el?.parentElement ?? null
-  while (cur) {
+  while (cur && cur !== document.body && cur !== document.documentElement) {
     const o = getComputedStyle(cur).overflowY
-    if (o === `auto` || o === `scroll`) return cur
+    if ((o === `auto` || o === `scroll`) && cur.scrollHeight > cur.clientHeight + 1) return cur
     cur = cur.parentElement
   }
   return null
 }
 
-export function WindowedList({ count, itemKey, renderItem, estimatedItemHeight = 40, overscan = 5, className }: WindowedListProps) {
+export const WindowedList = forwardRef<WindowedListHandle, WindowedListProps>(function WindowedList({ count, itemKey, renderItem, estimatedItemHeight = 40, overscan = 5, className }, handle) {
   const ref = useRef<HTMLDivElement>(null)
   const heights = useRef<Map<string, number>>(new Map())
+  const observed = useRef<Map<string, Element>>(new Map())
+  const keyOfEl = useRef<WeakMap<Element, string>>(new WeakMap())
+  const observer = useRef<ResizeObserver | null>(null)
   const [, bump] = useState(0)
   const [viewport, setViewport] = useState({ top: 0, height: 0 })
 
@@ -43,6 +61,28 @@ export function WindowedList({ count, itemKey, renderItem, estimatedItemHeight =
     out[count] = y
     return out
   }
+
+  useEffect(() => {
+    if (typeof ResizeObserver === `undefined`) return
+    const ro = new ResizeObserver((entries) => {
+      let changed = false
+      for (const entry of entries) {
+        const key = keyOfEl.current.get(entry.target)
+        const h = entry.contentRect.height
+        if (key !== undefined && h > 0 && heights.current.get(key) !== h) {
+          heights.current.set(key, h)
+          changed = true
+        }
+      }
+      if (changed) bump((n) => n + 1)
+    })
+    observer.current = ro
+    for (const el of observed.current.values()) ro.observe(el)
+    return () => {
+      ro.disconnect()
+      observer.current = null
+    }
+  }, [])
 
   useIsoLayoutEffect(() => {
     const el = ref.current
@@ -69,17 +109,45 @@ export function WindowedList({ count, itemKey, renderItem, estimatedItemHeight =
 
   const measure = useCallback(
     (key: string) => (node: HTMLDivElement | null) => {
-      if (!node || typeof ResizeObserver === `undefined`) return
-      const ro = new ResizeObserver(([entry]) => {
-        const h = entry.contentRect.height
-        if (h > 0 && heights.current.get(key) !== h) {
-          heights.current.set(key, h)
-          bump((n) => n + 1)
-        }
-      })
-      ro.observe(node)
+      const prev = observed.current.get(key)
+      if (prev && prev !== node) {
+        observer.current?.unobserve(prev)
+        observed.current.delete(key)
+      }
+      if (!node) return
+      observed.current.set(key, node)
+      keyOfEl.current.set(node, key)
+      observer.current?.observe(node)
     },
     []
+  )
+
+  useImperativeHandle(
+    handle,
+    () => ({
+      scrollToIndex: (index, align = `nearest`) => {
+        const el = ref.current
+        if (!el || index < 0 || index >= count) return
+        const off = offsets()
+        const top = off[index]
+        const h = off[index + 1] - top
+        const scroller = scrollParent(el)
+        const base = scroller ? el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop : el.getBoundingClientRect().top + window.scrollY
+        const vh = scroller ? scroller.clientHeight : window.innerHeight
+        const cur = scroller ? scroller.scrollTop : window.scrollY
+        const itemTop = base + top
+        let next = cur
+        if (align === `start`) next = itemTop
+        else if (align === `end`) next = itemTop + h - vh
+        else if (align === `center`) next = itemTop + h / 2 - vh / 2
+        else if (itemTop < cur) next = itemTop
+        else if (itemTop + h > cur + vh) next = itemTop + h - vh
+        if (scroller) scroller.scrollTop = next
+        else window.scrollTo({ top: next })
+      },
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [count, itemKey, estimatedItemHeight]
   )
 
   const off = offsets()
@@ -105,4 +173,4 @@ export function WindowedList({ count, itemKey, renderItem, estimatedItemHeight =
       {rows}
     </div>
   )
-}
+})

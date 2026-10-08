@@ -1,34 +1,57 @@
-// VAPP-87: what every painted node reads from its surface.
+// VAPP-87 + round 1: what every painted node reads from its surface.
 
 import { createContext, useContext } from "react"
 import type { ExtensionDef, ModeName, ResolvedTheme, UiNode } from "@exponential-at/ui"
 import type { CompiledTheme } from "./theme-css"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
-import type { ClientFunction, DataModel } from "./data"
+import type { ClientFunction, DataModel, ResolveContext } from "./data"
 
 export interface SurfaceContextValue {
   surfaceId: string
   compiled: CompiledTheme
+  /** The theme the surface runs with (density + contrast applied). */
   theme: ResolvedTheme
+  /** The RESOLVED mode (`system` already followed). */
   mode: ModeName
   host: HostPlugin
   extensions: readonly ReactExtension[]
   extensionDefs: readonly ExtensionDef[]
   data: DataModel
   setData: (pointer: string, value: unknown) => void
-  /** Resolves a template component id to its node (`useSurface` keeps the
-   *  flat list for this); `undefined` when the tree is nested-only. */
+  /** Resolves a template component id to its node (the flat list `useSurface`
+   *  keeps, else the node of that id in the tree); `undefined` when absent. */
   templateNode: (componentId: string) => UiNode | undefined
   /** Interaction states forced on every node (the recipe sheet). */
   states: readonly string[]
   /** Geometry mode: every leaf becomes a fixed box of this size. */
   measure?: (node: UiNode) => { w: number; h: number } | null
-  /** Where overlays portal: the surface root once mounted. */
+  /** Where overlays portal: the overlay LAYER inside the `xui` container
+   *  (so container breakpoints still match in a Dialog, audit bug C). */
   portal: HTMLElement | null
+  /** The toast layer (above dialogs). */
+  toastLayer: HTMLElement | null
   direction: `ltr` | `rtl`
   functions: Record<string, ClientFunction>
   openUrl: (url: string) => void
+  /** Round 1 §4: the surface locale (BCP 47). */
+  locale: string
+  /** The built-in string table (defaults + host overrides). */
+  strings: Readonly<Record<string, string>>
+  /** A built-in string by id with `{name}` placeholders filled. */
+  t: (id: string, params?: Record<string, unknown>) => string
+  /** `activeBreakpoint(surface width, theme.tokens.breakpoint)`; null =
+   *  base. (The raw box is NOT in the context, nor in React state: the
+   *  surface keeps it in a ref and re-renders only when the breakpoint or
+   *  the matching height/orientation conditions (`data-xq`) change; nodes
+   *  are memoized, so a surface re-render does not cascade by itself.) */
+  breakpoint: string | null
+  /** The platform asks for reduced motion. */
+  reducedMotion: boolean
+  /** A hover-capable pointer. */
+  hover: boolean
+  /** Speak a message through the surface's live regions. */
+  announce: (text: string, live?: `polite` | `assertive`) => void
 }
 
 export const SurfaceContext = createContext<SurfaceContextValue | null>(null)
@@ -41,3 +64,13 @@ export function useSurfaceContext(): SurfaceContextValue {
 
 /** The data scope of a template item (relative paths resolve here). */
 export const ScopeContext = createContext<string>(``)
+
+/** The INSTANCE suffix of a template item (`.0`, `.alice`): appended to the
+ *  ids of the nodes it renders (`data-xui-id`) while their CSS class stays
+ *  the template node's own, so every item wears the node sheet's rules. */
+export const InstanceContext = createContext<string>(``)
+
+/** The resolve context of one render (bindings + calls + `$string`). */
+export function resolveContextOf(ctx: SurfaceContextValue, scope: string): ResolveContext {
+  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings }
+}

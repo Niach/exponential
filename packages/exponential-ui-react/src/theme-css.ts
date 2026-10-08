@@ -17,8 +17,8 @@
 // surfaces on one page can wear two themes and a host page's own
 // Tailwind/shadcn variables are never touched.
 
-import { coreCatalog, parseTokenRef, shadowCss } from "@exponential-at/ui"
-import type { FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential-at/ui"
+import { coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential-at/ui"
+import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential-at/ui"
 
 export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part;`
 
@@ -51,6 +51,8 @@ function fontStack(family: string, fonts: Record<string, FontSpec>): string {
 /** One style value → its CSS text; `null` = nothing to emit. */
 export function cssValue(key: string, value: unknown, fonts: Record<string, FontSpec> = {}): string | null {
   if (value === undefined || value === null || typeof value === `boolean`) return null
+  // A dynamic node-style value: the variable `NodeView` sets (box-css.ts).
+  if (typeof value === `string` && value.startsWith(`var(--xd-`)) return value
   if (typeof value === `string` && value.startsWith(`$`)) {
     const v = tokenVar(value)
     if (v) return v
@@ -58,9 +60,26 @@ export function cssValue(key: string, value: unknown, fonts: Record<string, Font
   if (key === `boxShadow`) return Array.isArray(value) ? shadowCss(value as Shadow[]) : String(value)
   if (key === `fontFamily`) return fontStack(String(value), fonts)
   if (key === `gridTemplateAreas` && Array.isArray(value)) return value.map((row) => `"${row}"`).join(` `)
+  if (key === `backgroundGradient`) return gradientValue(value)
+  if (key === `transitionEasing`) return Array.isArray(value) ? easingCss(value as Easing) : String(value)
+  if (key === `transition`) return typeof value === `number` ? `${value}ms` : String(value)
+  if (typeof value === `object`) return null
   if (typeof value === `number`) return UNITLESS.has(key) ? String(value) : `${value}px`
-  if (key === `overflow` && value === `hidden`) return `clip`
+  if ((key === `overflow` || key === `overflowX` || key === `overflowY`) && value === `hidden`) return `clip`
   return String(value)
+}
+
+/** `backgroundGradient` `{angle, stops}` → `linear-gradient(…)`, token
+ *  colours as variables (painted over `backgroundColor`, contract §2). */
+function gradientValue(value: unknown): string | null {
+  if (typeof value !== `object` || value === null) return null
+  const g = value as { angle?: unknown; stops?: { color?: unknown; offset?: unknown }[] }
+  if (!Array.isArray(g.stops) || g.stops.length < 2) return null
+  const stops = g.stops.map((s) => {
+    const color = typeof s.color === `string` && s.color.startsWith(`$`) ? (tokenVar(s.color) ?? s.color) : String(s.color)
+    return `${color} ${Math.round(Number(s.offset ?? 0) * 10000) / 100}%`
+  })
+  return `linear-gradient(${Number(g.angle ?? 180)}deg, ${stops.join(`, `)})`
 }
 
 /** The logical/shorthand keys the Box whitelist has that CSS does not. */
@@ -69,18 +88,31 @@ const SHORTHANDS: Record<string, string[]> = {
   paddingVertical: [`padding-top`, `padding-bottom`],
   marginHorizontal: [`margin-left`, `margin-right`],
   marginVertical: [`margin-top`, `margin-bottom`],
+  backgroundGradient: [`background-image`],
+  // `transition` = the duration of an `all` transition; the easing is its
+  // own longhand so a state rule may change one without the other.
+  transition: [`transition-property:all`, `transition-duration`],
+  transitionEasing: [`transition-timing-function`],
 }
 
-/** Flat declarations (`prop:value` pairs) for one condition-free style. */
+const BORDER_WIDTHS = [`borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`]
+
+/** Flat declarations (`prop:value` pairs) for one condition-free style. A
+ *  border width without a `borderStyle` is solid (contract §2). */
 export function declarations(style: Record<string, unknown>, fonts: Record<string, FontSpec> = {}): [string, string][] {
   const out: [string, string][] = []
   for (const [key, value] of Object.entries(style)) {
     if (key === `native` || key.startsWith(`@`) || key.startsWith(`:`)) continue
-    if (typeof value === `object` && value !== null && !Array.isArray(value)) continue
+    if (typeof value === `object` && value !== null && !Array.isArray(value) && key !== `backgroundGradient`) continue
     const css = cssValue(key, value, fonts)
     if (css === null) continue
-    for (const target of SHORTHANDS[key] ?? [kebab(key)]) out.push([target, css])
+    for (const target of SHORTHANDS[key] ?? [kebab(key)]) {
+      const fixed = target.indexOf(`:`)
+      if (fixed > 0) out.push([target.slice(0, fixed), target.slice(fixed + 1)])
+      else out.push([target, css])
+    }
   }
+  if (!(`borderStyle` in style) && BORDER_WIDTHS.some((k) => k in style)) out.push([`border-style`, `solid`])
   return out
 }
 
@@ -101,6 +133,9 @@ export const STATE_SELECTORS: Record<string, string[]> = {
   checked: [`[data-state="checked"]`, `[data-xs~="checked"]`],
   open: [`[data-state="open"]`, `[data-xs~="open"]`],
   selected: [`[data-state="active"]`, `[data-state="on"]`, `[data-highlighted]`, `[data-xs~="selected"]`],
+  // Round 1: a field whose checks failed; a drop zone a drag hovers.
+  invalid: [`[aria-invalid="true"]`, `[data-xs~="invalid"]`],
+  dragover: [`[data-dragover]`, `[data-xs~="dragover"]`],
 }
 
 function stateSuffixes(states: string[]): string[] {
@@ -195,6 +230,9 @@ const SHADCN_ALIASES: [string, string][] = [
   [`--chart-3`, `chart3`],
   [`--chart-4`, `chart4`],
   [`--chart-5`, `chart5`],
+  [`--chart-6`, `chart6`],
+  [`--chart-7`, `chart7`],
+  [`--chart-8`, `chart8`],
   [`--sidebar`, `background`],
   [`--sidebar-foreground`, `foreground`],
   [`--sidebar-primary`, `primary`],
@@ -228,6 +266,8 @@ function tokenBlock(theme: ResolvedTheme): string {
       decls.push([`--xui-${group}-${name}`, `${value}${unit}`])
     }
   }
+  for (const [name, curve] of Object.entries(theme.tokens.ease ?? {})) decls.push([`--xui-ease-${name}`, easingCss(curve as Easing)])
+  for (const [name, px] of Object.entries(theme.tokens.breakpoint ?? {})) decls.push([`--xui-breakpoint-${name}`, `${px}px`])
   for (const [name, value] of Object.entries(theme.tokens.type.size)) decls.push([`--xui-type-size-${name}`, `${value}px`])
   for (const [name, value] of Object.entries(theme.tokens.type.lineHeight)) decls.push([`--xui-type-lineHeight-${name}`, `${value}px`])
   for (const [name, value] of Object.entries(theme.tokens.type.weight)) decls.push([`--xui-type-weight-${name}`, String(value)])
@@ -273,7 +313,6 @@ export function compileTheme(theme: ResolvedTheme, options: { extensionMacros?: 
       const base = `.${scope}.${partClass(component, partName)}`
       for (const r of rules) {
         const decls = declarations(r.style as Record<string, unknown>, theme.fonts)
-        if (`borderWidth` in r.style) decls.push([`border-style`, `solid`])
         if (decls.length === 0) continue
         target.push(rule(ruleSelectors(base, r, macro).join(`,`), decls))
       }

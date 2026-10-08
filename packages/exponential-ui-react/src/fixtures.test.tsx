@@ -59,7 +59,10 @@ describe(`catalog fixture → every component renders`, () => {
       expect(issues).toEqual([])
       const { container } = render(<ExponentialSurface root={root} theme="neutral" id="fx" />)
       const el = container.querySelector(`[data-xui-id="${root.id}"]`)
-      expect(el, `root element of ${c.name}`).not.toBeNull()
+      // A closed Toast paints nothing (it lives in the toast layer when open).
+      if (!(root.component === `Toast` && root.props.open === false)) expect(el, `root element of ${c.name}`).not.toBeNull()
+      // Every component has a painter: no Unknown placeholder anywhere.
+      expect(container.querySelector(`[data-xui-unknown]`), `${c.name} must not fall back to Unknown`).toBeNull()
       expect(container.querySelector(`[data-xui-c="Unknown"]`), `${c.name} must not fall back to Unknown`).toBeNull()
       expect(markup(container)).toMatchSnapshot()
     })
@@ -91,18 +94,19 @@ describe(`basic-map fixture renders`, () => {
 describe(`extension fixture renders`, () => {
   const catalog = defineExtension(ext.extension)
   const painted: string[] = []
-  const Sparkline = ({ props, rootProps }: ExtensionComponentProps) => {
-    painted.push(`Sparkline`)
+  // The example extension's native (round 1 renamed it: Sparkline is a core macro now).
+  const TrendLine = ({ props, rootProps }: ExtensionComponentProps) => {
+    painted.push(`TrendLine`)
     return <svg {...(rootProps as Record<string, unknown>)} data-values={String((props.values as number[] | undefined)?.length ?? 0)} />
   }
-  const reactExt = defineReactExtension({ catalog, components: { Sparkline } })
+  const reactExt = defineReactExtension({ catalog, components: { TrendLine } })
   for (const c of ext.cases) {
     it(c.name, () => {
       const { root, issues } = reduceSurface(c.components, { catalogId: c.catalogId, extensions: [catalog] })
       expect({ root, issues }).toEqual(c.expected)
       const { container } = render(<ExponentialSurface root={root} theme="neutral" id="ex" extensions={[reactExt]} />)
       expect(container.querySelector(`[data-xui-id="root"]`)).not.toBeNull()
-      if (JSON.stringify(root).includes(`"Sparkline"`)) expect(container.querySelector(`[data-xui-c="Sparkline"]`)).not.toBeNull()
+      if (JSON.stringify(root).includes(`"TrendLine"`)) expect(container.querySelector(`[data-xui-c="TrendLine"]`)).not.toBeNull()
       expect(markup(container)).toMatchSnapshot()
     })
   }
@@ -112,8 +116,8 @@ describe(`extension fixture renders`, () => {
       seen = p
       return <div {...(p.rootProps as Record<string, unknown>)} />
     }
-    const probeExt = defineReactExtension({ catalog, components: { Sparkline: Probe } })
-    const { root } = reduceSurface([{ id: `root`, component: `Sparkline`, values: { path: `/series` } }], { catalogId: catalog.id, extensions: [catalog] })
+    const probeExt = defineReactExtension({ catalog, components: { TrendLine: Probe } })
+    const { root } = reduceSurface([{ id: `root`, component: `TrendLine`, values: { path: `/series` } }], { catalogId: catalog.id, extensions: [catalog] })
     render(<ExponentialSurface root={root} theme="playful" data={{ series: [1, 2, 3] }} extensions={[probeExt]} id="px" />)
     expect(seen).not.toBeNull()
     expect(seen!.props.values).toEqual([1, 2, 3])

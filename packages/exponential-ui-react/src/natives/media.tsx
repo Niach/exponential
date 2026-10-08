@@ -1,26 +1,53 @@
 // VAPP-87: Image, Video, AudioPlayer, Avatar, Carousel.
 
 import { useEffect, useRef, useState } from "react"
+import { useBoundState } from "./bound"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { CHROME } from "../icons"
+import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
-import { NodeView } from "../node-view"
-import { bool, num, str, useParts } from "./shared"
+import { NodeView, mergeStyle } from "../node-view"
+import { bool, BuiltinIcon, num, str, useParts } from "./shared"
 
-export function ImageNative({ props, rootProps }: NativeProps) {
+/** Image (contract §3): `loading` lazy|eager, `focalX/focalY` (0..1, the
+ *  point kept when the picture is cropped → `object-position`), and the
+ *  `fallback` icon (default `builtinIcons["Image.fallback"]`) on error or
+ *  without a src; `data-state` = loading | loaded | error | empty. */
+export function ImageNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
+  const part = useParts(node, props)
   const src = str(props.src)
   const alt = str(props.alt)
   const fit = str(props.fit, `cover`)
+  const [state, setState] = useState<`loading` | `loaded` | `error`>(`loading`)
+  useEffect(() => setState(`loading`), [src])
   const style: Record<string, string | number> = {}
   if (props.width !== undefined) style.width = num(props.width)
   if (props.height !== undefined) style.height = num(props.height)
   if (props.aspectRatio !== undefined) style.aspectRatio = String(num(props.aspectRatio))
   const objectFit = fit === `scaleDown` ? `scale-down` : fit
+  const fx = Math.max(0, Math.min(1, num(props.focalX, 0.5)))
+  const fy = Math.max(0, Math.min(1, num(props.focalY, 0.5)))
+  const failed = !src || state === `error`
+  const fallback = str(props.fallback)
   return (
-    <div {...(rootProps as Record<string, unknown>)} style={Object.keys(style).length ? style : undefined} role={src ? undefined : `img`} aria-label={src ? undefined : alt}>
-      {src ? <img src={ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src} alt={alt} style={{ objectFit: objectFit as never }} /> : <div className="xui-image-placeholder">{alt || `image`}</div>}
+    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)} role={failed ? `img` : undefined} aria-label={failed ? alt : undefined} data-state={src ? state : `empty`}>
+      {src && state !== `error` ? (
+        <img
+          src={ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src}
+          alt={alt}
+          loading={props.loading === `eager` ? `eager` : `lazy`}
+          decoding="async"
+          style={{ objectFit: objectFit as never, objectPosition: `${fx * 100}% ${fy * 100}%` }}
+          onLoad={() => setState(`loaded`)}
+          onError={() => setState(`error`)}
+        />
+      ) : null}
+      {failed ? (
+        <div {...(part(`fallback`) as Record<string, string>)} aria-hidden="true">
+          {fallback ? <IconGlyph icons={ctx.host.icons} name={fallback} /> : <BuiltinIcon slot="Image.fallback" />}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -44,7 +71,7 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const src = str(props.src)
   const title = str(props.title)
   return (
-    <div {...(rootProps as Record<string, unknown>)} style={{ flexDirection: `column`, gap: `var(--xui-spacing-xs)` }}>
+    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
       <audio {...(part(`controls`) as Record<string, string>)} src={src ? (ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src) : undefined} controls preload="metadata" aria-label={title || undefined} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
     </div>
@@ -87,54 +114,71 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   )
 }
 
-export function CarouselNative({ node, props, rootProps, emit }: NativeProps) {
+export function CarouselNative({ node, props, rootProps, emit, scope }: NativeProps) {
+  const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const track = useRef<HTMLDivElement>(null)
-  const external = num(props.page, 0)
-  const [page, setPage] = useState(external)
   const pages = node.children
-  useEffect(() => {
-    setPage(external)
+  const [page, setPage] = useBoundState(node, scope, `page`, num(props.page, 0))
+  const scrollTo = (i: number) => {
     const el = track.current
-    if (el && el.children[external] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[external] as HTMLElement).offsetLeft, behavior: `smooth` })
-  }, [external])
+    if (el && el.children[i] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[i] as HTMLElement).offsetLeft, behavior: ctx.reducedMotion ? `auto` : `smooth` })
+  }
+  const external = num(props.page, 0)
+  useEffect(() => scrollTo(external), [external])
   const onScroll = () => {
     const el = track.current
     if (!el || el.clientWidth === 0) return
-    const next = Math.round(el.scrollLeft / el.clientWidth)
+    const next = Math.round(Math.abs(el.scrollLeft) / el.clientWidth)
     if (next !== page) {
       setPage(next)
       void emit(`change`, { page: next })
     }
   }
   const go = (next: number) => {
-    const el = track.current
     const n = pages.length
+    if (n === 0) return
     const target = bool(props.loop) ? ((next % n) + n) % n : Math.max(0, Math.min(n - 1, next))
     setPage(target)
     void emit(`change`, { page: target })
-    if (el && el.children[target] && typeof el.scrollTo === `function`) el.scrollTo({ left: (el.children[target] as HTMLElement).offsetLeft, behavior: `smooth` })
+    scrollTo(target)
   }
-  const Dot = `button` as const
+  const many = pages.length > 1
   return (
-    <div {...(rootProps as Record<string, unknown>)} role="region" aria-roledescription="carousel">
-      <div ref={track} className="xui-carousel-track" onScroll={onScroll}>
+    <div
+      {...(rootProps as Record<string, unknown>)}
+      role="region"
+      aria-roledescription="carousel"
+      onKeyDown={(e) => {
+        const rtl = ctx.direction === `rtl`
+        if (e.key === `ArrowRight`) go(page + (rtl ? -1 : 1))
+        else if (e.key === `ArrowLeft`) go(page + (rtl ? 1 : -1))
+      }}
+    >
+      <div ref={track} className="xui-carousel-track" onScroll={onScroll} aria-live="polite">
         {pages.map((child, i) => (
-          <div key={child.id} {...(part(`page`, i === page && `selected`) as Record<string, string>)} role="group" aria-roledescription="slide" aria-label={`${i + 1} of ${pages.length}`}>
+          <div key={child.id} {...(part(`page`, i === page && `selected`) as Record<string, string>)} role="group" aria-roledescription="slide" aria-label={ctx.t(`pageOf`, { page: i + 1, total: pages.length })} aria-hidden={i === page ? undefined : true}>
             <NodeView node={child} />
           </div>
         ))}
       </div>
-      {props.indicators !== false && pages.length > 1 ? (
-        <div className="xui-carousel-dots" role="tablist">
-          {pages.map((child, i) => (
-            <Dot key={child.id} type="button" {...(part(`indicator`, i === page && `selected`) as Record<string, string>)} role="tab" aria-selected={i === page} aria-label={`Page ${i + 1}`} onClick={() => go(i)} />
-          ))}
+      {many ? (
+        <div className="xui-carousel-controls">
+          <button type="button" className="xui-carousel-nav" aria-label={ctx.t(`previous`)} disabled={!bool(props.loop) && page === 0} onClick={() => go(page - 1)}>
+            <BuiltinIcon slot="Carousel.previous" />
+          </button>
+          {props.indicators !== false ? (
+            <div className="xui-carousel-dots" role="tablist">
+              {pages.map((child, i) => (
+                <button key={child.id} type="button" {...(part(`indicator`, i === page && `selected`) as Record<string, string>)} role="tab" aria-selected={i === page} aria-label={ctx.t(`pageOf`, { page: i + 1, total: pages.length })} onClick={() => go(i)} />
+              ))}
+            </div>
+          ) : null}
+          <button type="button" className="xui-carousel-nav" aria-label={ctx.t(`next`)} disabled={!bool(props.loop) && page === pages.length - 1} onClick={() => go(page + 1)}>
+            <BuiltinIcon slot="Carousel.next" />
+          </button>
         </div>
       ) : null}
-      <span className="xui-sr-only">
-        <CHROME.chevronLeft aria-hidden="true" />
-      </span>
     </div>
   )
 }
