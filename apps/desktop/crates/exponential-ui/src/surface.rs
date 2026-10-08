@@ -852,6 +852,17 @@ impl Surface {
             // Phase 2: taffy against the memo, guesses recorded.
             let guesses = std::cell::RefCell::new(Vec::<HeightRequest>::new());
             let hidden: Vec<bool> = self.nodes.iter().map(|n| n.hidden).collect();
+            // CSS parity (VAPP-91): the surface root is a block-level box, as
+            // wide as the surface unless its own style sets a width.
+            if let Some(&root) = self.taffy_ids.first() {
+                if let Ok(style) = self.tree.style(root) {
+                    if style.size.width == Dimension::auto() {
+                        let mut style = style.clone();
+                        style.size.width = Dimension::percent(1.0);
+                        let _ = self.tree.set_style(root, style);
+                    }
+                }
+            }
             let main_available = Size { width: AvailableSpace::Definite(vw.max(0.0)), height: match vh > 0.0 { true => AvailableSpace::Definite(vh), false => AvailableSpace::MaxContent } };
             let memo = &self.memo;
             let mut measure_fn = |known: Size<Option<f32>>, avail: Size<AvailableSpace>, _id: NodeId, ctx: Option<&mut u32>, _style: &Style| -> Size<f32> {
