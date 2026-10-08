@@ -43,7 +43,7 @@ final class SnapshotTests: XCTestCase {
             snapshot[name] = .object(["height": .number(Double(m.surfaceSize.height)), "nodes": .array(rows)])
         }
         let data = try JSONSerialization.data(withJSONObject: JSONValue.object(snapshot).any, options: [.prettyPrinted, .sortedKeys])
-        let text = String(decoding: data, as: UTF8.self) + "\n"
+        let text = Self.shortestNumbers(String(decoding: data, as: UTF8.self)) + "\n"
         if ProcessInfo.processInfo.environment["EXPONENTIAL_UI_RECORD"] == "1" || !FileManager.default.fileExists(atPath: Self.path.path) {
             try FileManager.default.createDirectory(at: Self.path.deletingLastPathComponent(), withIntermediateDirectories: true)
             try text.write(to: Self.path, atomically: true, encoding: .utf8)
@@ -55,6 +55,24 @@ final class SnapshotTests: XCTestCase {
             try text.write(to: tmp, atomically: true, encoding: .utf8)
             XCTFail("component snapshot drifted; compare \(tmp.path) with \(Self.path.path) (EXPONENTIAL_UI_RECORD=1 swift test rewrites it)")
         }
+    }
+
+    /// Fractional numbers in their SHORTEST round-trip form: Foundation's
+    /// `JSONSerialization` prints 17 significant digits on newer macOS
+    /// (`140.66999999999999`) and the shortest form on older ones
+    /// (`140.67`), so the lock would drift with the OS, not the painter.
+    static func shortestNumbers(_ json: String) -> String {
+        let regex = try! NSRegularExpression(pattern: #"(?<=[\s\[,:])-?\d+\.\d+(?:[eE][-+]?\d+)?(?=\s*[,\n\]}])"#)
+        let ns = json as NSString
+        var out = ""
+        var last = 0
+        for m in regex.matches(in: json, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            let token = ns.substring(with: m.range)
+            out += Double(token).map { $0.description } ?? token
+            last = m.range.location + m.range.length
+        }
+        return out + ns.substring(from: last)
     }
 }
 

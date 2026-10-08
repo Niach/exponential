@@ -194,10 +194,16 @@ final class ConformanceTests: XCTestCase {
     }
 
     func themeInvalidSuite() throws -> [Case] {
-        try (Fixtures.json("theme-invalid.json")["cases"]?.array ?? []).map { c in
+        // The validator reports issues in the theme's KEY order, so each
+        // case's theme goes in as the fixture's own text (`JSONValue`
+        // objects are unordered: re-serialising would reorder the issues).
+        let raw = try Fixtures.text("theme-invalid.json")
+        let texts = RawJSON.arrayElements(in: RawJSON.value(of: "cases", inObject: raw) ?? "[]").map { RawJSON.value(of: "theme", inObject: $0) }
+        return try (Fixtures.json("theme-invalid.json")["cases"]?.array ?? []).enumerated().map { i, c in
             run(c["name"]?.string ?? "?") {
-                if (try? ThemeHandle.load(json: c["theme"]!.json)) != nil { return "loaded" }
-                return same(themeIssuesJson(themeJson: c["theme"]!.json, parentsJson: nil), c["issues"]!)
+                let theme = (i < texts.count ? texts[i] : nil) ?? c["theme"]!.json
+                if (try? ThemeHandle.load(json: theme)) != nil { return "loaded" }
+                return same(themeIssuesJson(themeJson: theme, parentsJson: nil), c["issues"]!)
             }
         }
     }
