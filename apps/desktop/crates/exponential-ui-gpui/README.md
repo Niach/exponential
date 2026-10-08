@@ -349,7 +349,7 @@ let host = cx.new(|cx| ExponentialHost::new(HostOptions {
         HttpTransportOptions::new(format!("{server}/a2ui.jsonl")).post_url(format!("{server}/action")),
     ))),
     extensions: vec![parse_extension(&ext_json)?],
-    painters: vec![("Sparkline".into(), Rc::new(Sparkline))],
+    painters: vec![("TrendLine".into(), Rc::new(TrendLine))],
     theme: Some(Arc::new(theme)),
     mode: Mode::Light,
     ..Default::default()

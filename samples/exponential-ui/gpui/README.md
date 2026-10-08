@@ -2,7 +2,7 @@
 
 This is a plain gpui window that hosts an Exponential UI surface. The
 surface streams from the local A2UI JSONL server (`../server`) and uses the
-server's custom theme plus ONE custom extension component (`Sparkline`),
+server's custom theme plus ONE custom extension component (`TrendLine`),
 painted natively. It needs no Exponential account and no backend of ours.
 
 It is a standalone Cargo project with its own `[workspace]`, so it is not
@@ -15,6 +15,7 @@ does:
 - gpui + gpui-component as git dependencies at the SDK's revisions.
   `Cargo.lock` started as a copy of `apps/desktop/Cargo.lock`, so every git
   dependency resolves to the same commit.
+- `rust-toolchain.toml` pins Rust 1.96.0, the compiler gpui needs.
 
 ## Run
 
@@ -44,6 +45,6 @@ It mirrors `../web/src/main.jsx`:
 3. Opens ONE gpui window that paints `host.surface("greenhouse")` (a
    `SurfaceView`) and the transport status.
 
-The `Sparkline` painter is an `ExtensionPainter`. It fills the offered
+The `TrendLine` painter is an `ExtensionPainter`. It fills the offered
 width, is `height` tall (default 48), and strokes a gpui `canvas` path
 through the bound `/series` values in `color`, else the theme's primary.

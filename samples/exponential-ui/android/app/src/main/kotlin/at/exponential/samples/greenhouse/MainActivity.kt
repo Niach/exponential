@@ -1,7 +1,7 @@
 // VAPP-91 sample: a plain Android app hosting an Exponential UI surface
 // streamed from the local A2UI JSONL server (samples/exponential-ui/server),
 // with the server's custom theme and ONE custom extension component
-// (Sparkline, painted natively below). No Exponential account, no backend
+// (TrendLine, painted natively below). No Exponential account, no backend
 // of ours: the SDK's public API only (`ExponentialHost` + a transport +
 // `HostSurface`). The Compose twin of samples/exponential-ui/web.
 package at.exponential.samples.greenhouse
@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
 }
 
 /** The extension's painter: a polyline of the bound readings. */
-object SparklinePainter : ExtensionPainter {
+object TrendLinePainter : ExtensionPainter {
     /** As wide as the layout offers, `height` tall (48 by default). */
     override fun measure(leaf: ExtensionLeaf, wrap: Float?): Size =
         Size(wrap ?: 240f, leaf.props["height"]?.number?.toFloat() ?: 48f)
@@ -142,7 +142,7 @@ private fun Greenhouse(server: String, live: Boolean, mode: Mode) {
                     postUrl = "$server/action",
                     reconnectMs = if (live) 2000 else 0,
                 ),
-                extensions = listOf(HostExtension(a.extension, mapOf("Sparkline" to SparklinePainter))),
+                extensions = listOf(HostExtension(a.extension, mapOf("TrendLine" to TrendLinePainter))),
                 theme = ThemeHandle.load(a.theme),
                 mode = mode,
                 // Links open in the browser (the URL policy's default schemes).

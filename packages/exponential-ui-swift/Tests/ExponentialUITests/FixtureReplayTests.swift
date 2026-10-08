@@ -116,7 +116,7 @@ final class FixtureReplayTests: XCTestCase {
         let probe = Probe()
         let registry = ExtensionRegistry.shared
         registry.reset()
-        try ExponentialUI.register(extension: definition, painters: ["Sparkline": probe, "StatCard": probe])
+        try ExponentialUI.register(extension: definition, painters: ["TrendLine": probe, "StatCard": probe])
         defer { registry.reset() }
         for c in fixture["cases"]?.array ?? [] {
             var options = SurfaceOptions()

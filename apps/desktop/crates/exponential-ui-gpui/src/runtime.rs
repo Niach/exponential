@@ -58,6 +58,8 @@ pub type SourceResolver = Box<dyn Fn(ParsedSource, Emit) -> Cancel>;
 pub type ConsentHook = Rc<dyn Fn(&FunctionCallInfo, &mut App) -> Task<bool>>;
 /// Opens an allowed (absolute) url.
 pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
+/// Observes a JSON value the host sends or an op it performs (`on_send`, `on_op`).
+pub type ValueObserver = Rc<dyn Fn(&Value)>;
 
 /// The host's policy (`catalog/host.json` functions / urls / media).
 #[derive(Clone, Default)]
@@ -91,9 +93,9 @@ pub struct HostOptions {
     /// actions, function calls, urls and media route through the host.
     pub plugin: Rc<dyn HostPlugin>,
     /// Every client message that leaves (after the transport got it).
-    pub on_send: Option<Rc<dyn Fn(&Value)>>,
+    pub on_send: Option<ValueObserver>,
     /// Every op the host performs (tests, logging).
-    pub on_op: Option<Rc<dyn Fn(&Value)>>,
+    pub on_op: Option<ValueObserver>,
 }
 
 impl Default for HostOptions {
@@ -163,8 +165,8 @@ pub struct ExponentialHost {
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
     base: Rc<dyn HostPlugin>,
-    on_send: Option<Rc<dyn Fn(&Value)>>,
-    on_op: Option<Rc<dyn Fn(&Value)>>,
+    on_send: Option<ValueObserver>,
+    on_op: Option<ValueObserver>,
     status: TransportStatus,
     status_detail: Option<String>,
     unsupported_catalog: Option<String>,

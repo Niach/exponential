@@ -1,6 +1,6 @@
 // VAPP-91 sample: a blank iOS app hosting an Exponential UI surface streamed
 // from the local A2UI JSONL server (samples/exponential-ui/server), with the
-// server's custom theme and ONE custom extension component (Sparkline,
+// server's custom theme and ONE custom extension component (TrendLine,
 // painted natively below). No Exponential account, no backend of ours: the
 // SDK's public API only (`ExponentialHost` + a transport + `HostSurface`).
 //
@@ -46,7 +46,7 @@ final class Sample {
             if !Config.live { stream.queryItems = [URLQueryItem(name: "once", value: "1")] }
             let host = ExponentialHost(HostOptions(
                 transport: JSONLStreamTransport(url: stream.url!, postUrl: Config.server.appending(path: "action"), reconnect: Config.live ? .seconds(2) : nil),
-                extensions: [HostExtension(json: String(decoding: ext, as: UTF8.self), painters: ["Sparkline": SparklinePainter()])],
+                extensions: [HostExtension(json: String(decoding: ext, as: UTF8.self), painters: ["TrendLine": TrendLinePainter()])],
                 policy: HostPolicy(openUrl: { UIApplication.shared.open($0) }),
                 theme: theme,
                 mode: Config.mode

@@ -8,13 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		0181A8C5BEF19449EE14400E /* GreenhouseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B613D6554E4BD0E0F66580F /* GreenhouseApp.swift */; };
-		25C74149D2EF3A63670FD2F0 /* Sparkline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F448AFB7947FD9DF0104BA10 /* Sparkline.swift */; };
+		25C74149D2EF3A63670FD2F0 /* TrendLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F448AFB7947FD9DF0104BA10 /* TrendLine.swift */; };
 		454B5B2280A69432279F81F3 /* ExponentialUI in Frameworks */ = {isa = PBXBuildFile; productRef = 647A4E2C89D7D273C0C55618 /* ExponentialUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		4B613D6554E4BD0E0F66580F /* GreenhouseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GreenhouseApp.swift; sourceTree = "<group>"; };
-		F448AFB7947FD9DF0104BA10 /* Sparkline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sparkline.swift; sourceTree = "<group>"; };
+		F448AFB7947FD9DF0104BA10 /* TrendLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendLine.swift; sourceTree = "<group>"; };
 		C75800AB2E47F3683C3EAA8E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C8695018F10ABF217869DEA0 /* GreenhouseSample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GreenhouseSample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -43,7 +43,7 @@
 			isa = PBXGroup;
 			children = (
 				4B613D6554E4BD0E0F66580F /* GreenhouseApp.swift */,
-				F448AFB7947FD9DF0104BA10 /* Sparkline.swift */,
+				F448AFB7947FD9DF0104BA10 /* TrendLine.swift */,
 				C75800AB2E47F3683C3EAA8E /* Info.plist */,
 			);
 			path = GreenhouseSample;
@@ -132,7 +132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0181A8C5BEF19449EE14400E /* GreenhouseApp.swift in Sources */,
-				25C74149D2EF3A63670FD2F0 /* Sparkline.swift in Sources */,
+				25C74149D2EF3A63670FD2F0 /* TrendLine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

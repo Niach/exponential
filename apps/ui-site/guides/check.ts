@@ -18,7 +18,7 @@
 //
 //   bun apps/ui-site/guides/check.ts [react|agent|theme|swift|compose|gpui|all] [--keep]
 
-import { execSync, spawn } from "node:child_process"
+import { execFileSync, execSync, spawn } from "node:child_process"
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -55,7 +55,8 @@ function run(cmd: string, cwd: string, env: Record<string, string> = {}): void {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const running = (pattern: string) => {
   try {
-    return execSync(`pgrep -f ${JSON.stringify(pattern)}`, { stdio: [`ignore`, `pipe`, `ignore`] }).toString().trim().length > 0
+    // No shell: `sh -c "pgrep -f …"` would match its own shell (dash does not exec).
+    return execFileSync(`pgrep`, [`-f`, pattern], { stdio: [`ignore`, `pipe`, `ignore`] }).toString().trim().length > 0
   } catch {
     return false
   }
@@ -118,7 +119,7 @@ async function react(): Promise<void> {
 import { CORE_CATALOG_ID, defineExtension, reduceSurface, validatePackage } from "@exponential-at/ui"
 const json = (f) => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8"))
 const problems = []
-const ext = defineExtension(json("./src/sparkline.extension.json"))
+const ext = defineExtension(json("./src/trendline.extension.json"))
 for (const [name, def] of Object.entries(ext.components)) {
   const { root, issues } = reduceSurface([{ id: "root", component: name, ...def.example }], { catalogId: ext.id, extensions: [ext] })
   problems.push(...issues.map((i) => name + ": " + i.id + ": " + i.message))
@@ -126,7 +127,7 @@ for (const [name, def] of Object.entries(ext.components)) {
   const walk = (n) => { seen.push(n.component); n.children.forEach(walk) }
   walk(root)
   if (seen.includes("Unknown")) problems.push(name + ": expanded to an Unknown placeholder")
-  if (def.kind === "macro" && !seen.includes("Sparkline")) problems.push(name + ": the macro did not expand to its Sparkline")
+  if (def.kind === "macro" && !seen.includes("TrendLine")) problems.push(name + ": the macro did not expand to its TrendLine")
 }
 const vapp = json("./src/hello.vapp.json")
 problems.push(...validatePackage(vapp).map((i) => "hello.vapp.json" + i.path + ": " + i.message))

@@ -1,10 +1,10 @@
 import SwiftUI
 import ExponentialUI
 
-/// The sample extension's ONE native component, `Sparkline {values, color?,
+/// The sample extension's ONE native component, `TrendLine {values, color?,
 /// height = 48}`, painted natively: a polyline of the bound readings in
 /// `color` or the theme's primary, `height` tall, as wide as its frame.
-final class SparklinePainter: ExtensionPainter {
+final class TrendLinePainter: ExtensionPainter {
     func measure(_ leaf: ExtensionLeaf, wrap: CGFloat?) -> CGSize? {
         let height = CGFloat(leaf.props["height"]?.number ?? 48)
         // Any width fits: min-content 0, otherwise the width offered.
@@ -15,7 +15,7 @@ final class SparklinePainter: ExtensionPainter {
         let values = (context.props["values"]?.array ?? []).compactMap(\.number)
         let color = context.props["color"]?.string.flatMap(Self.color(hex:)) ?? context.theme?.color("primary", mode: context.mode) ?? .accentColor
         return AnyView(
-            Sparkline(values: values)
+            TrendLine(values: values)
                 .stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                 .frame(width: context.size.width, height: context.size.height)
                 .accessibilityElement()
@@ -33,7 +33,7 @@ final class SparklinePainter: ExtensionPainter {
 }
 
 /// The polyline: oldest reading on the left, min at the bottom, max at the top.
-struct Sparkline: Shape {
+struct TrendLine: Shape {
     let values: [Double]
 
     func path(in rect: CGRect) -> Path {

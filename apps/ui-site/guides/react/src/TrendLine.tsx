@@ -1,16 +1,16 @@
 // An extension = a catalog (JSON: what the model may use) + one painter per
 // NATIVE component. `Metric` is a macro: it expands into Card + Text +
-// Sparkline in the reducer and needs no painter on any platform.
+// TrendLine in the reducer and needs no painter on any platform.
 import { defineExtension } from "@exponential-at/ui"
 import type { ExtensionDef } from "@exponential-at/ui"
 import { defineReactExtension } from "@exponential-at/ui-react"
 import type { ExtensionComponentProps } from "@exponential-at/ui-react"
-import catalog from "./sparkline.extension.json"
+import catalog from "./trendline.extension.json"
 
 // JSON imports widen literals, hence the cast; defineExtension checks it and throws listing every problem.
 export const metricsCatalog = defineExtension(catalog as unknown as ExtensionDef)
 
-function Sparkline({ props, rootProps, theme, mode }: ExtensionComponentProps) {
+function TrendLine({ props, rootProps, theme, mode }: ExtensionComponentProps) {
   const values = Array.isArray(props.values) ? props.values.map(Number) : []
   const height = Number(props.height ?? 48)
   const min = Math.min(...values), max = Math.max(...values)
@@ -27,4 +27,4 @@ function Sparkline({ props, rootProps, theme, mode }: ExtensionComponentProps) {
 
 // Per surface: <HostSurface … extensions={[metrics]} /> and new ExponentialHost({extensions: [metricsCatalog]})
 // (or registerExtension({catalog, components}) once for every surface on the page).
-export const metrics = defineReactExtension({ catalog: metricsCatalog, components: { Sparkline } })
+export const metrics = defineReactExtension({ catalog: metricsCatalog, components: { TrendLine } })

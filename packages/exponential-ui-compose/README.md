@@ -176,7 +176,7 @@ Launch extras (`adb shell am start -n at.exponential.ui.kitchensink/.MainActivit
 val host = remember {
     ExponentialHost(HostOptions(
         transport = JsonlStreamTransport("https://example.com/a2ui.jsonl", postUrl = "https://example.com/action"),
-        extensions = listOf(HostExtension(extensionJson, mapOf("Sparkline" to SparklinePainter))),
+        extensions = listOf(HostExtension(extensionJson, mapOf("TrendLine" to TrendLinePainter))),
         functions = mapOf("app.toast" to { args, call -> toast(args["text"]?.string) }),
         sources = mapOf("exp" to SourceResolver { source, emit -> subscribe(source, emit) /* returns the cancel */ }),
         policy = HostPolicy(functions = FunctionPolicy(ask = listOf("app.*")), onFunctionCall = { consent(it) },

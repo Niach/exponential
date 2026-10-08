@@ -217,7 +217,8 @@ cd packages/exponential-ui-compose
           <p>
             Two crates: <code>exponential-ui</code> (the core) and <code>exponential-ui-gpui</code> (the painter and
             host runtime). The painter depends on gpui and gpui-component as git dependencies, which crates.io
-            refuses, so it stays a git or path dependency until both are published there.
+            refuses, so it stays a git or path dependency until both are published there. gpui needs Rust 1.96:
+            pin it in <code>rust-toolchain.toml</code>.
           </p>
           <Unpublished>Until then, depend on both crates by path or git, as below.</Unpublished>
           <GuideFile path="gpui/Cargo.toml" caption="path dependencies standing in for crates.io" />
@@ -344,9 +345,9 @@ cd packages/exponential-ui-compose
           <p>
             An extension catalog has its own id, extends the core and adds components. It may never shadow a core
             name. Each component has a model-facing description and props, like the core catalog. This one adds a
-            native <code>Sparkline</code> and a macro <code>Metric</code>:
+            native <code>TrendLine</code> and a macro <code>Metric</code>:
           </p>
-          <GuideFile path="react/src/sparkline.extension.json" />
+          <GuideFile path="react/src/trendline.extension.json" />
           <p>
             A <strong>macro</strong> expands into existing components in the reducer, on every platform, so{` `}
             <code>Metric</code> needs no painter anywhere. If your component can be built from core components, a
@@ -364,14 +365,14 @@ cd packages/exponential-ui-compose
             A <strong>native</strong> needs a painter on each platform you ship. On React, a component receives the
             resolved props, the theme and the mode, and spreads <code>rootProps</code> on its root element:
           </p>
-          <GuideFile path="react/src/Sparkline.tsx" />
+          <GuideFile path="react/src/TrendLine.tsx" />
           <DocsTable
             head={[`Platform`, `Register`]}
             rows={[
               [`React`, <code key="c">{`defineReactExtension({ catalog, components }) · registerExtension(…)`}</code>],
               [`SwiftUI`, <code key="c">{`ExponentialUI.register(extension: json, painters: [kind: painter])`}</code>],
               [`Compose`, <code key="c">{`ExponentialUi.register(extensionJson, mapOf(kind to painter))`}</code>],
-              [`gpui`, <code key="c">{`view.register_painter("Sparkline", Box::new(MySparkline))`}</code>],
+              [`gpui`, <code key="c">{`view.register_painter("TrendLine", Box::new(MyTrendLine))`}</code>],
             ]}
           />
           <p>

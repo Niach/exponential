@@ -550,13 +550,13 @@ fn host_suite(id: &str) -> Vec<Case> {
             let f = fixture("host-transport.json");
             for c in list(&f, "jsonl") {
                 let mut d = JsonlDecoder::new();
-                let got = feed(|s| d.push(s), || Decoded::default(), list(c, "chunks"));
+                let got = feed(|s| d.push(s), Decoded::default, list(c, "chunks"));
                 let got = { let mut g = got; g.extend(d.end()); g };
                 out.push((format!("jsonl: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
             }
             for c in list(&f, "sse") {
                 let mut d = SseDecoder::new();
-                let got = feed(|s| d.push(s), || Decoded::default(), list(c, "chunks"));
+                let got = feed(|s| d.push(s), Decoded::default, list(c, "chunks"));
                 let got = { let mut g = got; g.extend(d.end()); g };
                 out.push((format!("sse: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
             }

@@ -3,7 +3,7 @@
 A blank iOS app (`GreenhouseSample.xcodeproj`) hosting the `greenhouse`
 surface streamed from the local A2UI JSONL server, with the server's
 third-party theme (teal primary, pill buttons) and ONE custom extension
-component, `Sparkline`, painted natively (a SwiftUI `Path`). No Exponential
+component, `TrendLine`, painted natively (a SwiftUI `Path`). No Exponential
 account, no backend of ours: `ExponentialHost` + `JSONLStreamTransport` +
 `HostSurface` only, the same shape as `../web/src/main.jsx`.
 

@@ -1,7 +1,7 @@
 //! VAPP-91 sample: a plain gpui window hosting an Exponential UI surface
 //! streamed from the local A2UI JSONL server (samples/exponential-ui/server),
 //! with the server's custom theme and ONE custom extension component
-//! (Sparkline) painted natively. No Exponential account, no backend of ours:
+//! (TrendLine) painted natively. No Exponential account, no backend of ours:
 //! the SDK's public API only (`ExponentialHost` + a transport + the
 //! `SurfaceView` it creates per surface).
 //!
@@ -27,9 +27,9 @@ const SURFACE: &str = "greenhouse";
 
 /// The extension's native painter: a polyline of the bound readings in
 /// `color` (else the theme's primary), `height` tall, full width.
-struct Sparkline;
+struct TrendLine;
 
-impl Sparkline {
+impl TrendLine {
     fn values(props: &serde_json::Map<String, Value>) -> Vec<f32> {
         props.get("values").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as f32).collect()).unwrap_or_default()
     }
@@ -39,7 +39,7 @@ impl Sparkline {
     }
 }
 
-impl ExtensionPainter for Sparkline {
+impl ExtensionPainter for TrendLine {
     fn measure(&self, leaf: &LeafRequest, wrap: Option<f32>, _: &mut Window, _: &mut App) -> Option<(f32, f32)> {
         // Fills the width it is offered (min-content: 0).
         Some((wrap.unwrap_or(240.0), Self::height(leaf.props)))
@@ -146,7 +146,7 @@ fn main() {
                 HostOptions {
                     transport: Some(Box::new(transport)),
                     extensions: vec![extension],
-                    painters: vec![("Sparkline".into(), Rc::new(Sparkline))],
+                    painters: vec![("TrendLine".into(), Rc::new(TrendLine))],
                     theme: Some(theme.clone()),
                     mode,
                     ..Default::default()

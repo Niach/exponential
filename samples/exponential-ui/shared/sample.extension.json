@@ -4,7 +4,7 @@
   "name": "Sample extension",
   "extends": "https://ui.exponential.at/catalogs/core/v1",
   "components": {
-    "Sparkline": {
+    "TrendLine": {
       "kind": "native",
       "group": "data",
       "lite": true,

@@ -3,7 +3,7 @@
   "name": "Metrics",
   "extends": "https://ui.exponential.at/catalogs/core/v1",
   "components": {
-    "Sparkline": {
+    "TrendLine": {
       "kind": "native",
       "group": "data",
       "lite": true,
@@ -20,11 +20,11 @@
       "group": "data",
       "lite": true,
       "children": "none",
-      "description": "A card with a label, a big value and, when given, a sparkline of its history.",
+      "description": "A card with a label, a big value and, when given, a trend line of its history.",
       "props": {
         "label": { "type": "string", "required": true, "description": "What the number is." },
         "value": { "type": "string", "required": true, "bindable": true, "description": "The formatted number." },
-        "history": { "type": "array", "items": { "type": "number" }, "description": "Recent values for the sparkline." }
+        "history": { "type": "array", "items": { "type": "number" }, "description": "Recent values for the trend line." }
       },
       "example": { "label": "Open issues", "value": "42", "history": [30, 34, 39, 42] }
     }
@@ -39,7 +39,7 @@
         "children": [
           { "part": "label", "component": "Text", "props": { "text": "{props.label}", "variant": "muted" } },
           { "part": "value", "component": "Text", "props": { "text": "{props.value}", "variant": "title" } },
-          { "part": "spark", "component": "Sparkline", "$if": "props.history", "props": { "values": "{props.history}" } }
+          { "part": "spark", "component": "TrendLine", "$if": "props.history", "props": { "values": "{props.history}" } }
         ]
       }
     }

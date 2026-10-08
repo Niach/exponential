@@ -1,0 +1,3 @@
+# gpui at the SDK's revision needs the compiler apps/desktop pins.
+[toolchain]
+channel = "1.96.0"

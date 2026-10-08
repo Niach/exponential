@@ -9,7 +9,7 @@
 //   GET  /ws                the same over a WebSocket (client messages come back as frames)
 //   POST /action            client messages (A2UI v0.9 action / error); `refresh` pushes new readings
 //   GET  /theme.json        the sample theme (extends neutral)
-//   GET  /extension.json    the sample extension catalog (Sparkline)
+//   GET  /extension.json    the sample extension catalog (TrendLine)
 //   GET  /surface.jsonl     the static surface (what ?once=1 streams)
 
 import { readFileSync } from "node:fs"

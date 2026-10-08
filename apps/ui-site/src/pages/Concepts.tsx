@@ -65,10 +65,10 @@ const EXTENSION = `{
   "id": "https://example.com/catalogs/metrics/v1",
   "extends": "${CATALOG_ID}",
   "components": {
-    "Sparkline": { "kind": "native", "props": { "values": { "type": "array", "required": true } }, … },
+    "TrendLine": { "kind": "native", "props": { "values": { "type": "array", "required": true } }, … },
     "Metric":    { "kind": "macro",  "props": { "label": …, "value": …, "history": … }, … }
   },
-  "macros": { "Metric": { "root": { "component": "Card", "children": [ …Text, Text, Sparkline ] } } }
+  "macros": { "Metric": { "root": { "component": "Card", "children": [ …Text, Text, TrendLine ] } } }
 }`
 
 const PACKAGE = `{

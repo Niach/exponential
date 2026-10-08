@@ -1,7 +1,7 @@
 // VAPP-91 sample: a plain Vite + React app hosting an Exponential UI surface
 // streamed from the local A2UI JSONL server (samples/exponential-ui/server),
 // with the server's custom theme and ONE custom extension component
-// (Sparkline). No Exponential account, no backend of ours: the SDK's public
+// (TrendLine). No Exponential account, no backend of ours: the SDK's public
 // API only (`ExponentialHost` + a transport + `<HostSurface>`).
 import { createRoot } from "react-dom/client"
 import { useEffect, useMemo, useState } from "react"
@@ -13,7 +13,7 @@ const SERVER = params.get(`server`) ?? `http://localhost:4190`
 const MODE = params.get(`mode`) === `dark` ? `dark` : `light`
 
 /** The extension's painter: an SVG polyline of the bound readings. */
-function Sparkline({ props, rootProps, theme, mode }) {
+function TrendLine({ props, rootProps, theme, mode }) {
   const values = Array.isArray(props.values) ? props.values.map(Number) : []
   const height = Number(props.height ?? 48)
   const color = props.color ?? theme.modes[mode].color.primary
@@ -50,7 +50,7 @@ function App() {
       }),
     [assets]
   )
-  const extensions = useMemo(() => (assets ? [defineReactExtension({ catalog: assets.catalog, components: { Sparkline } })] : []), [assets])
+  const extensions = useMemo(() => (assets ? [defineReactExtension({ catalog: assets.catalog, components: { TrendLine } })] : []), [assets])
   useEffect(() => {
     host?.connect()
     return () => host?.close()
