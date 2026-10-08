@@ -354,13 +354,6 @@ interface CodingSessionDao {
     )
     fun observeOpenPrRunsByTeam(teamId: String): Flow<List<CodingSessionEntity>>
 
-    // EXP-1186: [observeOpenPrRunsByTeam] across every member team.
-    @Query(
-        "SELECT * FROM coding_sessions WHERE issue_id IS NULL " +
-            "AND pr_state = 'open' ORDER BY started_at DESC"
-    )
-    fun observeOpenPrRuns(): Flow<List<CodingSessionEntity>>
-
     // EXP-1244: every run carrying a PR, ANY state — the Reviews queue's
     // run input (its own PRs + the linked set).
     @Query("SELECT * FROM coding_sessions WHERE pr_url IS NOT NULL AND pr_url != ''")

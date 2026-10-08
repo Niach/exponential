@@ -21,6 +21,9 @@ final class AppDependencies: @unchecked Sendable {
     // sockets, feeds and composer drafts are app-scoped, so navigating away and
     // back costs no reconnect and loses no draft.
     let steerSessions = SteerSessionStore()
+    // EXP-1244: the open pull requests nothing links, per account + team —
+    // the Reviews screen and the Reviews tab's dot read the SAME entries.
+    let openPulls = OpenPullsStore()
 
     // API services
     let authApi: AuthApi

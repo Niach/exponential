@@ -101,6 +101,7 @@ fun BottomNavBar(
     unreadCount: Int,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
+    /** EXP-1244: [com.exponential.app.domain.ReviewsNav.dot] — the Reviews queue is non-empty. */
     reviewsOpen: Boolean,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
@@ -113,9 +114,9 @@ fun BottomNavBar(
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
     /**
-     * EXP-1105: false while EVERY member team runs in yolo mode with no open
-     * PR (agents merge their own work); an open PR = a failed auto-merge, so
-     * the caller passes `anyNonYolo || reviewsOpen` (EXP-1186: all teams).
+     * EXP-1105/EXP-1244: [com.exponential.app.domain.ReviewsNav.shows] — false
+     * while EVERY member team runs in yolo mode and the Reviews queue is empty
+     * (agents merge their own work); an open PR = a failed auto-merge.
      */
     showsReviews: Boolean = true,
 ) {

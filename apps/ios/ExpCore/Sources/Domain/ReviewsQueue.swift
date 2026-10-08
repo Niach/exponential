@@ -167,6 +167,28 @@ public enum ReviewsQueue {
         )
     }
 
+    /// The Reviews tab's state (fixture `_navDoc` + `navCases`, ×4: web
+    /// `reviewsNav`, desktop `reviews_nav`, Android `ReviewsQueue.nav`).
+    public struct Nav: Equatable, Sendable {
+        /// The dot: the queue (unlinked pulls included) is non-empty.
+        public let dot: Bool
+        /// The tab exists: no team in scope, some team NOT in yolo mode, or
+        /// the dot is lit (in yolo mode an open PR = a failed auto-merge).
+        public let shows: Bool
+
+        public init(dot: Bool, shows: Bool) {
+            self.dot = dot
+            self.shows = shows
+        }
+    }
+
+    /// `yolo` = each in-scope team's `yolo_mode`; `count` = `build(...).count`
+    /// over the same inputs the Reviews screen reads.
+    public static func nav(yolo: [Bool], count: Int) -> Nav {
+        let dot = count > 0
+        return Nav(dot: dot, shows: yolo.isEmpty || yolo.contains(false) || dot)
+    }
+
     private static func present(_ url: String?) -> Bool {
         url.map { !$0.isEmpty } ?? false
     }

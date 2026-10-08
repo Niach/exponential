@@ -7,6 +7,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.TeamEntity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.int
@@ -148,6 +149,29 @@ class ReviewsQueueTest {
                 queue.repoGroups.map { repo -> Triple(repo.teamId, repo.repositoryId, repo.pulls.map { it.number }) },
             )
             assertEquals("$name: count", expected.getValue("count").jsonPrimitive.int, queue.count)
+        }
+    }
+
+    @Test
+    fun `every nav case matches`() {
+        val cases = fixture.list("navCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val name = case.string("name")!!
+            val input = case.getValue("input").jsonObject
+            val expected = case.getValue("expected").jsonObject
+            val nav = ReviewsQueue.nav(
+                yolo = input.getValue("yolo").jsonArray.map { it.jsonPrimitive.boolean },
+                count = input.getValue("count").jsonPrimitive.int,
+            )
+            assertEquals(
+                name,
+                ReviewsNav(
+                    dot = expected.getValue("dot").jsonPrimitive.boolean,
+                    shows = expected.getValue("shows").jsonPrimitive.boolean,
+                ),
+                nav,
+            )
         }
     }
 }

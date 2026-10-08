@@ -20,6 +20,10 @@
 //!    linked pulls dropped, empty repos hidden.
 //! 8. `count` = entries + runs + repo pulls.
 //!
+//! The Reviews nav entry reads the SAME queue ([`reviews_nav`], the
+//! fixture's `navCases`): dot = `count > 0`; the entry shows iff no team is
+//! in scope, some team in scope is not in yolo mode, or the dot is lit.
+//!
 //! Timestamps are the synced ISO strings, compared lexicographically (one
 //! source, one format; `None` sorts last under the descending compare).
 
@@ -277,6 +281,25 @@ pub fn reviews_queue<'a, P>(
     }
 }
 
+/// The Reviews nav entry ×4 (web `reviewsNav`, iOS/Android
+/// `ReviewsQueue.nav`): `dot` = the queue holds anything; `shows` = no team
+/// in scope, some team not in yolo mode, or the dot is lit (yolo mode merges
+/// every agent PR at once, so an open PR there = a failed merge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReviewsNav {
+    pub dot: bool,
+    pub shows: bool,
+}
+
+/// `yolo` = each in-scope team's yolo mode; `count` = the queue's `count`.
+pub fn reviews_nav(yolo: &[bool], count: usize) -> ReviewsNav {
+    let dot = count > 0;
+    ReviewsNav {
+        dot,
+        shows: yolo.is_empty() || yolo.iter().any(|yolo| !yolo) || dot,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,9 +307,27 @@ mod tests {
     use serde_json::{json, Value};
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         labels: Labels,
         cases: Vec<Case>,
+        nav_cases: Vec<NavCase>,
+    }
+    #[derive(Deserialize)]
+    struct NavCase {
+        name: String,
+        input: NavInput,
+        expected: NavExpected,
+    }
+    #[derive(Deserialize)]
+    struct NavInput {
+        yolo: Vec<bool>,
+        count: usize,
+    }
+    #[derive(Deserialize)]
+    struct NavExpected {
+        dot: bool,
+        shows: bool,
     }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -397,13 +438,36 @@ mod tests {
         .unwrap()
     }
 
+    fn fixture() -> Fixture {
+        serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/reviews-queue.json"
+        ))
+        .expect("reviews-queue.json parses")
+    }
+
+    /// EXP-1244: `navCases` lock the Reviews nav entry's dot + visibility ×4.
+    #[test]
+    fn reviews_nav_matches_the_fixture() {
+        let cases = fixture().nav_cases;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let nav = reviews_nav(&case.input.yolo, case.input.count);
+            assert_eq!(
+                nav,
+                ReviewsNav {
+                    dot: case.expected.dot,
+                    shows: case.expected.shows,
+                },
+                "{}",
+                case.name
+            );
+        }
+    }
+
     /// EXP-1244: `reviews-queue.json` locks the queue ×4.
     #[test]
     fn reviews_queue_matches_the_fixture() {
-        let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/reviews-queue.json"
-        ))
-        .expect("reviews-queue.json parses");
+        let fixture = fixture();
         assert_eq!(REPO_BAND_CAPTION, fixture.labels.repo_band_caption);
         assert_eq!(RUN_BAND_CAPTION, fixture.labels.run_band_caption);
         assert!(!fixture.cases.is_empty());

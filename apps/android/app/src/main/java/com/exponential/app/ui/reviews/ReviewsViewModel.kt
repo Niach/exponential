@@ -24,12 +24,9 @@ import com.exponential.app.domain.PullRepo
 import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.data.api.OpenPull
 import com.exponential.app.data.api.RepositoriesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import com.exponential.app.data.OpenPullsStore
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.transformLatest
+import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -216,71 +213,35 @@ class ReviewsViewModel @Inject constructor(
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
     private val repositoriesApi: RepositoriesApi,
+    private val openPulls: OpenPullsStore,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** Bumped by [onScreenEntered] (a later screen entry) — refetches `openPulls`. */
-    private val pullsRefresh = MutableStateFlow(0)
-
-    /** EXP-1244: unlinked pulls merged here — no Electric echo, so they drop locally. */
-    private val mergedPulls = MutableStateFlow<Set<String>>(emptySet())
+    /** EXP-1244: the member team ids, in display order. */
+    private val teamIds: Flow<List<String>> =
+        dbFlow.flatMapLatest { db ->
+            db?.teamDao()?.observeAll()?.map { teams -> teams.map { it.id } } ?: flowOf(emptyList())
+        }.distinctUntilChanged()
 
     /**
-     * EXP-1244: `repositories.openPulls` once per member team, refetched when
-     * the team SET changes (or on [onScreenEntered]); a team whose fetch fails
-     * lists nothing, the synced queue renders regardless.
+     * EXP-1244: the app-wide [OpenPullsStore]'s pulls for every member team —
+     * the SAME entries the Reviews tab's dot reads. A team whose fetch fails
+     * lists nothing; the synced queue renders regardless.
      */
-    private val fetchedPulls: Flow<List<PullRepo>> =
-        combine(
-            auth.activeAccountId,
-            dbFlow.flatMapLatest { db ->
-                db?.teamDao()?.observeAll()?.map { teams -> teams.map { it.id }.sorted() }
-                    ?: flowOf(emptyList())
-            }.distinctUntilChanged(),
-            pullsRefresh,
-        ) { accountId, teamIds, _ -> accountId to teamIds }
-            .transformLatest { (accountId, teamIds) ->
-                if (accountId == null || teamIds.isEmpty()) {
-                    emit(emptyList())
-                    return@transformLatest
-                }
-                val perTeam = coroutineScope {
-                    teamIds.map { teamId ->
-                        async {
-                            try {
-                                repositoriesApi.openPulls(accountId, teamId).map { repo ->
-                                    PullRepo(teamId, repo.repositoryId, repo.fullName, repo.pulls)
-                                }
-                            } catch (t: CancellationException) {
-                                throw t
-                            } catch (_: Throwable) {
-                                emptyList()
-                            }
-                        }
-                    }.awaitAll()
-                }
-                emit(perTeam.flatten())
-            }
-            .onStart { emit(emptyList()) }
-
     private val pulls: Flow<List<PullRepo>> =
-        combine(fetchedPulls, mergedPulls) { repos, merged ->
-            if (merged.isEmpty()) repos
-            else repos.map { repo ->
-                repo.copy(pulls = repo.pulls.filter { externalPullKey(repo.repositoryId, it.number) !in merged })
-            }
-        }
-
-    private var entered = false
+        combine(auth.activeAccountId, teamIds) { accountId, ids -> accountId to ids }
+            .flatMapLatest { (accountId, ids) -> openPulls.pulls(accountId, ids) }
 
     /**
-     * EXP-1244: the screen calls it on every entry — the first one rides the
-     * initial fetch, every later one refetches the unlinked pull requests.
+     * EXP-1244: the screen calls it on every entry — a forced refetch of every
+     * member team's unlinked pull requests.
      */
     fun onScreenEntered() {
-        if (entered) pullsRefresh.value += 1
-        entered = true
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            openPulls.refreshAll(accountId, teamIds.first(), force = true)
+        }
     }
 
     // EXP-1186: cross-team like the Inbox — never the selected team.
@@ -343,7 +304,7 @@ class ReviewsViewModel @Inject constructor(
             _merging.value = _merging.value + key
             runCatching { repositoriesApi.mergePull(accountId, repositoryId, pull.number) }
                 .onSuccess { result ->
-                    if (result.merged) mergedPulls.value = mergedPulls.value + key
+                    if (result.merged) openPulls.removePull(accountId, repositoryId, pull.number)
                 }
                 .onFailure { t ->
                     if (t is CancellationException) throw t

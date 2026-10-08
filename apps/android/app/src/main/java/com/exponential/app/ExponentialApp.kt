@@ -8,6 +8,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import com.exponential.app.data.OpenPullsStore
 import com.exponential.app.data.auth.AccountDeduplicator
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SecureStore
@@ -33,6 +34,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var secureStore: SecureStore
     @Inject lateinit var accountDeduplicator: AccountDeduplicator
     @Inject lateinit var steerConnectionStore: SteerConnectionStore
+    @Inject lateinit var openPullsStore: OpenPullsStore
 
     override fun onCreate() {
         super.onCreate()
@@ -81,6 +83,9 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
                 // app-held now, so backgrounding parks them after their own
                 // grace window and coming back revives them.
                 steerConnectionStore.setForeground(true)
+                // EXP-1244: the Reviews dot's unlinked pulls — refetch the
+                // watched teams older than 60 s.
+                openPullsStore.onForeground()
             }
 
             override fun onStop(owner: LifecycleOwner) {

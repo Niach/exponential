@@ -83,7 +83,8 @@ struct ReviewsListContent: View {
         .onAppear {
             if viewModel == nil {
                 viewModel = ReviewsViewModel(
-                    accountId: accountId, db: deps.db, repositoriesApi: deps.repositoriesApi
+                    accountId: accountId, db: deps.db, openPulls: deps.openPulls,
+                    repositoriesApi: deps.repositoriesApi
                 )
             }
             appearTick += 1

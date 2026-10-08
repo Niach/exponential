@@ -76,6 +76,15 @@ final class ReviewsQueueTests: XCTestCase {
         }
         let labels: Labels
         let cases: [Case]
+        let navCases: [NavCase]
+    }
+
+    private struct NavCase: Decodable {
+        struct Input: Decodable { let yolo: [Bool]; let count: Int }
+        struct Expected: Decodable { let dot: Bool; let shows: Bool }
+        let name: String
+        let input: Input
+        let expected: Expected
     }
 
     private func fixture() throws -> Fixture {
@@ -171,6 +180,18 @@ final class ReviewsQueueTests: XCTestCase {
                 testCase.expected.repoGroups, testCase.name
             )
             XCTAssertEqual(result.count, testCase.expected.count, testCase.name)
+        }
+    }
+
+    func testEveryNavCaseMatches() throws {
+        let cases = try fixture().navCases
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                ReviewsQueue.nav(yolo: testCase.input.yolo, count: testCase.input.count),
+                ReviewsQueue.Nav(dot: testCase.expected.dot, shows: testCase.expected.shows),
+                testCase.name
+            )
         }
     }
 

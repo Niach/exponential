@@ -878,8 +878,8 @@ fn build_inbox_entries(
 }
 
 /// Open pull requests: synced issues in this team with an open PR — a
-/// query over `issues`, independent of notifications. Feeds the Reviews rail
-/// badge and, grouped, the Reviews page.
+/// query over `issues`, independent of notifications (the stack merge's
+/// lookup).
 pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     let collections = Store::global(cx).collections();
     let boards = collections.boards.read(cx);
@@ -895,19 +895,6 @@ pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
         })
         .cloned()
         .collect()
-}
-
-/// [`review_issues`]`.is_empty()` without the clones — the rail's Reviews
-/// badge asks this once per frame (EXP-915).
-pub fn has_review_issues(cx: &App, team_id: &str) -> bool {
-    let collections = Store::global(cx).collections();
-    let boards = collections.boards.read(cx);
-    collections.issues.read(cx).iter().any(|issue| {
-        is_reviewable(issue)
-            && boards
-                .get(&issue.board_id)
-                .is_some_and(|board| board.team_id == team_id)
-    })
 }
 
 /// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
@@ -1025,6 +1012,57 @@ pub fn reviews_queue(
         collections.coding_sessions.read(cx).iter(),
         pulls,
     )
+}
+
+/// The queue's `count` alone — the rail's Reviews dot (EXP-1244: the SAME
+/// shared function as the page, minus the row clones; memoized on
+/// [`reviews_count_key`]).
+pub fn reviews_count(
+    cx: &App,
+    team_id: &str,
+    pulls: &[api::repositories::OpenPullsRepo],
+) -> usize {
+    use domain::reviews_queue::{reviews_queue, PullRepo};
+    let collections = Store::global(cx).collections();
+    let inputs: Vec<PullRepo<'_, api::repositories::OpenPull>> = pulls
+        .iter()
+        .map(|repo| PullRepo {
+            team_id,
+            repository_id: &repo.repository_id,
+            pulls: &repo.pulls,
+        })
+        .collect();
+    reviews_queue(
+        &[team_id],
+        collections.boards.read(cx).iter(),
+        collections.issues.read(cx).iter(),
+        collections.coding_sessions.read(cx).iter(),
+        &inputs,
+        |pull| pull.url.as_str(),
+    )
+    .count
+}
+
+/// Every input [`reviews_count`] reads: the team, the three synced
+/// collections and the openPulls store's revision.
+#[derive(PartialEq, Eq)]
+pub(crate) struct ReviewsCountKey {
+    team_id: String,
+    issues: u64,
+    boards: u64,
+    sessions: u64,
+    pulls: u64,
+}
+
+pub(crate) fn reviews_count_key(cx: &App, team_id: &str, pulls_revision: u64) -> ReviewsCountKey {
+    let collections = Store::global(cx).collections();
+    ReviewsCountKey {
+        team_id: team_id.to_string(),
+        issues: collections.issues.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+        sessions: collections.coding_sessions.read(cx).revision(),
+        pulls: pulls_revision,
+    }
 }
 
 /// The board groups alone (the Reviews second sidebar, the `pr` pick). Reads

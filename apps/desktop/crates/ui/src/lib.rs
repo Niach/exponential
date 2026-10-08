@@ -125,6 +125,7 @@ mod pickers;
 mod picker;
 mod pins;
 mod pr_diff;
+mod open_pulls;
 mod pr_graph;
 mod pr_merge;
 mod queries;

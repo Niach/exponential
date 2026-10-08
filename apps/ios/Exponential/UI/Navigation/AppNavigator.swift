@@ -301,6 +301,7 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.motion) private var motion
     /// EXP-1210: the selected bottom-bar destination = the stack's ROOT. The
     /// app LANDS on the Agent tab, so a cold start and an account switch
@@ -333,12 +334,11 @@ struct MainNavigator: View {
     // parked on a plan-approval / question picker) — escalates the Agents
     // dot to amber.
     @State private var agentsNeedInput = false
-    // EXP-214: open-PR issues — the Reviews tab's green dot, across every
-    // member team via `reviewsOpen` (EXP-1186).
-    @State private var observedOpenPrIssues: [IssueEntity] = []
-    // EXP-734: issue-less runs parking their OWN open PR — they light the same
-    // dot, and no board can ever carry them.
-    @State private var observedOpenPrSessions: [CodingSessionEntity] = []
+    // EXP-214/1244: the Reviews tab's dot inputs — the SAME rows the Reviews
+    // screen feeds `ReviewsQueue.build`: every issue with an open pr_state or
+    // any pr_url, every run with a pr_url (any state links its PR).
+    @State private var observedPrIssues: [IssueEntity] = []
+    @State private var observedPrSessions: [CodingSessionEntity] = []
     // Raw observed running-session rows — cached so the liveness ticker can
     // recompute `agentsRunning` between sync deltas (EXP-153).
     @State private var observedSessions: [CodingSessionEntity] = []
@@ -515,8 +515,8 @@ struct MainNavigator: View {
                     unreadCount: unreadCount,
                     agentsRunning: agentsRunning,
                     agentsNeedInput: agentsNeedInput,
-                    reviewsOpen: reviewsOpen,
-                    showsReviews: showsReviews,
+                    reviewsOpen: reviewsNav.dot,
+                    showsReviews: reviewsNav.shows,
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
@@ -561,7 +561,16 @@ struct MainNavigator: View {
         // EXP-1105: Reviews exists only until yolo mode hides it (the flag
         // flips on, or the last open PR in a yolo team merges) — then land
         // back on Issues instead of stranding a tab-less screen.
-        .onChange(of: showsReviews) { _, shown in
+        // EXP-1244: the dot's openPulls half — a team older than 60 s
+        // refetches when the team set changes and when the app comes back.
+        .task(id: PullsNavKey(accountId: deps.auth.activeAccountId ?? "", teamIds: teamState.teams.map(\.id).sorted())) {
+            await refreshStalePulls()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await refreshStalePulls() }
+        }
+        .onChange(of: reviewsNav.shows) { _, shown in
             guard !shown else { return }
             savedPaths[.reviews] = nil
             if tab == .reviews {
@@ -668,33 +677,30 @@ struct MainNavigator: View {
         }
     }
 
-    /// EXP-1105: the synced `teams.yolo_mode` flag. PRs auto-merge there,
-    /// so Reviews has nothing routine to show. EXP-1186: Reviews is
-    /// cross-team, so only EVERY member team in yolo mode counts (no team
-    /// synced yet keeps the tab, as before).
-    private var yoloMode: Bool {
-        !teamState.teams.isEmpty && teamState.teams.allSatisfy(\.yoloMode)
-    }
-
-    /// Reviews hides in yolo mode EXCEPT while a PR is open: there, an open
-    /// PR means an auto-merge failed, and that must still surface.
-    private var showsReviews: Bool {
-        !yoloMode || reviewsOpen
-    }
-
-    /// Any open PR in ANY member team lights the Reviews tab's green dot
-    /// (EXP-214; EXP-1186: cross-team) — the same open-PR set the Reviews
-    /// screen lists, scoped through the already-observed boards.
-    private var reviewsOpen: Bool {
-        let teamIds = Set(teamState.teams.map(\.id))
-        let teamBoardIds = Set(
-            teamState.boards.filter { teamIds.contains($0.teamId) }.map(\.id)
+    /// EXP-1244: the Reviews tab's dot + presence = `ReviewsQueue.nav` over
+    /// the SAME queue the Reviews screen lists (every member team, the
+    /// app-wide openPulls store), fixture `_navDoc`: the dot = anything
+    /// queued; the tab hides only while every team runs in yolo mode
+    /// (EXP-1105: PRs auto-merge) and nothing is queued.
+    private var reviewsNav: ReviewsQueue.Nav {
+        let accountId = deps.auth.activeAccountId ?? ""
+        let teamIds = teamState.teams.map(\.id)
+        let queue = ReviewsQueue.build(
+            teamIds: teamIds,
+            boards: teamState.boards,
+            issues: observedPrIssues,
+            sessions: observedPrSessions,
+            pulls: deps.openPulls.pulls(accountId: accountId, teamIds: teamIds)
         )
-        if observedOpenPrIssues.contains(where: { teamBoardIds.contains($0.boardId) }) {
-            return true
-        }
-        // EXP-734: a run's own chore PR belongs to the team, not a board.
-        return observedOpenPrSessions.contains { teamIds.contains($0.teamId) && $0.hasOpenPr }
+        return ReviewsQueue.nav(yolo: teamState.teams.map(\.yoloMode), count: queue.count)
+    }
+
+    private func refreshStalePulls() async {
+        let teamIds = teamState.teams.map(\.id)
+        guard let accountId = deps.auth.activeAccountId, !teamIds.isEmpty else { return }
+        await deps.openPulls.refresh(
+            accountId: accountId, teamIds: teamIds, api: deps.repositoriesApi
+        )
     }
 
     /// Compose targets the board in view: a pushed board list wins, and every
@@ -997,39 +1003,37 @@ struct MainNavigator: View {
                 recomputeAgentDots()
             }
         }
-        // Open PRs light the Reviews tab's green dot (EXP-214) — mirrors the
-        // Reviews screen's observation (open pr_state).
-        let openPrObs = ValueObservation.tracking { db in
+        // The Reviews tab's dot (EXP-214/1244) — the Reviews screen's own
+        // observations: open issues are entries, every pr_url links a PR.
+        let prIssueObs = ValueObservation.tracking { db in
             try IssueEntity
-                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .filter(Column("pr_state") == DomainContract.prStateOpen || Column("pr_url") != nil)
                 .fetchAll(db)
         }
-        let openPrTask = Task { @MainActor in
+        let prIssueTask = Task { @MainActor in
             do {
-                for try await issues in openPrObs.values(in: pool) {
-                    observedOpenPrIssues = issues
+                for try await issues in prIssueObs.values(in: pool) {
+                    observedPrIssues = issues
                 }
             } catch {}
         }
         // EXP-734: an action or chat run's own PR links no issue — it lives on
-        // the session row, and lights the same dot (the Reviews screen lists
-        // it in its own section).
-        let openPrSessionObs = ValueObservation.tracking { db in
+        // the session row; any run's pr_url links its PR (EXP-1244).
+        let prSessionObs = ValueObservation.tracking { db in
             try CodingSessionEntity
-                .filter(Column("issue_id") == nil)
-                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .filter(Column("pr_url") != nil)
                 .fetchAll(db)
         }
-        let openPrSessionTask = Task { @MainActor in
+        let prSessionTask = Task { @MainActor in
             do {
-                for try await sessions in openPrSessionObs.values(in: pool) {
-                    observedOpenPrSessions = sessions
+                for try await sessions in prSessionObs.values(in: pool) {
+                    observedPrSessions = sessions
                 }
             } catch {}
         }
         observationTasks = [
-            wsTask, projTask, notifTask, sessionTask, livenessTask, openPrTask,
-            openPrSessionTask,
+            wsTask, projTask, notifTask, sessionTask, livenessTask, prIssueTask,
+            prSessionTask,
         ]
     }
 
@@ -1219,4 +1223,10 @@ extension Notification.Name {
     /// A team was deleted in-app (EXP-43) — MainNavigator pops to root so
     /// no pushed view still targets the deleted team.
     static let teamDeleted = Notification.Name("teamDeleted")
+}
+
+/// EXP-1244: the tab bar's openPulls refresh key — the account + team set.
+private struct PullsNavKey: Hashable {
+    let accountId: String
+    let teamIds: [String]
 }

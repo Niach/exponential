@@ -80,20 +80,23 @@ final class ReviewsViewModel {
     /// Every run carrying a pr_url: issue-less open ones are run entries,
     /// every pr_url (any state) links a pull request.
     var sessions: [CodingSessionEntity] = []
-    /// EXP-1244: the `repositories.openPulls` results, tagged per team; a
-    /// team whose fetch failed (or has not landed) contributes none.
-    var pulls: [ReviewsQueue.PullRepo] = []
     private let accountId: String
     private let db: DatabaseManager
+    /// EXP-1244: the app-wide openPulls store the tab bar's dot reads too.
+    private let openPulls: OpenPullsStore
     private let repositoriesApi: RepositoriesApi
 
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager, repositoriesApi: RepositoriesApi) {
+    init(
+        accountId: String, db: DatabaseManager, openPulls: OpenPullsStore,
+        repositoriesApi: RepositoriesApi
+    ) {
         self.accountId = accountId
         self.db = db
+        self.openPulls = openPulls
         self.repositoriesApi = repositoriesApi
     }
 
@@ -157,43 +160,19 @@ final class ReviewsViewModel {
         sessionTask = nil
     }
 
-    /// EXP-1244: one `repositories.openPulls` per team, in parallel; a
-    /// failure means that team lists nothing. Called on appear, on refresh
-    /// and whenever the team set changes.
+    /// EXP-1244: a FORCED openPulls refetch per team, in parallel (joined
+    /// with any in-flight one); a failure means that team lists nothing.
+    /// Called on appear, on refresh and whenever the team set changes.
     func refreshPulls(teamIds: [String]) async {
-        let api = repositoriesApi
-        let accountId = accountId
-        let fetched = await withTaskGroup(of: (String, [OpenPullsRepo]).self) { group in
-            for teamId in teamIds {
-                group.addTask {
-                    let repos = (try? await api.openPulls(accountId: accountId, teamId: teamId)) ?? []
-                    return (teamId, repos)
-                }
-            }
-            var byTeam: [String: [OpenPullsRepo]] = [:]
-            for await (teamId, repos) in group { byTeam[teamId] = repos }
-            return byTeam
-        }
-        guard !Task.isCancelled else { return }
-        pulls = teamIds.flatMap { teamId in
-            (fetched[teamId] ?? []).map {
-                ReviewsQueue.PullRepo(
-                    teamId: teamId, repositoryId: $0.repositoryId,
-                    fullName: $0.fullName, pulls: $0.pulls
-                )
-            }
-        }
+        await openPulls.refresh(
+            accountId: accountId, teamIds: teamIds, api: repositoriesApi, force: true
+        )
     }
 
-    /// EXP-1244: a merged external pull request leaves the list at once.
+    /// EXP-1244: a merged external pull request leaves the list (and the
+    /// tab's dot) at once.
     func dropPull(repositoryId: String, number: Int) {
-        pulls = pulls.map { repo in
-            guard repo.repositoryId == repositoryId else { return repo }
-            return ReviewsQueue.PullRepo(
-                teamId: repo.teamId, repositoryId: repo.repositoryId,
-                fullName: repo.fullName, pulls: repo.pulls.filter { $0.number != number }
-            )
-        }
+        openPulls.drop(accountId: accountId, repositoryId: repositoryId, number: number)
     }
 
     /// The queue across `teams` (EXP-1186), in the team order
@@ -208,7 +187,7 @@ final class ReviewsViewModel {
             boards: boards,
             issues: issues,
             sessions: sessions,
-            pulls: pulls
+            pulls: openPulls.pulls(accountId: accountId, teamIds: orderedTeams.map(\.id))
         )
         let groups = queue.boardGroups.compactMap { group -> ReviewGroup? in
             guard let team = teamById[group.board.teamId] else { return nil }

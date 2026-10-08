@@ -18,6 +18,12 @@ data class PullRepo(
 )
 
 /**
+ * EXP-1244: the Reviews nav entry (bottom-bar tab). [dot] = the queue is
+ * non-empty; [shows] = no team, some team not in yolo mode, or the dot is lit.
+ */
+data class ReviewsNav(val dot: Boolean, val shows: Boolean)
+
+/**
  * EXP-1244: the Reviews queue, ONE pure function ×4 (web
  * `lib/reviews-queue.ts` `reviewsQueue`, desktop `domain::reviews_queue`, iOS
  * `ReviewsQueue.build`), locked by
@@ -78,6 +84,16 @@ object ReviewsQueue {
             }
         }
         return byUrl.values.sortedWith(sessionsNewestFirst)
+    }
+
+    /**
+     * The nav entry over the SAME queue (fixture `_navDoc` + `navCases`, web
+     * `reviewsNav`): [yolo] = each in-scope team's yolo flag, [count] =
+     * [build]'s count over the Reviews screen's inputs.
+     */
+    fun nav(yolo: List<Boolean>, count: Int): ReviewsNav {
+        val dot = count > 0
+        return ReviewsNav(dot = dot, shows = yolo.isEmpty() || yolo.any { !it } || dot)
     }
 
     fun build(

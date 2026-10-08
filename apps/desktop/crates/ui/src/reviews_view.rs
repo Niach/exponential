@@ -45,18 +45,12 @@ const REVIEWS_COLUMN_W: f32 = 768.;
 pub struct ReviewsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
-    /// Fetched `repositories.openPulls` result: `(team_id, repos)` — open PRs
-    /// with NO issue link (release PRs, manual branches, external
-    /// contributors), listed straight from GitHub. Rendered below the board
-    /// groups; a merged pull is removed locally (no Electric echo).
-    open_pulls: Option<(String, Vec<api::repositories::OpenPullsRepo>)>,
-    /// The team the current openPulls fetch belongs to. Cleared by
+    /// The team the Reviews page last force-refreshed the app-wide openPulls
+    /// store ([`crate::open_pulls::OpenPulls`], EXP-1244) for. Cleared by
     /// [`Self::mark_pulls_stale`] whenever the screen is (re-)entered, so a
     /// return refetches (the server caches ~60s; there is deliberately no
     /// polling).
     open_pulls_key: Option<String>,
-    /// Bumped per fetch — a stale response checks it before landing.
-    open_pulls_seq: u64,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -81,13 +75,15 @@ impl ReviewsView {
         // branch — that registry is process-global, not synced.
         let local_sessions = crate::coding_flow::LocalSessions::global(cx);
         subscriptions.push(cx.observe(&local_sessions, |_, _, cx| cx.notify()));
+        // EXP-1244: the unlinked pulls live in the app-wide store the rail's
+        // Reviews dot reads too.
+        let open_pulls = crate::open_pulls::OpenPulls::global(cx);
+        subscriptions.push(cx.observe(&open_pulls, |_, _, cx| cx.notify()));
 
         Self {
             nav,
             scroll: ScrollHandle::new(),
-            open_pulls: None,
             open_pulls_key: None,
-            open_pulls_seq: 0,
             _subscriptions: subscriptions,
         }
     }
@@ -104,52 +100,16 @@ impl ReviewsView {
         cx.notify();
     }
 
-    /// Kick the `repositories.openPulls` fetch when the screen is entered or
-    /// the team changes — never on a timer (the server caches ~60s). Data from
-    /// another team is dropped immediately; a re-entry in the same team keeps
-    /// rendering the previous result while the refresh is in flight.
+    /// Force-refresh the team's entry in the app-wide openPulls store when
+    /// the screen is entered or the team changes — never on a timer (the
+    /// server caches ~60s). The store keeps rendering the previous result
+    /// while the refresh is in flight.
     fn ensure_open_pulls(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
         if self.open_pulls_key.as_deref() == Some(team_id) {
             return;
         }
         self.open_pulls_key = Some(team_id.to_string());
-        if self
-            .open_pulls
-            .as_ref()
-            .is_some_and(|(ws, _)| ws != team_id)
-        {
-            self.open_pulls = None;
-        }
-        self.open_pulls_seq += 1;
-        let seq = self.open_pulls_seq;
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let ws = team_id.to_string();
-        cx.spawn(async move |this, cx| {
-            let call_ws = ws.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::repositories::open_pulls(&trpc, &call_ws) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.open_pulls_seq != seq {
-                    return;
-                }
-                match result {
-                    Ok(repos) => {
-                        this.open_pulls = Some((ws, repos));
-                        cx.notify();
-                    }
-                    Err(err) => {
-                        // The synced rows still render; the unlinked section
-                        // just stays absent (same degradation as the web).
-                        log::warn!("[ui] repositories.openPulls failed: {err}");
-                    }
-                }
-            });
-        })
-        .detach();
+        crate::open_pulls::OpenPulls::refresh(team_id, true, cx);
     }
 
     // -- rows ----------------------------------------------------------------
@@ -495,8 +455,7 @@ impl ReviewsView {
             button.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 // There is no Electric echo for unlinked pulls — success drops
-                // the row from this view's fetched state.
-                let view = cx.entity().downgrade();
+                // the row from the app-wide store (page + rail dot).
                 let success_repo = click_repo.clone();
                 crate::pr_merge::two_click(
                     MergeOp::MergePull {
@@ -505,12 +464,7 @@ impl ReviewsView {
                     },
                     None,
                     Some(Box::new(move |cx: &mut gpui::App| {
-                        let _ = view.update(cx, |this: &mut Self, cx| {
-                            if let Some((_, repos)) = this.open_pulls.as_mut() {
-                                queries::remove_merged_pull(repos, &success_repo, number);
-                            }
-                            cx.notify();
-                        });
+                        crate::open_pulls::OpenPulls::remove_merged(&success_repo, number, cx);
                     })),
                     cx,
                 );
@@ -622,12 +576,7 @@ impl Render for ReviewsView {
         // excludes them from `repositories.openPulls`, so this synced read is
         // the only place they surface) and the fetched pulls no synced issue
         // or run links, however old the fetch.
-        let fetched: &[api::repositories::OpenPullsRepo] = self
-            .open_pulls
-            .as_ref()
-            .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| repos.as_slice())
-            .unwrap_or(&[]);
+        let open_pulls = crate::open_pulls::OpenPulls::global(cx);
         let queries::ReviewsQueue {
             groups,
             runs,
@@ -635,7 +584,7 @@ impl Render for ReviewsView {
             count,
         } = team_id
             .as_deref()
-            .map(|id| queries::reviews_queue(cx, id, fetched))
+            .map(|id| queries::reviews_queue(cx, id, open_pulls.read(cx).repos(id)))
             .unwrap_or(queries::ReviewsQueue {
                 groups: Vec::new(),
                 runs: Vec::new(),
