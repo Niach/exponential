@@ -826,6 +826,18 @@ ${semanticKeys
   )
   .join("\n")}
 
+/// A registry CONCEPT id (\`nav-search\`, \`ui-send\`) -> its glyph, by name at
+/// runtime — what a data-driven surface (an Exponential UI \`Icon { name }\`,
+/// VAPP-90) resolves through; code names the \`const\`s above. \`None\` for an
+/// unknown concept so callers can fall back to [\`icon_by_name\`] (a raw
+/// Lucide name is the other thing the catalog's \`Icon\` prop accepts).
+pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
+    Some(match name {
+${semanticKeys.map((k) => `        "${k}" => ${screamingSnake(k)},`).join("\n")}
+        _ => return None,
+    })
+}
+
 /// The MCP catalog's brand marks (icons.json \`brand\`): selfh.st/icons LIGHT
 /// SVGs shipped verbatim as \`assets/icons/brand-<slug>.svg\` (CC-BY-4.0; the
 /// marks are their owners' trademarks, reproduced nominatively). gpui

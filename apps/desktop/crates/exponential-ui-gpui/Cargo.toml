@@ -1,0 +1,27 @@
+[package]
+name = "exponential-ui-gpui"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Exponential UI gpui painter: paints the core catalog from exponential-ui's resolved frames and visuals as absolute gpui elements (overlays, windowed lists, extension painters, the generic glass controls)."
+repository = "https://github.com/Niach/exponential"
+homepage = "https://ui.exponential.at"
+readme = "README.md"
+keywords = ["a2ui", "gpui", "generative-ui"]
+# VAPP-90: the desktop painter. It depends on the core and on gpui (plus
+# gpui-component where it already paints a control the catalog uses) and on
+# NOTHING from the Exponential app's crates (`ui`, `theme`, `domain`, …): the
+# IDE links it like a third party and installs its own `Chrome`.
+publish = false
+
+[dependencies]
+exponential-ui = { path = "../exponential-ui", version = "0.1.0" }
+gpui.workspace = true
+gpui-component.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# `#[gpui::test]` needs test-support; it only widens the TEST build's gpui
+# variant (same package id — a compile-time cost, not an identity split).
+gpui = { workspace = true, features = ["test-support"] }

@@ -194,11 +194,14 @@ export const VENDORED: CuratedEntry[] = [
   // (`@exponential-at/ui`, through `@exponential-at/ui-react` on the kitchen
   // sink route): the vendored A2UI v0.9 schemas and the json-render wording
   // now reach a client build, so the two Apache-2.0 sources get their rows
-  // (docs/third-party-licences.md, VAPP-85 section). The natives add their
-  // own `clients` here when their painters land (VAPP-88/89/90).
+  // (docs/third-party-licences.md, VAPP-85 section). VAPP-90: the desktop
+  // app links the Rust core (`exponential-ui`, which EMBEDS the generated
+  // catalog — json-render-derived descriptions included — and the resolved
+  // themes in the binary), so `desktop` joins. iOS/Android join when their
+  // painters bundle the catalog (VAPP-88/89).
   {
     title: `A2UI specification schemas (vendored, Exponential UI)`,
-    clients: [`web`],
+    clients: [`web`, `desktop`],
     body: [
       `The Exponential UI catalog package (packages/exponential-ui, bundled by the web app through the React renderer) carries the A2UI v0.9 specification's JSON schemas, copied byte for byte from https://github.com/google/A2UI (tag v0.9, commit 19919ef4c8ad3185867f70386fa4669284d7714c) into packages/exponential-ui/vendor/a2ui/v0_9/. They are not modified: the basic catalog is mapped onto Exponential UI's core catalog, so Apache-2.0 section 4(b) does not apply. The repository's LICENSE is reproduced below.`,
     ],
@@ -211,7 +214,7 @@ export const VENDORED: CuratedEntry[] = [
   },
   {
     title: `json-render component descriptions (derived wording, Exponential UI)`,
-    clients: [`web`],
+    clients: [`web`, `desktop`],
     body: [
       `The model-facing descriptions and the prop vocabulary of the 36 shadcn-named components in packages/exponential-ui/catalog/core.catalog.json were derived from the @json-render/shadcn catalog of https://github.com/vercel-labs/json-render (0.21.0, commit fc2a696a50a30cb30c878ab1eb65e102487eea0f, Apache-2.0, Vercel, Inc.): rewritten into Exponential UI's schema format and re-edited sentence by sentence, no code copied. The attribution is kept because the wording is a derivative; the licence is reproduced below.`,
     ],

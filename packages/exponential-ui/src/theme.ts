@@ -463,12 +463,26 @@ function matches(rule: RecipeRule, props: Record<string, unknown>, states: reado
 }
 
 /** The matching rules' styles merged in order (token refs kept). */
+/** How specific a rule is: one point per `when` condition (a `state` list
+ *  counts each state). VAPP-90: rules merge in SPECIFICITY order, like the
+ *  CSS the web renderer compiles them to — a base rule (no `when`) never
+ *  shadows a `checked`/`focus`/`variant` rule that sits before it, which is
+ *  what a child theme's appended base override used to do under plain
+ *  source order. Ties keep source order (later wins). */
+export function ruleSpecificity(rule: RecipeRule): number {
+  if (!rule.when) return 0
+  let n = 0
+  for (const [key, want] of Object.entries(rule.when)) n += key === `state` && Array.isArray(want) ? want.length : 1
+  return n
+}
+
 export function recipeStyle(theme: ResolvedTheme, query: RecipeQuery): RecipeStyle {
   const rules = theme.recipes[query.component]?.[query.part] ?? []
   const props = query.props ?? {}
   const states = query.states ?? []
+  const ordered = rules.map((rule, index) => ({ rule, index, specificity: ruleSpecificity(rule) })).sort((a, b) => a.specificity - b.specificity || a.index - b.index)
   const out: RecipeStyle = {}
-  for (const rule of rules) if (matches(rule, props, states)) Object.assign(out, rule.style)
+  for (const { rule } of ordered) if (matches(rule, props, states)) Object.assign(out, rule.style)
   return out
 }
 

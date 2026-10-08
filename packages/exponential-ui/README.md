@@ -86,7 +86,10 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 - **Recipes**: `recipes.<Component>.<part>` = a list of rules; a rule applies
   when every `when` entry matches (`state` = every listed state is active;
   any other key = the recipe prop equals the value or is in the list). Rules
-  merge in order, later wins; a child theme's rules come after its parent's.
+  merge by SPECIFICITY (one point per `when` condition; ties in source order,
+  later wins — VAPP-90, the order the web's CSS gives them), so a child
+  theme's appended base rule never shadows its parent's `checked`/`focus`/
+  `variant` rules; a child theme's rules come after its parent's.
   The keys a rule may set are `catalog/recipes.json` `keys` (the Box visual
   subset + padding/gap/size + `native`); values may be token references.
   Parts and `when` props per component: `recipeParts()` (natives from

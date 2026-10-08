@@ -24,6 +24,30 @@ describe(`theme-resolved.json`, () => {
   })
 })
 
+// VAPP-90: the gpui painter found the `extends` chain shadowing every
+// `checked`/`focus`/`variant` rule: a child theme's appended base rule won
+// by source order while the web's CSS let the conditioned rule win by
+// specificity. Rules now merge by specificity on every platform.
+describe(`recipe specificity`, () => {
+  test(`a conditioned rule wins over a later base rule`, () => {
+    const exponential = builtinTheme(`exponential`)!
+    const track = (states: string[], checked: boolean) => resolveRecipe(exponential, { component: `Switch`, part: `track`, props: { checked, disabled: false }, states }, `dark`)
+    expect(track([`checked`], true).backgroundColor).toBe(exponential.modes.dark.color.primary)
+    expect(track([], false).backgroundColor).toBe(exponential.modes.dark.color.input)
+    const field = resolveRecipe(exponential, { component: `Input`, part: `field`, props: { type: `text`, disabled: false }, states: [`focus`] }, `dark`)
+    expect(field.borderColor).toBe(exponential.modes.dark.color.ring)
+  })
+
+  test(`ties keep source order`, () => {
+    const playful = builtinTheme(`playful`)!
+    // playful appends its own `checked` rule after neutral's: same
+    // specificity, the later (playful) one wins.
+    const track = resolveRecipe(playful, { component: `Switch`, part: `track`, props: { checked: true, disabled: false }, states: [`checked`] }, `dark`)
+    expect(track.backgroundColor).toBe(playful.modes.dark.color.primary)
+    expect(track.width).toBe(44)
+  })
+})
+
 describe(`theme-recipes.json`, () => {
   const cases = recipesFixture.cases as unknown as { component: string; part: string; props: Record<string, unknown>; visuals: Record<string, Record<string, Record<string, ResolvedStyle>>> }[]
 

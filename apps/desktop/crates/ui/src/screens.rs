@@ -357,6 +357,8 @@ pub(crate) fn build_screen_content(
         Screen::GettingStarted { .. } => cx
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
+        // VAPP-90: the dev-only kitchen sink is never undocked.
+        Screen::ExponentialUiKitchenSink => cx.new(|_| NeverUndocked).into(),
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         // EXP-851: the list screens are never undockable (only a detail is),
         // so this arm exists to keep the match total.
@@ -1142,6 +1144,9 @@ pub struct ScreensPanel {
     /// The Getting-started checklist page (EXP-470 — the same tab-less
     /// full-page mode, behind a conditional rail entry).
     getting_started: Entity<crate::getting_started::GettingStartedView>,
+    /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
+    /// dev-only screen pays its surface build only when opened.
+    exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
     /// EXP-746: one session screen per OPEN session tab, keyed by the
     /// `coding_sessions` row id. Not a shared single instance like the views
     /// above: each one owns a feed (a relay socket, or the local engine's
@@ -1363,6 +1368,7 @@ impl ScreensPanel {
             chat,
             reviews,
             getting_started,
+            exponential_ui: None,
             sessions: HashMap::new(),
             list,
             side_list,
@@ -1678,6 +1684,7 @@ impl ScreensPanel {
             | Screen::Chat
             | Screen::Reviews
             | Screen::GettingStarted { .. }
+            | Screen::ExponentialUiKitchenSink
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -3824,6 +3831,16 @@ impl Render for ScreensPanel {
             Some(Screen::GettingStarted { .. }) => {
                 self.getting_started.clone().into_any_element()
             }
+            // VAPP-90: the Exponential UI kitchen sink (dev-only).
+            Some(Screen::ExponentialUiKitchenSink) => self
+                .exponential_ui
+                .get_or_insert_with(|| {
+                    cx.new(|cx| {
+                        crate::exponential_ui_screen::ExponentialUiKitchenSink::new(window, cx)
+                    })
+                })
+                .clone()
+                .into_any_element(),
             // EXP-851: nothing open at all (a fresh window, the last tab
             // closed, a team switch). There is no tool default left to fall
             // back on — the empty state points at the rail.

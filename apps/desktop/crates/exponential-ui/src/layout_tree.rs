@@ -723,14 +723,22 @@ impl<'a, 'b> Builder<'a, 'b> {
         for (i, option) in options.iter().enumerate() {
             let v = option.get("value").map(crate::json::to_js_string).unwrap_or_default();
             let checked = value.as_deref() == Some(v.as_str());
+            // VAPP-90: the ROW is a plain option row (no recipe — the
+            // `Radio/item` recipe is the 16 px circle, and on the row it
+            // shrank every option to the circle so the labels overlapped);
+            // the `.dot` LEAF wears the `item` circle recipe (the sizing part
+            // of `control-geometry.json`), and the painter draws the inner
+            // `dot` recipe inside it when checked.
             let row = self.part_in(items, &owner, "item", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm"}), json!({"value": v, "checked": checked}), &format!(".{i}"));
             self.nodes[row as usize].pressable = true;
+            self.nodes[row as usize].part_query = None;
             let dot = self.part_in(row, &owner, "dot", "Radio", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"checked": checked}), &format!(".{i}"));
+            self.nodes[dot as usize].pressable = true;
+            let mut circle = RecipeQuery::new("Radio", "item", self.ctx.recipes.native_recipe_props("Radio", &owner.props), Vec::new());
             if checked {
-                if let Some(q) = &mut self.nodes[dot as usize].part_query {
-                    q.states.push("checked".into());
-                }
+                circle.states.push("checked".into());
             }
+            self.nodes[dot as usize].part_query = Some(circle);
             let label = option.get("label").map(crate::json::to_js_string).unwrap_or_default();
             self.text_part(row, &owner, "label", &label, "body", &format!(".{i}"));
         }

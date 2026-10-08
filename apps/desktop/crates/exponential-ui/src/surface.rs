@@ -1265,7 +1265,11 @@ impl Surface {
                 out.push(OutEvent::Relayout);
             }
             ("Radio", Some("item" | "dot" | "label"), "press") => {
-                let value = self.nodes.iter().find(|x| x.part.as_deref() == Some("item") && n.id.starts_with(&x.id)).and_then(|row| row.props.get("value").cloned()).unwrap_or(Value::Null);
+                // The option index is the id suffix (`<owner>.dot.2`); the
+                // ROW (`<owner>.item.2`) carries the option's value.
+                let suffix = n.id.rsplit('.').next().unwrap_or_default();
+                let row_id = format!("{owner_id}.item.{suffix}");
+                let value = self.nodes.iter().find(|x| x.id == row_id).and_then(|row| row.props.get("value").cloned()).unwrap_or(Value::Null);
                 out.extend(self.write_through(&owner_id, "value", value.clone()));
                 out.extend(self.fire(&owner_id, "change", Some(json!({"value": value}))));
                 out.push(OutEvent::Relayout);
