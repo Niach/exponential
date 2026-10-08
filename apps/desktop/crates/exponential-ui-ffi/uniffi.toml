@@ -1,0 +1,6 @@
+[bindings.swift]
+module_name = "ExponentialUIFFI"
+
+[bindings.kotlin]
+package_name = "at.exponential.ui.ffi"
+cdylib_name = "exponential_ui_ffi"

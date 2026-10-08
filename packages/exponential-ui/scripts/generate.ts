@@ -215,14 +215,46 @@ ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 `
 }
 
-function renderRust(): string {
+/** A JSON document as a Rust raw string: minified, no `$comment`s, and a
+ *  hash fence long enough that no JSON string can close it early. */
+function rustJson(value: unknown): string {
+  const text = JSON.stringify(value)
+  if (text.includes(`"####`)) throw new Error(`rustJson: the document contains the raw-string fence`)
+  return `r####"${text}"####`
+}
+
+/** The catalog source files the Rust core (VAPP-86) EMBEDS so the crate
+ *  packages standalone: the same JSON the TS reference reads, minus comments. */
+function embeddedCatalogJson(): [string, string][] {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip)
+    if (typeof v === `object` && v !== null) return Object.fromEntries(Object.entries(v).filter(([k]) => k !== `$comment`).map(([k, x]) => [k, strip(x)]))
+    return v
+  }
+  const read = (rel: string) => strip(JSON.parse(readFileSync(join(pkgRoot, rel), `utf8`)))
+  return [
+    [`CORE_CATALOG_JSON`, rustJson(read(`catalog/core.catalog.json`))],
+    [`MACROS_JSON`, rustJson(read(`catalog/macros.json`))],
+    [`BASIC_MAP_JSON`, rustJson(read(`catalog/basic-map.json`))],
+    [`RECIPES_JSON`, rustJson(read(`catalog/recipes.json`))],
+    [`STYLE_JSON`, rustJson(read(`catalog/style.json`))],
+    [`TOKENS_JSON`, rustJson(read(`catalog/tokens.json`))],
+  ]
+}
+
+function renderRust(icons: string[]): string {
   const arr = (name: string, values: readonly string[]) => `pub const ${screaming(name)}: &[&str] = &[${values.map((v) => JSON.stringify(v)).join(`, `)}];`
   return `// ${HEADER.split(`\n`).join(`\n// `)}
-// Consumed by apps/desktop/crates/exponential-ui (VAPP-86) via include!.
+// Consumed by apps/desktop/crates/exponential-ui (VAPP-86): the generator copies this file to
+// apps/desktop/crates/exponential-ui/src/generated/catalog.rs (drift-gated there) so the crate packages standalone.
 
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 pub const COMPONENT_LITE: &[bool] = &[${liteFlags.join(`, `)}];
+/// The Icon prop's vocabulary (packages/icons/icons.json at generate time).
+${arr(`iconNames`, icons)}
+/// The catalog source files, embedded (minified, \`$comment\`s dropped); parse once at startup.
+${embeddedCatalogJson().map(([name, raw]) => `pub const ${name}: &str = ${raw};`).join(`\n`)}
 `
 }
 
@@ -392,12 +424,18 @@ export function render(): Record<string, string> {
   const kitchenResult = reduceNested(kitchen, { catalogId: CORE_CATALOG_ID })
   if (kitchenResult.issues.length > 0)
     throw new Error(`kitchen-sink.json: ${kitchenResult.issues.map((i) => `${i.id}: ${i.message}`).join(`\n`)}`)
+  const themeOutputs = renderThemes(cases, kitchen)
+  const rust = renderRust(icons)
   return {
     "catalog/core.schema.json": json(coreSchema(icons)),
     "src/catalog.generated.ts": renderTs(icons),
     "generated/ExponentialUICatalog.generated.swift": renderSwift(),
     "generated/ExponentialUICatalog.generated.kt": renderKotlin(),
-    "generated/catalog.generated.rs": renderRust(),
+    "generated/catalog.generated.rs": rust,
+    // VAPP-86: the Rust core's copies (a published crate cannot include! a file
+    // outside its own directory); src/generate.test.ts gates them like the rest.
+    "../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs": rust,
+    "../../apps/desktop/crates/exponential-ui/src/generated/themes.rs": themeOutputs[`generated/catalog.themes.generated.rs`],
     "docs/components.generated.json": json(renderDocs()),
     "fixtures/catalog-components.json": json({
       $comment: `${HEADER} Every visible component × its example × every enum value of every enum prop × both values of every boolean prop. Each case validates against core.schema.json; a renderer suite paints each case once.`,
@@ -416,7 +454,7 @@ export function render(): Record<string, string> {
       ...kitchenResult,
     }),
     "fixtures/prompt-budget.json": json(promptBudget()),
-    ...renderThemes(cases, kitchen),
+    ...themeOutputs,
   }
 }
 

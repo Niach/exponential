@@ -1,0 +1,32 @@
+[package]
+name = "exponential-ui-ffi"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The UniFFI facade over exponential-ui for the SwiftUI and Compose painters: a coarse Surface object (messages in, frames out, measurement in batches), shipped inside the Swift and Kotlin packages as an xcframework / .so."
+repository = "https://github.com/Niach/exponential"
+homepage = "https://ui.exponential.at"
+readme = "README.md"
+keywords = ["a2ui", "uniffi", "generative-ui"]
+exclude = ["tests/", "bindings/", "out/", "*.sh"]
+
+[lib]
+name = "exponential_ui_ffi"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = ["uniffi/cli"]
+shaping = ["exponential-ui/shaping"]
+
+[dependencies]
+exponential-ui = { path = "../exponential-ui", version = "0.1.0" }
+# The version already in apps/desktop/Cargo.lock (the cua driver), ONE uniffi in the tree.
+uniffi = { version = "0.31" }
+serde = "1"
+serde_json = "1"
