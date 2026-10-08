@@ -104,6 +104,8 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "ui-chevron-up" to Icons.Outlined.KeyboardArrowUp,
     "ui-selector" to Icons.Outlined.ArrowDropDown,
     "ui-check" to Icons.Outlined.Check,
+    // The specimens' demo surface names the bare glyph (VAPP-93).
+    "check" to Icons.Outlined.Check,
     "ui-search" to Icons.Outlined.Search,
     "ui-calendar" to Icons.Outlined.DateRange,
     "ui-image" to Icons.Outlined.Face,

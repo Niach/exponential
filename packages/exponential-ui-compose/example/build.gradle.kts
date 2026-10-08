@@ -13,11 +13,12 @@ val repoRoot = rootDir.parentFile.parentFile
 val fixtures = File(repoRoot, "packages/exponential-ui/fixtures")
 val fixtureAssets = layout.buildDirectory.dir("fixtureAssets")
 
-// The kitchen sink + the third-party test theme ride along as assets, copied
-// from the SDK's fixtures at build time (never duplicated in the repo).
+// The kitchen sink, the site's specimens (VAPP-93) + the third-party test theme
+// ride along as assets, copied from the SDK's fixtures at build time (never
+// duplicated in the repo).
 val copyFixtureAssets by tasks.registering(Copy::class) {
     from(fixtures) {
-        include("kitchen-sink.json", "theme-extends.json")
+        include("kitchen-sink.json", "specimens.json", "theme-extends.json")
     }
     into(fixtureAssets)
 }

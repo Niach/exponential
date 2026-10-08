@@ -47,6 +47,10 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
     var mode by mutableStateOf(if (options.mode == "light") Mode.Light else Mode.Dark)
         private set
 
+    /** The `specimens.json` entry the `shot` extra names (VAPP-93), else null (the kitchen sink). */
+    private val specimenId: String? =
+        options.shot?.takeIf { it.startsWith("exponential-ui-") && it != "exponential-ui-kitchen-sink" }
+
     /** The surface. */
     val model: SurfaceModel
 
@@ -61,7 +65,7 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
             density,
         ) { null }
         model = SurfaceModel(
-            id = if (options.bench > 0) "bench" else "kitchen-sink",
+            id = if (options.bench > 0) "bench" else specimenId ?: "kitchen-sink",
             options = SurfaceOptions(
                 theme = theme(themeId),
                 mode = mode,
@@ -80,14 +84,25 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
             ),
             shaper = { fallback },
         )
+        val specimen = specimenId?.let(::specimenNode)
         if (options.bench > 0) {
             model.setNested(benchTreeJson(options.bench.toUInt()))
+        } else if (specimen != null) {
+            model.setNested(specimen)
         } else {
             var json = assets.open("kitchen-sink.json").bufferedReader().use { it.readText() }
             if (options.rtl) json = json.replace("\"direction\": \"ltr\"", "\"direction\": \"rtl\"")
             model.setNested(json)
             model.setData("/draft", JsonValue.Obj(mapOf("title" to JsonValue.Str(""))))
         }
+    }
+
+    /** The nested node of the specimen [id] (`fixtures/specimens.json`, copied into the assets). */
+    private fun specimenNode(id: String): String? {
+        val fixture = JsonValue.parse(assets.open("specimens.json").bufferedReader().use { it.readText() })
+        val node = fixture["specimens"]?.array?.firstOrNull { it["id"]?.string == id }?.get("node")
+        if (node == null) Log.w(LOG_TAG, "specimen $id: not in specimens.json")
+        return node?.json
     }
 
     /** Switch the theme (a built-in id or `brand`). */
