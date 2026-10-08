@@ -17,4 +17,5 @@
 @import "./styles/contact.css";
 @import "./styles/download.css";
 @import "@exp/site-shell/styles/docs.css";
+@import "@exp/site-shell/styles/responsive.css";
 @import "./styles/responsive.css";

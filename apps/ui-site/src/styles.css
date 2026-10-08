@@ -8,3 +8,4 @@
 @import "@exp/site-shell/styles/docs.css";
 @import "./styles/content.css";
 @import "./styles/sdk.css";
+@import "@exp/site-shell/styles/responsive.css";

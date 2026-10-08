@@ -38,6 +38,16 @@ function sharedStores(): Plugin {
       if (!existsSync(SHOTS_DIR)) throw new Error(`shots/ store missing — run bun run shots`)
     },
     configureServer(server) {
+      /* The site is ONE entry routing by path: a page navigation (an HTML
+         request, never a module or asset) always gets index.html, so the
+         guide example projects' own index.html under guides/ never answers
+         /guides/<slug>/. */
+      server.middlewares.use((req, _res, next) => {
+        const path = (req.url ?? ``).split(`?`)[0]
+        const isPage = req.method === `GET` && (req.headers.accept ?? ``).includes(`text/html`) && path.endsWith(`/`)
+        if (isPage) req.url = `/`
+        next()
+      })
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? ``).split(`?`)[0]
         let file: string | null = null
