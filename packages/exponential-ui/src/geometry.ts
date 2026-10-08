@@ -26,6 +26,11 @@ export const CONTROL_PARTS: Record<string, string> = {
   Spinner: `root`,
   Ring: `root`,
   Tabs: `tab`,
+  // Round 1: the new fields keep the input height contract.
+  NumberField: `field`,
+  ChipInput: `field`,
+  TimePicker: `trigger`,
+  DateRangePicker: `trigger`,
 }
 
 export const GEOMETRY_KEYS = [`width`, `height`, `minWidth`, `minHeight`, `paddingHorizontal`, `paddingVertical`, `padding`, `gap`, `borderWidth`, `borderRadius`] as const

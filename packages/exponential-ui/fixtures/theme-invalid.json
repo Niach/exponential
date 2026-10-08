@@ -61,7 +61,7 @@
       "issues": [
         {
           "path": "tokens.elevation",
-          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|type"
+          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|breakpoint|ease|density|type"
         }
       ]
     },
@@ -146,7 +146,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].style.display",
-          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderRadius|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|boxShadow|opacity|native"
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|native"
         }
       ]
     },
@@ -246,7 +246,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].when.state",
-          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected"
+          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover"
         }
       ]
     },
@@ -589,6 +589,30 @@
           "message": "missing value for $color.chart5"
         },
         {
+          "path": "modes.light.color.chart6",
+          "message": "missing value for $color.chart6"
+        },
+        {
+          "path": "modes.dark.color.chart6",
+          "message": "missing value for $color.chart6"
+        },
+        {
+          "path": "modes.light.color.chart7",
+          "message": "missing value for $color.chart7"
+        },
+        {
+          "path": "modes.dark.color.chart7",
+          "message": "missing value for $color.chart7"
+        },
+        {
+          "path": "modes.light.color.chart8",
+          "message": "missing value for $color.chart8"
+        },
+        {
+          "path": "modes.dark.color.chart8",
+          "message": "missing value for $color.chart8"
+        },
+        {
           "path": "tokens.spacing.none",
           "message": "missing value for $spacing.none"
         },
@@ -829,6 +853,18 @@
           "message": "missing value for $control.hairline"
         },
         {
+          "path": "tokens.control.appBar",
+          "message": "missing value for $control.appBar"
+        },
+        {
+          "path": "tokens.control.tabBar",
+          "message": "missing value for $control.tabBar"
+        },
+        {
+          "path": "tokens.control.toast",
+          "message": "missing value for $control.toast"
+        },
+        {
           "path": "modes.light.shadow.none",
           "message": "missing value for $shadow.none"
         },
@@ -859,6 +895,14 @@
         {
           "path": "modes.dark.shadow.lg",
           "message": "missing value for $shadow.lg"
+        },
+        {
+          "path": "modes.light.shadow.xl",
+          "message": "missing value for $shadow.xl"
+        },
+        {
+          "path": "modes.dark.shadow.xl",
+          "message": "missing value for $shadow.xl"
         },
         {
           "path": "tokens.opacity.primary",
@@ -903,6 +947,42 @@
         {
           "path": "tokens.motion.slow",
           "message": "missing value for $motion.slow"
+        },
+        {
+          "path": "tokens.breakpoint.sm",
+          "message": "missing value for $breakpoint.sm"
+        },
+        {
+          "path": "tokens.breakpoint.md",
+          "message": "missing value for $breakpoint.md"
+        },
+        {
+          "path": "tokens.breakpoint.lg",
+          "message": "missing value for $breakpoint.lg"
+        },
+        {
+          "path": "tokens.breakpoint.xl",
+          "message": "missing value for $breakpoint.xl"
+        },
+        {
+          "path": "tokens.ease.standard",
+          "message": "missing value for $ease.standard"
+        },
+        {
+          "path": "tokens.ease.decelerate",
+          "message": "missing value for $ease.decelerate"
+        },
+        {
+          "path": "tokens.ease.accelerate",
+          "message": "missing value for $ease.accelerate"
+        },
+        {
+          "path": "tokens.density.compact",
+          "message": "missing value for $density.compact"
+        },
+        {
+          "path": "tokens.density.comfortable",
+          "message": "missing value for $density.comfortable"
         }
       ]
     },
@@ -971,7 +1051,168 @@
       "issues": [
         {
           "path": "components",
-          "message": "unknown theme key; known: id|name|extends|modes|tokens|fonts|recipes"
+          "message": "unknown theme key; known: id|name|extends|modes|contrast|tokens|fonts|recipes"
+        }
+      ]
+    },
+    {
+      "name": "Round 1: an easing that is not four numbers, a density outside 0.5..2, a breakpoint that is not a number",
+      "theme": {
+        "id": "bad-motion",
+        "name": "Bad motion",
+        "extends": "neutral",
+        "tokens": {
+          "ease": {
+            "standard": [
+              0.2,
+              0,
+              1
+            ],
+            "bounce": [
+              0,
+              0,
+              1,
+              1
+            ]
+          },
+          "density": {
+            "compact": 0.2
+          },
+          "breakpoint": {
+            "md": "768px"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "tokens.ease.standard",
+          "message": "expected [x1, y1, x2, y2]"
+        },
+        {
+          "path": "tokens.ease.bounce",
+          "message": "unknown token; known: standard|decelerate|accelerate"
+        },
+        {
+          "path": "tokens.density.compact",
+          "message": "expected 0.5–2"
+        },
+        {
+          "path": "tokens.breakpoint.md",
+          "message": "expected a number"
+        }
+      ]
+    },
+    {
+      "name": "Round 1: a contrast overlay for an unknown mode and with a non-hex colour",
+      "theme": {
+        "id": "bad-contrast",
+        "name": "Bad contrast",
+        "extends": "neutral",
+        "contrast": {
+          "sepia": {
+            "color": {
+              "foreground": "#000000"
+            }
+          },
+          "light": {
+            "color": {
+              "foreground": "black"
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "contrast.sepia",
+          "message": "unknown mode; known: light|dark"
+        },
+        {
+          "path": "contrast.light.color.foreground",
+          "message": "expected #rrggbb or #rrggbbaa (lowercase); the builder converts oklch/hsl on import"
+        }
+      ]
+    },
+    {
+      "name": "Round 1: recipe motion and paint keys out of their grammar",
+      "theme": {
+        "id": "bad-paint",
+        "name": "Bad paint",
+        "extends": "neutral",
+        "recipes": {
+          "Collapsible": {
+            "chevron": [
+              {
+                "when": {
+                  "open": true
+                },
+                "style": {
+                  "transform": "rotate(90deg) skew(2deg)",
+                  "transition": 180,
+                  "transitionEasing": "$motion.fast",
+                  "borderStyle": "double",
+                  "fontStyle": "oblique",
+                  "letterSpacing": "$spacing.xs"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Collapsible.chevron[0].style.transform",
+          "message": "expected translate(Xpx, Ypx), scale(N) and/or rotate(Ndeg)"
+        },
+        {
+          "path": "recipes.Collapsible.chevron[0].style.transition",
+          "message": "expected a $motion.<name> token"
+        },
+        {
+          "path": "recipes.Collapsible.chevron[0].style.transitionEasing",
+          "message": "expected a $ease token, got $motion"
+        },
+        {
+          "path": "recipes.Collapsible.chevron[0].style.borderStyle",
+          "message": "expected solid|dashed|dotted"
+        },
+        {
+          "path": "recipes.Collapsible.chevron[0].style.fontStyle",
+          "message": "expected normal|italic"
+        },
+        {
+          "path": "recipes.Collapsible.chevron[0].style.letterSpacing",
+          "message": "expected a number, not a token"
+        }
+      ]
+    },
+    {
+      "name": "Round 1: the new states are known, an unknown one is not",
+      "theme": {
+        "id": "bad-state",
+        "name": "Bad state",
+        "extends": "neutral",
+        "recipes": {
+          "FileUpload": {
+            "dropzone": [
+              {
+                "when": {
+                  "state": [
+                    "dragover",
+                    "dropped"
+                  ]
+                },
+                "style": {
+                  "borderColor": "$color.ring"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.FileUpload.dropzone[0].when.state",
+          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected|invalid|dragover"
         }
       ]
     }

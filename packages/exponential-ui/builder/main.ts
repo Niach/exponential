@@ -159,7 +159,7 @@ function numberRows(group: string): HTMLElement {
   const [top, sub] = group.split(`.`)
   const table = sub ? (state.theme.tokens.type as unknown as Record<string, Record<string, number>>)[sub] : (state.theme.tokens as unknown as Record<string, Record<string, number>>)[top]
   for (const name of TOKEN_GROUPS[group]) {
-    const input = h(`input`, { type: `number`, value: String(table[name]), step: group === `opacity` ? `0.05` : `1` }) as HTMLInputElement
+    const input = h(`input`, { type: `number`, value: String(table[name]), step: group === `opacity` || group === `density` ? `0.05` : `1` }) as HTMLInputElement
     input.addEventListener(`change`, () => setToken(group, name, Number(input.value)))
     body.append(h(`label`, { class: `row` }, h(`span`, { class: `name` }, name), input))
   }
@@ -236,6 +236,8 @@ function renderPanel(): void {
   panel.append(section(`Border widths`, numberRows(`border`)))
   panel.append(section(`Opacity`, numberRows(`opacity`)))
   panel.append(section(`Motion (ms)`, numberRows(`motion`)))
+  panel.append(section(`Breakpoints (px)`, numberRows(`breakpoint`)))
+  panel.append(section(`Density (× control + spacing)`, numberRows(`density`)))
   panel.append(section(`Recipes`, recipeEditor(), true))
 }
 

@@ -127,6 +127,13 @@
             },
             "mode": "light",
             "style": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "height": 36,
               "paddingHorizontal": 16,
               "gap": 8,
@@ -158,6 +165,13 @@
             },
             "mode": "dark",
             "style": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "height": 36,
               "paddingHorizontal": 16,
               "gap": 8,
@@ -192,6 +206,13 @@
             ],
             "mode": "light",
             "style": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "height": 32,
               "paddingHorizontal": 12,
               "gap": 4,
@@ -263,6 +284,13 @@
             },
             "mode": "dark",
             "style": {
+              "transition": 180,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "width": 32,
               "height": 20,
               "borderRadius": 9999,
@@ -366,6 +394,13 @@
             },
             "mode": "dark",
             "style": {
+              "transition": 120,
+              "transitionEasing": [
+                0.2,
+                0,
+                0,
+                1
+              ],
               "backgroundColor": "#ffffff1c"
             }
           },
@@ -470,6 +505,13 @@
             },
             "mode": "dark",
             "style": {
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ],
               "height": 48,
               "paddingHorizontal": 24,
               "gap": 8,
@@ -503,6 +545,13 @@
             ],
             "mode": "light",
             "style": {
+              "transition": 160,
+              "transitionEasing": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ],
               "height": 32,
               "paddingHorizontal": 0,
               "borderRadius": 0,

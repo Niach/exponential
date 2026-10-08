@@ -37,6 +37,17 @@
     "Checkbox": { "box": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ] },
     "Radio": { "item": [ { "style": { "backgroundColor": "$color.card", "boxShadow": "$shadow.none" } } ] },
     "Switch": { "track": [ { "style": { "backgroundColor": "$color.input" } } ], "thumb": [ { "style": { "boxShadow": "$shadow.none" } } ] },
-    "Skeleton": { "root": [ { "style": { "backgroundColor": "$color.secondary" } } ] }
+    "Skeleton": { "root": [ { "style": { "backgroundColor": "$color.secondary" } } ] },
+    "NumberField": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
+    "ChipInput": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ], "chip": [ { "style": { "backgroundColor": "$color.accent", "color": "$color.foreground" } } ] },
+    "TimePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ], "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } } ] },
+    "DateRangePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
+    "ContextMenu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
+    "Toast": { "root": [ { "style": { "backgroundColor": "$color.popover", "borderColor": "$color.border", "borderRadius": "$radius.xl" } } ] },
+    "CodeBlock": { "root": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } } ] },
+    "Table": { "row": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "striped": true }, "style": { "backgroundColor": "$color.card" } } ] },
+    "FileUpload": { "dropzone": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } }, { "when": { "state": "dragover" }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } } ] },
+    "Sidebar": { "sidebar": [ { "style": { "backgroundColor": "$color.card" } } ] },
+    "TabBar": { "root": [ { "style": { "backgroundColor": "$color.card" } } ] }
   }
 }

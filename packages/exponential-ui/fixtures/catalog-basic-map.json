@@ -75,6 +75,10 @@
                 "props": {
                   "level": "h1"
                 }
+              },
+              "accessibility": {
+                "role": "heading",
+                "level": 1
               }
             },
             {
@@ -91,6 +95,10 @@
                 "props": {
                   "level": "h4"
                 }
+              },
+              "accessibility": {
+                "role": "heading",
+                "level": 4
               }
             },
             {
@@ -578,6 +586,9 @@
                 "macro": "Card",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "group"
               }
             },
             {
@@ -595,6 +606,9 @@
                 "macro": "Separator",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "separator"
               }
             },
             {

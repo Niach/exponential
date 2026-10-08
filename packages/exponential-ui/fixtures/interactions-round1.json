@@ -1,0 +1,594 @@
+{
+  "$comment": "Round 1 review (renderer hardening): interaction semantics every renderer must share, HAND-AUTHORED and replayed by packages/exponential-ui-react/src/interactions-fixture.test.tsx (the reference, jsdom) and apps/desktop/crates/exponential-ui/tests/interactions_fixture.rs (the core, so gpui and the natives through the FFI). numberField: a NumberField bound to /v (value null = /v unseeded), one op (increment / decrement press, commit = type `input` then leave the field, none), then the value at /v and the text the field shows (en-US; `precision` absent = the step's decimals; values round like toFixed, the text like Intl.NumberFormat with that many fraction digits; a stepper on an unset value starts from min when min > 0, else 0; a stepper at its limit is disabled). checks: a Form `f` holding Checkbox `agree` (checked bound to /agreed) with `checks` and a submit Button; submitting gives the failing messages in order (a check WITH a condition fails when it resolves to nothing, null, false or an empty string; 0 passes; a non-string message reads `Invalid value`) and whether `submit` fired. tableSort: an UNBOUND sort of literal rows by one column (`sortRows`: missing values last both ways, two numbers numerically, a number column coerces, a date column by time, booleans as 0/1, the rest by Intl.Collator(locale, {numeric: true, sensitivity: base}); ties keep row order) → the row indexes in display order.",
+  "numberField": [
+    {
+      "name": "step 0.1 increments without float noise",
+      "props": {
+        "step": 0.1
+      },
+      "value": 0.2,
+      "op": "increment",
+      "expect": {
+        "value": 0.3,
+        "text": "0.3"
+      }
+    },
+    {
+      "name": "step 0.1 decrements without float noise",
+      "props": {
+        "step": 0.1
+      },
+      "value": 0.3,
+      "op": "decrement",
+      "expect": {
+        "value": 0.2,
+        "text": "0.2"
+      }
+    },
+    {
+      "name": "step 0.25 shows two decimals",
+      "props": {
+        "step": 0.25
+      },
+      "value": 1,
+      "op": "increment",
+      "expect": {
+        "value": 1.25,
+        "text": "1.25"
+      }
+    },
+    {
+      "name": "precision 0 shows 2.5 as 3 (half away from zero)",
+      "props": {
+        "precision": 0
+      },
+      "value": 2.5,
+      "op": "none",
+      "expect": {
+        "value": 2.5,
+        "text": "3"
+      }
+    },
+    {
+      "name": "precision 0 steps 1.5 to 3 (toFixed rounds 2.5 up)",
+      "props": {
+        "precision": 0
+      },
+      "value": 1.5,
+      "op": "increment",
+      "expect": {
+        "value": 3,
+        "text": "3"
+      }
+    },
+    {
+      "name": "precision 2 shows 0.125 as 0.13",
+      "props": {
+        "precision": 2
+      },
+      "value": 0.125,
+      "op": "none",
+      "expect": {
+        "value": 0.125,
+        "text": "0.13"
+      }
+    },
+    {
+      "name": "the text rounds the shortest decimal: 1.005 shows 1.01",
+      "props": {
+        "precision": 2
+      },
+      "value": 1.005,
+      "op": "none",
+      "expect": {
+        "value": 1.005,
+        "text": "1.01"
+      }
+    },
+    {
+      "name": "the text groups thousands",
+      "props": {
+        "precision": 1
+      },
+      "value": 1234.55,
+      "op": "none",
+      "expect": {
+        "value": 1234.55,
+        "text": "1,234.6"
+      }
+    },
+    {
+      "name": "an unset value with a negative min steps from 0",
+      "props": {
+        "min": -10
+      },
+      "value": null,
+      "op": "increment",
+      "expect": {
+        "value": 1,
+        "text": "1"
+      }
+    },
+    {
+      "name": "an unset value with a positive min steps from min",
+      "props": {
+        "min": 5
+      },
+      "value": null,
+      "op": "increment",
+      "expect": {
+        "value": 6,
+        "text": "6"
+      }
+    },
+    {
+      "name": "the stepper at max is disabled",
+      "props": {
+        "max": 3
+      },
+      "value": 3,
+      "op": "increment",
+      "expect": {
+        "value": 3,
+        "text": "3"
+      }
+    },
+    {
+      "name": "a commit rounds to the step's decimals",
+      "props": {
+        "step": 0.1
+      },
+      "value": 1,
+      "op": "commit",
+      "input": "0.123",
+      "expect": {
+        "value": 0.1,
+        "text": "0.1"
+      }
+    },
+    {
+      "name": "a commit clamps to max",
+      "props": {
+        "min": 0,
+        "max": 10
+      },
+      "value": 5,
+      "op": "commit",
+      "input": "42",
+      "expect": {
+        "value": 10,
+        "text": "10"
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "an unseeded path fails",
+      "data": {},
+      "checks": [
+        {
+          "condition": {
+            "path": "/agreed"
+          },
+          "message": "Required"
+        }
+      ],
+      "failing": [
+        "Required"
+      ],
+      "submitted": false
+    },
+    {
+      "name": "false fails",
+      "data": {
+        "agreed": false
+      },
+      "checks": [
+        {
+          "condition": {
+            "path": "/agreed"
+          },
+          "message": "Required"
+        }
+      ],
+      "failing": [
+        "Required"
+      ],
+      "submitted": false
+    },
+    {
+      "name": "true passes",
+      "data": {
+        "agreed": true
+      },
+      "checks": [
+        {
+          "condition": {
+            "path": "/agreed"
+          },
+          "message": "Required"
+        }
+      ],
+      "failing": [],
+      "submitted": true
+    },
+    {
+      "name": "null fails",
+      "data": {
+        "agreed": true,
+        "n": null
+      },
+      "checks": [
+        {
+          "condition": {
+            "path": "/n"
+          },
+          "message": "Pick one"
+        }
+      ],
+      "failing": [
+        "Pick one"
+      ],
+      "submitted": false
+    },
+    {
+      "name": "zero passes",
+      "data": {
+        "agreed": true,
+        "n": 0
+      },
+      "checks": [
+        {
+          "condition": {
+            "path": "/n"
+          },
+          "message": "Pick one"
+        }
+      ],
+      "failing": [],
+      "submitted": true
+    },
+    {
+      "name": "an empty string fails",
+      "data": {
+        "agreed": true,
+        "s": ""
+      },
+      "checks": [
+        {
+          "condition": {
+            "path": "/s"
+          },
+          "message": "Empty"
+        }
+      ],
+      "failing": [
+        "Empty"
+      ],
+      "submitted": false
+    },
+    {
+      "name": "every failing message in order, a missing message reads Invalid value",
+      "data": {},
+      "checks": [
+        {
+          "condition": {
+            "path": "/agreed"
+          },
+          "message": "Required"
+        },
+        {
+          "condition": false
+        },
+        {
+          "condition": true,
+          "message": "Never"
+        }
+      ],
+      "failing": [
+        "Required",
+        "Invalid value"
+      ],
+      "submitted": false
+    },
+    {
+      "name": "a check without a condition passes",
+      "data": {
+        "agreed": true
+      },
+      "checks": [
+        {
+          "message": "No condition"
+        }
+      ],
+      "failing": [],
+      "submitted": true
+    }
+  ],
+  "tableSort": [
+    {
+      "name": "numbers inside text sort naturally",
+      "column": {
+        "key": "v",
+        "type": "text"
+      },
+      "rows": [
+        {
+          "v": "File 10",
+          "id": "r0"
+        },
+        {
+          "v": "File 2",
+          "id": "r1"
+        },
+        {
+          "v": "file 1",
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "name": "natural order descending",
+      "column": {
+        "key": "v",
+        "type": "text"
+      },
+      "rows": [
+        {
+          "v": "File 10",
+          "id": "r0"
+        },
+        {
+          "v": "File 2",
+          "id": "r1"
+        },
+        {
+          "v": "file 1",
+          "id": "r2"
+        }
+      ],
+      "direction": "desc",
+      "order": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "case and accents are ignored",
+      "column": {
+        "key": "v"
+      },
+      "rows": [
+        {
+          "v": "Ezra",
+          "id": "r0"
+        },
+        {
+          "v": "émile",
+          "id": "r1"
+        },
+        {
+          "v": "Eve",
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "a number column coerces numeric strings",
+      "column": {
+        "key": "v",
+        "type": "number"
+      },
+      "rows": [
+        {
+          "v": "9",
+          "id": "r0"
+        },
+        {
+          "v": "10",
+          "id": "r1"
+        },
+        {
+          "v": "2.5",
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        2,
+        0,
+        1
+      ]
+    },
+    {
+      "name": "two numbers compare numerically in a text column",
+      "column": {
+        "key": "v"
+      },
+      "rows": [
+        {
+          "v": 10,
+          "id": "r0"
+        },
+        {
+          "v": 9,
+          "id": "r1"
+        },
+        {
+          "v": 100,
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        1,
+        0,
+        2
+      ]
+    },
+    {
+      "name": "a date column compares by time",
+      "column": {
+        "key": "v",
+        "type": "date"
+      },
+      "rows": [
+        {
+          "v": "2026-10-07",
+          "id": "r0"
+        },
+        {
+          "v": "2025-01-31",
+          "id": "r1"
+        },
+        {
+          "v": "2026-02-01",
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        1,
+        2,
+        0
+      ]
+    },
+    {
+      "name": "missing values go last ascending",
+      "column": {
+        "key": "v"
+      },
+      "rows": [
+        {
+          "v": "b",
+          "id": "r0"
+        },
+        {
+          "v": null,
+          "id": "r1"
+        },
+        {
+          "v": "a",
+          "id": "r2"
+        },
+        {
+          "id": "r3"
+        },
+        {
+          "v": "",
+          "id": "r4"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        2,
+        0,
+        1,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "missing values go last descending too",
+      "column": {
+        "key": "v"
+      },
+      "rows": [
+        {
+          "v": "b",
+          "id": "r0"
+        },
+        {
+          "v": null,
+          "id": "r1"
+        },
+        {
+          "v": "a",
+          "id": "r2"
+        },
+        {
+          "id": "r3"
+        },
+        {
+          "v": "",
+          "id": "r4"
+        }
+      ],
+      "direction": "desc",
+      "order": [
+        0,
+        2,
+        1,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "ties keep the row order in both directions",
+      "column": {
+        "key": "v",
+        "type": "number"
+      },
+      "rows": [
+        {
+          "v": 1,
+          "id": "r0"
+        },
+        {
+          "v": 1,
+          "id": "r1"
+        },
+        {
+          "v": 0,
+          "id": "r2"
+        }
+      ],
+      "direction": "desc",
+      "order": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "name": "booleans sort false first",
+      "column": {
+        "key": "v",
+        "type": "boolean"
+      },
+      "rows": [
+        {
+          "v": true,
+          "id": "r0"
+        },
+        {
+          "v": false,
+          "id": "r1"
+        },
+        {
+          "v": true,
+          "id": "r2"
+        }
+      ],
+      "direction": "asc",
+      "order": [
+        1,
+        0,
+        2
+      ]
+    }
+  ]
+}

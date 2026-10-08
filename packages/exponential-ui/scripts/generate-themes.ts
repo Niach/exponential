@@ -26,6 +26,7 @@ import { CONTROL_PARTS, controlGeometry } from "../src/geometry"
 import { nativeRecipeProps, recipeParts, RECIPE_KEYS, RECIPE_STATES } from "../src/recipes"
 import { reduceNested } from "../src/reducer"
 import { MODES, THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "../src/theme"
+import { STYLE_TRANSFORM_PATTERN, styleKeyEnum } from "../src/style"
 import type { ModeName, RecipeQuery, ResolvedStyle, ResolvedTheme, ThemeSource } from "../src/theme-types"
 import type { NestedNode, UiNode } from "../src/types"
 import neutralJson from "../themes/neutral.theme.json" with { type: "json" }
@@ -49,7 +50,7 @@ interface DesignTokens {
   glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
-  motion: { duration: Record<string, number> }
+  motion: { duration: Record<string, number>; ease: Record<string, [number, number, number, number]> }
   spacing: Record<string, number>
   type: { fontFamily: string; size: Record<string, number>; lineHeight: Record<string, number>; weight: Record<string, number>; emphasis: Record<string, number> }
 }
@@ -100,6 +101,7 @@ export function composeExponential(): ThemeSource {
     sm: [{ x: 0, y: 1, blur: 2, spread: 0, color: hex(`rgb(0 0 0 / ${a})`) }],
     md: [{ x: 0, y: 4, blur: 12, spread: -2, color: hex(`rgb(0 0 0 / ${a})`) }],
     lg: [{ x: 0, y: 12, blur: 32, spread: -8, color: hex(`rgb(0 0 0 / ${a})`) }],
+    xl: [{ x: 0, y: 20, blur: 48, spread: -12, color: hex(`rgb(0 0 0 / ${a})`) }],
   })
   const s = design.size
   const mono = `ui-monospace`
@@ -131,10 +133,14 @@ export function composeExponential(): ThemeSource {
         avatarSm: 24, avatarMd: 32, avatarLg: 40,
         iconSm: 16, iconMd: 20, iconLg: 24,
         hairline: 1,
+        appBar: 48, tabBar: 56, toast: 56,
       },
       opacity: { ...numbers(design.type.emphasis), disabled: 0.5 },
       border: { none: 0, hairline: 1, thick: 2 },
       motion: numbers(design.motion.duration),
+      // Round 1: the app's easing curves (design-tokens `motion.ease`, the
+      // same names) back `$ease.*`; breakpoints and density inherit neutral's.
+      ease: Object.fromEntries(Object.entries(design.motion.ease).filter(([k]) => !k.startsWith(`$`))) as Record<string, [number, number, number, number]>,
     },
     fonts: {
       [design.type.fontFamily]: { fallback: `ui-sans-serif, system-ui, sans-serif`, weights: [400, 500, 600, 700], source: `host` },
@@ -173,7 +179,12 @@ export function themeSchema(): Record<string, unknown> {
     color: colorOrToken,
     borderColor: colorOrToken,
     borderWidth: numOrToken([`border`, `control`]),
+    borderTopWidth: numOrToken([`border`, `control`]),
+    borderRightWidth: numOrToken([`border`, `control`]),
+    borderBottomWidth: numOrToken([`border`, `control`]),
+    borderLeftWidth: numOrToken([`border`, `control`]),
     borderRadius: numOrToken([`radius`, `spacing`]),
+    borderStyle: { enum: styleKeyEnum(`borderStyle`) },
     padding: numOrToken([`spacing`]),
     paddingHorizontal: numOrToken([`spacing`]),
     paddingVertical: numOrToken([`spacing`]),
@@ -183,11 +194,18 @@ export function themeSchema(): Record<string, unknown> {
     minWidth: numOrToken([`control`, `spacing`]),
     minHeight: numOrToken([`control`, `spacing`]),
     fontSize: numOrToken([`type.size`]),
-    fontWeight: { anyOf: [{ enum: [400, 500, 600, 700] }, { type: `string`, pattern: `^\\$type\\.weight\\.[a-zA-Z0-9]+$` }] },
+    fontWeight: { anyOf: [{ enum: styleKeyEnum(`fontWeight`) }, { type: `string`, pattern: `^\\$type\\.weight\\.[a-zA-Z0-9]+$` }] },
     lineHeight: numOrToken([`type.lineHeight`]),
     fontFamily: { type: `string`, pattern: `^\\$type\\.family\\.[a-zA-Z0-9]+$` },
+    letterSpacing: { type: `number` },
+    textDecoration: { enum: styleKeyEnum(`textDecoration`) },
+    textTransform: { enum: styleKeyEnum(`textTransform`) },
+    fontStyle: { enum: styleKeyEnum(`fontStyle`) },
     boxShadow: { type: `string`, pattern: `^\\$shadow\\.[a-zA-Z0-9]+$` },
     opacity: { anyOf: [{ type: `number`, minimum: 0, maximum: 1 }, { type: `string`, pattern: `^\\$opacity\\.[a-zA-Z0-9]+$` }] },
+    transition: { type: `string`, pattern: `^\\$motion\\.[a-zA-Z0-9]+$` },
+    transitionEasing: { type: `string`, pattern: `^\\$ease\\.[a-zA-Z0-9]+$` },
+    transform: { type: `string`, pattern: STYLE_TRANSFORM_PATTERN },
     native: { type: `boolean` },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
@@ -241,6 +259,7 @@ export function themeSchema(): Record<string, unknown> {
       name: { type: `string`, minLength: 1 },
       extends: { type: `string`, description: `The id of the theme this one overrides (a built-in or a loaded theme).` },
       modes: { type: `object`, additionalProperties: false, properties: { light: mode, dark: mode } },
+      contrast: { type: `object`, additionalProperties: false, description: `High-contrast overlays per mode: colours/shadows a renderer merges over the mode when the platform (or the host) asks for more contrast.`, properties: { light: mode, dark: mode } },
       tokens: {
         type: `object`,
         additionalProperties: false,
@@ -261,6 +280,9 @@ export function themeSchema(): Record<string, unknown> {
           opacity: numberMap(TOKEN_GROUPS.opacity),
           border: numberMap(TOKEN_GROUPS.border),
           motion: numberMap(TOKEN_GROUPS.motion),
+          breakpoint: numberMap(TOKEN_GROUPS.breakpoint),
+          ease: { type: `object`, additionalProperties: false, properties: Object.fromEntries(TOKEN_GROUPS.ease.map((n) => [n, { type: `array`, items: { type: `number` }, minItems: 4, maxItems: 4 }])) },
+          density: numberMap(TOKEN_GROUPS.density),
         },
       },
       fonts: {

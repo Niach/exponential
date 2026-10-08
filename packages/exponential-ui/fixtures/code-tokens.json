@@ -1,0 +1,1748 @@
+{
+  "$comment": "Round 1 (docs/round-1-contract.md §3): the CodeBlock tokenizer contract (catalog/code.json). Inputs hand-written (name, language, code); `expected` = src/code.ts tokenizeCode: one token list per LINE, each line's tokens concatenating to exactly its text, adjacent tokens of one kind merged. Every renderer's tokenizer replays it.",
+  "cases": [
+    {
+      "name": "ts: keywords, types, functions, properties, numbers, comments, template strings",
+      "language": "ts",
+      "code": "// the answer\nconst answer: number = 42\nexport function ask(q: string): Promise<Answer> {\n  return fetch(`/ask?q=${q}`).then((r) => r.json())\n}",
+      "expected": [
+        [
+          {
+            "kind": "comment",
+            "text": "// the answer"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "const"
+          },
+          {
+            "kind": "plain",
+            "text": " answer"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "number"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "42"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "export"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "function"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "ask"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "plain",
+            "text": "q"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "string"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "Promise"
+          },
+          {
+            "kind": "operator",
+            "text": "<"
+          },
+          {
+            "kind": "type",
+            "text": "Answer"
+          },
+          {
+            "kind": "operator",
+            "text": ">"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "keyword",
+            "text": "return"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "fetch"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "string",
+            "text": "`/ask?q=${q}`"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")."
+          },
+          {
+            "kind": "function",
+            "text": "then"
+          },
+          {
+            "kind": "punctuation",
+            "text": "(("
+          },
+          {
+            "kind": "plain",
+            "text": "r"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "=>"
+          },
+          {
+            "kind": "plain",
+            "text": " r"
+          },
+          {
+            "kind": "punctuation",
+            "text": "."
+          },
+          {
+            "kind": "function",
+            "text": "json"
+          },
+          {
+            "kind": "punctuation",
+            "text": "())"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "js: a block comment across lines and an escaped quote",
+      "language": "js",
+      "code": "/* multi\n   line */\nlet s = 'it\\'s' + 0x1F + .5",
+      "expected": [
+        [
+          {
+            "kind": "comment",
+            "text": "/* multi"
+          }
+        ],
+        [
+          {
+            "kind": "comment",
+            "text": "   line */"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "let"
+          },
+          {
+            "kind": "plain",
+            "text": " s "
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "string",
+            "text": "'it\\'s'"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "+"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "0x1F"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "+"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": ".5"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "tsx: JSX reads as operators and identifiers (no markup mode)",
+      "language": "tsx",
+      "code": "export const App = () => <Button variant=\"ghost\">Go</Button>",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "export"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "const"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "App"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "()"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "=>"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "<"
+          },
+          {
+            "kind": "type",
+            "text": "Button"
+          },
+          {
+            "kind": "plain",
+            "text": " variant"
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "string",
+            "text": "\"ghost\""
+          },
+          {
+            "kind": "operator",
+            "text": ">"
+          },
+          {
+            "kind": "type",
+            "text": "Go"
+          },
+          {
+            "kind": "operator",
+            "text": "</"
+          },
+          {
+            "kind": "type",
+            "text": "Button"
+          },
+          {
+            "kind": "operator",
+            "text": ">"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "json: keys are properties",
+      "language": "json",
+      "code": "{\n  \"name\": \"exp\",\n  \"private\": true,\n  \"count\": 3,\n  \"tags\": [\"a\", null]\n}",
+      "expected": [
+        [
+          {
+            "kind": "punctuation",
+            "text": "{"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "property",
+            "text": "\"name\""
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "string",
+            "text": "\"exp\""
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "property",
+            "text": "\"private\""
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "true"
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "property",
+            "text": "\"count\""
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "3"
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "property",
+            "text": "\"tags\""
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "["
+          },
+          {
+            "kind": "string",
+            "text": "\"a\""
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "null"
+          },
+          {
+            "kind": "punctuation",
+            "text": "]"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "rust: lifetimes, macros and type names",
+      "language": "rust",
+      "code": "pub fn len(v: &Vec<u8>) -> usize {\n    println!(\"{}\", v.len()); // len\n    v.len()\n}",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "pub"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "fn"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "len"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "plain",
+            "text": "v"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "&"
+          },
+          {
+            "kind": "type",
+            "text": "Vec"
+          },
+          {
+            "kind": "operator",
+            "text": "<"
+          },
+          {
+            "kind": "type",
+            "text": "u8"
+          },
+          {
+            "kind": "operator",
+            "text": ">"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "->"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "usize"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "    println"
+          },
+          {
+            "kind": "operator",
+            "text": "!"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "string",
+            "text": "\"{}\""
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          },
+          {
+            "kind": "plain",
+            "text": " v"
+          },
+          {
+            "kind": "punctuation",
+            "text": "."
+          },
+          {
+            "kind": "function",
+            "text": "len"
+          },
+          {
+            "kind": "punctuation",
+            "text": "());"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "comment",
+            "text": "// len"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "    v"
+          },
+          {
+            "kind": "punctuation",
+            "text": "."
+          },
+          {
+            "kind": "function",
+            "text": "len"
+          },
+          {
+            "kind": "punctuation",
+            "text": "()"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "swift",
+      "language": "swift",
+      "code": "struct Card: View {\n  let title: String\n  var body: some View { Text(title).font(.headline) }\n}",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "struct"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "Card"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "View"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "keyword",
+            "text": "let"
+          },
+          {
+            "kind": "plain",
+            "text": " title"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "String"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "keyword",
+            "text": "var"
+          },
+          {
+            "kind": "plain",
+            "text": " body"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "some"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "View"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "Text"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "plain",
+            "text": "title"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")."
+          },
+          {
+            "kind": "function",
+            "text": "font"
+          },
+          {
+            "kind": "punctuation",
+            "text": "(."
+          },
+          {
+            "kind": "property",
+            "text": "headline"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "kotlin",
+      "language": "kotlin",
+      "code": "data class Seat(val count: Int)\nfun main() { println(Seat(3).count) }",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "data"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "class"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "Seat"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "keyword",
+            "text": "val"
+          },
+          {
+            "kind": "plain",
+            "text": " count"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "Int"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "fun"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "main"
+          },
+          {
+            "kind": "punctuation",
+            "text": "()"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "println"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "function",
+            "text": "Seat"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "number",
+            "text": "3"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")."
+          },
+          {
+            "kind": "property",
+            "text": "count"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "python: decorators, def, self",
+      "language": "python",
+      "code": "@dataclass\nclass Point:\n    def norm(self) -> float:\n        return (self.x ** 2) ** 0.5  # length",
+      "expected": [
+        [
+          {
+            "kind": "operator",
+            "text": "@"
+          },
+          {
+            "kind": "plain",
+            "text": "dataclass"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "class"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "type",
+            "text": "Point"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "    "
+          },
+          {
+            "kind": "keyword",
+            "text": "def"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "function",
+            "text": "norm"
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "keyword",
+            "text": "self"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "->"
+          },
+          {
+            "kind": "plain",
+            "text": " float"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "        "
+          },
+          {
+            "kind": "keyword",
+            "text": "return"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "keyword",
+            "text": "self"
+          },
+          {
+            "kind": "punctuation",
+            "text": "."
+          },
+          {
+            "kind": "property",
+            "text": "x"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "**"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "2"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "**"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "0.5"
+          },
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "comment",
+            "text": "# length"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "bash: an unterminated quote runs across lines (multiline quotes)",
+      "language": "bash",
+      "code": "if [ -f \"$HOME/.rc\" ]; then\n  echo 'loaded\nfi",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "if"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "["
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "-"
+          },
+          {
+            "kind": "plain",
+            "text": "f "
+          },
+          {
+            "kind": "string",
+            "text": "\"$HOME/.rc\""
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "];"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "then"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "keyword",
+            "text": "echo"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "string",
+            "text": "'loaded"
+          }
+        ],
+        [
+          {
+            "kind": "string",
+            "text": "fi"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "html: tags, attributes and a comment",
+      "language": "html",
+      "code": "<!-- card -->\n<div class=\"card\" data-id='7'>\n  <img src=\"a.png\" alt=\"\" />Hi &amp; bye\n</div>",
+      "expected": [
+        [
+          {
+            "kind": "comment",
+            "text": "<!-- card -->"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "<"
+          },
+          {
+            "kind": "tag",
+            "text": "div"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "attribute",
+            "text": "class"
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "string",
+            "text": "\"card\""
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "attribute",
+            "text": "data-id"
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "string",
+            "text": "'7'"
+          },
+          {
+            "kind": "punctuation",
+            "text": ">"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "punctuation",
+            "text": "<"
+          },
+          {
+            "kind": "tag",
+            "text": "img"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "attribute",
+            "text": "src"
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "string",
+            "text": "\"a.png\""
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "attribute",
+            "text": "alt"
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "string",
+            "text": "\"\""
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "/>"
+          },
+          {
+            "kind": "plain",
+            "text": "Hi &amp; bye"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "</"
+          },
+          {
+            "kind": "tag",
+            "text": "div"
+          },
+          {
+            "kind": "punctuation",
+            "text": ">"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "css: selectors, properties, at-rules, units",
+      "language": "css",
+      "code": "@media (min-width: 768px) {\n  .card:hover { color: #fff; margin: 0 -4px; }\n}",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "@media"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "("
+          },
+          {
+            "kind": "property",
+            "text": "min-width"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "768px"
+          },
+          {
+            "kind": "punctuation",
+            "text": ")"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  "
+          },
+          {
+            "kind": "punctuation",
+            "text": "."
+          },
+          {
+            "kind": "property",
+            "text": "card"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": "hover "
+          },
+          {
+            "kind": "punctuation",
+            "text": "{"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "property",
+            "text": "color"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "operator",
+            "text": "#"
+          },
+          {
+            "kind": "plain",
+            "text": "fff"
+          },
+          {
+            "kind": "punctuation",
+            "text": ";"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "property",
+            "text": "margin"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "0"
+          },
+          {
+            "kind": "plain",
+            "text": " -4px"
+          },
+          {
+            "kind": "punctuation",
+            "text": ";"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ],
+        [
+          {
+            "kind": "punctuation",
+            "text": "}"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "sql: keywords are case-insensitive",
+      "language": "sql",
+      "code": "SELECT id, name FROM users\nwhere created_at > '2026-01-01' -- recent\nORDER BY name;",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "SELECT"
+          },
+          {
+            "kind": "plain",
+            "text": " id"
+          },
+          {
+            "kind": "punctuation",
+            "text": ","
+          },
+          {
+            "kind": "plain",
+            "text": " name "
+          },
+          {
+            "kind": "keyword",
+            "text": "FROM"
+          },
+          {
+            "kind": "plain",
+            "text": " users"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "where"
+          },
+          {
+            "kind": "plain",
+            "text": " created_at "
+          },
+          {
+            "kind": "operator",
+            "text": ">"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "string",
+            "text": "'2026-01-01'"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "comment",
+            "text": "-- recent"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "ORDER"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "BY"
+          },
+          {
+            "kind": "plain",
+            "text": " name"
+          },
+          {
+            "kind": "punctuation",
+            "text": ";"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "yaml: keys, booleans, comments",
+      "language": "yaml",
+      "code": "name: exp # the app\nprivate: true\nlist:\n  - one\n  - \"two\"",
+      "expected": [
+        [
+          {
+            "kind": "property",
+            "text": "name"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " exp "
+          },
+          {
+            "kind": "comment",
+            "text": "# the app"
+          }
+        ],
+        [
+          {
+            "kind": "property",
+            "text": "private"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "keyword",
+            "text": "true"
+          }
+        ],
+        [
+          {
+            "kind": "property",
+            "text": "list"
+          },
+          {
+            "kind": "operator",
+            "text": ":"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  - one"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "  - "
+          },
+          {
+            "kind": "string",
+            "text": "\"two\""
+          }
+        ]
+      ]
+    },
+    {
+      "name": "markdown: headings, quotes and code spans only",
+      "language": "markdown",
+      "code": "# Title\n\n> a quote\nSome `code` and *emphasis* - 3 items.",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "# Title"
+          }
+        ],
+        [],
+        [
+          {
+            "kind": "comment",
+            "text": "> a quote"
+          }
+        ],
+        [
+          {
+            "kind": "plain",
+            "text": "Some "
+          },
+          {
+            "kind": "string",
+            "text": "`code`"
+          },
+          {
+            "kind": "plain",
+            "text": " and *emphasis* - 3 items."
+          }
+        ]
+      ]
+    },
+    {
+      "name": "plain: one token per line, CRLF normalised, empty lines kept",
+      "language": "plain",
+      "code": "first line\r\n\r\nthird line",
+      "expected": [
+        [
+          {
+            "kind": "plain",
+            "text": "first line"
+          }
+        ],
+        [],
+        [
+          {
+            "kind": "plain",
+            "text": "third line"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "an unknown language tokenizes as plain",
+      "language": "cobol",
+      "code": "MOVE 1 TO X.",
+      "expected": [
+        [
+          {
+            "kind": "plain",
+            "text": "MOVE 1 TO X."
+          }
+        ]
+      ]
+    },
+    {
+      "name": "an unterminated string stops at the line end",
+      "language": "ts",
+      "code": "const s = \"open\nconst t = 1",
+      "expected": [
+        [
+          {
+            "kind": "keyword",
+            "text": "const"
+          },
+          {
+            "kind": "plain",
+            "text": " s "
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "string",
+            "text": "\"open"
+          }
+        ],
+        [
+          {
+            "kind": "keyword",
+            "text": "const"
+          },
+          {
+            "kind": "plain",
+            "text": " t "
+          },
+          {
+            "kind": "operator",
+            "text": "="
+          },
+          {
+            "kind": "plain",
+            "text": " "
+          },
+          {
+            "kind": "number",
+            "text": "1"
+          }
+        ]
+      ]
+    }
+  ]
+}

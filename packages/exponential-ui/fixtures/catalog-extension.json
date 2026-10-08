@@ -12,12 +12,12 @@
       ]
     },
     "components": {
-      "Sparkline": {
+      "TrendLine": {
         "kind": "native",
         "group": "data",
         "lite": true,
         "children": "none",
-        "description": "A tiny inline line chart of recent values.",
+        "description": "A tiny inline line chart of recent values, painted by the host.",
         "props": {
           "values": {
             "type": "array",
@@ -153,7 +153,7 @@
             },
             {
               "part": "spark",
-              "component": "Sparkline",
+              "component": "TrendLine",
               "$if": "props.history",
               "props": {
                 "values": "{props.history}"
@@ -294,7 +294,7 @@
                     },
                     {
                       "id": "s1.spark",
-                      "component": "Sparkline",
+                      "component": "TrendLine",
                       "props": {
                         "values": [
                           1,
@@ -336,6 +336,9 @@
                 "macro": "Card",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "group"
               },
               "on": {
                 "press": {
@@ -450,6 +453,9 @@
                 "macro": "Card",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "group"
               }
             }
           ],
@@ -476,7 +482,7 @@
       "components": [
         {
           "id": "root",
-          "component": "Sparkline",
+          "component": "TrendLine",
           "values": [
             2,
             4,
@@ -488,7 +494,7 @@
       "expected": {
         "root": {
           "id": "root",
-          "component": "Sparkline",
+          "component": "TrendLine",
           "props": {
             "values": [
               2,
@@ -570,7 +576,7 @@
         },
         {
           "id": "x",
-          "component": "Sparkline",
+          "component": "TrendLine",
           "values": [
             1
           ]
@@ -584,7 +590,7 @@
           "children": [
             {
               "id": "x",
-              "component": "Sparkline",
+              "component": "TrendLine",
               "props": {
                 "values": [
                   1

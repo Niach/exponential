@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the `Box` style whitelist, verbatim from the VAPP-4 spike (`vapp_spike::WHITELIST` + the logical inline properties the spike added) — ONE source for the TS keys (`src/style.ts`), the JSON Schema (`core.schema.json#/$defs/style`) and the Swift/Kotlin/Rust key lists. Numbers are px (≡ pt ≡ dp); `length` also takes `\"N%\"`, `\"Npx\"` and `\"auto\"`; every value may be a token reference `$<group>.<name>` from tokens.json (colours: `#rrggbb[aa]` or `$color.<name>`). `borderWidth` is the ONE visual key with layout effect (a number or `$border.<name>`, VAPP-92); `fontFamily` (VAPP-92) takes only `$type.family.<name>`. Conditions nest one level: `\"@media (min-width: Npx)\"` resolves against the SURFACE width on the client, `\":pressed\"` against its own press state. Not in v1 (confirmed by the spike): transitions, transforms, calc(), named grid lines, gridAutoFlow, justifyItems, order, zIndex (paint order = tree order, absolute nodes LAST among siblings), multi-value shorthands.",
+  "$comment": "VAPP-85: the `Box` style whitelist, verbatim from the VAPP-4 spike (`vapp_spike::WHITELIST` + the logical inline properties the spike added), extended by round 1 (docs/round-1-contract.md) — ONE source for the TS keys (`src/style.ts`), the JSON Schema (`core.schema.json#/$defs/style`) and the Swift/Kotlin/Rust key lists. Numbers are px (≡ pt ≡ dp); `length` also takes `\"N%\"`, `\"Npx\"` and `\"auto\"`; every value may be a token reference `$<group>.<name>` from tokens.json (colours: `#rrggbb[aa]` or `$color.<name>`). `borderWidth` and the four per-side widths are the visual keys with layout effect (a number or `$border.<name>`, VAPP-92); `fontFamily` (VAPP-92) takes only `$type.family.<name>`; `transition` takes only `$motion.<name>` (the duration every opacity/colour/transform/size change animates with; nothing animates without it) and `transitionEasing` only `$ease.<name>`; `transform` is PAINT-ONLY (`translate(Xpx, Ypx)`, `scale(N)`, `rotate(Ndeg)`, space-separated, never layout); `backgroundGradient` = `{angle, stops: [{color, offset 0..1}]}` painted OVER `backgroundColor` (CSS order: the colour shows only through transparent stops); `visibility: hidden` keeps the box in layout and paints nothing (`display: none` removes it); `cursor` is a pointer-platform hint touch platforms ignore. CONDITIONS nest one level and apply in SOURCE ORDER after the base (write narrow-first): `@media` keys match the ONE grammar in `conditions.media` — `min-width`/`max-width`/`min-height`/`max-height` against the SURFACE box (`min-*` = `size >= N`, `max-*` = `size < N`; `N` = px or a `$breakpoint.<name>` token the theme resolves BEFORE matching), `orientation` of the surface box, `hover: hover|none` = a hover-capable pointer, `prefers-reduced-motion: reduce|no-preference` from the platform; the state keys `:hover`, `:focus-visible`, `:pressed` against the node's own interaction state, applied after every media block in that order (pressed wins). `src/style.ts resolveConditions` is the reference flattening and fixtures/style-conditions.json locks it. Still not in v1 (confirmed by the spike, kept by round 1): calc(), named grid lines, gridAutoFlow, justifyItems, order, zIndex (paint order = tree order, absolute nodes LAST among siblings, overlays stack by LAYER), per-side border colours (gpui paints ONE border colour per box; per-side WIDTHS are in), multi-value shorthands. After macro expansion a style VALUE may be a binding or a function call (a bound macro input, e.g. Progress fill width = percent{…}); the renderer resolves it at bind time and then applies it like an authored value; authors cannot write one (validateStyle refuses).",
   "layout": {
     "display": { "enum": ["flex", "grid", "block", "none"] },
     "flexDirection": { "enum": ["row", "column", "row-reverse", "column-reverse"] },
@@ -17,6 +17,8 @@
     "columnGap": { "type": "length" },
     "direction": { "enum": ["ltr", "rtl"], "rootOnly": true },
     "overflow": { "enum": ["visible", "hidden", "clip", "scroll", "auto"] },
+    "overflowX": { "enum": ["visible", "hidden", "clip", "scroll", "auto"] },
+    "overflowY": { "enum": ["visible", "hidden", "clip", "scroll", "auto"] },
     "width": { "type": "length" },
     "height": { "type": "length" },
     "minWidth": { "type": "length" },
@@ -32,6 +34,8 @@
     "inset": { "type": "length" },
     "insetInlineStart": { "type": "length" },
     "insetInlineEnd": { "type": "length" },
+    "insetBlockStart": { "type": "length" },
+    "insetBlockEnd": { "type": "length" },
     "padding": { "type": "length" },
     "paddingTop": { "type": "length" },
     "paddingRight": { "type": "length" },
@@ -59,20 +63,42 @@
   },
   "visual": {
     "backgroundColor": { "type": "color" },
+    "backgroundGradient": { "type": "gradient" },
     "color": { "type": "color" },
     "borderWidth": { "type": "number", "layoutEffect": true },
+    "borderTopWidth": { "type": "number", "layoutEffect": true },
+    "borderRightWidth": { "type": "number", "layoutEffect": true },
+    "borderBottomWidth": { "type": "number", "layoutEffect": true },
+    "borderLeftWidth": { "type": "number", "layoutEffect": true },
     "borderColor": { "type": "color" },
+    "borderStyle": { "enum": ["solid", "dashed", "dotted"] },
     "borderRadius": { "type": "length" },
+    "borderTopLeftRadius": { "type": "length" },
+    "borderTopRightRadius": { "type": "length" },
+    "borderBottomRightRadius": { "type": "length" },
+    "borderBottomLeftRadius": { "type": "length" },
     "opacity": { "type": "number" },
     "boxShadow": { "type": "token", "group": "shadow" },
     "fontSize": { "type": "length" },
-    "fontWeight": { "enum": [400, 500, 600, 700] },
+    "fontWeight": { "enum": [300, 400, 500, 600, 700, 800] },
     "lineHeight": { "type": "length" },
-    "textAlign": { "enum": ["left", "right", "center"] },
-    "fontFamily": { "type": "token", "group": "type.family" }
+    "letterSpacing": { "type": "length" },
+    "textAlign": { "enum": ["left", "right", "center", "start", "end", "justify"] },
+    "textDecoration": { "enum": ["none", "underline", "line-through"] },
+    "textTransform": { "enum": ["none", "uppercase", "lowercase", "capitalize"] },
+    "fontStyle": { "enum": ["normal", "italic"] },
+    "fontFamily": { "type": "token", "group": "type.family" },
+    "transition": { "type": "token", "group": "motion" },
+    "transitionEasing": { "type": "token", "group": "ease" },
+    "transform": { "type": "transform" },
+    "visibility": { "enum": ["visible", "hidden"] },
+    "pointerEvents": { "enum": ["auto", "none"] },
+    "userSelect": { "enum": ["auto", "none", "text"] },
+    "cursor": { "enum": ["auto", "default", "pointer", "text", "not-allowed", "grab", "grabbing", "move", "col-resize", "row-resize"] }
   },
   "conditions": {
-    "media": "^@media \\(min-width: \\d+(\\.\\d+)?px\\)$",
-    "states": [":pressed"]
+    "media": "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$",
+    "states": [":hover", ":focus-visible", ":pressed"],
+    "transform": "^((translate\\(-?\\d+(\\.\\d+)?px, -?\\d+(\\.\\d+)?px\\)|scale\\(-?\\d+(\\.\\d+)?\\)|rotate\\(-?\\d+(\\.\\d+)?deg\\))( (?=\\S)|$))+$"
   }
 }

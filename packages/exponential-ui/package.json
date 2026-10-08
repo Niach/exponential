@@ -18,7 +18,8 @@
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
-    "test": "bun test ./src",
+    "test": "bun test ./src ./conformance",
+    "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts"

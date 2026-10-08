@@ -16,12 +16,16 @@ Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions, 61 components with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 15 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 82 components with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
-| `catalog/tokens.json` | the token NAMES (`$color.primary`, `$spacing.md`, …); values come from a theme |
-| `catalog/recipes.json` | the recipe contract: interaction states, the recipe key whitelist, every native's parts + `when` props (macro parts come from macros.json) |
+| `catalog/tokens.json` | the token NAMES (`$color.primary`, `$spacing.md`, `$breakpoint.md`, `$ease.standard`, …); values come from a theme |
+| `catalog/strings.json` | round 1: the renderers' built-in UI copy (ids + English defaults), overridable per surface, referenced as `$string.<id>` |
+| `catalog/locale.json` | round 1: week start by region, likely regions (CLDR), deprecated language aliases, the RTL languages, the glyphs mirrored under RTL |
+| `catalog/code.json` | round 1: CodeBlock's built-in tokenizer (rules + per-language specs) |
+| `catalog/a11y.json` | round 1: the machine-readable role vocabulary; per component its role, notes and keyboard expectations; the rules; the host commands (focus, announce, scrollIntoView). Macro parts carry role/states/name via `$a11y` (macros.json) |
+| `catalog/recipes.json` | the recipe contract: interaction states (+ `invalid`, `dragover`), the recipe key whitelist (+ motion, transform, per-side borders), every native's parts + `when` props (macro parts come from macros.json) |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
 | `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
 | `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
@@ -31,6 +35,7 @@ Exponential app.
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
+| `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
 
@@ -95,13 +100,19 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   Parts and `when` props per component: `recipeParts()` (natives from
   `recipes.json`, macros from their templates: every `part`, the macro's
   `recipeProps` + `$recipe` keys). States: hover, pressed, focus, disabled,
-  checked, open, selected.
+  checked, open, selected, invalid, dragover.
 - **Precedence a painter applies** (`resolveNodeStyle`): the native's own
   recipe (Text/root for its variant) < the node's style (the macro
   template's structure + the author's style) < the macro part's recipe
   (Badge/label). Macro templates state only structure, spacing, radius and
   control heights; every colour and border is a recipe, so a theme restyles
   what a template drew.
+- **Surface settings** (round 1): `mode` light | dark | system
+  (`resolveMode`), `density` compact | default | comfortable
+  (`applyDensity` scales `$control.*` and `$spacing.*` by the theme's
+  `$density.*`), high contrast (`applyContrast` merges the theme's
+  `contrast` overlays), `$breakpoint.*` for style conditions and responsive
+  props, `$ease.*` for transitions; `shadow` none → xl is the elevation scale.
 - **Loading**: `validateTheme(json)` → issues with a path and a readable
   message (unknown token, key outside the whitelist, unknown part…);
   `loadTheme(json, {themes})` flattens the `extends` chain into a
@@ -130,6 +141,7 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 
 ## The reference implementation (`src/`)
 
+- Round 1 (`docs/round-1-contract.md`): `dynamic.ts` (the BIND pass: `resolveDynamic`, `bindTree` with props along the schema and DATA props verbatim, per-row Table slot cells via `bindRowSlot`, `runAction` with the `set` write-back), `strings.ts`, `locale.ts`, `code.ts` (CodeBlock tokenizer), `chart.ts` (extents, nice ticks), `a11y.ts`, and in `style.ts` the condition resolver (`resolveConditions`, `activeBreakpoint`); `theme.ts` gains `resolveMode`, `applyDensity`, `applyContrast`.
 - `reduceSurface(components, {catalogId, extensions?})` — flat list → one
   normalized tree, basic components mapped, macros expanded, every unknown
   component the `Unknown` placeholder (never an error), prop issues listed.
@@ -149,10 +161,13 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 | file | locks |
 |---|---|
 | `catalog-components.json` | every component × its example × every enum value × both booleans |
-| `catalog-macros.json` | every macro case → the expanded tree, byte for byte |
+| `catalog-macros.json` | every macro case → the expanded tree, byte for byte; round 1 adds a `bound:<prop>` case per bindable macro prop and a `responsive:<prop>` case per responsive one |
+| `bind-time.json` | round 1: every bound macro case × three data models (sample, falsy twin, path missing) → the tree after the bind pass + every `set` press; `extra` = Table slot cells bound per row (`rowSlots`), literal data rows, a bound accessible name, the `$set` collision issue, string page data |
+| `style-conditions.json` | round 1: style × surface/state context → the flattened style (media in source order, then states) |
+| `code-tokens.json` | round 1: source × language → CodeBlock tokens per line |
 | `catalog-basic-map.json` | hand-written A2UI basic surfaces → expected trees + issues |
 | `catalog-extension.json` | an example extension (native + macro + enum) and its cases |
-| `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept; view id `exponential-ui-kitchen-sink` |
+| `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept, round 1's responsive section (1→2→3 column grid, collapsing sidebar, hidden-on-narrow nodes, state blocks) and bound macros; view id `exponential-ui-kitchen-sink` |
 | `prompt-budget.json` | the prompt's size on record (full / lite / terse) and the budget |
 | `theme-resolved.json` | every built-in theme resolved: what a native loader must produce from the same files |
 | `theme-recipes.json` | theme × component part × recipe props → visuals per mode and state (one case per distinct look) |

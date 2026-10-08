@@ -11,17 +11,23 @@ import {
   catalogView,
 } from "./catalog"
 import { mapBasicComponent } from "./basic-map"
+import { isDynamic } from "./expr"
 import { expandMacros } from "./macros"
 import { validateProps } from "./validate"
 import type {
+  ChildTemplate,
   ExtensionDef,
   FlatComponent,
   NestedNode,
   ReduceIssue,
   UiNode,
+  Visible,
+  WireChildTemplate,
 } from "./types"
 
-const RESERVED = new Set([`id`, `component`, `children`, `slots`, `on`, `style`, `accessibility`, `template`])
+/** The keys of a flat component that are not props (round 1 adds `visible`). */
+export const RESERVED_KEYS: readonly string[] = [`id`, `component`, `children`, `slots`, `on`, `style`, `visible`, `accessibility`, `template`]
+const RESERVED = new Set(RESERVED_KEYS)
 
 export interface ReduceOptions {
   /** The surface's catalog: the core, the lite subset, the basic catalog or an extension's id. */
@@ -59,6 +65,17 @@ function knownCatalog(catalogId: string, extensions: readonly ExtensionDef[]): b
     catalogId === A2UI_BASIC_CATALOG_ID ||
     extensions.some((ext) => ext.id === catalogId)
   )
+}
+
+/** A `visible` value is a boolean or a dynamic value (a binding or a call). */
+export function validVisible(value: unknown): value is Visible {
+  return typeof value === `boolean` || isDynamic(value)
+}
+
+export function childTemplate(value: WireChildTemplate): ChildTemplate {
+  const out: ChildTemplate = { component: value.componentId, path: value.path }
+  if (typeof value.key === `string`) out.key = value.key
+  return out
 }
 
 /** Reduce a flat component list. Children are resolved from the root down, so
@@ -112,12 +129,16 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
       } else {
         node = { id, component: flat.component, props: ownProps(flat), children: [] }
         if (Array.isArray(flat.children)) node.children = flat.children.map(build)
-        else if (flat.children && typeof flat.children === `object`)
-          node.template = { component: flat.children.componentId, path: flat.children.path }
+        else if (flat.children && typeof flat.children === `object`) node.template = childTemplate(flat.children)
         if (flat.style) node.style = flat.style
         if (flat.on) node.on = flat.on
         for (const [slot, childId] of Object.entries(flat.slots ?? {})) (node.slots ??= {})[slot] = build(childId)
       }
+    }
+    // `visible` and `accessibility` hold on EVERY component, basic or core.
+    if (flat.visible !== undefined) {
+      if (validVisible(flat.visible)) node.visible = flat.visible
+      else issues.push({ id, message: `visible: expected a boolean, a binding or a function call` })
     }
     if (flat.accessibility) node.accessibility = flat.accessibility
     visiting.delete(id)
@@ -128,14 +149,21 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
           issues.push({ id, message: `${issue.path}: ${issue.message}` })
         if (def.children === `none` && node.children.length > 0)
           issues.push({ id, message: `${node.component} takes no children` })
+        for (const slot of Object.keys(node.slots ?? {}))
+          if (!slotAllowed(def.slots, slot)) issues.push({ id, message: `slots.${slot}: ${node.component} has no such slot` })
       }
     }
     return node
   }
 
   let root = build(options.rootId ?? `root`)
-  if (options.expand !== false) root = expandMacros(root, { extensions })
+  if (options.expand !== false) root = expandMacros(root, { extensions, issues })
   return { root, issues }
+}
+
+/** A component's slot list admits a name when it lists it or lists `*`. */
+export function slotAllowed(slots: readonly string[] | undefined, name: string): boolean {
+  return (slots ?? []).some((s) => s === `*` || s === name)
 }
 
 /** The nested authoring form → a normalized tree (same validation and
@@ -152,6 +180,10 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
     }
     const node: UiNode = { id: n.id, component: n.component, props: { ...(n.props ?? {}) }, children: (n.children ?? []).map(walk) }
     if (n.style) node.style = n.style
+    if (n.visible !== undefined) {
+      if (validVisible(n.visible)) node.visible = n.visible
+      else issues.push({ id: n.id, message: `visible: expected a boolean, a binding or a function call` })
+    }
     if (n.on) node.on = n.on
     if (n.accessibility) node.accessibility = n.accessibility
     if (n.template) node.template = n.template
@@ -164,11 +196,13 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
         issues.push({ id: n.id, message: `${issue.path}: ${issue.message}` })
       if (def.children === `none` && node.children.length > 0)
         issues.push({ id: n.id, message: `${n.component} takes no children` })
+      for (const slot of Object.keys(node.slots ?? {}))
+        if (!slotAllowed(def.slots, slot)) issues.push({ id: n.id, message: `slots.${slot}: ${n.component} has no such slot` })
     }
     return node
   }
   let root = walk(tree)
-  if (options.expand !== false) root = expandMacros(root, { extensions })
+  if (options.expand !== false) root = expandMacros(root, { extensions, issues })
   return { root, issues }
 }
 

@@ -141,7 +141,7 @@ describe(`catalog-extension.json`, () => {
     const kinds = new Set<string>()
     walk(root, (n) => kinds.add(n.component))
     expect(kinds.has(`StatCard`)).toBe(false)
-    expect(kinds.has(`Sparkline`)).toBe(true)
+    expect(kinds.has(`TrendLine`)).toBe(true)
     expect(kinds.has(`Box`)).toBe(true)
   })
 })

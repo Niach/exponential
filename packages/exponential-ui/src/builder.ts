@@ -213,6 +213,21 @@ export function diffTheme(full: ResolvedTheme | ThemeSource, base: ResolvedTheme
     if (Object.keys(m).length > 0) modes[mode] = m
   }
   if (Object.keys(modes).length > 0) out.modes = modes
+  // Round 1: the high-contrast overlays diff the same way.
+  const contrast: ThemeSource[`contrast`] = {}
+  for (const mode of MODES) {
+    const mine = resolved.contrast?.[mode] ?? { color: {}, shadow: {} }
+    const theirs = base.contrast?.[mode] ?? { color: {}, shadow: {} }
+    const color: Record<string, `#${string}`> = {}
+    const shadow: Record<string, Shadow[]> = {}
+    for (const [k, v] of Object.entries(mine.color)) if (theirs.color[k] !== v) color[k] = v
+    for (const [k, v] of Object.entries(mine.shadow)) if (!same(theirs.shadow[k], v)) shadow[k] = v
+    const m: { color?: Record<string, `#${string}`>; shadow?: Record<string, Shadow[]> } = {}
+    if (Object.keys(color).length > 0) m.color = color
+    if (Object.keys(shadow).length > 0) m.shadow = shadow
+    if (Object.keys(m).length > 0) contrast[mode] = m
+  }
+  if (Object.keys(contrast).length > 0) out.contrast = contrast
   const tokens: Record<string, unknown> = {}
   for (const group of Object.keys(TOKEN_GROUPS)) {
     if (group === `color` || group === `shadow`) continue

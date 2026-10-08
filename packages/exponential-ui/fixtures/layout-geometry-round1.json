@@ -1,0 +1,7099 @@
+{
+  "$comment": "Round 1 (docs/round-1-contract.md §2): the RESPONSIVE layout contract, written by the Rust core (apps/desktop/crates/exponential-ui tests/round1_geometry.rs; regenerate with EXP_UI_WRITE_FIXTURES=1). `surface` = the kitchen sink's `responsive` section in a full-width root (padding 16, the case's `direction`), data `data`, theme `neutral` (light), form controls NOT expanded (every native is one measured leaf). Every leaf is a fixed box of `cases[c].measures[id]` (the fixed measure: 8 px per character on ONE 20 px line, the controls' recipe boxes); `context` = the condition inputs (`hover`: a hover-capable pointer, `reducedMotion`, `height: null` = the surface height is the content's, so `orientation` is landscape). `frames` = every drawn node in paint order, x/y/w/h relative to the root, rounded to 1/1000 px. Breakpoints: neutral's 640/768/1024/1280 (`min-width: N` holds from N on, `max-width: N` below N; the 768 case sits exactly on md). A renderer lays the same surface out at each case's width and matches every frame within `tolerancePx`. Replayed by the core (round1_geometry.rs) and the gpui painter (exponential-ui-gpui tests/render.rs); no TypeScript/React test reads it yet.",
+  "theme": "neutral",
+  "mode": "light",
+  "tolerancePx": 1,
+  "data": {
+    "ui": {
+      "sidebarCollapsed": false,
+      "filtersOpen": false
+    }
+  },
+  "surface": {
+    "id": "root",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "width": "100%",
+      "padding": 16,
+      "direction": "ltr"
+    },
+    "children": [
+      {
+        "id": "responsive",
+        "component": "Card",
+        "props": {
+          "title": "Responsive"
+        },
+        "children": [
+          {
+            "id": "resp-grid",
+            "component": "Grid",
+            "props": {
+              "columns": {
+                "base": 1,
+                "sm": 2,
+                "lg": 3
+              },
+              "gap": {
+                "base": "sm",
+                "md": "md"
+              }
+            },
+            "children": [
+              {
+                "id": "resp-card-1",
+                "component": "Card",
+                "props": {
+                  "title": "Throughput",
+                  "description": "Runs per day"
+                },
+                "children": [
+                  {
+                    "id": "resp-value-1",
+                    "component": "Text",
+                    "props": {
+                      "text": "128",
+                      "variant": "title"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "resp-card-2",
+                "component": "Card",
+                "props": {
+                  "title": "Latency",
+                  "description": "p95 in ms"
+                },
+                "children": [
+                  {
+                    "id": "resp-value-2",
+                    "component": "Text",
+                    "props": {
+                      "text": "412",
+                      "variant": "title"
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "resp-card-3",
+                "component": "Card",
+                "props": {
+                  "title": "Errors",
+                  "description": "Last 24 h"
+                },
+                "children": [
+                  {
+                    "id": "resp-value-3",
+                    "component": "Text",
+                    "props": {
+                      "text": "3",
+                      "variant": "title"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "resp-shell",
+            "component": "Sidebar",
+            "props": {
+              "width": 200,
+              "collapseBelow": "md",
+              "collapsed": {
+                "path": "/ui/sidebarCollapsed"
+              }
+            },
+            "style": {
+              "minHeight": 160
+            },
+            "slots": {
+              "sidebar": {
+                "id": "resp-nav",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.xxs",
+                  "padding": "$spacing.xs"
+                },
+                "children": [
+                  {
+                    "id": "resp-nav-inbox",
+                    "component": "NavRow",
+                    "props": {
+                      "label": "Inbox",
+                      "icon": "nav-inbox",
+                      "selected": true,
+                      "count": 2
+                    }
+                  },
+                  {
+                    "id": "resp-nav-issues",
+                    "component": "NavRow",
+                    "props": {
+                      "label": "Issues",
+                      "icon": "nav-issues"
+                    }
+                  }
+                ]
+              }
+            },
+            "children": [
+              {
+                "id": "resp-main",
+                "component": "Stack",
+                "props": {
+                  "direction": {
+                    "base": "vertical",
+                    "md": "horizontal"
+                  },
+                  "gap": "md",
+                  "align": {
+                    "base": "stretch",
+                    "md": "center"
+                  }
+                },
+                "style": {
+                  "padding": "$spacing.md"
+                },
+                "children": [
+                  {
+                    "id": "resp-main-text",
+                    "component": "Text",
+                    "props": {
+                      "text": "The column hides below md; this stack turns into a row at md.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "resp-only-wide",
+                    "component": "Badge",
+                    "props": {
+                      "text": "Wide",
+                      "variant": "secondary"
+                    },
+                    "style": {
+                      "display": "none",
+                      "@media (min-width: $breakpoint.md)": {
+                        "display": "flex"
+                      }
+                    }
+                  },
+                  {
+                    "id": "resp-only-narrow",
+                    "component": "Badge",
+                    "props": {
+                      "text": "Narrow",
+                      "variant": "outline"
+                    },
+                    "style": {
+                      "@media (min-width: $breakpoint.md)": {
+                        "display": "none"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "resp-states",
+            "component": "Box",
+            "props": {
+              "pressable": true
+            },
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "alignItems": "center",
+              "gap": "$spacing.sm",
+              "padding": "$spacing.md",
+              "borderRadius": "$radius.md",
+              "borderWidth": "$border.hairline",
+              "borderColor": "$color.border",
+              "transition": "$motion.fast",
+              "transitionEasing": "$ease.standard",
+              "@media (max-width: $breakpoint.sm)": {
+                "flexDirection": "column",
+                "alignItems": "flex-start"
+              },
+              "@media (orientation: portrait)": {
+                "paddingVertical": "$spacing.lg"
+              },
+              "@media (hover: none)": {
+                "minHeight": 44
+              },
+              "@media (prefers-reduced-motion: reduce)": {
+                "transform": "scale(1)"
+              },
+              ":hover": {
+                "backgroundColor": "$color.accent"
+              },
+              ":focus-visible": {
+                "borderColor": "$color.ring"
+              },
+              ":pressed": {
+                "transform": "scale(0.98)"
+              }
+            },
+            "on": {
+              "press": {
+                "event": {
+                  "name": "tapCard"
+                }
+              }
+            },
+            "children": [
+              {
+                "id": "resp-states-icon",
+                "component": "Icon",
+                "props": {
+                  "name": "ui-info",
+                  "tone": "info"
+                }
+              },
+              {
+                "id": "resp-states-text",
+                "component": "Text",
+                "props": {
+                  "text": "Hover, keyboard focus and press restyle this box; it stacks below sm.",
+                  "variant": "body"
+                }
+              }
+            ]
+          },
+          {
+            "id": "resp-drawer",
+            "component": "Drawer",
+            "props": {
+              "title": "Filters",
+              "side": {
+                "base": "bottom",
+                "md": "right"
+              },
+              "open": {
+                "path": "/ui/filtersOpen"
+              },
+              "dragToDismiss": true
+            },
+            "slots": {
+              "trigger": {
+                "id": "resp-drawer-trigger",
+                "component": "Button",
+                "props": {
+                  "label": "Filters",
+                  "icon": "ui-properties",
+                  "variant": "outline"
+                }
+              }
+            },
+            "children": [
+              {
+                "id": "resp-drawer-body",
+                "component": "Text",
+                "props": {
+                  "text": "A bottom sheet on phones, a side panel from md.",
+                  "variant": "body"
+                }
+              }
+            ]
+          },
+          {
+            "id": "resp-scroll",
+            "component": "ScrollArea",
+            "props": {
+              "direction": "horizontal"
+            },
+            "children": [
+              {
+                "id": "resp-chip-0",
+                "component": "Pill",
+                "props": {
+                  "label": "Bug"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-1",
+                "component": "Pill",
+                "props": {
+                  "label": "iOS"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-2",
+                "component": "Pill",
+                "props": {
+                  "label": "Android"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-3",
+                "component": "Pill",
+                "props": {
+                  "label": "Desktop"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-4",
+                "component": "Pill",
+                "props": {
+                  "label": "Web"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-5",
+                "component": "Pill",
+                "props": {
+                  "label": "Infra"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              },
+              {
+                "id": "resp-chip-6",
+                "component": "Pill",
+                "props": {
+                  "label": "Docs"
+                },
+                "style": {
+                  "flexShrink": 0
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cases": {
+    "390": {
+      "width": 390,
+      "direction": "ltr",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 724
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 358,
+          "h": 692
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 356,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 324,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 646
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 304
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 165,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 166,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 182,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 212,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 232,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 232,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 269,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 270,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 286,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 316,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 336,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 336,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 389,
+          "w": 332,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 29,
+          "y": 421,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 38,
+          "y": 421,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 549,
+          "w": 356,
+          "h": 74
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 562,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 30,
+          "y": 590,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 683,
+          "w": 356,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 683,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 685,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 683,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 685,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "390-rtl": {
+      "width": 390,
+      "direction": "rtl",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 724
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 358,
+          "h": 692
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 356,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 324,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 646
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 304
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 165,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 166,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 182,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 212,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 232,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 232,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 269,
+          "w": 356,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 270,
+          "w": 354,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 286,
+          "w": 322,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 316,
+          "w": 322,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 336,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 336,
+          "w": 354,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 377,
+          "w": 356,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 389,
+          "w": 332,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 295,
+          "y": 421,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 304,
+          "y": 421,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 549,
+          "w": 356,
+          "h": 74
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 340,
+          "y": 562,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": -192,
+          "y": 590,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 293,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 293,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 683,
+          "w": 356,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 331,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 340,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 289,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 298,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 215,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 224,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 141,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 150,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 99,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 108,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 41,
+          "y": 683,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 50,
+          "y": 685,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": -9,
+          "y": 683,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 0,
+          "y": 685,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "600": {
+      "width": 600,
+      "direction": "ltr",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 600,
+          "h": 724
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 568,
+          "h": 692
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 566,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 534,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 646
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 304
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 165,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 166,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 182,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 212,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 232,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 232,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 269,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 270,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 286,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 316,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 336,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 336,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 389,
+          "w": 542,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 29,
+          "y": 421,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 38,
+          "y": 421,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 549,
+          "w": 566,
+          "h": 74
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 562,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 30,
+          "y": 590,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 683,
+          "w": 566,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 683,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 685,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 683,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 685,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "600-rtl": {
+      "width": 600,
+      "direction": "rtl",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 600,
+          "h": 724
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 568,
+          "h": 692
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 566,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 534,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 646
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 304
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 165,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 166,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 182,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 212,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 232,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 232,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 269,
+          "w": 566,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 270,
+          "w": 564,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 286,
+          "w": 532,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 316,
+          "w": 532,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 336,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 336,
+          "w": 564,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 377,
+          "w": 566,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 389,
+          "w": 542,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 377,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 505,
+          "y": 421,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 514,
+          "y": 421,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 549,
+          "w": 566,
+          "h": 74
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 550,
+          "y": 562,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 18,
+          "y": 590,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 503,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 503,
+          "y": 635,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 683,
+          "w": 566,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 541,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 550,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 499,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 508,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 425,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 434,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 351,
+          "y": 683,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 360,
+          "y": 685,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 309,
+          "y": 683,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 318,
+          "y": 685,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 251,
+          "y": 683,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 260,
+          "y": 685,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 201,
+          "y": 683,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 210,
+          "y": 685,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "700": {
+      "width": 700,
+      "direction": "ltr",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 700,
+          "h": 592
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 668,
+          "h": 560
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 666,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 634,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 666,
+          "h": 514
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 666,
+          "h": 200
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 354,
+          "y": 61,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 355,
+          "y": 62,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 371,
+          "y": 78,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 371,
+          "y": 108,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 355,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 355,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 165,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 166,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 182,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 212,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 232,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 232,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 285,
+          "w": 642,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 29,
+          "y": 317,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 38,
+          "y": 317,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 445,
+          "w": 666,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 458,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 58,
+          "y": 458,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 503,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 503,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 551,
+          "w": 666,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 551,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 553,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 551,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 553,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 551,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 553,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 551,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 553,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "700-rtl": {
+      "width": 700,
+      "direction": "rtl",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 700,
+          "h": 592
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 668,
+          "h": 560
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 666,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 634,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 666,
+          "h": 514
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 666,
+          "h": 200
+        },
+        {
+          "id": "resp-card-1",
+          "x": 354,
+          "y": 61,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 355,
+          "y": 62,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 371,
+          "y": 78,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 371,
+          "y": 108,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 355,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 355,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 61,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 62,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 128,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 354,
+          "y": 165,
+          "w": 329,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 355,
+          "y": 166,
+          "w": 327,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 371,
+          "y": 182,
+          "w": 295,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 371,
+          "y": 212,
+          "w": 295,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 355,
+          "y": 232,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 355,
+          "y": 232,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 273,
+          "w": 666,
+          "h": 76
+        },
+        {
+          "id": "resp-main-text",
+          "x": 29,
+          "y": 285,
+          "w": 642,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 17,
+          "y": 273,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 605,
+          "y": 317,
+          "w": 66,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 614,
+          "y": 317,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 445,
+          "w": 666,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 650,
+          "y": 458,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 90,
+          "y": 458,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 603,
+          "y": 503,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 603,
+          "y": 503,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 551,
+          "w": 666,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 641,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 650,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 599,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 608,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 525,
+          "y": 551,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 534,
+          "y": 553,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 451,
+          "y": 551,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 460,
+          "y": 553,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 409,
+          "y": 551,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 418,
+          "y": 553,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 351,
+          "y": 551,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 360,
+          "y": 553,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 301,
+          "y": 551,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 310,
+          "y": 553,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "768": {
+      "width": 768,
+      "direction": "ltr",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 768,
+          "h": 596
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 736,
+          "h": 564
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 734,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 702,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 734,
+          "h": 518
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 734,
+          "h": 204
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 390,
+          "y": 61,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 391,
+          "y": 62,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 407,
+          "y": 78,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 407,
+          "y": 108,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 391,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 391,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 169,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 170,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 186,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 216,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 236,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 236,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 277,
+          "w": 734,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 277,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 277,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 21,
+          "y": 281,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 29,
+          "y": 293,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 53,
+          "y": 291,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 180,
+          "y": 281,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 188,
+          "y": 281,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 21,
+          "y": 323,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 29,
+          "y": 335,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 53,
+          "y": 333,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 217,
+          "y": 277,
+          "w": 534,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 217,
+          "y": 277,
+          "w": 534,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 229,
+          "y": 289,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 729,
+          "y": 289,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 737,
+          "y": 289,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 217,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 217,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 449,
+          "w": 734,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 462,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 58,
+          "y": 462,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 555,
+          "w": 734,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 555,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 557,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 555,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 557,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "768-rtl": {
+      "width": 768,
+      "direction": "rtl",
+      "context": {
+        "hover": false,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 768,
+          "h": 596
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 736,
+          "h": 564
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 734,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 702,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 734,
+          "h": 518
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 734,
+          "h": 204
+        },
+        {
+          "id": "resp-card-1",
+          "x": 390,
+          "y": 61,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 391,
+          "y": 62,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 407,
+          "y": 78,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 407,
+          "y": 108,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 391,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 391,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 61,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 62,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 128,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 390,
+          "y": 169,
+          "w": 361,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 391,
+          "y": 170,
+          "w": 359,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 407,
+          "y": 186,
+          "w": 327,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 407,
+          "y": 216,
+          "w": 327,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 391,
+          "y": 236,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 391,
+          "y": 236,
+          "w": 359,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 277,
+          "w": 734,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 551,
+          "y": 277,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 551,
+          "y": 277,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 555,
+          "y": 281,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 722,
+          "y": 293,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 595,
+          "y": 291,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 563,
+          "y": 281,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 571,
+          "y": 281,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 555,
+          "y": 323,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 722,
+          "y": 335,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 563,
+          "y": 333,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 277,
+          "w": 534,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 277,
+          "w": 534,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 51,
+          "y": 289,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": -9,
+          "y": 289,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": -1,
+          "y": 289,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 17,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 17,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 449,
+          "w": 734,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 718,
+          "y": 462,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 158,
+          "y": 462,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 671,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 671,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 555,
+          "w": 734,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 709,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 718,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 667,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 676,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 593,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 602,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 519,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 528,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 477,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 486,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 419,
+          "y": 555,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 428,
+          "y": 557,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 369,
+          "y": 555,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 378,
+          "y": 557,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "900": {
+      "width": 900,
+      "direction": "ltr",
+      "context": {
+        "hover": true,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 900,
+          "h": 596
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 868,
+          "h": 564
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 866,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 834,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 866,
+          "h": 518
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 866,
+          "h": 204
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 456,
+          "y": 61,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 457,
+          "y": 62,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 473,
+          "y": 78,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 473,
+          "y": 108,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 457,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 457,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 169,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 170,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 186,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 216,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 236,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 236,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 277,
+          "w": 866,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 277,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 277,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 21,
+          "y": 281,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 29,
+          "y": 293,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 53,
+          "y": 291,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 180,
+          "y": 281,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 188,
+          "y": 281,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 21,
+          "y": 323,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 29,
+          "y": 335,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 53,
+          "y": 333,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 217,
+          "y": 277,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 217,
+          "y": 277,
+          "w": 666,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 229,
+          "y": 289,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 729,
+          "y": 289,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 737,
+          "y": 289,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 217,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 217,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 449,
+          "w": 866,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 462,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 58,
+          "y": 462,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 555,
+          "w": 866,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 555,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 557,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 555,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 557,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "900-rtl": {
+      "width": 900,
+      "direction": "rtl",
+      "context": {
+        "hover": true,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 900,
+          "h": 596
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 868,
+          "h": 564
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 866,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 834,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 866,
+          "h": 518
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 866,
+          "h": 204
+        },
+        {
+          "id": "resp-card-1",
+          "x": 456,
+          "y": 61,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 457,
+          "y": 62,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 473,
+          "y": 78,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 473,
+          "y": 108,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 457,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 457,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 17,
+          "y": 61,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 18,
+          "y": 62,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 18,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 18,
+          "y": 128,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 456,
+          "y": 169,
+          "w": 427,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 457,
+          "y": 170,
+          "w": 425,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 473,
+          "y": 186,
+          "w": 393,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 473,
+          "y": 216,
+          "w": 393,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 457,
+          "y": 236,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 457,
+          "y": 236,
+          "w": 425,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 277,
+          "w": 866,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 683,
+          "y": 277,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 683,
+          "y": 277,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 687,
+          "y": 281,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 854,
+          "y": 293,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 727,
+          "y": 291,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 695,
+          "y": 281,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 703,
+          "y": 281,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 687,
+          "y": 323,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 854,
+          "y": 335,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 695,
+          "y": 333,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 277,
+          "w": 666,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 277,
+          "w": 666,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 183,
+          "y": 289,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 123,
+          "y": 289,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 131,
+          "y": 289,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 17,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 17,
+          "y": 277,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 449,
+          "w": 866,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 850,
+          "y": 462,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 290,
+          "y": 462,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 803,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 803,
+          "y": 507,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 555,
+          "w": 866,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 841,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 850,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 799,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 808,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 725,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 734,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 651,
+          "y": 555,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 660,
+          "y": 557,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 609,
+          "y": 555,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 618,
+          "y": 557,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 551,
+          "y": 555,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 560,
+          "y": 557,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 501,
+          "y": 555,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 510,
+          "y": 557,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "1280": {
+      "width": 1280,
+      "direction": "ltr",
+      "context": {
+        "hover": true,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 488
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 1248,
+          "h": 456
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 1246,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 1214,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 1246,
+          "h": 410
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 1246,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1",
+          "x": 17,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 18,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 18,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 18,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 436.333,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 437.333,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 453.333,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 453.333,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 437.333,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 437.333,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 855.667,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 856.667,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 872.667,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 872.667,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 856.667,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 856.667,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 169,
+          "w": 1246,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 17,
+          "y": 169,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 17,
+          "y": 169,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 21,
+          "y": 173,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 29,
+          "y": 185,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 53,
+          "y": 183,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 180,
+          "y": 173,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 188,
+          "y": 173,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 21,
+          "y": 215,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 29,
+          "y": 227,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 53,
+          "y": 225,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 217,
+          "y": 169,
+          "w": 1046,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 217,
+          "y": 169,
+          "w": 1046,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 229,
+          "y": 181,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 729,
+          "y": 181,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 737,
+          "y": 181,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 217,
+          "y": 169,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 217,
+          "y": 169,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 341,
+          "w": 1246,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 30,
+          "y": 354,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 58,
+          "y": 354,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 17,
+          "y": 399,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 17,
+          "y": 399,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 447,
+          "w": 1246,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 17,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 26,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 59,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 68,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 101,
+          "y": 447,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 110,
+          "y": 449,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 175,
+          "y": 447,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 184,
+          "y": 449,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 249,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 258,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 291,
+          "y": 447,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 300,
+          "y": 449,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 349,
+          "y": 447,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 358,
+          "y": 449,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    },
+    "1280-rtl": {
+      "width": 1280,
+      "direction": "rtl",
+      "context": {
+        "hover": true,
+        "reducedMotion": false,
+        "height": null
+      },
+      "measures": {
+        "responsive.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.title": {
+          "w": 80,
+          "h": 28
+        },
+        "resp-card-1.header.description": {
+          "w": 96,
+          "h": 20
+        },
+        "resp-value-1": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-2.header.title": {
+          "w": 56,
+          "h": 28
+        },
+        "resp-card-2.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-2": {
+          "w": 24,
+          "h": 28
+        },
+        "resp-card-3.header.title": {
+          "w": 48,
+          "h": 28
+        },
+        "resp-card-3.header.description": {
+          "w": 72,
+          "h": 20
+        },
+        "resp-value-3": {
+          "w": 8,
+          "h": 28
+        },
+        "resp-nav-inbox.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-inbox.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-nav-inbox.count.label": {
+          "w": 8,
+          "h": 20
+        },
+        "resp-nav-issues.icon": {
+          "w": 16,
+          "h": 16
+        },
+        "resp-nav-issues.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-main-text": {
+          "w": 488,
+          "h": 20
+        },
+        "resp-only-wide.label": {
+          "w": 32,
+          "h": 20
+        },
+        "resp-only-narrow.label": {
+          "w": 48,
+          "h": 20
+        },
+        "resp-states-icon": {
+          "w": 20,
+          "h": 20
+        },
+        "resp-states-text": {
+          "w": 552,
+          "h": 20
+        },
+        "resp-drawer-trigger": {
+          "w": 80,
+          "h": 36
+        },
+        "resp-chip-0.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-1.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-2.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-3.label": {
+          "w": 56,
+          "h": 20
+        },
+        "resp-chip-4.label": {
+          "w": 24,
+          "h": 20
+        },
+        "resp-chip-5.label": {
+          "w": 40,
+          "h": 20
+        },
+        "resp-chip-6.label": {
+          "w": 32,
+          "h": 20
+        }
+      },
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 1280,
+          "h": 488
+        },
+        {
+          "id": "responsive",
+          "x": 16,
+          "y": 16,
+          "w": 1248,
+          "h": 456
+        },
+        {
+          "id": "responsive.header",
+          "x": 17,
+          "y": 17,
+          "w": 1246,
+          "h": 44
+        },
+        {
+          "id": "responsive.header.title",
+          "x": 33,
+          "y": 33,
+          "w": 1214,
+          "h": 28
+        },
+        {
+          "id": "responsive.body",
+          "x": 17,
+          "y": 61,
+          "w": 1246,
+          "h": 410
+        },
+        {
+          "id": "resp-grid",
+          "x": 17,
+          "y": 61,
+          "w": 1246,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1",
+          "x": 855.667,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-1.header",
+          "x": 856.667,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-1.header.title",
+          "x": 872.667,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-1.header.description",
+          "x": 872.667,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-1.body",
+          "x": 856.667,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-1",
+          "x": 856.667,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2",
+          "x": 436.333,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-2.header",
+          "x": 437.333,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-2.header.title",
+          "x": 453.333,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-2.header.description",
+          "x": 453.333,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-2.body",
+          "x": 437.333,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-2",
+          "x": 437.333,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3",
+          "x": 17,
+          "y": 61,
+          "w": 407.333,
+          "h": 96
+        },
+        {
+          "id": "resp-card-3.header",
+          "x": 18,
+          "y": 62,
+          "w": 405.333,
+          "h": 66
+        },
+        {
+          "id": "resp-card-3.header.title",
+          "x": 34,
+          "y": 78,
+          "w": 373.333,
+          "h": 28
+        },
+        {
+          "id": "resp-card-3.header.description",
+          "x": 34,
+          "y": 108,
+          "w": 373.333,
+          "h": 20
+        },
+        {
+          "id": "resp-card-3.body",
+          "x": 18,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-value-3",
+          "x": 18,
+          "y": 128,
+          "w": 405.333,
+          "h": 28
+        },
+        {
+          "id": "resp-shell",
+          "x": 17,
+          "y": 169,
+          "w": 1246,
+          "h": 160
+        },
+        {
+          "id": "resp-shell.sidebar",
+          "x": 1063,
+          "y": 169,
+          "w": 200,
+          "h": 160
+        },
+        {
+          "id": "resp-nav",
+          "x": 1063,
+          "y": 169,
+          "w": 199,
+          "h": 90
+        },
+        {
+          "id": "resp-nav-inbox",
+          "x": 1067,
+          "y": 173,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-inbox.icon",
+          "x": 1234,
+          "y": 185,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-inbox.label",
+          "x": 1107,
+          "y": 183,
+          "w": 119,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count",
+          "x": 1075,
+          "y": 173,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-inbox.count.label",
+          "x": 1083,
+          "y": 173,
+          "w": 8,
+          "h": 20
+        },
+        {
+          "id": "resp-nav-issues",
+          "x": 1067,
+          "y": 215,
+          "w": 191,
+          "h": 40
+        },
+        {
+          "id": "resp-nav-issues.icon",
+          "x": 1234,
+          "y": 227,
+          "w": 16,
+          "h": 16
+        },
+        {
+          "id": "resp-nav-issues.label",
+          "x": 1075,
+          "y": 225,
+          "w": 151,
+          "h": 20
+        },
+        {
+          "id": "resp-shell.main",
+          "x": 17,
+          "y": 169,
+          "w": 1046,
+          "h": 160
+        },
+        {
+          "id": "resp-main",
+          "x": 17,
+          "y": 169,
+          "w": 1046,
+          "h": 44
+        },
+        {
+          "id": "resp-main-text",
+          "x": 563,
+          "y": 181,
+          "w": 488,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide",
+          "x": 503,
+          "y": 181,
+          "w": 48,
+          "h": 20
+        },
+        {
+          "id": "resp-only-wide.label",
+          "x": 511,
+          "y": 181,
+          "w": 32,
+          "h": 20
+        },
+        {
+          "id": "resp-only-narrow",
+          "x": 17,
+          "y": 169,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-only-narrow.label",
+          "x": 17,
+          "y": 169,
+          "w": 0,
+          "h": 0
+        },
+        {
+          "id": "resp-states",
+          "x": 17,
+          "y": 341,
+          "w": 1246,
+          "h": 46
+        },
+        {
+          "id": "resp-states-icon",
+          "x": 1230,
+          "y": 354,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "resp-states-text",
+          "x": 670,
+          "y": 354,
+          "w": 552,
+          "h": 20
+        },
+        {
+          "id": "resp-drawer",
+          "x": 1183,
+          "y": 399,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-drawer-trigger",
+          "x": 1183,
+          "y": 399,
+          "w": 80,
+          "h": 36
+        },
+        {
+          "id": "resp-scroll",
+          "x": 17,
+          "y": 447,
+          "w": 1246,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0",
+          "x": 1221,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-0.label",
+          "x": 1230,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-1",
+          "x": 1179,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-1.label",
+          "x": 1188,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-2",
+          "x": 1105,
+          "y": 447,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-2.label",
+          "x": 1114,
+          "y": 449,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-3",
+          "x": 1031,
+          "y": 447,
+          "w": 74,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-3.label",
+          "x": 1040,
+          "y": 449,
+          "w": 56,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-4",
+          "x": 989,
+          "y": 447,
+          "w": 42,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-4.label",
+          "x": 998,
+          "y": 449,
+          "w": 24,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-5",
+          "x": 931,
+          "y": 447,
+          "w": 58,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-5.label",
+          "x": 940,
+          "y": 449,
+          "w": 40,
+          "h": 20
+        },
+        {
+          "id": "resp-chip-6",
+          "x": 881,
+          "y": 447,
+          "w": 50,
+          "h": 24
+        },
+        {
+          "id": "resp-chip-6.label",
+          "x": 890,
+          "y": 449,
+          "w": 32,
+          "h": 20
+        }
+      ]
+    }
+  }
+}

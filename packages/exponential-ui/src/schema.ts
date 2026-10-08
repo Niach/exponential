@@ -49,12 +49,20 @@ function propToSchema(schema: PropSchema, view: CatalogView, iconNames: readonly
       base = { type: `array`, items: schema.items ? propToSchema(schema.items, view, iconNames) : {} }
       break
     case `object`:
-      base = { $ref: `#/$defs/${schema.shape}` }
+      base = schema.shape ? { $ref: `#/$defs/${schema.shape}` } : { type: `object` }
       break
   }
-  if (schema.description) base.description = schema.description
-  if (schema.default !== undefined) base.default = schema.default
-  return schema.bindable ? { oneOf: [base, ...DYNAMIC.oneOf] } : base
+  const alternatives: Json[] = [base]
+  if (schema.responsive) {
+    // Round 1: `{base, sm?, md?, lg?, xl?}` keyed by the $breakpoint names.
+    const value = { ...base }
+    alternatives.push({ type: `object`, properties: Object.fromEntries([`base`, ...TOKEN_GROUPS.breakpoint].map((k) => [k, value])), required: [`base`], additionalProperties: false })
+  }
+  if (schema.bindable) alternatives.push(...DYNAMIC.oneOf)
+  const out: Json = alternatives.length === 1 ? base : { oneOf: alternatives }
+  if (schema.description) out.description = schema.description
+  if (schema.default !== undefined) out.default = schema.default
+  return out
 }
 
 function componentSchema(name: string, def: ComponentDef, view: CatalogView, iconNames: readonly string[]): Json {
@@ -67,8 +75,9 @@ function componentSchema(name: string, def: ComponentDef, view: CatalogView, ico
   if (def.children !== `none`) properties.children = { $ref: `#/$defs/ChildList` }
   if (def.slots?.length) {
     const slots: Json = {}
-    for (const slot of def.slots) slots[slot] = { $ref: `#/$defs/ComponentId` }
-    properties.slots = { type: `object`, properties: slots, additionalProperties: false }
+    for (const slot of def.slots) if (slot !== `*`) slots[slot] = { $ref: `#/$defs/ComponentId` }
+    // `*` = any slot name (Table's per-column cell templates).
+    properties.slots = { type: `object`, properties: slots, additionalProperties: def.slots.includes(`*`) ? { $ref: `#/$defs/ComponentId` } : false }
   }
   if (def.events?.length) {
     const on: Json = {}
@@ -76,6 +85,7 @@ function componentSchema(name: string, def: ComponentDef, view: CatalogView, ico
     properties.on = { type: `object`, properties: on, additionalProperties: false }
   }
   properties.style = { $ref: `#/$defs/Style` }
+  properties.visible = { $ref: `#/$defs/Visible` }
   properties.accessibility = { $ref: `#/$defs/AccessibilityAttributes` }
   return {
     type: `object`,
@@ -94,6 +104,12 @@ function styleSchema(): Json {
   }
   const number = { oneOf: [{ type: `number` }, { type: `string`, pattern: TOKEN_PATTERN }] }
   const color = { type: `string`, pattern: `^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$` }
+  const gradient = {
+    type: `object`,
+    properties: { angle: { type: `number` }, stops: { type: `array`, minItems: 2, items: { type: `object`, properties: { color, offset: { type: `number`, minimum: 0, maximum: 1 } }, required: [`color`, `offset`], additionalProperties: false } } },
+    required: [`angle`, `stops`],
+    additionalProperties: false,
+  }
   const keys: Json = {}
   const groups = { ...styleJson.layout, ...styleJson.visual } as Record<string, { type?: string; enum?: unknown[]; group?: string }>
   for (const [key, spec] of Object.entries(groups)) {
@@ -104,15 +120,17 @@ function styleSchema(): Json {
     else if (spec.type === `token`) keys[key] = { type: `string`, pattern: `^\\$${spec.group}\\.[a-zA-Z0-9]+$` }
     else if (spec.type === `ratio`) keys[key] = { oneOf: [{ type: `number` }, { type: `string`, pattern: `^\\d+(\\.\\d+)?/\\d+(\\.\\d+)?$` }] }
     else if (spec.type === `areas`) keys[key] = { type: `array`, items: { type: `string` } }
+    else if (spec.type === `gradient`) keys[key] = gradient
+    else if (spec.type === `transform`) keys[key] = { type: `string`, pattern: styleJson.conditions.transform }
     else keys[key] = { type: `string` }
   }
   const base: Json = { type: `object`, properties: keys, additionalProperties: false }
   return {
     type: `object`,
-    description: `The Box style whitelist (VAPP-4): layout + visual keys, numbers in px, token references $<group>.<name>; conditions nest one level.`,
+    description: `The Box style whitelist (VAPP-4, round 1): layout + visual keys, numbers in px, token references $<group>.<name>; conditions nest one level: @media (min-/max-width|height, orientation, hover, prefers-reduced-motion; px or $breakpoint.<name>) in source order, then the states ${styleJson.conditions.states.join(`, `)}.`,
     properties: {
       ...keys,
-      ":pressed": base,
+      ...Object.fromEntries(styleJson.conditions.states.map((state) => [state, base])),
     },
     patternProperties: { [styleJson.conditions.media]: base },
     additionalProperties: false,
@@ -129,14 +147,31 @@ function defsSchema(view: CatalogView, iconNames: readonly string[]): Json {
     },
     AccessibilityAttributes: {
       type: `object`,
-      properties: { label: { type: `string` }, description: { type: `string` } },
+      description: `A2UI AccessibilityAttributes: label and description are DynamicStrings (a literal, a binding or a call, resolved at bind time).`,
+      properties: {
+        label: { oneOf: [{ type: `string` }, { $ref: `#/$defs/DataBinding` }, { $ref: `#/$defs/FunctionCall` }] },
+        description: { oneOf: [{ type: `string` }, { $ref: `#/$defs/DataBinding` }, { $ref: `#/$defs/FunctionCall` }] },
+      },
       additionalProperties: false,
     },
     ChildList: {
       oneOf: [
         { type: `array`, items: { $ref: `#/$defs/ComponentId` } },
-        { type: `object`, properties: { componentId: { $ref: `#/$defs/ComponentId` }, path: { type: `string` } }, required: [`componentId`, `path`], additionalProperties: false },
+        {
+          type: `object`,
+          properties: {
+            componentId: { $ref: `#/$defs/ComponentId` },
+            path: { type: `string` },
+            key: { type: `string`, description: `A pointer relative to each item that identifies it, so reordering keeps the item's component state (the index when absent).` },
+          },
+          required: [`componentId`, `path`],
+          additionalProperties: false,
+        },
       ],
+    },
+    Visible: {
+      description: `Round 1: false (or a binding/call resolving falsy) = the node is not rendered and takes no space; absent = visible.`,
+      oneOf: [{ type: `boolean` }, { $ref: `#/$defs/DataBinding` }, { $ref: `#/$defs/FunctionCall` }],
     },
     DataBinding: { type: `object`, properties: { path: { type: `string` } }, required: [`path`], additionalProperties: false },
     FunctionCall: {
@@ -145,10 +180,11 @@ function defsSchema(view: CatalogView, iconNames: readonly string[]): Json {
       required: [`call`],
     },
     Action: {
-      oneOf: [
-        { type: `object`, properties: { event: { type: `object`, properties: { name: { type: `string` }, context: { type: `object` } }, required: [`name`] } }, required: [`event`], additionalProperties: false },
-        { type: `object`, properties: { function: { $ref: `#/$defs/FunctionCall` } }, required: [`function`], additionalProperties: false },
-      ],
+      description: `A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched.`,
+      type: `object`,
+      properties: { event: { type: `object`, properties: { name: { type: `string` }, context: { type: `object` } }, required: [`name`] }, function: { $ref: `#/$defs/FunctionCall` } },
+      anyOf: [{ required: [`event`] }, { required: [`function`] }],
+      additionalProperties: false,
     },
     Style: styleSchema(),
     Tokens: {
@@ -169,6 +205,34 @@ function defsSchema(view: CatalogView, iconNames: readonly string[]): Json {
   return defs
 }
 
+interface CoreFunctionSpec {
+  description: string
+  args: Record<string, string>
+  returns: string
+}
+const CORE_FUNCTION_SPECS: Record<string, CoreFunctionSpec> = coreCatalog.functions.core
+
+/** The round-1 core functions in the basic catalog's function-schema shape. */
+function coreFunctionSchemas(): Json {
+  const argSchema = (type: string): Json =>
+    type === `any` ? {} : type === `array` ? { type: `array` } : type === `object` ? { type: `object` } : { oneOf: [{ type }, { $ref: `#/$defs/DataBinding` }, { $ref: `#/$defs/FunctionCall` }] }
+  const out: Json = {}
+  for (const [name, spec] of Object.entries(CORE_FUNCTION_SPECS)) {
+    out[name] = {
+      type: `object`,
+      description: spec.description,
+      properties: {
+        call: { const: name },
+        args: { type: `object`, properties: Object.fromEntries(Object.entries(spec.args).map(([arg, type]) => [arg, argSchema(type)])), additionalProperties: false },
+        returnType: { const: spec.returns },
+      },
+      required: [`call`, `args`],
+      unevaluatedProperties: false,
+    }
+  }
+  return out
+}
+
 /** The core catalog's JSON Schema. */
 export function coreSchema(iconNames: readonly string[]): Json {
   const view = catalogView()
@@ -179,15 +243,15 @@ export function coreSchema(iconNames: readonly string[]): Json {
     $schema: `https://json-schema.org/draft/2020-12/schema`,
     $id: coreCatalog.id,
     title: coreCatalog.name,
-    description: `Exponential UI core catalog v${coreCatalog.version}: ${Object.keys(coreCatalog.components).length} components (natives + macros), the A2UI basic catalog's 14 functions, the Box style whitelist and the token names. Generated by packages/exponential-ui/scripts/generate.ts from catalog/core.catalog.json — do not edit.`,
+    description: `Exponential UI core catalog v${coreCatalog.version}: ${Object.keys(coreCatalog.components).length} components (natives + macros), the A2UI basic catalog's 14 functions plus ${Object.keys(CORE_FUNCTION_SPECS).length} core functions, the Box style whitelist and the token names. Generated by packages/exponential-ui/scripts/generate.ts from catalog/core.catalog.json — do not edit.`,
     catalogId: coreCatalog.id,
     liteCatalogId: coreCatalog.liteId,
     components,
-    functions: basic.functions,
+    functions: { ...basic.functions, ...coreFunctionSchemas() },
     $defs: {
       ...defsSchema(view, iconNames),
       anyComponent: { oneOf: Object.keys(coreCatalog.components).map((name) => ({ $ref: `#/components/${name}` })) },
-      anyFunction: { oneOf: Object.keys(basic.functions).map((name) => ({ $ref: `#/functions/${name}` })) },
+      anyFunction: { oneOf: [...Object.keys(basic.functions), ...Object.keys(CORE_FUNCTION_SPECS)].map((name) => ({ $ref: `#/functions/${name}` })) },
     },
   }
 }

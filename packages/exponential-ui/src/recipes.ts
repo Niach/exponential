@@ -7,7 +7,7 @@
 import recipesJson from "../catalog/recipes.json" with { type: "json" }
 import { catalogView } from "./catalog"
 import type { CatalogView } from "./catalog"
-import type { ExtensionDef, MacroDef, MacroTemplate } from "./types"
+import type { ExtensionDef, MacroChild, MacroDef } from "./types"
 
 export const RECIPE_STATES: readonly string[] = recipesJson.states
 export const RECIPE_KEYS: readonly string[] = recipesJson.keys
@@ -20,11 +20,15 @@ export interface PartSpec {
 
 const NATIVE_PARTS = recipesJson.native as Record<string, PartSpec>
 
-function walkTemplate(tpl: MacroTemplate | `$children`, parts: Set<string>, props: Set<string>): void {
+/** Every part of a template (children first-to-last, then the slot parts a
+ *  template builds, e.g. AlertDialog's footer); `$children`/`$slot:` splices
+ *  carry no part. */
+function walkTemplate(tpl: MacroChild, parts: Set<string>, props: Set<string>): void {
   if (typeof tpl === `string`) return
   parts.add(tpl.part)
   for (const key of Object.keys(tpl.$recipe ?? {})) props.add(key)
   for (const child of tpl.children ?? []) walkTemplate(child, parts, props)
+  for (const slot of Object.values(tpl.slots ?? {})) if (typeof slot !== `string`) walkTemplate(slot, parts, props)
 }
 
 /** A macro's parts and recipe props, read off its template. */

@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $recipe? }. Values: `\"{props.x}\"` alone = the raw prop; `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{index}` = the current $each index. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b], $add [a, b], $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text expr (→ the value as a string, absent when missing). `$if` = a condition or an array of conditions (all must hold; `!` negates); `$any` = an array where one must hold. `$each` repeats a part per item of an array prop (`$as` names the item, default `item`). `\"$children\"` in a children list splices the author's children; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour, a border or a font — only structure and token-named spacing, radius and control heights (VAPP-92 moved the Card/Group/Band/Pill/Alert/CardRow/EntityChip fills and borders and the Separator/Progress/Meter track colours into the neutral theme's recipes; a part's recipe overrides what its template drew). Macros may use other macros (NavRow → Badge); expansion recurses until every node is native (innermost recipe wins).",
+  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $context?, $set?, $recipe?, $a11y? }. Values: `\"{props.x}\"` alone = the raw prop (a data BINDING passes through untouched, so two-way binding survives); `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{range(props.max|5)}` = the indexes 0..n-1 (for `$each`); `{index}` = the current $each index; `{!path}` negates. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b] (a number equals a string spelling it), $lt [a, b], $add [a, b], $sub [a, b], $clamp [value, min, max] (a missing bound does not clamp), $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text value (→ the value as a string, absent when missing), $not condition, $fill [template, {name: value}] (ALWAYS emits the core `fill` call: the template is usually a `$string.<id>` sentence with `{name}` placeholders the surface's string table resolves at bind time). Object KEYS interpolate too (`\"@media (max-width: $breakpoint.{props.collapseBelow|md})\"`). `$if` = a condition or an array of conditions (all must hold); `$any` = an array where one must hold. `$each` repeats a part per item of an array (`$as` names the item, default `item`). Children: `\"$children\"` splices the author's children, `\"$slot:name\"` splices an author slot in place; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot, `slots: {\"footer\": {template node}}` builds one as a part. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. `$set: {\"press\": {\"prop\": \"open\", \"value\": \"{!props.open}\"}}` = TWO-WAY BINDING (round 1): when the author's `props.open` is a data binding `{path}`, this part's `press` action also carries `function: {call: \"set\", args: {path, value}}` (the value evaluated like any template value, so usually a call), key order `event` then `function`; a literal prop adds nothing (the host owns the state through the routed event); when the author's routed handler is itself a FUNCTION (an Action carries one), it wins, no `set` is added and the reducer reports an issue. `$a11y: {role, label, description, level, expanded, current, selected, pressed, checked, valueNow, valueMin, valueMax, hidden, autoFocus}` = the part's ACCESSIBILITY (docs/round-1-contract.md §6): evaluated like props (a bound input emits a call) into the expanded node's `accessibility`; `role` is one of catalog/a11y.json `roles`; on the root the author's `accessibility` label/description win. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour, a border or a font — only structure and token-named spacing, radius and control heights. Macros may use other macros (NavRow → Badge); expansion recurses until every node is native (innermost recipe wins). ROUND 1 (docs/round-1-contract.md §1, BOUND INPUTS): when an expression input is a data binding `{path}` or a function call, the expander does NOT evaluate — it EMITS an A2UI function call the renderer evaluates at bind time, over the core functions: interpolation → concat, `|fallback` → fallback (as an operand; a whole-string MEMBER of props/style/context passes the binding itself through, so two-way binding survives), `!` → not, len → len, $map → map, $cond → cond, $eq → eq, $lt → lt, $add → add, $sub → sub, $percent → percent, $text → text, $coalesce → coalesce, $not → not; a `$if`/`$any` whose conditions are bound emits the part WITH `visible` = the bound condition (`and{values}` over several bound `$if`s, `or{values}` over several bound `$any`s; literal conditions still decide at expansion); `$each` over a bound array emits nothing (use List with a template); a `$recipe` value may therefore be a call too (renderers resolve recipe props like props). RESPONSIVE PROPS: an author prop `{base, sm?, md?, lg?, xl?}` on a `responsive` prop is evaluated per breakpoint: a part's style is computed with the `base` values, then once per breakpoint named (ascending sm<md<lg<xl, each key inheriting the last smaller one) and every key that changed lands in a `\"@media (min-width: $breakpoint.<bp>)\"` block of that part; props and conditions see the `base` value. Strings of the form `$string.<id>` (catalog/strings.json) are built-in UI copy the renderer shows in the surface locale.",
   "macros": {
     "Stack": {
       "recipeProps": [],
@@ -31,7 +31,7 @@
     "Card": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "group", "label": "{props.title}" },
         "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.xl", "overflow": "hidden" },
         "children": [
           {
@@ -53,7 +53,7 @@
     "Separator": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "separator" },
         "style": {
           "alignSelf": "stretch",
           "flexShrink": 0,
@@ -65,7 +65,7 @@
     "Band": {
       "recipeProps": ["variant"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "heading", "level": 3 },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
         "children": [
           { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
@@ -77,7 +77,7 @@
     "RowList": {
       "recipeProps": ["guides"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "list" },
         "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.none" },
         "children": ["$children"]
       }
@@ -85,7 +85,7 @@
     "Group": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "group", "label": "{props.title}", "description": "{props.footer}" },
         "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
         "children": [
           { "part": "title", "component": "Text", "$if": "props.title", "props": { "text": "{props.title}", "variant": "label" }, "style": { "paddingHorizontal": "$spacing.md" } },
@@ -100,46 +100,53 @@
     },
     "Heading": {
       "recipeProps": ["level"],
-      "root": { "part": "root", "component": "Text", "props": { "text": "{props.text}", "variant": "title" } }
+      "root": { "part": "root", "component": "Text", "$a11y": { "role": "heading", "level": { "$map": { "from": "props.level", "cases": { "h1": 1, "h2": 2, "h3": 3, "h4": 4 }, "default": 2 } } }, "props": { "text": "{props.text}", "variant": "title" } }
     },
     "Collapsible": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Accordion",
-        "props": {
-          "items": [{ "title": "{props.title}", "value": "{id}", "count": "{props.count}" }],
-          "type": "single",
-          "value": { "$cond": ["props.open", "{id}", ""] }
-        },
-        "$on": { "change": "change" },
+        "part": "root", "component": "Box",
+        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
         "children": [
-          { "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md" }, "children": ["$children"] }
+          {
+            "part": "trigger", "component": "Box", "$a11y": { "role": "button", "expanded": "{props.open|false}" }, "props": { "pressable": true },
+            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "minHeight": "$control.row", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.md" },
+            "$recipe": { "open": "{props.open|false}" },
+            "$on": { "press": "change" }, "$context": { "open": "{!props.open}" }, "$set": { "press": { "prop": "open", "value": "{!props.open}" } },
+            "children": [
+              { "part": "chevron", "component": "Icon", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" }, "$recipe": { "open": "{props.open|false}" } },
+              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexGrow": 1, "minWidth": 0 } },
+              { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } }
+            ]
+          },
+          { "part": "body", "component": "Box", "$if": "props.open", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "paddingHorizontal": "$spacing.sm" }, "children": ["$children"] }
         ]
       }
     },
     "Pagination": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "navigation", "label": "$string.pagination" },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm" },
         "children": [
-          { "part": "prev", "component": "Button", "props": { "icon": "ui-chevron-left", "variant": "outline", "size": "icon", "label": "Previous", "disabled": { "$eq": ["{props.page|1}", 1] } }, "$on": { "press": "change" }, "$context": { "page": { "$add": ["{props.page|1}", -1] } } },
-          { "part": "label", "component": "Text", "props": { "text": "{props.page|1} / {props.totalPages}", "variant": "muted" } },
-          { "part": "next", "component": "Button", "props": { "icon": "ui-chevron-right", "variant": "outline", "size": "icon", "label": "Next", "disabled": { "$eq": ["{props.page|1}", "{props.totalPages}"] } }, "$on": { "press": "change" }, "$context": { "page": { "$add": ["{props.page|1}", 1] } } }
+          { "part": "prev", "component": "Button", "props": { "icon": "ui-chevron-left", "variant": "outline", "size": "icon", "label": "$string.previous", "disabled": { "$not": { "$lt": [1, "{props.page|1}"] } } }, "$on": { "press": "change" }, "$context": { "page": { "$clamp": [{ "$add": ["{props.page|1}", -1] }, 1, "{props.totalPages}"] } }, "$set": { "press": { "prop": "page", "value": { "$clamp": [{ "$add": ["{props.page|1}", -1] }, 1, "{props.totalPages}"] } } } },
+          { "part": "label", "component": "Text", "props": { "text": "{props.page|1} / {props.totalPages}", "variant": "muted" }, "$a11y": { "role": "status", "label": { "$fill": ["$string.pageOf", { "page": "{props.page|1}", "total": "{props.totalPages}" }] } } },
+          { "part": "next", "component": "Button", "props": { "icon": "ui-chevron-right", "variant": "outline", "size": "icon", "label": "$string.next", "disabled": { "$not": { "$lt": ["{props.page|1}", "{props.totalPages}"] } } }, "$on": { "press": "change" }, "$context": { "page": { "$clamp": [{ "$add": ["{props.page|1}", 1] }, 1, "{props.totalPages}"] } }, "$set": { "press": { "prop": "page", "value": { "$clamp": [{ "$add": ["{props.page|1}", 1] }, 1, "{props.totalPages}"] } } } }
         ]
       }
     },
     "ButtonGroup": {
       "recipeProps": ["size"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "group" },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.none" },
         "children": [
           {
             "part": "button", "component": "Button", "$each": "props.buttons", "$as": "item",
             "props": { "label": "{item.label}", "icon": "{item.icon}", "disabled": "{item.disabled}", "size": "{props.size|default}", "variant": { "$cond": [{ "$eq": ["{item.value}", "{props.selected}"] }, "secondary", "outline"] } },
             "$recipe": { "selected": { "$eq": ["{item.value}", "{props.selected}"] } },
-            "$on": { "press": "change" }, "$context": { "value": "{item.value}" }
+            "$a11y": { "pressed": { "$eq": ["{item.value}", "{props.selected}"] } },
+            "$on": { "press": "change" }, "$context": { "value": "{item.value}" }, "$set": { "press": { "prop": "selected", "value": "{item.value}" } }
           }
         ]
       }
@@ -167,7 +174,7 @@
     "Alert": {
       "recipeProps": ["type"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": { "$map": { "from": "props.type", "cases": { "warning": "alert", "error": "alert" }, "default": "status" } } },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg" },
         "children": [
           { "part": "icon", "component": "Icon", "props": { "name": { "$map": { "from": "props.type", "cases": { "success": "ui-success", "warning": "ui-warning", "error": "ui-error" }, "default": "ui-info" } }, "size": "sm", "tone": { "$map": { "from": "props.type", "cases": { "success": "success", "warning": "warning", "error": "danger" }, "default": "info" } } } },
@@ -184,7 +191,7 @@
     "Pill": {
       "recipeProps": ["selected", "tone"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": { "$cond": ["props.pressable", "button", "none"] }, "pressed": { "$cond": ["props.pressable", "{props.selected|false}"] } },
         "props": { "pressable": "{props.pressable|false}" },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.pill", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.full", "alignSelf": "flex-start" },
         "children": [
@@ -197,7 +204,7 @@
     "EmptyState": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "status" },
         "style": { "display": "flex", "flexDirection": "column", "alignItems": "center", "gap": "$spacing.sm", "padding": "$spacing.xl" },
         "children": [
           { "part": "icon", "component": "Icon", "props": { "name": "{props.icon}", "size": "lg", "tone": "neutral" } },
@@ -210,7 +217,7 @@
     "Progress": {
       "recipeProps": ["tone"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "progressbar", "label": "{props.label}", "valueNow": "{props.value}", "valueMin": 0, "valueMax": "{props.max|100}" },
         "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "width": "100%" },
         "children": [
           { "part": "label", "component": "Text", "$if": "props.label", "props": { "text": "{props.label}", "variant": "caption" } },
@@ -227,7 +234,7 @@
     "Meter": {
       "recipeProps": [],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "meter", "label": "{props.label}" },
         "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "width": "100%" },
         "children": [
           {
@@ -245,30 +252,6 @@
               { "part": "segment", "component": "Box", "$each": "props.segments", "$as": "item", "style": { "height": "100%", "width": { "$percent": ["{item.value}", "{props.max|100}"] } }, "$recipe": { "tone": "{item.tone|neutral}" } }
             ]
           }
-        ]
-      }
-    },
-    "Table": {
-      "recipeProps": [],
-      "root": {
-        "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs", "width": "100%" },
-        "children": [
-          {
-            "part": "grid", "component": "Box",
-            "style": { "display": "grid", "gridTemplateColumns": "repeat({len(props.columns)}, minmax(0, 1fr))", "columnGap": "$spacing.md", "rowGap": "$spacing.sm" },
-            "children": [
-              { "part": "header", "component": "Text", "$each": "props.columns", "$as": "column", "props": { "text": "{column}", "variant": "label", "lines": 1 } },
-              {
-                "part": "row", "component": "Box", "$each": "props.rows", "$as": "row",
-                "style": { "display": "grid", "gridColumn": "1 / -1", "gridTemplateColumns": "repeat({len(props.columns)}, minmax(0, 1fr))", "columnGap": "$spacing.md", "paddingVertical": "$spacing.xs" },
-                "children": [
-                  { "part": "cell", "component": "Text", "$each": "row", "$as": "cell", "props": { "text": "{cell}", "variant": "body", "lines": 1 } }
-                ]
-              }
-            ]
-          },
-          { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted" } }
         ]
       }
     },
@@ -332,7 +315,7 @@
         "children": [
           { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm", "tone": "neutral" } },
           { "part": "label", "component": "Text", "props": { "text": "{props.label}", "variant": "body", "lines": 1 }, "style": { "flexGrow": 1, "minWidth": 0 } },
-          { "part": "value", "component": "Text", "props": { "text": { "$coalesce": ["{props.value}", "{props.placeholder}", "Choose"] }, "variant": { "$cond": ["props.value", "body", "muted"] }, "lines": 1, "align": "end" } },
+          { "part": "value", "component": "Text", "props": { "text": { "$coalesce": ["{props.value}", "{props.placeholder}", "$string.choose"] }, "variant": { "$cond": ["props.value", "body", "muted"] }, "lines": 1, "align": "end" } },
           { "part": "chevron", "component": "Icon", "props": { "name": "ui-selector", "size": "sm", "tone": "neutral" } }
         ]
       }
@@ -340,7 +323,7 @@
     "NavRow": {
       "recipeProps": ["selected"],
       "root": {
-        "part": "root", "component": "Box",
+        "part": "root", "component": "Box", "$a11y": { "role": "link", "current": { "$cond": ["props.selected", "page", false] } },
         "props": { "pressable": true },
         "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.md" },
         "children": [
@@ -361,8 +344,224 @@
           { "part": "icon", "component": "Icon", "$if": ["props.icon", "!props.image"], "props": { "name": "{props.icon}", "size": "sm" } },
           { "part": "label", "component": "Text", "props": { "text": "{props.label}", "variant": "caption", "lines": 1 } },
           { "part": "detail", "component": "Text", "$if": "props.detail", "props": { "text": "{props.detail}", "variant": "muted", "lines": 1 } },
-          { "part": "remove", "component": "Button", "$if": "props.removable", "props": { "icon": "ui-close", "variant": "ghost", "size": "icon", "label": "Remove" }, "$on": { "press": "remove" } }
+          { "part": "remove", "component": "Button", "$if": "props.removable", "props": { "icon": "ui-close", "variant": "ghost", "size": "icon", "label": "$string.remove" }, "$on": { "press": "remove" } }
         ]
+      }
+    },
+    "ScrollArea": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": "region" },
+        "style": {
+          "display": "flex",
+          "flexDirection": { "$map": { "from": "props.direction", "cases": { "horizontal": "row" }, "default": "column" } },
+          "overflowX": { "$map": { "from": "props.direction", "cases": { "horizontal": "auto", "both": "auto" }, "default": "hidden" } },
+          "overflowY": { "$map": { "from": "props.direction", "cases": { "vertical": "auto", "both": "auto" }, "default": "hidden" } },
+          "minWidth": 0, "minHeight": 0,
+          "maxHeight": "{props.maxHeight}"
+        },
+        "children": ["$children"]
+      }
+    },
+    "Sidebar": {
+      "recipeProps": ["side"],
+      "root": {
+        "part": "root", "component": "Box",
+        "style": { "display": "flex", "flexDirection": { "$map": { "from": "props.side", "cases": { "right": "row-reverse" }, "default": "row" } }, "alignItems": "stretch", "width": "100%", "minHeight": 0 },
+        "children": [
+          {
+            "part": "sidebar", "component": "Box", "$if": "!props.collapsed", "$a11y": { "role": "navigation" },
+            "style": {
+              "display": "flex", "flexDirection": "column", "width": "{props.width|240}", "flexShrink": 0, "minHeight": 0,
+              "@media (max-width: $breakpoint.{props.collapseBelow|md})": { "$cond": [{ "$not": { "$eq": ["{props.collapseBelow|md}", "never"] } }, { "display": "none" }] }
+            },
+            "children": ["$slot:sidebar"]
+          },
+          { "part": "main", "component": "Box", "$a11y": { "role": "main" }, "style": { "display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0, "minHeight": 0 }, "children": ["$children"] }
+        ]
+      }
+    },
+    "AppBar": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": "banner" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.appBar", "paddingHorizontal": "$spacing.md", "width": "100%" },
+        "children": [
+          { "part": "back", "component": "Button", "$if": "props.back", "props": { "icon": "ui-back", "variant": "ghost", "size": "icon", "label": "$string.back" }, "$on": { "press": "back" } },
+          "$slot:leading",
+          {
+            "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "flexGrow": 1, "minWidth": 0 },
+            "children": [
+              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "title", "lines": 1 }, "$a11y": { "role": "heading", "level": 1 } },
+              { "part": "subtitle", "component": "Text", "$if": "props.subtitle", "props": { "text": "{props.subtitle}", "variant": "muted", "lines": 1 } }
+            ]
+          },
+          "$slot:trailing"
+        ]
+      }
+    },
+    "Kbd": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Box",
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "height": "$control.badge", "paddingHorizontal": "$spacing.xs", "borderRadius": "$radius.sm", "alignSelf": "flex-start" },
+        "children": [
+          { "part": "label", "component": "Text", "props": { "text": "{props.keys}", "variant": "code", "lines": 1 } }
+        ]
+      }
+    },
+    "Label": {
+      "recipeProps": ["required"],
+      "root": {
+        "part": "root", "component": "Box",
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs" },
+        "children": [
+          { "part": "text", "component": "Text", "props": { "text": "{props.text}", "variant": "label" } },
+          { "part": "mark", "component": "Text", "$if": "props.required", "props": { "text": "*", "variant": "label", "tone": "danger" } }
+        ]
+      }
+    },
+    "Breadcrumb": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": "navigation", "label": "$string.breadcrumb" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "flexWrap": "wrap", "gap": "$spacing.xs" },
+        "children": [
+          {
+            "part": "item", "component": "Box", "$each": "props.items", "$as": "item",
+            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs" },
+            "$recipe": { "current": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] } },
+            "children": [
+              { "part": "separator", "component": "Icon", "$if": { "$lt": [0, "{index}"] }, "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" }, "$a11y": { "hidden": true } },
+              { "part": "link", "component": "Button", "$if": { "$not": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] } }, "props": { "label": "{item.label}", "icon": "{item.icon}", "variant": "link", "size": "sm" }, "$on": { "press": "select" }, "$context": { "value": "{item.value}" } },
+              { "part": "current", "component": "Text", "$if": { "$eq": ["{index}", { "$sub": ["{len(props.items)}", 1] }] }, "props": { "text": "{item.label}", "variant": "label", "lines": 1 }, "$a11y": { "current": "page" } }
+            ]
+          }
+        ]
+      }
+    },
+    "TabBar": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": "navigation" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "stretch", "height": "$control.tabBar", "width": "100%" },
+        "children": [
+          {
+            "part": "item", "component": "Box", "$each": "props.items", "$as": "item", "props": { "pressable": true },
+            "style": { "display": "flex", "flexDirection": "column", "alignItems": "center", "justifyContent": "center", "gap": "$spacing.xxs", "flexGrow": 1, "flexBasis": 0, "minWidth": 0, "paddingVertical": "$spacing.xs" },
+            "$recipe": { "selected": { "$eq": ["{item.value}", "{props.value}"] } },
+            "$a11y": { "role": "button", "current": { "$cond": [{ "$eq": ["{item.value}", "{props.value}"] }, "page", false] } },
+            "$on": { "press": "change" }, "$context": { "value": "{item.value}" }, "$set": { "press": { "prop": "value", "value": "{item.value}" } },
+            "children": [
+              { "part": "icon", "component": "Icon", "$if": "item.icon", "props": { "name": "{item.icon}", "size": "default" }, "$recipe": { "selected": { "$eq": ["{item.value}", "{props.value}"] } } },
+              { "part": "label", "component": "Text", "props": { "text": "{item.label}", "variant": "caption", "lines": 1 }, "$recipe": { "selected": { "$eq": ["{item.value}", "{props.value}"] } } }
+            ]
+          }
+        ]
+      }
+    },
+    "Stepper": {
+      "recipeProps": ["orientation"],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": "list" },
+        "style": {
+          "display": "flex",
+          "flexDirection": { "$map": { "from": "props.orientation", "cases": { "vertical": "column" }, "default": "row" } },
+          "alignItems": { "$map": { "from": "props.orientation", "cases": { "vertical": "stretch" }, "default": "flex-start" } },
+          "gap": "$spacing.md", "width": "100%"
+        },
+        "children": [
+          {
+            "part": "step", "component": "Box", "$each": "props.steps", "$as": "step",
+            "style": {
+              "display": "flex",
+              "flexDirection": { "$map": { "from": "props.orientation", "cases": { "vertical": "row" }, "default": "column" } },
+              "alignItems": { "$map": { "from": "props.orientation", "cases": { "vertical": "flex-start" }, "default": "center" } },
+              "gap": "$spacing.xs", "flexGrow": 1, "flexBasis": 0, "minWidth": 0
+            },
+            "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } },
+            "$a11y": {
+              "role": "listitem",
+              "current": { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "step", false] },
+              "label": { "$fill": [{ "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "$string.stepDone", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "$string.stepCurrent", "$string.stepUpcoming"] }] }, { "step": { "$add": ["{index}", 1] }, "total": "{len(props.steps)}", "label": "{step.label}" }] }
+            },
+            "children": [
+              {
+                "part": "marker", "component": "Box", "$a11y": { "hidden": true },
+                "style": { "display": "flex", "alignItems": "center", "justifyContent": "center", "width": "$control.iconLg", "height": "$control.iconLg", "borderRadius": "$radius.full", "flexShrink": 0 },
+                "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } },
+                "children": [
+                  { "part": "check", "component": "Icon", "$if": { "$lt": ["{index}", "{props.current|0}"] }, "props": { "name": "ui-check", "size": "sm" } },
+                  { "part": "number", "component": "Text", "$if": { "$not": { "$lt": ["{index}", "{props.current|0}"] } }, "props": { "text": { "$text": { "$add": ["{index}", 1] } }, "variant": "caption" } }
+                ]
+              },
+              {
+                "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "minWidth": 0 },
+                "children": [
+                  { "part": "label", "component": "Text", "props": { "text": "{step.label}", "variant": "label", "lines": 1 } },
+                  { "part": "description", "component": "Text", "$if": "step.description", "props": { "text": "{step.description}", "variant": "muted", "lines": 2 } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Rating": {
+      "recipeProps": ["size", "readOnly"],
+      "root": {
+        "part": "root", "component": "Box", "$a11y": { "role": { "$cond": ["props.readOnly", "img", "group"] }, "label": { "$cond": ["props.readOnly", { "$fill": ["$string.ratingValue", { "value": "{props.value|0}", "max": "{props.max|5}" }] }] } },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs", "alignSelf": "flex-start" },
+        "children": [
+          {
+            "part": "star", "component": "Box", "$each": "range(props.max|5)", "$as": "star", "props": { "pressable": { "$not": "props.readOnly" } },
+            "style": { "display": "flex", "alignItems": "center", "justifyContent": "center" },
+            "$recipe": { "filled": { "$lt": ["{index}", "{props.value|0}"] } },
+            "$a11y": { "role": { "$cond": ["props.readOnly", "hidden", "button"] }, "label": { "$fill": ["$string.ratingStar", { "value": { "$add": ["{index}", 1] }, "max": "{props.max|5}" }] }, "pressed": { "$eq": [{ "$add": ["{index}", 1] }, "{props.value|0}"] } },
+            "$on": { "press": "change" }, "$context": { "value": { "$add": ["{index}", 1] } }, "$set": { "press": { "prop": "value", "value": { "$add": ["{index}", 1] } } },
+            "children": [
+              { "part": "icon", "component": "Icon", "props": { "name": "star", "size": "{props.size|default}" }, "$recipe": { "filled": { "$lt": ["{index}", "{props.value|0}"] } } }
+            ]
+          }
+        ]
+      }
+    },
+    "AlertDialog": {
+      "recipeProps": ["destructive"],
+      "root": {
+        "part": "root", "component": "Dialog", "$a11y": { "role": "alertdialog" },
+        "props": { "title": "{props.title}", "description": "{props.description}", "open": "{props.open|false}", "dismissible": false },
+        "slots": {
+          "trigger": "$slot:trigger",
+          "footer": {
+            "part": "footer", "component": "Box",
+            "style": { "display": "flex", "flexDirection": "row", "justifyContent": "flex-end", "flexWrap": "wrap", "gap": "$spacing.sm" },
+            "children": [
+              { "part": "cancel", "component": "Button", "props": { "label": "{props.cancelLabel|$string.cancel}", "variant": "outline" }, "$a11y": { "autoFocus": true }, "$on": { "press": "cancel" }, "$set": { "press": { "prop": "open", "value": false } } },
+              { "part": "confirm", "component": "Button", "props": { "label": "{props.confirmLabel|$string.confirm}", "variant": { "$cond": ["props.destructive", "destructive", "default"] } }, "$on": { "press": "confirm" }, "$set": { "press": { "prop": "open", "value": false } } }
+            ]
+          }
+        },
+        "$on": { "change": "change" },
+        "children": ["$children"]
+      }
+    },
+    "HoverCard": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Popover",
+        "props": { "open": "{props.open|false}", "side": "{props.side|bottom}", "openOn": "hover" },
+        "slots": { "trigger": "$slot:trigger" },
+        "$on": { "change": "change" },
+        "children": ["$children"]
+      }
+    },
+    "Sparkline": {
+      "recipeProps": ["tone"],
+      "root": {
+        "part": "root", "component": "Chart",
+        "props": { "kind": "sparkline", "series": [{ "name": "", "values": "{props.values}", "tone": "{props.tone|primary}" }], "height": "{props.height|24}", "showAxes": false, "showGrid": false, "showLegend": false },
+        "style": { "width": "100%" }
       }
     }
   }

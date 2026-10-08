@@ -10,14 +10,22 @@
 // structure plus the author's style) < the macro part's recipe (Badge/label).
 // A theme therefore restyles what a template drew, and an author's style on
 // a plain native still wins over the theme.
+//
+// Round 1: `applyDensity` / `applyContrast` derive the theme a surface runs
+// with from its settings ONCE; `resolveMode` turns `system` into a mode;
+// `resolveStyleValues` also resolves `$breakpoint.*` inside media keys.
 
 import { TOKEN_GROUPS, parseTokenRef } from "./catalog"
 import { isThemeHex } from "./color"
 import { RECIPE_KEYS, RECIPE_STATES, nativeRecipeProps, recipeParts } from "./recipes"
 import type { PartSpec } from "./recipes"
+import { STYLE_MEDIA, STYLE_TRANSFORM, styleKeyEnum } from "./style"
 import type { ExtensionDef, UiNode } from "./types"
 import type {
+  Density,
+  Easing,
   ModeName,
+  ModeSetting,
   RecipeQuery,
   RecipeRule,
   RecipeStyle,
@@ -33,19 +41,30 @@ import type {
 } from "./theme-types"
 
 export const MODES: readonly ModeName[] = [`light`, `dark`]
+export const DENSITIES: readonly Density[] = [`compact`, `default`, `comfortable`]
 export const THEME_SCHEMA_ID = `https://ui.exponential.at/schemas/theme/v1.json`
 
 const ID = /^[a-z][a-z0-9-]*$/
 /** Token groups whose values are per-mode (under `modes`), not under `tokens`. */
 const MODE_GROUPS = new Set([`color`, `shadow`])
 const STRING_GROUPS = new Set([`type.family`])
+/** Token groups whose values are cubic-bezier tuples. */
+const TUPLE_GROUPS = new Set([`ease`])
+/** The mode-less NUMBER groups under `tokens`, in file order. */
+const NUMBER_GROUPS = [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`, `breakpoint`, `density`] as const
+const TYPE_SUBGROUPS = [`size`, `lineHeight`, `weight`, `family`] as const
 /** Which token groups each recipe key accepts. */
 const KEY_GROUPS: Record<string, readonly string[]> = {
   backgroundColor: [`color`],
   color: [`color`],
   borderColor: [`color`],
   borderWidth: [`border`, `control`],
+  borderTopWidth: [`border`, `control`],
+  borderRightWidth: [`border`, `control`],
+  borderBottomWidth: [`border`, `control`],
+  borderLeftWidth: [`border`, `control`],
   borderRadius: [`radius`, `spacing`],
+  borderStyle: [],
   padding: [`spacing`],
   paddingHorizontal: [`spacing`],
   paddingVertical: [`spacing`],
@@ -58,11 +77,19 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   fontWeight: [`type.weight`],
   lineHeight: [`type.lineHeight`],
   fontFamily: [`type.family`],
+  letterSpacing: [],
+  textDecoration: [],
+  textTransform: [],
+  fontStyle: [],
   boxShadow: [`shadow`],
   opacity: [`opacity`],
+  transition: [`motion`],
+  transitionEasing: [`ease`],
+  transform: [],
 }
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
-const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`])
+const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`, `transition`, `transitionEasing`])
+const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`])
 
 export class ThemeError extends Error {
   readonly issues: ThemeIssue[]
@@ -93,6 +120,14 @@ function checkNumberMap(value: unknown, path: string, names: readonly string[], 
     if (!names.includes(name)) issues.push({ path: `${path}.${name}`, message: `unknown token; known: ${known(names)}` })
     else if (typeof v !== `number` || !Number.isFinite(v)) issues.push({ path: `${path}.${name}`, message: `expected a number` })
     else if (range && (v < range[0] || v > range[1])) issues.push({ path: `${path}.${name}`, message: `expected ${range[0]}–${range[1]}` })
+  }
+}
+
+function checkEasingMap(value: unknown, path: string, names: readonly string[], issues: ThemeIssue[]): void {
+  if (!isObj(value)) return void issues.push({ path, message: `expected an object of easing curves` })
+  for (const [name, v] of Object.entries(value)) {
+    if (!names.includes(name)) issues.push({ path: `${path}.${name}`, message: `unknown token; known: ${known(names)}` })
+    else if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === `number` && Number.isFinite(n))) issues.push({ path: `${path}.${name}`, message: `expected [x1, y1, x2, y2]` })
   }
 }
 
@@ -127,6 +162,14 @@ function checkMode(value: unknown, path: string, issues: ThemeIssue[]): void {
   }
 }
 
+function checkModes(value: unknown, path: string, issues: ThemeIssue[]): void {
+  if (!isObj(value)) return void issues.push({ path, message: `expected {light, dark}` })
+  for (const [mode, v] of Object.entries(value)) {
+    if (!MODES.includes(mode as ModeName)) issues.push({ path: `${path}.${mode}`, message: `unknown mode; known: light|dark` })
+    else checkMode(v, `${path}.${mode}`, issues)
+  }
+}
+
 function checkTokens(value: unknown, path: string, issues: ThemeIssue[]): void {
   if (!isObj(value)) return void issues.push({ path, message: `expected the token groups` })
   for (const [group, entries] of Object.entries(value)) {
@@ -158,7 +201,8 @@ function checkTokens(value: unknown, path: string, issues: ThemeIssue[]): void {
       issues.push({ path: at, message: `unknown token group; known: ${known(Object.keys(TOKEN_GROUPS).filter((g) => !g.startsWith(`type.`) && !MODE_GROUPS.has(g)))}|type` })
       continue
     }
-    checkNumberMap(entries, at, TOKEN_GROUPS[group], issues, group === `opacity` ? [0, 1] : undefined)
+    if (TUPLE_GROUPS.has(group)) checkEasingMap(entries, at, TOKEN_GROUPS[group], issues)
+    else checkNumberMap(entries, at, TOKEN_GROUPS[group], issues, group === `opacity` ? [0, 1] : group === `density` ? [0.5, 2] : undefined)
   }
 }
 
@@ -182,10 +226,19 @@ function checkRecipeValue(key: string, value: unknown, path: string, issues: The
     if (typeof value !== `boolean`) issues.push({ path, message: `expected true|false` })
     return
   }
+  if (ENUM_KEYS.has(key)) {
+    const allowed = styleKeyEnum(key) ?? []
+    if (!allowed.includes(value as string)) issues.push({ path, message: `expected ${known(allowed.map(String))}` })
+    return
+  }
+  if (key === `transform`) {
+    if (typeof value !== `string` || !STYLE_TRANSFORM.test(value)) issues.push({ path, message: `expected translate(Xpx, Ypx), scale(N) and/or rotate(Ndeg)` })
+    return
+  }
   const groups = KEY_GROUPS[key]
   const ref = parseTokenRef(value)
   if (ref) {
-    if (!groups.includes(ref.group)) issues.push({ path, message: `expected a $${groups.join(`|$`)} token, got $${ref.group}` })
+    if (!groups.includes(ref.group)) issues.push({ path, message: groups.length ? `expected a $${groups.join(`|$`)} token, got $${ref.group}` : `expected a number, not a token` })
     else if (!TOKEN_GROUPS[ref.group]?.includes(ref.name)) issues.push({ path, message: `unknown token ${value as string}; known: ${known(TOKEN_GROUPS[ref.group] ?? [])}` })
     return
   }
@@ -197,9 +250,10 @@ function checkRecipeValue(key: string, value: unknown, path: string, issues: The
     issues.push({ path, message: `expected a $${groups[0]}.<name> token` })
     return
   }
-  if (typeof value !== `number` || !Number.isFinite(value)) issues.push({ path, message: `expected a number or a $${groups.join(`|$`)} token` })
+  const weights = styleKeyEnum(`fontWeight`) ?? []
+  if (typeof value !== `number` || !Number.isFinite(value)) issues.push({ path, message: groups.length ? `expected a number or a $${groups.join(`|$`)} token` : `expected a number` })
   else if (key === `opacity` && (value < 0 || value > 1)) issues.push({ path, message: `expected 0–1` })
-  else if (key === `fontWeight` && ![400, 500, 600, 700].includes(value)) issues.push({ path, message: `expected 400|500|600|700 or $type.weight.<name>` })
+  else if (key === `fontWeight` && !weights.includes(value)) issues.push({ path, message: `expected ${known(weights.map(String))} or $type.weight.<name>` })
 }
 
 function checkRule(rule: unknown, path: string, spec: PartSpec, issues: ThemeIssue[]): void {
@@ -256,6 +310,8 @@ function checkRecipes(value: unknown, path: string, parts: Record<string, PartSp
   }
 }
 
+const THEME_KEYS = [`$schema`, `$comment`, `id`, `name`, `extends`, `modes`, `contrast`, `tokens`, `fonts`, `recipes`]
+
 /** Every problem in ONE theme file, each with a path and a readable
  *  message. Never throws: a non-object is one issue. */
 export function validateTheme(source: unknown, options: ThemeOptions = {}): ThemeIssue[] {
@@ -264,21 +320,15 @@ export function validateTheme(source: unknown, options: ThemeOptions = {}): Them
   if (typeof source.id !== `string` || !ID.test(source.id)) issues.push({ path: `id`, message: `expected a kebab-case id` })
   if (typeof source.name !== `string` || source.name.length === 0) issues.push({ path: `name`, message: `expected a name` })
   for (const key of Object.keys(source))
-    if (![`$schema`, `$comment`, `id`, `name`, `extends`, `modes`, `tokens`, `fonts`, `recipes`].includes(key)) issues.push({ path: key, message: `unknown theme key; known: id|name|extends|modes|tokens|fonts|recipes` })
+    if (!THEME_KEYS.includes(key)) issues.push({ path: key, message: `unknown theme key; known: id|name|extends|modes|contrast|tokens|fonts|recipes` })
   if (source.extends !== undefined) {
     const parents = (options.themes ?? []).map((t) => t.id)
     if (typeof source.extends !== `string`) issues.push({ path: `extends`, message: `expected a theme id` })
     else if (!parents.includes(source.extends)) issues.push({ path: `extends`, message: `unknown theme "${source.extends}"; known: ${known(parents)}` })
     else if (source.extends === source.id) issues.push({ path: `extends`, message: `a theme cannot extend itself` })
   }
-  if (source.modes !== undefined) {
-    if (!isObj(source.modes)) issues.push({ path: `modes`, message: `expected {light, dark}` })
-    else
-      for (const [mode, value] of Object.entries(source.modes)) {
-        if (!MODES.includes(mode as ModeName)) issues.push({ path: `modes.${mode}`, message: `unknown mode; known: light|dark` })
-        else checkMode(value, `modes.${mode}`, issues)
-      }
-  }
+  if (source.modes !== undefined) checkModes(source.modes, `modes`, issues)
+  if (source.contrast !== undefined) checkModes(source.contrast, `contrast`, issues)
   if (source.tokens !== undefined) checkTokens(source.tokens, `tokens`, issues)
   if (source.fonts !== undefined) checkFonts(source.fonts, `fonts`, issues)
   if (source.recipes !== undefined) checkRecipes(source.recipes, `recipes`, recipeParts(options.extensions), issues)
@@ -289,13 +339,16 @@ export function validateTheme(source: unknown, options: ThemeOptions = {}): Them
 // Resolution: flatten the chain, check completeness
 // ---------------------------------------------------------------------------
 
+const emptyMode = (): ThemeMode => ({ color: {}, shadow: {} })
+
 function emptyTheme(source: ThemeSource): ResolvedTheme {
   return {
     id: source.id,
     name: source.name,
     chain: [],
-    modes: { light: { color: {}, shadow: {} }, dark: { color: {}, shadow: {} } },
-    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {} },
+    modes: { light: emptyMode(), dark: emptyMode() },
+    contrast: { light: emptyMode(), dark: emptyMode() },
+    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {}, breakpoint: {}, ease: {}, density: {} },
     fonts: {},
     recipes: {},
   }
@@ -309,17 +362,22 @@ function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T
 }
 
+function overlayMode(target: ThemeMode, source: Partial<ThemeMode> | undefined): void {
+  if (!source) return
+  Object.assign(target.color, source.color ?? {})
+  Object.assign(target.shadow, clone(source.shadow ?? {}))
+}
+
 function overlay(target: ResolvedTheme, source: ThemeSource): void {
   for (const mode of MODES) {
-    const m = source.modes?.[mode]
-    if (!m) continue
-    Object.assign(target.modes[mode].color, m.color ?? {})
-    Object.assign(target.modes[mode].shadow, clone(m.shadow ?? {}))
+    overlayMode(target.modes[mode], source.modes?.[mode])
+    overlayMode(target.contrast[mode], source.contrast?.[mode])
   }
   const t = source.tokens
   if (t) {
-    for (const group of [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`] as const) Object.assign(target.tokens[group], t[group] ?? {})
-    for (const sub of [`size`, `lineHeight`, `weight`, `family`] as const) Object.assign(target.tokens.type[sub], t.type?.[sub] ?? {})
+    for (const group of NUMBER_GROUPS) Object.assign(target.tokens[group], t[group] ?? {})
+    Object.assign(target.tokens.ease, clone(t.ease ?? {}))
+    for (const sub of TYPE_SUBGROUPS) Object.assign(target.tokens.type[sub], t.type?.[sub] ?? {})
   }
   Object.assign(target.fonts, clone(source.fonts ?? {}))
   for (const [component, byPart] of Object.entries(source.recipes ?? {})) {
@@ -330,8 +388,8 @@ function overlay(target: ResolvedTheme, source: ThemeSource): void {
 
 function overlayResolved(target: ResolvedTheme, parent: ResolvedTheme): void {
   for (const mode of MODES) {
-    Object.assign(target.modes[mode].color, parent.modes[mode].color)
-    Object.assign(target.modes[mode].shadow, clone(parent.modes[mode].shadow))
+    overlayMode(target.modes[mode], parent.modes[mode])
+    overlayMode(target.contrast[mode], parent.contrast?.[mode])
   }
   target.tokens = clone(parent.tokens)
   target.fonts = clone(parent.fonts)
@@ -415,11 +473,49 @@ export function loadTheme(source: unknown, options: ThemeOptions = {}): Resolved
 }
 
 // ---------------------------------------------------------------------------
+// Surface settings: mode, density, contrast
+// ---------------------------------------------------------------------------
+
+/** `system` → what the platform prefers; a mode stays itself. */
+export function resolveMode(setting: ModeSetting, systemPrefersDark: boolean): ModeName {
+  if (setting === `system`) return systemPrefersDark ? `dark` : `light`
+  return setting
+}
+
+function scaled(table: Record<string, number>, factor: number): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(table)) out[k] = Math.round(v * factor)
+  return out
+}
+
+/** The theme a surface of this density runs with: `control` and `spacing`
+ *  scaled by the theme's `$density.<name>` multiplier and rounded to whole
+ *  px; `default` returns the theme itself. Done once per surface, so every
+ *  resolver and fixture stays density-agnostic. */
+export function applyDensity(theme: ResolvedTheme, density: Density): ResolvedTheme {
+  if (density === `default`) return theme
+  const factor = theme.tokens.density[density]
+  if (typeof factor !== `number`) return theme
+  return { ...theme, tokens: { ...theme.tokens, control: scaled(theme.tokens.control, factor), spacing: scaled(theme.tokens.spacing, factor) } }
+}
+
+/** The theme with its high-contrast overlays merged into the modes (the
+ *  platform asked for more contrast). A theme without overlays is unchanged. */
+export function applyContrast(theme: ResolvedTheme): ResolvedTheme {
+  const modes = {} as Record<ModeName, ThemeMode>
+  for (const mode of MODES) {
+    modes[mode] = { color: { ...theme.modes[mode].color, ...theme.contrast[mode].color }, shadow: { ...theme.modes[mode].shadow, ...theme.contrast[mode].shadow } }
+  }
+  return { ...theme, modes }
+}
+
+// ---------------------------------------------------------------------------
 // Resolving values for one mode
 // ---------------------------------------------------------------------------
 
 /** `$color.primary` in `dark` → `#e5e5e5`; `$spacing.md` → 12; `$shadow.sm`
- *  → the layers; `$type.family.sans` → `Inter`. Undefined when not a token. */
+ *  → the layers; `$type.family.sans` → `Inter`; `$ease.standard` → the four
+ *  control points. Undefined when not a token. */
 export function resolveToken(theme: ResolvedTheme, ref: unknown, mode: ModeName): ResolvedValue | undefined {
   const parsed = parseTokenRef(ref)
   if (!parsed) return undefined
@@ -430,21 +526,32 @@ export function resolveToken(theme: ResolvedTheme, ref: unknown, mode: ModeName)
   return (theme.tokens as unknown as Record<string, Record<string, ResolvedValue>>)[group]?.[name]
 }
 
+const BREAKPOINT_REF = /\$breakpoint\.([a-zA-Z0-9]+)/
+
+/** A media key with its `$breakpoint.<name>` replaced by the theme's px. */
+export function resolveConditionKey(theme: ResolvedTheme, key: string): string {
+  if (!STYLE_MEDIA.test(key)) return key
+  return key.replace(BREAKPOINT_REF, (whole, name: string) => {
+    const px = theme.tokens.breakpoint[name]
+    return typeof px === `number` ? `${px}px` : whole
+  })
+}
+
 /** Every token reference in a style object replaced by its value for the
- *  mode (nested condition blocks included); other values pass through. */
+ *  mode (nested condition blocks, gradients and arrays included, and the
+ *  `$breakpoint` tokens inside media keys); other values pass through. */
 export function resolveStyleValues<T extends Record<string, unknown>>(theme: ResolvedTheme, style: T, mode: ModeName): T {
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(style)) {
-    if (isObj(value)) out[key] = resolveStyleValues(theme, value, mode)
-    else if (typeof value === `string` && value.startsWith(`$`)) {
+  const resolve = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(resolve)
+    if (isObj(value)) return resolveStyleValues(theme, value, mode)
+    if (typeof value === `string` && value.startsWith(`$`)) {
       const resolved = resolveToken(theme, value, mode)
-      out[key] = resolved === undefined ? value : resolved
-    } else if (typeof value === `string` && value.includes(`$`)) {
-      // `$spacing.{gap}` style interpolations are gone by now; a stray `$`
-      // in text passes through untouched.
-      out[key] = value
-    } else out[key] = value
+      return resolved === undefined ? value : resolved
+    }
+    return value
   }
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(style)) out[resolveConditionKey(theme, key)] = resolve(value)
   return out as T
 }
 
@@ -462,7 +569,6 @@ function matches(rule: RecipeRule, props: Record<string, unknown>, states: reado
   return true
 }
 
-/** The matching rules' styles merged in order (token refs kept). */
 /** How specific a rule is: one point per `when` condition (a `state` list
  *  counts each state). VAPP-90: rules merge in SPECIFICITY order, like the
  *  CSS the web renderer compiles them to — a base rule (no `when`) never
@@ -476,6 +582,7 @@ export function ruleSpecificity(rule: RecipeRule): number {
   return n
 }
 
+/** The matching rules' styles merged by specificity (token refs kept). */
 export function recipeStyle(theme: ResolvedTheme, query: RecipeQuery): RecipeStyle {
   const rules = theme.recipes[query.component]?.[query.part] ?? []
   const props = query.props ?? {}
@@ -501,7 +608,7 @@ export function nodeRecipeQuery(node: UiNode, extensions: readonly ExtensionDef[
 
 /** What a painter paints a node with: native recipe < node style < macro
  *  part recipe, token references resolved, condition blocks kept nested
- *  (the client resolves `@media` and `:pressed` itself). */
+ *  (the client resolves `@media` and the state keys itself). */
 export function resolveNodeStyle(
   theme: ResolvedTheme,
   node: UiNode,
@@ -518,6 +625,11 @@ export function resolveNodeStyle(
 /** The shadow layers as one CSS `box-shadow` string (for web painters). */
 export function shadowCss(layers: Shadow[]): string {
   return layers.length === 0 ? `none` : layers.map((l) => `${l.x}px ${l.y}px ${l.blur}px ${l.spread}px ${l.color}`).join(`, `)
+}
+
+/** An easing as CSS `cubic-bezier(…)`. */
+export function easingCss(curve: Easing): string {
+  return `cubic-bezier(${curve.join(`, `)})`
 }
 
 /** The parts of the theme a mode-less consumer may list (the builder). */

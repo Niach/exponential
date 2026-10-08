@@ -35,12 +35,16 @@
         "chart2": "#14b8a6",
         "chart3": "#f43f5e",
         "chart4": "#f59e0b",
-        "chart5": "#0ea5e9"
+        "chart5": "#0ea5e9",
+        "chart6": "#a855f7",
+        "chart7": "#ec4899",
+        "chart8": "#22c55e"
       },
       "shadow": {
         "sm": [{ "x": 0, "y": 2, "blur": 4, "spread": 0, "color": "#7c3aed1a" }],
         "md": [{ "x": 0, "y": 6, "blur": 12, "spread": -2, "color": "#7c3aed26" }],
-        "lg": [{ "x": 0, "y": 16, "blur": 32, "spread": -6, "color": "#7c3aed33" }]
+        "lg": [{ "x": 0, "y": 16, "blur": 32, "spread": -6, "color": "#7c3aed33" }],
+        "xl": [{ "x": 0, "y": 24, "blur": 48, "spread": -8, "color": "#7c3aed40" }]
       }
     },
     "dark": {
@@ -74,12 +78,16 @@
         "chart2": "#5eead4",
         "chart3": "#fda4af",
         "chart4": "#fcd34d",
-        "chart5": "#7dd3fc"
+        "chart5": "#7dd3fc",
+        "chart6": "#d8b4fe",
+        "chart7": "#f9a8d4",
+        "chart8": "#86efac"
       },
       "shadow": {
         "sm": [{ "x": 0, "y": 2, "blur": 4, "spread": 0, "color": "#00000040" }],
         "md": [{ "x": 0, "y": 6, "blur": 12, "spread": -2, "color": "#00000059" }],
-        "lg": [{ "x": 0, "y": 16, "blur": 32, "spread": -6, "color": "#00000073" }]
+        "lg": [{ "x": 0, "y": 16, "blur": 32, "spread": -6, "color": "#00000073" }],
+        "xl": [{ "x": 0, "y": 24, "blur": 48, "spread": -8, "color": "#00000080" }]
       }
     }
   },
@@ -91,7 +99,9 @@
     },
     "control": { "buttonSm": 32, "buttonMd": 40, "buttonLg": 48, "buttonIcon": 40, "input": 44, "pill": 28, "badge": 22, "chip": 32, "toggle": 40, "switch": 24, "checkbox": 20, "row": 44 },
     "border": { "hairline": 2, "thick": 3 },
-    "motion": { "fast": 160, "standard": 240, "slow": 360 }
+    "motion": { "fast": 160, "standard": 240, "slow": 360 },
+    "ease": { "standard": [0.34, 1.56, 0.64, 1] },
+    "density": { "compact": 0.9, "comfortable": 1.2 }
   },
   "fonts": {
     "Nunito": { "fallback": "Avenir Next, Segoe UI, sans-serif", "weights": [400, 600, 700], "source": "host" },
@@ -183,6 +193,19 @@
     "ListRow": { "root": [ { "when": { "selected": true }, "style": { "backgroundColor": "$color.secondary", "borderRadius": "$radius.full" } } ] },
     "NavRow": { "root": [ { "when": { "selected": true }, "style": { "backgroundColor": "$color.primary", "borderRadius": "$radius.full" } } ], "label": [ { "when": { "selected": true }, "style": { "color": "$color.primaryForeground", "fontWeight": "$type.weight.bold" } } ], "icon": [ { "when": { "selected": true }, "style": { "color": "$color.primaryForeground" } } ] },
     "Avatar": { "root": [ { "style": { "borderRadius": "$radius.lg" } } ], "fallback": [ { "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground", "fontWeight": "$type.weight.bold" } } ] },
-    "Unknown": { "root": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick" } } ] }
+    "Unknown": { "root": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick" } } ] },
+    "ContextMenu": { "content": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "padding": "$spacing.sm" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
+    "Toast": { "root": [ { "style": { "borderRadius": "$radius.xl3", "borderWidth": "$border.none", "backgroundColor": "$color.primary", "color": "$color.primaryForeground" } } ], "description": [ { "style": { "color": "$color.primaryForeground", "opacity": "$opacity.secondary" } } ], "icon": [ { "style": { "color": "$color.primaryForeground" } } ] },
+    "CodeBlock": { "root": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "backgroundColor": "$color.secondary" } } ], "token": [ { "when": { "kind": "keyword" }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ] },
+    "Table": { "header": [ { "style": { "color": "$color.primary", "borderBottomWidth": "$border.thick", "borderColor": "$color.primary" } } ], "row": [ { "when": { "striped": true }, "style": { "backgroundColor": "$color.secondary" } } ] },
+    "NumberField": { "field": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "paddingHorizontal": "$spacing.lg", "boxShadow": "$shadow.none" } } ] },
+    "ChipInput": { "field": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "chip": [ { "style": { "backgroundColor": "$color.primary", "color": "$color.primaryForeground" } } ] },
+    "TimePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
+    "DateRangePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "day": [ { "style": { "borderRadius": "$radius.full" } } ], "range": [ { "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground" } } ] },
+    "FileUpload": { "dropzone": [ { "style": { "borderRadius": "$radius.xl2", "borderWidth": "$border.thick", "borderColor": "$color.primary", "backgroundColor": "$color.muted" } } ] },
+    "Kbd": { "root": [ { "style": { "borderRadius": "$radius.md", "backgroundColor": "$color.secondary", "borderColor": "$color.primary" } } ] },
+    "TabBar": { "icon": [ { "when": { "selected": true }, "style": { "color": "$color.primary", "transform": "scale(1.15)" } } ], "label": [ { "when": { "selected": true }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ] },
+    "Stepper": { "marker": [ { "style": { "borderWidth": "$border.thick", "borderColor": "$color.primary" } }, { "when": { "status": "done" }, "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground", "borderColor": "$color.secondary" } } ], "check": [ { "style": { "color": "$color.secondaryForeground" } } ] },
+    "Rating": { "icon": [ { "when": { "filled": true }, "style": { "color": "$color.primary" } } ] }
   }
 }

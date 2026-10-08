@@ -3,6 +3,12 @@
 // component RECIPES, loaded at runtime by every renderer. `ThemeSource` is
 // the file; `ResolvedTheme` is what `loadTheme` hands a painter: the
 // `extends` chain flattened, every token present, recipes merged.
+//
+// Round 1 (docs/round-1-contract.md §5): `breakpoint` (px), `ease` (cubic
+// bezier control points) and `density` (multipliers) token groups, a
+// high-contrast `contrast` overlay per mode, and the `Density`/`ModeSetting`
+// surface settings a renderer applies with `applyDensity`/`applyContrast`/
+// `resolveMode`.
 
 /** `#rrggbb` or `#rrggbbaa`, lowercase. The only colour form a theme carries
  *  (the builder converts oklch/hsl/rgb on import, `src/color.ts`). */
@@ -16,12 +22,20 @@ export interface Shadow {
   color: HexColor
 }
 
+/** `cubic-bezier(x1, y1, x2, y2)` control points, P0 = (0,0) and P3 = (1,1)
+ *  implicit — the one form web, Compose, SwiftUI and gpui all accept. */
+export type Easing = [number, number, number, number]
+
 /** The per-mode values: colours and shadows (shadows differ in the dark). */
 export interface ThemeMode {
   color: Record<string, HexColor>
   shadow: Record<string, Shadow[]>
 }
 export type ModeName = `light` | `dark`
+/** What a host asks for: a mode, or `system` = the platform's preference. */
+export type ModeSetting = ModeName | `system`
+/** The surface density; `default` = the tokens as written. */
+export type Density = `compact` | `default` | `comfortable`
 
 export interface ThemeTokens {
   spacing: Record<string, number>
@@ -39,6 +53,11 @@ export interface ThemeTokens {
   border: Record<string, number>
   /** Milliseconds. */
   motion: Record<string, number>
+  /** Surface widths in px the style conditions may name (`$breakpoint.md`). */
+  breakpoint: Record<string, number>
+  ease: Record<string, Easing>
+  /** Multipliers over `control` and `spacing` for the non-default densities. */
+  density: Record<string, number>
 }
 
 /** How a host registers a family the theme names: the files are the host's
@@ -57,7 +76,12 @@ export interface RecipeStyle {
   color?: string
   borderColor?: string
   borderWidth?: number | string
+  borderTopWidth?: number | string
+  borderRightWidth?: number | string
+  borderBottomWidth?: number | string
+  borderLeftWidth?: number | string
   borderRadius?: number | string
+  borderStyle?: string
   padding?: number | string
   paddingHorizontal?: number | string
   paddingVertical?: number | string
@@ -70,8 +94,18 @@ export interface RecipeStyle {
   fontWeight?: number | string
   lineHeight?: number | string
   fontFamily?: string
+  letterSpacing?: number
+  textDecoration?: string
+  textTransform?: string
+  fontStyle?: string
   boxShadow?: string
   opacity?: number | string
+  /** `$motion.<name>`: the duration this part's changes animate with. */
+  transition?: string
+  /** `$ease.<name>`. */
+  transitionEasing?: string
+  /** `translate(…) scale(…) rotate(…)`, paint-only. */
+  transform?: string
   /** The painter may use the platform's own control for this part. */
   native?: boolean
 }
@@ -80,8 +114,8 @@ export type RecipeWhenValue = string | number | boolean | (string | number | boo
 
 /** One rule: applies when every `when` entry matches (`state` = every listed
  *  state is active; any other key = the recipe prop equals the value or is
- *  in the list). Rules merge in order, later wins; a child theme's rules come
- *  after its parent's. No `when` = the part's base. */
+ *  in the list). Rules merge by specificity, ties in order, later wins; a
+ *  child theme's rules come after its parent's. No `when` = the part's base. */
 export interface RecipeRule {
   when?: Record<string, RecipeWhenValue>
   style: RecipeStyle
@@ -99,6 +133,9 @@ export interface ThemeSource {
   name: string
   extends?: string
   modes?: Partial<Record<ModeName, Partial<ThemeMode>>>
+  /** Round 1: PARTIAL colour/shadow overlays a renderer applies over the
+   *  mode when the platform asks for high contrast (`applyContrast`). */
+  contrast?: Partial<Record<ModeName, Partial<ThemeMode>>>
   tokens?: Partial<Omit<ThemeTokens, `type`>> & { type?: Partial<ThemeTokens[`type`]> }
   fonts?: Record<string, FontSpec>
   recipes?: ThemeRecipes
@@ -113,6 +150,8 @@ export interface ResolvedTheme {
   /** The chain this theme was built from, root first. */
   chain: string[]
   modes: Record<ModeName, ThemeMode>
+  /** The high-contrast overlays per mode (partial tables, may be empty). */
+  contrast: Record<ModeName, ThemeMode>
   tokens: ThemeTokens
   fonts: Record<string, FontSpec>
   recipes: ThemeRecipes
@@ -128,8 +167,8 @@ export interface RecipeQuery {
 }
 
 /** A recipe's concrete values for one mode: colours as hex, lengths as
- *  numbers, shadows as lists, families as names. */
-export type ResolvedValue = number | string | boolean | Shadow[]
+ *  numbers, shadows as lists, families as names, easings as 4 numbers. */
+export type ResolvedValue = number | string | boolean | Shadow[] | Easing
 export type ResolvedStyle = Record<string, ResolvedValue>
 
 export interface ThemeIssue {
