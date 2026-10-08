@@ -21,7 +21,7 @@ import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
-import { useReviewsOpenPrCount, useShowsReviews } from "@/hooks/use-nav-counts"
+import { useReviewsNav } from "@/hooks/use-nav-counts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 import {
@@ -120,18 +120,15 @@ export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   return <NavDot className="bg-primary" placement={placement} />
 }
 
-/** Any open PR across the team's boards. */
+/** Anything to review (`useReviewsNav().dot`, EXP-1244). */
 export function ReviewsOpenBadge({
-  boards,
-  teamId,
+  dot,
   placement,
 }: {
-  boards: Board[] | undefined
-  teamId?: string
+  dot: boolean
   placement: BadgePlacement
 }) {
-  const count = useReviewsOpenPrCount(boards, teamId)
-  if (count === 0) return null
+  if (!dot) return null
   return <NavDot className="bg-green-500" placement={placement} />
 }
 
@@ -247,7 +244,8 @@ export function TeamSidebarRail({
 }) {
   const params = { teamSlug }
   const { data: session } = useSession()
-  const showsReviews = useShowsReviews(team ?? undefined, boards)
+  const reviewsNav = useReviewsNav(team ? [team] : [])
+  const showsReviews = reviewsNav.shows
   const draftCount = useDraftCount(team?.id)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
@@ -286,7 +284,7 @@ export function TeamSidebarRail({
         {showsReviews && (
           <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
             <NavReviewsIcon className="size-4" />
-            <ReviewsOpenBadge boards={boards} teamId={team?.id} placement="icon" />
+            <ReviewsOpenBadge dot={reviewsNav.dot} placement="icon" />
           </RailItem>
         )}
         <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>

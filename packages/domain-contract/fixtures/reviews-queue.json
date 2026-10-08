@@ -4,63 +4,112 @@
     "repoBandCaption": "not linked to an issue",
     "runBandCaption": "opened by a coding run"
   },
+  "_navDoc": "The Reviews nav entry (web sidebar + phone tab bar, desktop rail, iOS/Android tab bar) reads the SAME queue: dot = count > 0 over the same inputs (the nav's team scope; `pulls` = the app-wide openPulls store the Reviews screen also reads and refreshes, so the page and its dot never disagree). The entry SHOWS iff there is no team, or some team in scope is not in yolo mode, or the dot is lit (yolo mode merges every agent PR at once, so an open PR there = a failed merge that must surface). x4: web reviewsNav, desktop domain::reviews_queue::reviews_nav, iOS ReviewsQueue.nav, Android ReviewsQueue.nav.",
+  "navCases": [
+    {
+      "name": "nothing open, no yolo",
+      "input": {
+        "yolo": [
+          false
+        ],
+        "count": 0
+      },
+      "expected": {
+        "dot": false,
+        "shows": true
+      }
+    },
+    {
+      "name": "something open lights the dot",
+      "input": {
+        "yolo": [
+          false
+        ],
+        "count": 2
+      },
+      "expected": {
+        "dot": true,
+        "shows": true
+      }
+    },
+    {
+      "name": "every team in yolo mode and nothing open hides the entry",
+      "input": {
+        "yolo": [
+          true,
+          true
+        ],
+        "count": 0
+      },
+      "expected": {
+        "dot": false,
+        "shows": false
+      }
+    },
+    {
+      "name": "yolo mode with an open PR (a failed merge) shows it",
+      "input": {
+        "yolo": [
+          true
+        ],
+        "count": 1
+      },
+      "expected": {
+        "dot": true,
+        "shows": true
+      }
+    },
+    {
+      "name": "one team not in yolo mode keeps the entry",
+      "input": {
+        "yolo": [
+          true,
+          false
+        ],
+        "count": 0
+      },
+      "expected": {
+        "dot": false,
+        "shows": true
+      }
+    },
+    {
+      "name": "no team shows the entry",
+      "input": {
+        "yolo": [],
+        "count": 0
+      },
+      "expected": {
+        "dot": false,
+        "shows": true
+      }
+    }
+  ],
   "cases": [
     {
       "name": "a single issue PR is one entry under its board",
       "input": {
-        "teams": [{ "id": "t1" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 }],
-        "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/1", "prState": "open" }
+        "teams": [
+          {
+            "id": "t1"
+          }
         ],
-        "sessions": [],
-        "pulls": []
-      },
-      "expected": {
-        "boardGroups": [
-          { "boardId": "b1", "entries": [{ "key": "https://github.com/acme/web/pull/1", "issueIds": ["i1"] }] }
-        ],
-        "runGroups": [],
-        "repoGroups": [],
-        "count": 1
-      }
-    },
-    {
-      "name": "a batch PR is ONE entry under the newest issue's board, ties broken by id ascending",
-      "input": {
-        "teams": [{ "id": "t1" }],
         "boards": [
-          { "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 },
-          { "id": "b2", "teamId": "t1", "name": "Api", "sortOrder": 2 }
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          }
         ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/7", "prState": "open" },
-          { "id": "i3", "boardId": "b2", "createdAt": "2026-10-02T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/7", "prState": "open" },
-          { "id": "i2", "boardId": "b1", "createdAt": "2026-10-02T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/7", "prState": "open" }
-        ],
-        "sessions": [],
-        "pulls": []
-      },
-      "expected": {
-        "boardGroups": [
-          { "boardId": "b1", "entries": [{ "key": "https://github.com/acme/web/pull/7", "issueIds": ["i2", "i3", "i1"] }] }
-        ],
-        "runGroups": [],
-        "repoGroups": [],
-        "count": 1
-      }
-    },
-    {
-      "name": "entries are newest first, ties by representative id; only OPEN issues are entries",
-      "input": {
-        "teams": [{ "id": "t1" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 }],
-        "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/1", "prState": "open" },
-          { "id": "i9", "boardId": "b1", "createdAt": "2026-10-03T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/9", "prState": "open" },
-          { "id": "i8", "boardId": "b1", "createdAt": "2026-10-03T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/8", "prState": "open" },
-          { "id": "i5", "boardId": "b1", "createdAt": "2026-10-05T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/5", "prState": "merged" },
-          { "id": "i6", "boardId": "b1", "createdAt": "2026-10-05T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/6", "prState": "closed" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/1",
+            "prState": "open"
+          }
         ],
         "sessions": [],
         "pulls": []
@@ -70,9 +119,168 @@
           {
             "boardId": "b1",
             "entries": [
-              { "key": "https://github.com/acme/web/pull/8", "issueIds": ["i8"] },
-              { "key": "https://github.com/acme/web/pull/9", "issueIds": ["i9"] },
-              { "key": "https://github.com/acme/web/pull/1", "issueIds": ["i1"] }
+              {
+                "key": "https://github.com/acme/web/pull/1",
+                "issueIds": [
+                  "i1"
+                ]
+              }
+            ]
+          }
+        ],
+        "runGroups": [],
+        "repoGroups": [],
+        "count": 1
+      }
+    },
+    {
+      "name": "a batch PR is ONE entry under the newest issue's board, ties broken by id ascending",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          },
+          {
+            "id": "b2",
+            "teamId": "t1",
+            "name": "Api",
+            "sortOrder": 2
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/7",
+            "prState": "open"
+          },
+          {
+            "id": "i3",
+            "boardId": "b2",
+            "createdAt": "2026-10-02T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/7",
+            "prState": "open"
+          },
+          {
+            "id": "i2",
+            "boardId": "b1",
+            "createdAt": "2026-10-02T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/7",
+            "prState": "open"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boardGroups": [
+          {
+            "boardId": "b1",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/7",
+                "issueIds": [
+                  "i2",
+                  "i3",
+                  "i1"
+                ]
+              }
+            ]
+          }
+        ],
+        "runGroups": [],
+        "repoGroups": [],
+        "count": 1
+      }
+    },
+    {
+      "name": "entries are newest first, ties by representative id; only OPEN issues are entries",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/1",
+            "prState": "open"
+          },
+          {
+            "id": "i9",
+            "boardId": "b1",
+            "createdAt": "2026-10-03T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/9",
+            "prState": "open"
+          },
+          {
+            "id": "i8",
+            "boardId": "b1",
+            "createdAt": "2026-10-03T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/8",
+            "prState": "open"
+          },
+          {
+            "id": "i5",
+            "boardId": "b1",
+            "createdAt": "2026-10-05T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/5",
+            "prState": "merged"
+          },
+          {
+            "id": "i6",
+            "boardId": "b1",
+            "createdAt": "2026-10-05T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/6",
+            "prState": "closed"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boardGroups": [
+          {
+            "boardId": "b1",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/8",
+                "issueIds": [
+                  "i8"
+                ]
+              },
+              {
+                "key": "https://github.com/acme/web/pull/9",
+                "issueIds": [
+                  "i9"
+                ]
+              },
+              {
+                "key": "https://github.com/acme/web/pull/1",
+                "issueIds": [
+                  "i1"
+                ]
+              }
             ]
           }
         ],
@@ -84,11 +292,34 @@
     {
       "name": "an open issue without a pr_url keys on its own id",
       "input": {
-        "teams": [{ "id": "t1" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 }],
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          }
+        ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": null, "prState": "open" },
-          { "id": "i2", "boardId": "b1", "createdAt": "2026-10-01T09:00:00Z", "prUrl": "", "prState": "open" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": null,
+            "prState": "open"
+          },
+          {
+            "id": "i2",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "prUrl": "",
+            "prState": "open"
+          }
         ],
         "sessions": [],
         "pulls": []
@@ -98,8 +329,18 @@
           {
             "boardId": "b1",
             "entries": [
-              { "key": "issue:i1", "issueIds": ["i1"] },
-              { "key": "issue:i2", "issueIds": ["i2"] }
+              {
+                "key": "issue:i1",
+                "issueIds": [
+                  "i1"
+                ]
+              },
+              {
+                "key": "issue:i2",
+                "issueIds": [
+                  "i2"
+                ]
+              }
             ]
           }
         ],
@@ -111,35 +352,169 @@
     {
       "name": "board bands follow team order, then sort_order (null last), then name, then id; out-of-scope rows drop",
       "input": {
-        "teams": [{ "id": "t2" }, { "id": "t1" }],
+        "teams": [
+          {
+            "id": "t2"
+          },
+          {
+            "id": "t1"
+          }
+        ],
         "boards": [
-          { "id": "b1", "teamId": "t1", "name": "Alpha", "sortOrder": 1 },
-          { "id": "b2", "teamId": "t2", "name": "zeta", "sortOrder": null },
-          { "id": "b3", "teamId": "t2", "name": "Beta", "sortOrder": 5 },
-          { "id": "b4", "teamId": "t2", "name": "alpha", "sortOrder": 5 },
-          { "id": "b6", "teamId": "t2", "name": "Alpha", "sortOrder": 5 },
-          { "id": "b5", "teamId": "t9", "name": "Other team", "sortOrder": 0 },
-          { "id": "b7", "teamId": "t2", "name": "Empty", "sortOrder": 0 }
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Alpha",
+            "sortOrder": 1
+          },
+          {
+            "id": "b2",
+            "teamId": "t2",
+            "name": "zeta",
+            "sortOrder": null
+          },
+          {
+            "id": "b3",
+            "teamId": "t2",
+            "name": "Beta",
+            "sortOrder": 5
+          },
+          {
+            "id": "b4",
+            "teamId": "t2",
+            "name": "alpha",
+            "sortOrder": 5
+          },
+          {
+            "id": "b6",
+            "teamId": "t2",
+            "name": "Alpha",
+            "sortOrder": 5
+          },
+          {
+            "id": "b5",
+            "teamId": "t9",
+            "name": "Other team",
+            "sortOrder": 0
+          },
+          {
+            "id": "b7",
+            "teamId": "t2",
+            "name": "Empty",
+            "sortOrder": 0
+          }
         ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/1", "prState": "open" },
-          { "id": "i2", "boardId": "b2", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/2", "prState": "open" },
-          { "id": "i3", "boardId": "b3", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/3", "prState": "open" },
-          { "id": "i4", "boardId": "b4", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/4", "prState": "open" },
-          { "id": "i6", "boardId": "b6", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/6", "prState": "open" },
-          { "id": "i5", "boardId": "b5", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/5", "prState": "open" },
-          { "id": "i0", "boardId": "gone", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/10", "prState": "open" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/1",
+            "prState": "open"
+          },
+          {
+            "id": "i2",
+            "boardId": "b2",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/2",
+            "prState": "open"
+          },
+          {
+            "id": "i3",
+            "boardId": "b3",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/3",
+            "prState": "open"
+          },
+          {
+            "id": "i4",
+            "boardId": "b4",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/4",
+            "prState": "open"
+          },
+          {
+            "id": "i6",
+            "boardId": "b6",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/6",
+            "prState": "open"
+          },
+          {
+            "id": "i5",
+            "boardId": "b5",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/5",
+            "prState": "open"
+          },
+          {
+            "id": "i0",
+            "boardId": "gone",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/10",
+            "prState": "open"
+          }
         ],
         "sessions": [],
         "pulls": []
       },
       "expected": {
         "boardGroups": [
-          { "boardId": "b4", "entries": [{ "key": "https://github.com/acme/web/pull/4", "issueIds": ["i4"] }] },
-          { "boardId": "b6", "entries": [{ "key": "https://github.com/acme/web/pull/6", "issueIds": ["i6"] }] },
-          { "boardId": "b3", "entries": [{ "key": "https://github.com/acme/web/pull/3", "issueIds": ["i3"] }] },
-          { "boardId": "b2", "entries": [{ "key": "https://github.com/acme/web/pull/2", "issueIds": ["i2"] }] },
-          { "boardId": "b1", "entries": [{ "key": "https://github.com/acme/web/pull/1", "issueIds": ["i1"] }] }
+          {
+            "boardId": "b4",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/4",
+                "issueIds": [
+                  "i4"
+                ]
+              }
+            ]
+          },
+          {
+            "boardId": "b6",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/6",
+                "issueIds": [
+                  "i6"
+                ]
+              }
+            ]
+          },
+          {
+            "boardId": "b3",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/3",
+                "issueIds": [
+                  "i3"
+                ]
+              }
+            ]
+          },
+          {
+            "boardId": "b2",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/2",
+                "issueIds": [
+                  "i2"
+                ]
+              }
+            ]
+          },
+          {
+            "boardId": "b1",
+            "entries": [
+              {
+                "key": "https://github.com/acme/web/pull/1",
+                "issueIds": [
+                  "i1"
+                ]
+              }
+            ]
+          }
         ],
         "runGroups": [],
         "repoGroups": [],
@@ -149,31 +524,140 @@
     {
       "name": "run PRs: issue-less, open, unlinked, newest per pr_url, banded per team",
       "input": {
-        "teams": [{ "id": "t1" }, { "id": "t2" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 }],
+        "teams": [
+          {
+            "id": "t1"
+          },
+          {
+            "id": "t2"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          }
+        ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/20", "prState": "merged" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/20",
+            "prState": "merged"
+          }
         ],
         "sessions": [
-          { "id": "s1", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/11", "prState": "open", "createdAt": "2026-10-01T10:00:00Z" },
-          { "id": "s2", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/11", "prState": "open", "createdAt": "2026-10-02T10:00:00Z" },
-          { "id": "s3", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/12", "prState": "open", "createdAt": "2026-10-03T10:00:00Z" },
-          { "id": "s5", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/13", "prState": "open", "createdAt": "2026-10-03T10:00:00Z" },
-          { "id": "s4", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/13", "prState": "open", "createdAt": "2026-10-03T10:00:00Z" },
-          { "id": "s6", "teamId": "t1", "issueId": "i1", "prUrl": "https://github.com/acme/web/pull/14", "prState": "open", "createdAt": "2026-10-04T10:00:00Z" },
-          { "id": "s7", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/20", "prState": "open", "createdAt": "2026-10-04T10:00:00Z" },
-          { "id": "s8", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/15", "prState": "merged", "createdAt": "2026-10-04T10:00:00Z" },
-          { "id": "s9", "teamId": "t1", "issueId": null, "prUrl": null, "prState": "open", "createdAt": "2026-10-04T10:00:00Z" },
-          { "id": "s10", "teamId": "t2", "issueId": null, "prUrl": "https://github.com/acme/api/pull/1", "prState": "open", "createdAt": "2026-10-01T10:00:00Z" },
-          { "id": "s11", "teamId": "t9", "issueId": null, "prUrl": "https://github.com/acme/api/pull/2", "prState": "open", "createdAt": "2026-10-09T10:00:00Z" }
+          {
+            "id": "s1",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/11",
+            "prState": "open",
+            "createdAt": "2026-10-01T10:00:00Z"
+          },
+          {
+            "id": "s2",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/11",
+            "prState": "open",
+            "createdAt": "2026-10-02T10:00:00Z"
+          },
+          {
+            "id": "s3",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/12",
+            "prState": "open",
+            "createdAt": "2026-10-03T10:00:00Z"
+          },
+          {
+            "id": "s5",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/13",
+            "prState": "open",
+            "createdAt": "2026-10-03T10:00:00Z"
+          },
+          {
+            "id": "s4",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/13",
+            "prState": "open",
+            "createdAt": "2026-10-03T10:00:00Z"
+          },
+          {
+            "id": "s6",
+            "teamId": "t1",
+            "issueId": "i1",
+            "prUrl": "https://github.com/acme/web/pull/14",
+            "prState": "open",
+            "createdAt": "2026-10-04T10:00:00Z"
+          },
+          {
+            "id": "s7",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/20",
+            "prState": "open",
+            "createdAt": "2026-10-04T10:00:00Z"
+          },
+          {
+            "id": "s8",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/15",
+            "prState": "merged",
+            "createdAt": "2026-10-04T10:00:00Z"
+          },
+          {
+            "id": "s9",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": null,
+            "prState": "open",
+            "createdAt": "2026-10-04T10:00:00Z"
+          },
+          {
+            "id": "s10",
+            "teamId": "t2",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/api/pull/1",
+            "prState": "open",
+            "createdAt": "2026-10-01T10:00:00Z"
+          },
+          {
+            "id": "s11",
+            "teamId": "t9",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/api/pull/2",
+            "prState": "open",
+            "createdAt": "2026-10-09T10:00:00Z"
+          }
         ],
         "pulls": []
       },
       "expected": {
         "boardGroups": [],
         "runGroups": [
-          { "teamId": "t1", "sessionIds": ["s3", "s4", "s2"] },
-          { "teamId": "t2", "sessionIds": ["s10"] }
+          {
+            "teamId": "t1",
+            "sessionIds": [
+              "s3",
+              "s4",
+              "s2"
+            ]
+          },
+          {
+            "teamId": "t2",
+            "sessionIds": [
+              "s10"
+            ]
+          }
         ],
         "repoGroups": [],
         "count": 4
@@ -182,10 +666,27 @@
     {
       "name": "EXP-1244: an openPulls fetch taken before the issue was linked never lists that PR as unlinked",
       "input": {
-        "teams": [{ "id": "t1" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Exponential", "sortOrder": 1 }],
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          }
+        ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-08T00:18:34Z", "prUrl": "https://github.com/Niach/exponential/pull/1011", "prState": "open" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-08T00:18:34Z",
+            "prUrl": "https://github.com/Niach/exponential/pull/1011",
+            "prState": "open"
+          }
         ],
         "sessions": [],
         "pulls": [
@@ -194,14 +695,27 @@
             "repositoryId": "r1",
             "fullName": "Niach/exponential",
             "pulls": [
-              { "number": 1011, "url": "https://github.com/Niach/exponential/pull/1011" }
+              {
+                "number": 1011,
+                "url": "https://github.com/Niach/exponential/pull/1011"
+              }
             ]
           }
         ]
       },
       "expected": {
         "boardGroups": [
-          { "boardId": "b1", "entries": [{ "key": "https://github.com/Niach/exponential/pull/1011", "issueIds": ["i1"] }] }
+          {
+            "boardId": "b1",
+            "entries": [
+              {
+                "key": "https://github.com/Niach/exponential/pull/1011",
+                "issueIds": [
+                  "i1"
+                ]
+              }
+            ]
+          }
         ],
         "runGroups": [],
         "repoGroups": [],
@@ -211,13 +725,40 @@
     {
       "name": "repo bands: team order then input order, linked pulls (any state, issue or run) dropped, empty repos and other teams hidden",
       "input": {
-        "teams": [{ "id": "t2" }, { "id": "t1" }],
-        "boards": [{ "id": "b1", "teamId": "t1", "name": "Web", "sortOrder": 1 }],
+        "teams": [
+          {
+            "id": "t2"
+          },
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Web",
+            "sortOrder": 1
+          }
+        ],
         "issues": [
-          { "id": "i1", "boardId": "b1", "createdAt": "2026-10-01T10:00:00Z", "prUrl": "https://github.com/acme/web/pull/2", "prState": "closed" }
+          {
+            "id": "i1",
+            "boardId": "b1",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/2",
+            "prState": "closed"
+          }
         ],
         "sessions": [
-          { "id": "s1", "teamId": "t1", "issueId": null, "prUrl": "https://github.com/acme/web/pull/3", "prState": "merged", "createdAt": "2026-10-01T10:00:00Z" }
+          {
+            "id": "s1",
+            "teamId": "t1",
+            "issueId": null,
+            "prUrl": "https://github.com/acme/web/pull/3",
+            "prState": "merged",
+            "createdAt": "2026-10-01T10:00:00Z"
+          }
         ],
         "pulls": [
           {
@@ -225,10 +766,22 @@
             "repositoryId": "r1",
             "fullName": "acme/web",
             "pulls": [
-              { "number": 4, "url": "https://github.com/acme/web/pull/4" },
-              { "number": 2, "url": "https://github.com/acme/web/pull/2" },
-              { "number": 3, "url": "https://github.com/acme/web/pull/3" },
-              { "number": 1, "url": "https://github.com/acme/web/pull/1" }
+              {
+                "number": 4,
+                "url": "https://github.com/acme/web/pull/4"
+              },
+              {
+                "number": 2,
+                "url": "https://github.com/acme/web/pull/2"
+              },
+              {
+                "number": 3,
+                "url": "https://github.com/acme/web/pull/3"
+              },
+              {
+                "number": 1,
+                "url": "https://github.com/acme/web/pull/1"
+              }
             ]
           },
           {
@@ -242,7 +795,10 @@
             "repositoryId": "r3",
             "fullName": "acme/api",
             "pulls": [
-              { "number": 9, "url": "https://github.com/acme/api/pull/9" }
+              {
+                "number": 9,
+                "url": "https://github.com/acme/api/pull/9"
+              }
             ]
           },
           {
@@ -250,7 +806,10 @@
             "repositoryId": "r4",
             "fullName": "acme/other",
             "pulls": [
-              { "number": 5, "url": "https://github.com/acme/other/pull/5" }
+              {
+                "number": 5,
+                "url": "https://github.com/acme/other/pull/5"
+              }
             ]
           }
         ]
@@ -259,8 +818,21 @@
         "boardGroups": [],
         "runGroups": [],
         "repoGroups": [
-          { "teamId": "t2", "repositoryId": "r3", "pullNumbers": [9] },
-          { "teamId": "t1", "repositoryId": "r1", "pullNumbers": [4, 1] }
+          {
+            "teamId": "t2",
+            "repositoryId": "r3",
+            "pullNumbers": [
+              9
+            ]
+          },
+          {
+            "teamId": "t1",
+            "repositoryId": "r1",
+            "pullNumbers": [
+              4,
+              1
+            ]
+          }
         ],
         "count": 3
       }

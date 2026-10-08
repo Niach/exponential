@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/reviews-queue.json"
-import { reviewsQueue } from "@/lib/reviews-queue"
+import { reviewsNav, reviewsQueue } from "@/lib/reviews-queue"
+
+describe(`reviewsNav (contract fixture)`, () => {
+  for (const testCase of fixture.navCases) {
+    it(testCase.name, () => {
+      expect(reviewsNav(testCase.input)).toEqual(testCase.expected)
+    })
+  }
+})
 
 // EXP-1244: the Reviews queue, replayed from the contract fixture ×4 (desktop
 // `reviews_queue_matches_the_fixture`, iOS `ReviewsQueueTests`, Android

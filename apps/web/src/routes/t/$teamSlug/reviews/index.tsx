@@ -113,7 +113,7 @@ function ReviewsPage() {
     externalLoading,
     removeExternalPull,
     openIssues,
-  } = useReviewsData(team, scope.teams)
+  } = useReviewsData(team, scope.teams, { force: true })
   const teamById = useMemo(
     () => new Map(scope.teams.map((row) => [row.id, row])),
     [scope.teams]

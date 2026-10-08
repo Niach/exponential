@@ -91,6 +91,21 @@ const present = (url: string | null | undefined): url is string =>
 const byId = (a: { id: string }, b: { id: string }): number =>
   a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 
+/**
+ * The Reviews nav entry ×4 (`_navDoc`): the dot = anything in the queue; the
+ * entry shows unless every team in scope runs yolo mode with nothing open.
+ */
+export function reviewsNav(input: {
+  yolo: readonly boolean[]
+  count: number
+}): { dot: boolean; shows: boolean } {
+  const dot = input.count > 0
+  return {
+    dot,
+    shows: input.yolo.length === 0 || input.yolo.some((yolo) => !yolo) || dot,
+  }
+}
+
 export function reviewsQueue<
   B extends QueueBoard,
   I extends QueueIssue,

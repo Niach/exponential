@@ -45,14 +45,18 @@ vi.mock(`@/hooks/use-unread-notifications`, () => ({
   useUnreadNotificationCount: () => 0,
 }))
 const openPrs = { current: 0 }
-vi.mock(`@/hooks/use-nav-counts`, () => ({
-  useReviewsOpenPrCount: () => openPrs.current,
-  // Mirrors the real hook: yolo mode hides Reviews unless a PR is open in
-  // ANY member team (EXP-1186).
-  useShowsReviewsAcrossTeams: (teams: Team[]) =>
-    teams.some((t) => t.yoloMode !== true) || openPrs.current > 0,
-  useAgentsRunningCount: () => ({ count: 0, needsInput: false }),
-}))
+vi.mock(`@/hooks/use-nav-counts`, async () => {
+  // The real `reviewsNav` (fixture-locked) over the faked queue count.
+  const { reviewsNav } = await import(`@/lib/reviews-queue`)
+  return {
+    useReviewsNav: (teams: Team[]) =>
+      reviewsNav({
+        yolo: teams.map((t) => t.yoloMode === true),
+        count: openPrs.current,
+      }),
+    useAgentsRunningCount: () => ({ count: 0, needsInput: false }),
+  }
+})
 // EXP-1186: the bar's cross-team scope — the member teams the test sets.
 const memberTeams = vi.hoisted(() => ({ value: null as unknown[] | null }))
 vi.mock(`@/hooks/use-cross-team-scope`, () => ({

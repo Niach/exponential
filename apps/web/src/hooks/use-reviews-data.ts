@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import {
   and,
   eq,
@@ -13,7 +13,7 @@ import {
   useBoardsForTeams,
   useTeamUsers,
 } from "@/hooks/use-team-data"
-import { trpc } from "@/lib/trpc-client"
+import { removeOpenPull, useOpenPulls } from "@/lib/open-pulls-store"
 import { reviewsQueue } from "@/lib/reviews-queue"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import type { CodingSession, Issue, Board, Team } from "@/db/schema"
@@ -72,7 +72,10 @@ export interface SessionReviewGroup {
 // Omitted = the active team alone.
 export function useReviewsData(
   team: Team | null | undefined,
-  teams?: readonly Team[]
+  teams?: readonly Team[],
+  // EXP-1244: the page refetches the unlinked pulls on mount (`force`); the
+  // nav reads the shared store and refetches only a stale team.
+  options: { force?: boolean } = {}
 ) {
   const scopeTeams = useMemo<Team[]>(
     () =>
@@ -133,71 +136,11 @@ export function useReviewsData(
   )
 
   // Open PRs with no issue link, fetched live from GitHub through the server
-  // (they have no synced row to live-query). Failures degrade to an empty
-  // list — the issue-linked queue still renders.
-  const [externalGroups, setExternalGroups] = useState<ExternalPullGroup[]>([])
-  const [externalLoading, setExternalLoading] = useState(false)
-  useEffect(() => {
-    if (teamIds.length === 0) return
-    let cancelled = false
-    setExternalLoading(true)
-    // One request per team; a team that fails just lists nothing.
-    Promise.all(
-      teamIds.map((teamId) =>
-        trpc.repositories.openPulls
-          .query({ teamId })
-          .then((result) =>
-            result.repos
-              .filter((repo) => repo.pulls.length > 0)
-              .map((repo) => ({ ...repo, teamId }))
-          )
-          .catch(() => [] as ExternalPullGroup[])
-      )
-    )
-      .then((perTeam) => {
-        if (cancelled) return
-        // Team order, like the board bands.
-        const order = new Map(orderedTeamIds.map((id, index) => [id, index]))
-        setExternalGroups(
-          perTeam
-            .flat()
-            .sort(
-              (left, right) =>
-                (order.get(left.teamId) ?? 0) - (order.get(right.teamId) ?? 0)
-            )
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setExternalGroups([])
-      })
-      .finally(() => {
-        if (!cancelled) setExternalLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-    // `teamKey` names the id set; the order map only sorts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamKey])
-
-  // External PRs have no Electric echo — a successful merge removes the row
-  // locally.
-  const removeExternalPull = useCallback(
-    (repositoryId: string, prNumber: number) => {
-      setExternalGroups((groups) =>
-        groups
-          .map((group) =>
-            group.repositoryId === repositoryId
-              ? {
-                  ...group,
-                  pulls: group.pulls.filter((pull) => pull.number !== prNumber),
-                }
-              : group
-          )
-          .filter((group) => group.pulls.length > 0)
-      )
-    },
-    []
+  // into the app-wide store the nav dot reads too (EXP-1244). Failures
+  // degrade to an empty list — the issue-linked queue still renders.
+  const { repos: externalGroups, loading: externalLoading } = useOpenPulls(
+    orderedTeamIds,
+    { force: options.force }
   )
 
   return useMemo(() => {
@@ -244,7 +187,7 @@ export function useReviewsData(
       isLoading: !isReady && boards.length > 0,
       externalLoading,
       userMap,
-      removeExternalPull,
+      removeExternalPull: removeOpenPull,
       // EXP-1145: every open-PR issue of the team, the rows a Merge reads its
       // stack from (`stackMergeChoice`).
       openIssues: list,
@@ -257,7 +200,6 @@ export function useReviewsData(
     userMap,
     externalGroups,
     externalLoading,
-    removeExternalPull,
     scopeTeams,
     teamById,
   ])
