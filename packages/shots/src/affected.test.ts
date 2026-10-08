@@ -323,13 +323,36 @@ describe(`fail-safe`, () => {
       if (platform !== `ios`) expect(swift.byPlatform.get(platform)).toEqual([])
     }
 
-    // The core narrows iOS the same way but still widens every other client.
+    // VAPP-89: the android shot comes from the Compose painter's example app.
+    const compose = affectedScope({
+      changedFiles: [`packages/exponential-ui-compose/ui-compose/src/main/kotlin/at/exponential/ui/X.kt`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(compose.byPlatform.get(`android`)).toEqual([`exponential-ui-kitchen-sink`])
+    for (const platform of PLATFORMS) {
+      if (platform !== `android`) expect(compose.byPlatform.get(platform)).toEqual([])
+    }
+
+    // ...but the primitives module is linked by the Android app: every android shot.
+    const primitives = affectedScope({
+      changedFiles: [`packages/exponential-ui-compose/primitives/src/main/kotlin/at/exponential/ui/primitives/X.kt`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(primitives.byPlatform.get(`android`)).toHaveLength(viewsFor(`android`).length)
+    for (const platform of PLATFORMS) {
+      if (platform !== `android`) expect(primitives.byPlatform.get(platform)).toEqual([])
+    }
+
+    // The core narrows iOS + android the same way but still widens every other client.
     const core = affectedScope({
       changedFiles: [`packages/exponential-ui/catalog/components.json`],
       platforms: PLATFORMS,
       includeMissing: false,
     })
     expect(core.byPlatform.get(`ios`)).toEqual([`exponential-ui-kitchen-sink`])
+    expect(core.byPlatform.get(`android`)).toEqual([`exponential-ui-kitchen-sink`])
     expect(core.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
     expect(core.byPlatform.get(`web`)).toHaveLength(viewsFor(`web`).length)
   })

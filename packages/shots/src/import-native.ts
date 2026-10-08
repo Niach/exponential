@@ -22,7 +22,7 @@
  * A missing source is a WARNING, never an error: capture lanes are run
  * independently and half a native set is a normal intermediate state.
  *
- * `package` captures (VAPP-88, SDK example apps) are skipped silently: the
+ * `package` captures (VAPP-88/89, SDK example apps) are skipped silently: the
  * orchestrator's package lane writes them to `.shots-raw/` itself.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs"

@@ -359,10 +359,20 @@ renderer itself adds no third-party source: its natives are Radix behaviour
 (MIT, in the npm inventory) painted from the theme's recipes, and the shadcn
 primitive set that moved from `@exp/ui` into `src/primitives/` was already
 ours (MIT-derived shadcn code, recorded with the web app's dependencies).
-The desktop app (VAPP-90) and the iOS SwiftUI painter (VAPP-88,
+The desktop app (VAPP-90), the iOS SwiftUI painter (VAPP-88,
 `packages/exponential-ui-swift`, whose xcframework embeds the same Rust core
-with the generated catalog and themes) now carry them too, so both rows read
-`clients: ["web", "desktop", "ios"]`; Android follows with VAPP-89.
+with the generated catalog and themes) and the Android Compose painter
+(VAPP-89, `packages/exponential-ui-compose`, whose AAR ships the same core as
+the `exponential-ui-ffi` `.so`) now carry them too, so both rows read
+`clients: ["web", "desktop", "ios", "android"]`. The Compose painter AAR's
+runtime third-party set is Jetpack Compose (Apache-2.0, already in the Android
+app's inventory) plus JNA 5.17.0 (`net.java.dev.jna:jna@aar`, dual
+LGPL-2.1-or-later / Apache-2.0; we elect Apache-2.0); Robolectric and
+Roborazzi are test-only. The Exponential Android app links only
+`:ui-compose-primitives` (pure Compose, the app's own BOM), so neither JNA nor
+the `.so` reaches its `NOTICES.txt` inventory until VAPP-91 links the painter;
+that run re-runs `collect:android`, which then picks JNA up from the app's
+licence report.
 **When a native painter (VAPP-88/89/90) bundles the catalog JSON or the
 built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the

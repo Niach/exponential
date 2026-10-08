@@ -168,6 +168,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":ui-compose-primitives"))
     implementation(libs.core.ktx)
     implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.ktx)

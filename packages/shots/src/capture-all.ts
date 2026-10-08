@@ -369,14 +369,13 @@ function laneViews(scope: Scope, ...platforms: Platform[]): string[] {
  * views does not need it, and making it unconditional would tax the fast path.
  */
 function needsRelay(options: Options, scope: Scope): boolean {
-  // A `package` capture (VAPP-88) is an SDK example app with no backend; only
+  // A `package` capture (VAPP-88/89) is an SDK example app with no backend; only
   // the product app's fastlane lanes steer.
   if (
     options.platforms.some(
       (platform) =>
         NATIVE_PLATFORMS.includes(platform) &&
-        (platform !== `ios` ||
-          laneViews(scope, platform).length > packageViews(scope, `ios`).length)
+        laneViews(scope, platform).length > packageViews(scope, platform as `ios` | `android`).length
     )
   ) {
     return true
@@ -518,6 +517,15 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     })
   }
 
+  if (packageViews(scope, `android`).length > 0) {
+    const ok = existsSync(join(repoRoot(), PACKAGE_ANDROID.project, `example`))
+    checks.push({
+      label: `Android package example (${PACKAGE_ANDROID.project}/example)`,
+      ok,
+      detail: ok ? undefined : `missing — the Compose painter's example app has not landed`,
+    })
+  }
+
   if (laneViews(scope, `android`).length > 0) {
     const hasAdb = await hasCommand(`adb`)
     if (!hasAdb) {
@@ -536,7 +544,7 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
             ? attached.length === 1
               ? undefined
               : `${attached.length} devices attached — screengrab needs exactly one`
-            : `no booted emulator — start an English-locale phone emulator`,
+            : `no booted emulator — start an English-locale phone emulator (\`emulator -avd ${ANDROID_AVD}\`)`,
       })
     }
   }
@@ -699,7 +707,6 @@ const PACKAGE_IOS = {
   settleMs: 3_000,
 } as const
 
-/** In-scope views whose capture on `platform` is the `package` lane. */
 /**
  * Is EVERY view in scope a `package` capture (the SDK example apps)? Such a
  * run drives no browser, desktop or fastlane lane, so it needs no backend:
@@ -718,6 +725,7 @@ function packageOnly(scope: Scope): boolean {
   return any
 }
 
+/** In-scope views whose capture on `platform` is the `package` lane. */
 function packageViews(scope: Scope, platform: `ios` | `android`): string[] {
   return viewsFor(platform)
     .filter((view) => scope.get(platform)?.has(view.id))
@@ -836,6 +844,115 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
   await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
   outcomes.push({
     platform: `ios`,
+    ok: failures === 0,
+    detail: failures === 0 ? undefined : `${failures} package view(s) failed`,
+  })
+}
+
+/* --------------------------------------------------- package lane (android) */
+
+/** The phone AVD the android lanes are captured on (the fastlane lane's too). */
+const ANDROID_AVD = `Medium_Phone_API_36.0`
+
+/**
+ * VAPP-89: the Compose painter's example app, the android twin of
+ * `PACKAGE_IOS`. A plain Gradle Android app (no Exponential code) over the
+ * painter AAR; the release build is debug-signed + R8, so it installs as is.
+ * The `shot` extra selects the view it renders; `theme`/`mode` pin the look.
+ */
+const PACKAGE_ANDROID = {
+  project: `packages/exponential-ui-compose`,
+  task: `:example:assembleRelease`,
+  apk: `packages/exponential-ui-compose/example/build/outputs/apk/release/example-release.apk`,
+  appId: `at.exponential.ui.kitchensink`,
+  activity: `at.exponential.ui.kitchensink/.MainActivity`,
+  settleMs: 3_000,
+} as const
+
+/** Serials of the attached, booted adb devices. */
+async function adbDevices(): Promise<string[]> {
+  const devices = await run({ cmd: [`adb`, `devices`], timeoutMs: 30_000 })
+  if (devices.code !== 0) return []
+  return devices.stdout
+    .split(`\n`)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter((line) => /\tdevice$/.test(line))
+    .map((line) => line.split(`\t`)[0] ?? ``)
+}
+
+/**
+ * Capture the android `package` views from the Compose example app: build the
+ * release apk once, install it on the booted emulator, then per view launch
+ * `--es shot <id>` and `adb exec-out screencap -p` STRAIGHT into
+ * `.shots-raw/android/<view-id>.png` — no fastlane dir, so the native importer
+ * never sees these. The caller pins the status bar (demo mode) around it.
+ */
+async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): Promise<void> {
+  if (views.length === 0) return
+  console.log(`\n── android: package example (${views.length} view(s)) ──────────`)
+  const root = repoRoot()
+  const fail = (detail: string) => outcomes.push({ platform: `android`, ok: false, detail })
+
+  const devices = await adbDevices()
+  if (devices.length === 0) {
+    return void fail(`no booted emulator — start one with \`emulator -avd ${ANDROID_AVD}\``)
+  }
+  if (devices.length > 1) return void fail(`${devices.length} devices attached — the package lane needs exactly one`)
+
+  const build = await run({
+    cmd: [`./gradlew`, PACKAGE_ANDROID.task],
+    cwd: join(root, PACKAGE_ANDROID.project),
+    stream: true,
+    label: `[android:package]`,
+    timeoutMs: 45 * 60_000,
+  })
+  if (build.code !== 0) return void fail(`package example build exited ${build.code}`)
+  const apk = join(root, PACKAGE_ANDROID.apk)
+  if (!existsSync(apk)) return void fail(`package example built, but ${PACKAGE_ANDROID.apk} is missing`)
+
+  const adb = (args: string[], timeoutMs = 120_000) => run({ cmd: [`adb`, ...args], cwd: root, timeoutMs })
+  const installed = await adb([`install`, `-r`, apk], 5 * 60_000)
+  if (installed.code !== 0) return void fail(`adb install exited ${installed.code}`)
+
+  let failures = 0
+  for (const viewId of views) {
+    const png = rawShotPath(`android`, viewId)
+    // A stale raw file would be stored as if this run had produced it.
+    rmSync(png, { force: true })
+    mkdirSync(dirname(png), { recursive: true })
+    await adb([`shell`, `am`, `force-stop`, PACKAGE_ANDROID.appId])
+    const launched = await adb([
+      `shell`, `am`, `start`, `-W`, `-n`, PACKAGE_ANDROID.activity,
+      `--es`, `shot`, viewId, `--es`, `theme`, `exponential`, `--es`, `mode`, `dark`,
+    ])
+    // `am start` exits 0 even when it cannot resolve the activity.
+    if (launched.code !== 0 || /Error/.test(launched.stdout + launched.stderr)) {
+      failures++
+      console.log(`  fail  ${viewId} — am start: ${(launched.stdout + launched.stderr).trim()}`)
+      continue
+    }
+    await sleep(PACKAGE_ANDROID.settleMs)
+    // Binary PNG on stdout: `run()` decodes text, so pipe straight into the file.
+    const shot = Bun.spawn({
+      cmd: [`adb`, `exec-out`, `screencap`, `-p`],
+      cwd: root,
+      stdout: Bun.file(png),
+      stderr: `ignore`,
+      stdin: `ignore`,
+    })
+    const code = await shot.exited
+    if (code !== 0 || !existsSync(png) || statSync(png).size === 0) {
+      failures++
+      rmSync(png, { force: true })
+      console.log(`  fail  ${viewId} — adb exec-out screencap exited ${code}`)
+      continue
+    }
+    console.log(`  ok    ${viewId} → ${png}`)
+  }
+  await adb([`shell`, `am`, `force-stop`, PACKAGE_ANDROID.appId])
+  outcomes.push({
+    platform: `android`,
     ok: failures === 0,
     detail: failures === 0 ? undefined : `${failures} package view(s) failed`,
   })
@@ -1400,14 +1517,22 @@ async function main(): Promise<number> {
 
   try {
     if (!options.dryRun && !options.writeOnly && packageOnly(scope)) {
-      // VAPP-88: the SDK example apps need no backend: straight to the device lanes.
+      // VAPP-88/89: the SDK example apps need no backend: straight to the device lanes.
       console.log(`\n── package-only run: no seed, no relay, no demo ids ──`)
       for (const platform of [`ios`, `android`] as const) {
         if (packageViews(scope, platform).length === 0) continue
+        let demoMode = false
         try {
           if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
+          if (platform === `android`) {
+            // Pin the status bar exactly like the fastlane lane's shots.
+            demoMode = await enableAndroidDemoMode()
+            await capturePackageAndroid(packageViews(scope, `android`), outcomes)
+          }
         } catch (error) {
           outcomes.push({ platform, ok: false, detail: error instanceof Error ? error.message : String(error) })
+        } finally {
+          if (platform === `android`) await restoreAndroidStatusBar(demoMode)
         }
       }
     } else if (!options.dryRun && !options.writeOnly) {
@@ -1478,9 +1603,10 @@ async function main(): Promise<number> {
             autofill = await disableAndroidAutofill()
             demoMode = await enableAndroidDemoMode()
           }
-          // VAPP-88: `package` views come from the SDK example app; the
+          // VAPP-88/89: `package` views come from the SDK example apps; the
           // fastlane lanes below only ever pick store + styleguide shots.
           if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
+          if (platform === `android`) await capturePackageAndroid(packageViews(scope, `android`), outcomes)
           await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
           outcomes.push({

@@ -1,8 +1,8 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,9 +16,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import at.exponential.ui.primitives.EmptyStateView
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSectionBand
 
@@ -86,7 +86,12 @@ fun SectionHeader(
  *  `foreground.opacity(0.85)`. */
 private const val SectionBandTitleAlpha = 0.85f
 
-/** Centered empty-state with optional icon + message + detail line (replaces 4 ad-hoc copies). */
+/**
+ * Centered empty-state with optional icon + message + detail line (replaces 4
+ * ad-hoc copies). Drawn by the SDK's `EmptyStateView` (SLOP-18 / VAPP-89):
+ * a bare 28dp tertiary glyph (no disc), the body/secondary message, the
+ * small/tertiary detail and an action slot, 12dp apart.
+ */
 @Composable
 fun EmptyState(
     message: String,
@@ -95,42 +100,25 @@ fun EmptyState(
     detail: String? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (icon != null) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                textAlign = TextAlign.Center,
-            )
-            if (detail != null) {
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-            action?.invoke()
-        }
-    }
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    EmptyStateView(
+        message = message,
+        modifier = modifier.fillMaxSize(),
+        detail = detail,
+        icon = icon?.let {
+            { Icon(it, contentDescription = null, tint = tertiary, modifier = Modifier.size(28.dp)) }
+        },
+        action = action,
+        iconDisc = null,
+        iconColor = tertiary,
+        messageStyle = MaterialTheme.typography.bodyMedium,
+        messageColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        detailStyle = MaterialTheme.typography.bodySmall,
+        detailColor = tertiary,
+        detailPadding = 16.dp,
+        spacing = 12.dp,
+        contentPadding = PaddingValues(24.dp),
+    )
 }
 
 /** Centered spinner loading state. */

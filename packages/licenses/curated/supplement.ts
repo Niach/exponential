@@ -199,10 +199,12 @@ export const VENDORED: CuratedEntry[] = [
   // catalog — json-render-derived descriptions included — and the resolved
   // themes in the binary), so `desktop` joins. VAPP-88: the iOS painter
   // (`packages/exponential-ui-swift`) ships the same Rust core inside its
-  // xcframework, so `ios` joins. Android joins with its painter (VAPP-89).
+  // xcframework, so `ios` joins. VAPP-89: the Android Compose painter
+  // (`packages/exponential-ui-compose`) loads the same Rust core as the
+  // `exponential-ui-ffi` `.so` inside its AAR, so `android` joins.
   {
     title: `A2UI specification schemas (vendored, Exponential UI)`,
-    clients: [`web`, `desktop`, `ios`],
+    clients: [`web`, `desktop`, `ios`, `android`],
     body: [
       `The Exponential UI catalog package (packages/exponential-ui, bundled by the web app through the React renderer) carries the A2UI v0.9 specification's JSON schemas, copied byte for byte from https://github.com/google/A2UI (tag v0.9, commit 19919ef4c8ad3185867f70386fa4669284d7714c) into packages/exponential-ui/vendor/a2ui/v0_9/. They are not modified: the basic catalog is mapped onto Exponential UI's core catalog, so Apache-2.0 section 4(b) does not apply. The repository's LICENSE is reproduced below.`,
     ],
@@ -215,7 +217,7 @@ export const VENDORED: CuratedEntry[] = [
   },
   {
     title: `json-render component descriptions (derived wording, Exponential UI)`,
-    clients: [`web`, `desktop`, `ios`],
+    clients: [`web`, `desktop`, `ios`, `android`],
     body: [
       `The model-facing descriptions and the prop vocabulary of the 36 shadcn-named components in packages/exponential-ui/catalog/core.catalog.json were derived from the @json-render/shadcn catalog of https://github.com/vercel-labs/json-render (0.21.0, commit fc2a696a50a30cb30c878ab1eb65e102487eea0f, Apache-2.0, Vercel, Inc.): rewritten into Exponential UI's schema format and re-edited sentence by sentence, no code copied. The attribution is kept because the wording is a derivative; the licence is reproduced below.`,
     ],

@@ -505,6 +505,13 @@
       }
     },
     "exponential-ui-kitchen-sink": {
+      "android": {
+        "file": "shots/exponential-ui-kitchen-sink/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 36924,
+        "sha256": "8371e6b7d39893952074cfcc6583e282fdf696d6c751bb30de775597ea5c8beb"
+      },
       "desktop": {
         "file": "shots/exponential-ui-kitchen-sink/desktop.webp",
         "width": 1800,

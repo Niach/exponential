@@ -1,6 +1,5 @@
 package com.exponential.app.ui.components
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +20,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import at.exponential.ui.primitives.fieldChrome
+import com.exponential.app.ui.theme.AppPrimitiveTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -125,17 +126,30 @@ fun GlassTextField(
 }
 
 /** iOS field corner (GlassSheetSearchField / SearchView: 12). */
-val GlassFieldShape = RoundedCornerShape(12.dp)
+private val GlassFieldRadius = 12.dp
+
+/** iOS field corner, as a shape. */
+val GlassFieldShape = RoundedCornerShape(GlassFieldRadius)
 
 @Composable
 private fun GlassPlaceholder(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary))
 }
 
-private fun Modifier.glassFieldBorder(focused: Boolean): Modifier = border(
-    GlassTokens.Hairline,
-    if (focused) GlassTokens.StrokeActive else GlassTokens.StrokeCard,
-    GlassFieldShape,
+/**
+ * The field chrome is the SDK's `fieldChrome` (SLOP-18 / VAPP-89): the glass
+ * hairline brightening on focus, at the 12dp field corner. The fill stays the
+ * M3 container colour (so [GlassTextField]'s `containerColor` keeps tinting
+ * it), hence a transparent chrome fill.
+ */
+private fun Modifier.glassFieldBorder(focused: Boolean): Modifier = fieldChrome(
+    AppPrimitiveTokens,
+    focused = focused,
+    radius = GlassFieldRadius,
+    fill = Color.Transparent,
+    stroke = GlassTokens.StrokeCard,
+    focusedStroke = GlassTokens.StrokeActive,
+    strokeWidth = GlassTokens.Hairline,
 )
 
 /**
