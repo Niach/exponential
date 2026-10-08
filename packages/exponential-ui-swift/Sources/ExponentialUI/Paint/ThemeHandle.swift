@@ -12,6 +12,7 @@ public final class ThemeHandle: @unchecked Sendable {
     private var parts: [String: PartStyle] = [:]
     private var colors: [String: Color?] = [:]
     private var rawColors: [String: String?] = [:]
+    private var motionTokens: [String: Double]?
     private let lock = NSLock()
 
     public init(_ theme: Theme) {
@@ -77,6 +78,28 @@ public final class ThemeHandle: @unchecked Sendable {
     public func radius(_ name: String) -> CGFloat { CGFloat(theme.radius(name: name) ?? 0) }
     public func control(_ name: String, _ fallback: CGFloat) -> CGFloat { theme.control(name: name).map { CGFloat($0) } ?? fallback }
     public func fontFamily(_ kind: String) -> String? { theme.fontFamily(kind: kind) }
+    /// A `motion` token in ms (`fast`, `normal`…) from the resolved theme;
+    /// the overlay enter animation runs on `fast` like gpui's.
+    public func motion(_ name: String) -> Double? {
+        lock.lock()
+        if motionTokens == nil {
+            lock.unlock()
+            let parsed = JSONValue.parse(theme.resolvedJson())["tokens"]?["motion"]?.object ?? [:]
+            var m: [String: Double] = [:]
+            for (k, v) in parsed { if let n = v.number { m[k] = n } }
+            lock.lock()
+            motionTokens = m
+        }
+        defer { lock.unlock() }
+        return motionTokens?[name]
+    }
+
+    /// An `ease` token (`[x1, y1, x2, y2]`).
+    public func ease(_ name: String) -> [Double]? {
+        let v = JSONValue.parse(theme.resolvedJson())["tokens"]?["ease"]?[name]?.array?.compactMap(\.number)
+        return v?.count == 4 ? v : nil
+    }
+
     public var sansFamily: String? { fontFamily("sans") }
     public var monoFamily: String? { fontFamily("mono") }
 

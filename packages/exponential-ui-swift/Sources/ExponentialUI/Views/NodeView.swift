@@ -16,11 +16,12 @@ struct LeafContext {
     var ownerProps: Props { model.ownerProps(node.index) }
     var states: [String] { model.states(of: node.id) }
     var dark: Bool { model.mode == .dark }
+    var rtl: Bool { model.paintsRTL }
 
-    /// The content box inside padding + border.
+    /// The content box inside padding + border (per side).
     var inner: CGRect {
-        let (ix, iy) = style.inset
-        return CGRect(x: ix, y: iy, width: max(0, size.width - 2 * ix), height: max(0, size.height - 2 * iy))
+        let e = style.insets
+        return CGRect(x: e.leading, y: e.top, width: max(0, size.width - e.leading - e.trailing), height: max(0, size.height - e.top - e.bottom))
     }
 
     func part(_ component: String, _ part: String, states: [String] = []) -> PartStyle {
@@ -36,10 +37,13 @@ struct LeafContext {
     func control(_ name: String, _ fallback: CGFloat) -> CGFloat { model.control(name, fallback) }
 
     var font: Font {
+        let base: Font
         if let family = textStyle.fontFamily, ExponentialUIFonts.isAvailable(family) {
-            return .custom(family, size: textStyle.fontSize).weight(ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
+            base = .custom(family, size: textStyle.fontSize).weight(ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
+        } else {
+            base = .system(size: textStyle.fontSize, weight: ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
         }
-        return .system(size: textStyle.fontSize, weight: ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
+        return style.italic ? base.italic() : base
     }
 
     /// The semantic tone colour of a `tone` prop.
@@ -62,7 +66,7 @@ extension SurfaceModel {
     public func combinedLabel(_ index: Int) -> String {
         var parts: [String] = []
         func walk(_ i: Int) {
-            guard let n = node(i), !n.hidden else { return }
+            guard let n = node(i), !n.hidden, !style(i).invisible, n.accessibility?["hidden"]?.bool != true else { return }
             if n.isLeaf {
                 if let l = n.accessibilityLabel, !l.isEmpty, n.component != "Icon" || n.props["label"] != nil { parts.append(l) }
             } else {
@@ -108,6 +112,12 @@ extension SurfaceModel {
             return base
         }
     }
+
+    /// Is node `id` keyboard-focused (`:focus-visible`, contract §2): the
+    /// ring paints for keyboard focus only, never for a press.
+    func focusVisible(_ id: String) -> Bool {
+        states(of: id).contains("focus-visible")
+    }
 }
 
 /// Which pressables handle their own gestures (no Button wrapper).
@@ -119,9 +129,10 @@ private func selfHandling(_ n: NodeInfo) -> Bool {
     }
 }
 
-/// One node of the surface at its frame: the box (background, border,
-/// radius, shadow, opacity, clip), the leaf content or the nested
-/// container layout, the press handling and the accessibility shape.
+/// One node of the surface at its frame: the box (background, gradient,
+/// border, radii, shadow, opacity, clip), the leaf content or the nested
+/// container layout, the paint-only transform, motion, hover / press /
+/// focus-visible, the cursor and the accessibility shape.
 struct NodeView: View {
     let index: Int
     @Environment(SurfaceModel.self) private var model
@@ -138,31 +149,46 @@ private struct NodeBody: View {
     let index: Int
     let node: NodeInfo
     let model: SurfaceModel
+    @Environment(\.accessibilityReduceMotion) private var platformReduced
 
     var body: some View {
         let frame = model.frame(index)
         let style = model.boxStyle(index)
         let size = frame.size
-        let pressable = node.pressable && !selfHandling(node)
+        let interactive = !style.pointerNone && !style.invisible
+        let pressable = node.pressable && !selfHandling(node) && interactive
+        let rtl = model.paintsRTL
+        let reduced = platformReduced || model.paintReducedMotion
+        let animation = style.transition?.animation(reduceMotion: reduced)
+        // An Icon NODE mirrors at its box, outside its own transform
+        // (contract §4); its content then never flips again.
+        let mirrorIcon = node.component == "Icon" && RTLGlyphs.mirrors(node.props.str("name"), rtl: rtl)
+        let isRoot = node.parent == nil || index == 0
         Group {
             if pressable {
                 Button {
                     model.press(index)
                 } label: {
-                    painted(style: style, size: size)
-                        .contentShape(RoundedRectangle(cornerRadius: style.radius))
+                    painted(style: style, size: size, animation: animation)
+                        .contentShape(style.shape(size))
                 }
                 .buttonStyle(PressReportingStyle(id: node.id, model: model))
                 .disabled(model.isDisabled(index))
             } else {
-                painted(style: style, size: size)
+                painted(style: style, size: size, animation: animation)
             }
         }
         .modifier(TriggerModifier(index: index, node: node, model: model))
-        .modifier(AccessibilityModifier(node: node, model: model))
+        .modifier(HoverReporting(id: node.id, model: model, on: interactive && (node.isFocusable || node.pressable)))
+        .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
+        .modifier(NodeAccessibility(node: node, model: model, style: style))
+        .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
+        .environment(\.xuiGlyphMirrored, mirrorIcon)
+        .transformEnvironment(\.xuiTextPaint) { $0 = $0.merged(style) }
+        .modifier(SurfaceEnvironment(on: isRoot, rtl: rtl, reduced: model.paintReducedMotion))
     }
 
-    private func painted(style: PaintStyle, size: CGSize) -> some View {
+    private func painted(style: PaintStyle, size: CGSize, animation: Animation?) -> some View {
         Group {
             if node.isLeaf {
                 let leaf = LeafContent(context: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
@@ -180,19 +206,33 @@ private struct NodeBody: View {
                 ContainerContent(index: index, node: node, model: model, style: style, size: size)
             }
         }
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .paintedBox(style, size: size)
-        .modifier(ClipModifier(on: style.overflowHidden || style.overflowScroll || (style.radius > 0 && !node.isLeaf), radius: style.radius))
+        // Motion (contract §2): only THIS node's box animates, with its
+        // own `transition` and easing; nothing animates without one.
+        .animation(animation) { box in
+            box
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .paintedBox(style, size: size)
+                .modifier(SkeletonPulse(on: node.component == "Skeleton"))
+                .modifier(ClipModifier(style: style, size: size))
+        }
+        .overlay {
+            if model.focusVisible(node.id), style.shadows.isEmpty {
+                FocusRing(style: style, size: size, color: model.color("ring") ?? model.ink(index).opacity(0.5))
+            }
+        }
     }
 }
 
-private struct ClipModifier: ViewModifier {
+/// The surface-level environment, set at the tree's root and each layer
+/// root: the direction text and glyphs read, the surface's reduced motion.
+struct SurfaceEnvironment: ViewModifier {
     let on: Bool
-    let radius: CGFloat
+    let rtl: Bool
+    let reduced: Bool
 
     func body(content: Content) -> some View {
         if on {
-            content.clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            content.environment(\.xuiRTL, rtl).environment(\.xuiReducedMotion, reduced)
         } else {
             content
         }
@@ -214,7 +254,8 @@ struct PressReportingStyle: ButtonStyle {
 }
 
 /// A container: its children nested at their frames (relative to it); a
-/// scrolling one in a scroll view.
+/// scroll container (the core's `overflow: scroll | auto` per axis, or a
+/// windowed List) in a scroll view.
 struct ContainerContent: View {
     let index: Int
     let node: NodeInfo
@@ -223,11 +264,14 @@ struct ContainerContent: View {
     let size: CGSize
 
     var body: some View {
-        let kids = (model.children[safe: index] ?? []).filter { !(model.node($0)?.hidden ?? true) }
+        let kids = (model.children[safe: index] ?? []).filter { k in
+            guard let c = model.node(k), !c.hidden else { return false }
+            // Layer roots paint in their layer, never nested in the tree.
+            return c.layer == node.layer
+        }
         let origin = model.frame(index).origin
-        let scrolls = style.overflowScroll || (model.lists[node.id]?.windowed ?? false)
-        if scrolls {
-            ScrollContainer(index: index, node: node, model: model, size: size, kids: kids, origin: origin)
+        if let scroll = model.paintScroll(index) {
+            ScrollBox(index: index, model: model, size: size, kids: kids, origin: origin, scroll: scroll)
         } else {
             ChildrenLayout(size: size, kids: kids, origin: origin, model: model)
         }
@@ -251,77 +295,5 @@ struct ChildrenLayout: View {
                     .accessibilitySortPriority(Double(total - k))
             }
         }
-    }
-}
-
-/// The accessibility shape of a node: VoiceOver reads pre-order (sort
-/// priorities), containers group, pressables combine into one element,
-/// leaves carry their label and trait.
-private struct AccessibilityModifier: ViewModifier {
-    let node: NodeInfo
-    let model: SurfaceModel
-
-    func body(content: Content) -> some View {
-        if node.isLeaf {
-            leaf(content)
-        } else if node.pressable {
-            // One element for the row: SwiftUI's `.combine` skips the UIKit
-            // text labels, so the name is assembled from the leaves in order.
-            content.accessibilityElement(children: .ignore).accessibilityLabel(model.combinedLabel(node.index)).accessibilityAddTraits(.isButton)
-        } else if node.macroName == "Card" || node.macroName == "Group" || node.macroName == "Alert" || node.part == "content" {
-            content.accessibilityElement(children: .contain).accessibilityLabel(node.accessibilityLabel ?? "")
-        } else {
-            content.accessibilityElement(children: .contain)
-        }
-    }
-
-    @ViewBuilder
-    private func leaf(_ content: Content) -> some View {
-        let label = node.accessibilityLabel
-        switch (node.component, node.part) {
-        case ("Input", "field"), ("Textarea", "field"), ("Composer", _):
-            content
-        case ("Image", _), ("Avatar", _), ("Video", _), ("Chart", _):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(label ?? "image").accessibilityAddTraits(.isImage)
-        case ("Icon", _):
-            if let label { content.accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityAddTraits(.isImage) } else { content.accessibilityHidden(true) }
-        case ("Markdown", _):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(Markdown.plainText(node.props.str("text"))).accessibilityAddTraits(.isStaticText)
-        case ("Skeleton", _), ("TreeGuides", _), ("List", "divider"):
-            content.accessibilityHidden(true)
-        case ("Text", "tab"):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(label ?? "").accessibilityAddTraits(node.selected ? [.isButton, .isSelected] : [.isButton])
-        case ("Text", "trigger"):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(label ?? "").accessibilityAddTraits(.isButton).accessibilityValue(node.open ? "expanded" : "collapsed")
-        case ("Checkbox", "box"), ("Switch", "track"):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(model.ownerProps(node.index).str("label")).accessibilityValue(model.checked(node.index) ? "on" : "off").accessibilityAddTraits(.isToggle)
-        case ("Radio", "dot"):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(radioLabel()).accessibilityAddTraits(model.radioChecked(node.index) ? [.isButton, .isSelected] : [.isButton])
-        case ("Slider", "track"):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(model.ownerProps(node.index).str("label")).accessibilityValue(String(Int(model.sliderValue(node.index)))).accessibilityAdjustableAction { direction in
-                let step = node.props.num("step") ?? 1
-                let v = SurfaceModel.snap(model.sliderValue(node.index) + (direction == .increment ? step : -step), min: node.props.num("min") ?? 0, max: node.props.num("max") ?? 100, step: step)
-                model.sliderDrag(node.index, value: v)
-                model.sliderRelease(node.index)
-            }
-        case ("Spinner", _), ("Ring", _):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(label ?? "Loading")
-        case ("Select", "field"), ("DatePicker", "field"), ("ToggleGroup", _):
-            content
-        case ("Link", _):
-            content.accessibilityElement(children: .ignore).accessibilityLabel(label ?? "").accessibilityAddTraits(.isLink)
-        default:
-            if let label {
-                content.accessibilityElement(children: .ignore).accessibilityLabel(label).accessibilityAddTraits(node.pressable || node.component == "Button" || node.component == "Toggle" ? .isButton : .isStaticText)
-            } else {
-                content.accessibilityHidden(true)
-            }
-        }
-    }
-
-    private func radioLabel() -> String {
-        let suffix = node.id.split(separator: ".").last.map(String.init) ?? ""
-        let owner = model.owner(of: node.index)
-        return model.index(of: "\(owner?.id ?? "").label.\(suffix)").flatMap { model.node($0) }?.props.str("text") ?? ""
     }
 }

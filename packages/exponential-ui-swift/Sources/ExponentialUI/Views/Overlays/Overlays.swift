@@ -1,7 +1,9 @@
 import SwiftUI
 import ExponentialUIPrimitives
 
-/// A layer's tree: the layer root at (0, 0) with its subtree nested.
+/// A layer's tree: the layer root at (0, 0) with its subtree nested, the
+/// surface environment (direction, reduced motion) set on it like on the
+/// main tree's root.
 struct LayerView: View {
     let layer: LayerInfo
     let model: SurfaceModel
@@ -9,153 +11,201 @@ struct LayerView: View {
     var body: some View {
         NodeView(index: layer.root)
             .layoutValue(key: NodeIndexKey.self, value: layer.root)
-            .frame(width: layer.frame.width, height: layer.frame.height)
+            .frame(width: layer.frame.width, height: layer.frame.height, alignment: .topLeading)
+            .environment(\.xuiRTL, model.paintsRTL)
+            .environment(\.xuiReducedMotion, model.paintReducedMotion)
     }
 }
 
-/// Native presentations of the open layers: Dialog / Drawer as sheets,
-/// Popover as a popover (anchored at the core's anchor frame), Tooltip
-/// and DropdownMenu content painted in place (the menu is a native `Menu`
-/// on its trigger). In `.painted` mode nothing presents here.
+/// Overlays are CORE LAYERS (contract §5): every layer the core reports is
+/// painted inside the surface at its frames (`PaintedLayers`), whatever the
+/// `OverlayPresentation`, so a Dialog, a Select popup or a toast sits
+/// exactly where gpui and React put it. This modifier presents nothing; it
+/// stays for source compatibility (`SurfaceView` applies it).
 struct NativeOverlays: ViewModifier {
     let model: SurfaceModel
 
-    private var modal: Binding<LayerInfo?> {
-        Binding(
-            get: { model.options.overlays == .native ? model.modalLayers.first : nil },
-            set: { if $0 == nil, let owner = model.modalLayers.first?.owner { model.dismissLayer(owner) } }
-        )
-    }
+    func body(content: Content) -> some View { content }
+}
 
-    private var popover: Binding<LayerInfo?> {
-        Binding(
-            get: { model.options.overlays == .native ? model.layers.first { $0.kind == "Popover" || ($0.kind == "DropdownMenu" && model.menuPainted($0.owner)) } : nil },
-            set: { if $0 == nil, let l = model.layers.first(where: { $0.kind == "Popover" || $0.kind == "DropdownMenu" }) { model.dismissLayer(l.owner) } }
-        )
-    }
+/// The open layers painted above the base tree at the core's frames
+/// (contract §5): base < overlay < toast, tree order inside a class; a
+/// modal layer gets a scrim (the recipe's `overlay` part) that blocks the
+/// tree beneath and dismisses on press only when the layer is
+/// `dismissible`; a press outside the non-modal overlays (menus, popups,
+/// popovers; never a tooltip or a toast) dismisses them, a press inside
+/// any layer does not (a submenu keeps its parent open). Drawers and
+/// sheets drag toward their edge to dismiss. A layer enters with a short
+/// fade + rise on the theme's `fast` motion (none under reduced motion).
+struct PaintedLayers: View {
+    let model: SurfaceModel
+    @Environment(\.accessibilityReduceMotion) private var platformReduced
 
-    func body(content: Content) -> some View {
-        content
-            .sheet(item: modal) { layer in
-                ModalLayer(layer: layer, model: model)
+    var body: some View {
+        let ordered = PaintedLayers.stacked(model.layers)
+        let lastModal = ordered.lastIndex { $0.paintModal } ?? -1
+        let outside = ordered.indices.filter { $0 > lastModal && PaintedLayers.dismissesOnOutsidePress(ordered[$0]) }
+        let reduced = platformReduced || model.paintReducedMotion
+        let enter = reduced ? nil : Animation.timingCurve(0, 0, 0.2, 1, duration: (model.theme?.motion("fast") ?? 120) / 1000)
+        let cover = CGSize(width: max(model.surfaceSize.width, model.width), height: max(model.surfaceSize.height, model.viewportHeight))
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(ordered.enumerated()), id: \.element.id) { i, layer in
+                if layer.paintModal {
+                    Scrim(layer: layer, model: model, size: cover)
+                        .transition(enter.map { AnyTransition.opacity.animation($0) } ?? .identity)
+                }
+                if i == outside.first {
+                    // One catcher under every non-modal overlay above the
+                    // last modal: a press that reaches it is outside them all.
+                    let owners = outside.map { ordered[$0] }
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: cover.width, height: cover.height)
+                        .onTapGesture { for l in owners.reversed() { model.paintDismiss(l) } }
+                        .accessibilityHidden(true)
+                }
+                PaintedLayer(layer: layer, model: model)
+                    .transition(enter.map { .asymmetric(insertion: AnyTransition.opacity.combined(with: .offset(y: layer.position == "top" ? -8 : 8)).animation($0), removal: .identity) } ?? .identity)
             }
-            .popover(item: popover, attachmentAnchor: .rect(.rect(popover.wrappedValue?.anchorFrame ?? .zero)), arrowEdge: arrowEdge(popover.wrappedValue)) { layer in
-                LayerView(layer: layer, model: model)
-                    .environment(model)
-                    .environment(\.layoutDirection, .leftToRight)
-                    .primitiveTokens(model.primitiveTokens)
-                    .padding(0)
-                    .presentationCompactAdaptation(.popover)
-                    .presentationBackground(model.color("popover") ?? model.color("background") ?? .clear)
-            }
-    }
-
-    private func arrowEdge(_ layer: LayerInfo?) -> Edge {
-        switch layer?.placementSide ?? layer?.position {
-        case "top": .bottom
-        case "left": .trailing
-        case "right": .leading
-        default: .top
         }
+    }
+
+    /// Layers in paint order: the overlay class, then toasts (contract §5:
+    /// no zIndex; the core's order inside a class).
+    static func stacked(_ layers: [LayerInfo]) -> [LayerInfo] {
+        layers.filter { $0.paintClass != "toast" } + layers.filter { $0.paintClass == "toast" }
+    }
+
+    /// Does a press outside layer `l` dismiss it (gpui `outside_press`)?
+    static func dismissesOnOutsidePress(_ l: LayerInfo) -> Bool {
+        !l.paintModal && l.paintClass == "overlay" && l.kind != "Tooltip"
     }
 }
 
-/// A Dialog / Drawer in a sheet: the layer tree centred, the sheet as tall
-/// as the layer (a detent), swipe-to-dismiss unless `dismissible: false`.
-private struct ModalLayer: View {
+/// A modal layer's scrim: the recipe's `overlay` part colour (gpui:
+/// `<kind>/overlay` in state `open`), covering the surface and blocking the
+/// tree beneath; a press dismisses only a dismissible layer.
+private struct Scrim: View {
     let layer: LayerInfo
     let model: SurfaceModel
+    let size: CGSize
 
     var body: some View {
         let owner = model.index(of: layer.owner).flatMap { model.node($0) }
-        let dismissible = owner?.props["dismissible"]?.bool ?? true
-        ZStack {
-            LayerView(layer: layer, model: model)
-            // A second modal opened from this one stacks on it.
-            Color.clear.frame(width: 0, height: 0).modifier(NestedModal(model: model, below: layer.owner))
-        }
-        .environment(model)
-        .environment(\.layoutDirection, .leftToRight)
-        .primitiveTokens(model.primitiveTokens)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, layer.kind == "Drawer" ? 0 : 12)
-        .presentationBackground(model.color("background") ?? .clear)
-        .modifier(SheetDetents(height: layer.frame.height + 24, drawer: layer.kind == "Drawer"))
-        .interactiveDismissDisabled(!dismissible)
-        #if os(macOS)
-        .onExitCommand { if dismissible { model.dismissLayer(layer.owner) } }
-        #endif
+        let overlay = model.part(layer.kind, "overlay", props: owner?.props ?? [:], states: ["open"]).style.background
+            ?? model.part("Dialog", "overlay", props: [:], states: ["open"]).style.background
+            ?? Color.black.opacity(0.5)
+        Rectangle()
+            .fill(overlay)
+            .frame(width: size.width, height: size.height)
+            .contentShape(Rectangle())
+            .onTapGesture { model.paintDismiss(layer) }
+            .accessibilityHidden(true)
     }
 }
 
-private struct SheetDetents: ViewModifier {
-    let height: CGFloat
-    let drawer: Bool
-
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        content
-            .presentationDetents([.height(max(120, height)), .large])
-            .presentationDragIndicator(drawer ? .visible : .hidden)
-        #else
-        content.frame(minWidth: 320, minHeight: max(120, height))
-        #endif
-    }
-}
-
-private struct NestedModal: ViewModifier {
+/// One layer at its frame: the modal container (VoiceOver stays inside,
+/// `.isModal`), Escape on macOS, the drawer drag.
+private struct PaintedLayer: View {
+    let layer: LayerInfo
     let model: SurfaceModel
-    let below: String
-
-    private var next: Binding<LayerInfo?> {
-        Binding(
-            get: {
-                let modals = model.modalLayers
-                guard let i = modals.firstIndex(where: { $0.owner == below }), i + 1 < modals.count else { return nil }
-                return modals[i + 1]
-            },
-            set: { if $0 == nil, let owner = next.wrappedValue?.owner { model.dismissLayer(owner) } }
-        )
-    }
-
-    func body(content: Content) -> some View {
-        content.sheet(item: next) { layer in ModalLayer(layer: layer, model: model) }
-    }
-}
-
-/// Layers painted INSIDE the surface at the core's frames: tooltips always;
-/// every kind in `.painted` mode (a scrim for Dialog / Drawer, outside tap
-/// dismissal for the rest).
-struct PaintedLayers: View {
-    let model: SurfaceModel
+    @State private var drag: CGSize = .zero
 
     var body: some View {
-        ForEach(model.layers) { layer in
-            if model.paintsInSurface(layer) {
-                if layer.isModal {
-                    Rectangle()
-                        .fill(model.part("Dialog", "overlay", props: [:]).style.background ?? Color.black.opacity(0.5))
-                        .frame(width: model.surfaceSize.width, height: max(model.surfaceSize.height, model.viewportHeight))
-                        .onTapGesture {
-                            if model.index(of: layer.owner).flatMap({ model.node($0) })?.props["dismissible"]?.bool ?? true { model.dismissLayer(layer.owner) }
-                        }
-                        .accessibilityHidden(true)
-                } else if layer.kind != "Tooltip" {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .frame(width: model.surfaceSize.width, height: max(model.surfaceSize.height, model.viewportHeight))
-                        .onTapGesture { model.dismissLayer(layer.owner) }
-                        .accessibilityHidden(true)
-                }
-                LayerView(layer: layer, model: model)
-                    .offset(x: layer.frame.minX, y: layer.frame.minY)
-                    .accessibilityAddTraits(layer.isModal ? .isModal : [])
-            }
+        let edge = PaintedLayer.sheetEdge(layer)
+        LayerView(layer: layer, model: model)
+            .offset(x: layer.frame.minX + drag.width, y: layer.frame.minY + drag.height)
+            .modifier(LayerAccessibility(modal: layer.paintModal))
+            .modifier(EscapeDismiss(layer: layer, model: model))
+            .gesture(sheetDrag(edge ?? ""), including: edge != nil && layer.paintDismissible(model) ? .all : .subviews)
+    }
+
+    /// The viewport edge a Drawer / Sheet hangs from (nil: not a sheet).
+    static func sheetEdge(_ l: LayerInfo) -> String? {
+        guard l.kind == "Drawer" || l.kind == "Sheet" else { return nil }
+        switch l.position {
+        case "top", "right", "bottom", "left": return l.position
+        default: return nil
         }
+    }
+
+    private func sheetDrag(_ edge: String) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { v in
+                let o = sheetOffset(edge, v.translation.width, v.translation.height)
+                drag = CGSize(width: o.x, height: o.y)
+            }
+            .onEnded { v in
+                let o = sheetOffset(edge, v.translation.width, v.translation.height)
+                if max(abs(o.x), abs(o.y)) >= sheetDismissDistance {
+                    model.paintDismiss(layer)
+                    drag = .zero
+                } else {
+                    withAnimation(.timingCurve(0, 0, 0.2, 1, duration: 0.2)) { drag = .zero }
+                }
+            }
+    }
+}
+
+/// How far a Drawer is dragged toward its edge before it dismisses (gpui
+/// `SHEET_DISMISS_PX`).
+let sheetDismissDistance: CGFloat = 64
+
+/// A sheet drag's offset: the pointer's travel TOWARD the sheet's edge
+/// only (gpui `sheet_offset`).
+func sheetOffset(_ side: String, _ x: CGFloat, _ y: CGFloat) -> CGPoint {
+    switch side {
+    case "bottom": CGPoint(x: 0, y: max(0, y))
+    case "top": CGPoint(x: 0, y: min(0, y))
+    case "left": CGPoint(x: min(0, x), y: 0)
+    case "right": CGPoint(x: max(0, x), y: 0)
+    default: .zero
+    }
+}
+
+private struct LayerAccessibility: ViewModifier {
+    let modal: Bool
+
+    func body(content: Content) -> some View {
+        if modal {
+            // The focus trap for VoiceOver: a modal container hides its
+            // siblings (the tree beneath) from the reader.
+            content.accessibilityElement(children: .contain).accessibilityAddTraits(.isModal)
+        } else {
+            content
+        }
+    }
+}
+
+private struct EscapeDismiss: ViewModifier {
+    let layer: LayerInfo
+    let model: SurfaceModel
+
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.onExitCommand { model.paintDismiss(layer) }
+        #else
+        content
+        #endif
     }
 }
 
 extension SurfaceModel {
+    /// Dismiss layer `layer` through the core's path (`event(root,
+    /// "dismiss")`: the core closes it only when dismissible and fires the
+    /// author's handlers), remembering it so the trigger's own press does
+    /// not reopen it.
+    func paintDismiss(_ layer: LayerInfo) {
+        guard layer.paintDismissible(self), layers.contains(where: { $0.owner == layer.owner }) else { return }
+        justDismissed = layer.owner
+        fire(layer.root, "dismiss")
+        let owner = layer.owner
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            if self?.justDismissed == owner { self?.justDismissed = nil }
+        }
+    }
+
     /// Does the DropdownMenu `owner` paint its items (recipe `native: false`)
     /// instead of opening a native `Menu`?
     func menuPainted(_ owner: String) -> Bool {
@@ -169,18 +219,14 @@ extension SurfaceModel {
         part("Select", "content", props: ownerProps).native == false
     }
 
-    func paintsInSurface(_ layer: LayerInfo) -> Bool {
-        if options.overlays == .painted { return true }
-        switch layer.kind {
-        case "Tooltip": return true
-        case "DropdownMenu": return !menuPainted(layer.owner) ? false : false
-        default: return false
-        }
-    }
+    /// Every core layer paints in the surface (contract §5).
+    func paintsInSurface(_ layer: LayerInfo) -> Bool { true }
 }
 
 /// The DatePicker popup: a graphical native `DatePicker` in a popover
-/// anchored at the field (a sheet on compact iPhones adapts itself).
+/// anchored at the field (a sheet on compact iPhones adapts itself). Only
+/// for the legacy `popup` path; a DatePicker whose calendar the core opens
+/// as a layer paints in `PaintedLayers`.
 struct DatePopup: ViewModifier {
     let model: SurfaceModel
 
@@ -232,64 +278,21 @@ private struct DatePopupContent: View {
     }
 }
 
-/// On a layer trigger: Tooltip hover (macOS) / long press (touch), the
-/// native DropdownMenu, the painted-menu tap.
+/// On a layer trigger: Tooltip hover (pointer) / long press (touch). Every
+/// other trigger is a plain pressable: its press goes to the core, which
+/// opens the layer (menus included: their items are core nodes).
 struct TriggerModifier: ViewModifier {
     let index: Int
     let node: NodeInfo
     let model: SurfaceModel
 
     func body(content: Content) -> some View {
-        if let target = node.triggerFor, let owner = model.index(of: target).flatMap({ model.node($0) }) {
-            switch owner.component {
-            case "Tooltip":
-                content
-                    .onLongPressGesture(minimumDuration: 0.4) { model.setOpen(target, !model.layers.contains { $0.owner == target }) }
-                    #if os(macOS)
-                    .onHover { model.tooltipHover(target, $0) }
-                    #endif
-            case "DropdownMenu" where !model.menuPainted(target) && model.options.overlays == .native:
-                Menu {
-                    MenuItems(owner: owner, model: model)
-                } label: {
-                    content
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-            default:
-                content
-            }
+        if let target = node.triggerFor, let owner = model.index(of: target).flatMap({ model.node($0) }), owner.component == "Tooltip" {
+            content
+                .onLongPressGesture(minimumDuration: 0.4) { model.setOpen(target, !model.layers.contains { $0.owner == target }) }
+                .onHover { model.tooltipHover(target, $0) }
         } else {
             content
-        }
-    }
-}
-
-/// The items of a native DropdownMenu, from the owner's `items` prop.
-private struct MenuItems: View {
-    let owner: NodeInfo
-    let model: SurfaceModel
-
-    var body: some View {
-        if !owner.props.str("label").isEmpty {
-            Text(owner.props.str("label"))
-        }
-        ForEach(Array(owner.props.list("items").enumerated()), id: \.offset) { _, item in
-            if item["separator"]?.bool == true || item["type"]?.string == "separator" {
-                Divider()
-            } else {
-                let value = item["value"] ?? .string(item["label"]?.displayText ?? "")
-                Button(role: item["destructive"]?.bool == true ? .destructive : nil) {
-                    model.fire(owner.index, "select", payload: .object(["value": value]))
-                } label: {
-                    if let icon = item["icon"]?.string, let view = model.host.icon(icon, size: 16) {
-                        Label { Text(item["label"]?.displayText ?? "") } icon: { view }
-                    } else {
-                        Text(item["label"]?.displayText ?? "")
-                    }
-                }
-                .disabled(item["disabled"]?.bool == true)
-            }
         }
     }
 }
