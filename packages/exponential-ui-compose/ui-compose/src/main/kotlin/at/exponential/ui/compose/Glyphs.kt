@@ -72,6 +72,9 @@ enum class Glyph(
     /** A calendar page. */
     Calendar(listOf("M8 2v4", "M16 2v4", "M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M3 10h18")),
 
+    /** A clock face (a TimePicker trigger). */
+    Clock(listOf("M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z", "M12 6v6l4 2")),
+
     /** An arrow up (send). */
     Send(listOf("M5 12l7-7 7 7", "M12 19V5")),
 

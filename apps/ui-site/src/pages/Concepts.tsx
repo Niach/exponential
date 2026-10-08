@@ -5,7 +5,7 @@
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
-import { COMPONENT_COUNT, CORE_CATALOG as CATALOG_ID, CORE_LITE_CATALOG as LITE_CATALOG_ID, MACRO_COUNT, NATIVE_COUNT, componentHref } from "../lib/catalog-facts"
+import { BASIC_FUNCTION_COUNT, COMPONENT_COUNT, CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT, CORE_LITE_CATALOG as LITE_CATALOG_ID, MACRO_COUNT, NATIVE_COUNT, componentHref } from "../lib/catalog-facts"
 import { LEARN_NAV } from "../lib/content"
 import { guidePath } from "../lib/guides"
 import type { PageProps } from "../lib/routes"
@@ -174,9 +174,10 @@ export default function ConceptsPage({ path }: PageProps) {
           </p>
           <DocsCode language="json">{ACTION_OUT}</DocsCode>
           <p>
-            A <strong>function call</strong> runs on the client. The 14 A2UI basic functions are built in on every
-            renderer (validation checks, formatting, <code>openUrl</code>, <code>and</code>/<code>or</code>/
-            <code>not</code>), and a host can register its own behind a policy gate (see{` `}
+            A <strong>function call</strong> runs on the client. {FUNCTION_COUNT} functions are built in on every
+            renderer: the {BASIC_FUNCTION_COUNT} A2UI basic ones (checks, formatting, <code>openUrl</code>,{` `}
+            <code>and</code>/<code>or</code>/<code>not</code>) and the core ones (value functions, <code>set</code>).
+            A host can register its own behind a policy gate (see{` `}
             <a href="#host-plugins">host plugins</a>):
           </p>
           <DocsCode language="json">{FUNCTION_CALL}</DocsCode>
@@ -223,7 +224,7 @@ export default function ConceptsPage({ path }: PageProps) {
             A2UI ships a small <strong>basic catalog</strong>. Exponential UI vendors it unchanged and maps it onto
             the core catalog through one table, so a surface written for any A2UI client renders here too and
             painters only ever learn one vocabulary. Dynamic values pass through untouched, the basic icon names map
-            onto the icon registry, and the 14 functions are the same.
+            onto the icon registry, and the {BASIC_FUNCTION_COUNT} basic functions are the same.
           </p>
           <DocsTable
             className="concepts-map"

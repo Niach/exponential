@@ -8,7 +8,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView, mergeStyle } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts } from "./shared"
-import { useMediaSrc } from "../media"
+import { useMediaSource, useMediaSrc } from "../media"
 
 /** Image (contract §3): `loading` lazy|eager, `focalX/focalY` (0..1, the
  *  point kept when the picture is cropped → `object-position`), and the
@@ -29,13 +29,16 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
   const objectFit = fit === `scaleDown` ? `scale-down` : fit
   const fx = Math.max(0, Math.min(1, num(props.focalX, 0.5)))
   const fy = Math.max(0, Math.min(1, num(props.focalY, 0.5)))
-  const failed = !src || state === `error`
+  // The host's media request (VAPP-91: headers → a blob url once fetched);
+  // a failed fetch is the Image's error state (fallback + alt).
+  const media = useMediaSource(ctx.host, src)
+  const url = media.url
+  const shown = media.error ? `error` : state
+  const failed = !src || shown === `error`
   const fallback = str(props.fallback)
-  // The host's media request (VAPP-91: headers → a blob url once fetched).
-  const url = useMediaSrc(ctx.host, src)
   return (
-    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)} role={failed ? `img` : undefined} aria-label={failed ? alt : undefined} data-state={src ? state : `empty`}>
-      {src && url && state !== `error` ? (
+    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)} role={failed ? `img` : undefined} aria-label={failed ? alt : undefined} data-state={src ? shown : `empty`}>
+      {src && url && shown !== `error` ? (
         <img
           src={url}
           alt={alt}

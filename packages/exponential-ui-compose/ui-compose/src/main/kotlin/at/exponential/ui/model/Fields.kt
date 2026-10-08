@@ -46,12 +46,20 @@ class FieldState internal constructor(val id: String, text: String, internal var
 /** The debounce before a `change` goes out (ms). */
 const val INPUT_DEBOUNCE_MS = 150L
 
+/**
+ * The value a field shows from the core: an inline field's (NumberField /
+ * ChipInput `.input`, Select `.search`) own `text` prop (the core formats
+ * the number, keeps the typed query), else the owner's `value`.
+ */
+internal fun SurfaceModel.fieldExternal(n: NodeInfo): JsonValue =
+    if (n.isInlineField) n.props["text"] ?: JsonValue.Null else (owner(n.index) ?: n).props["value"] ?: JsonValue.Null
+
 /** The field state of a text-field node, created from its props. */
 fun SurfaceModel.field(index: Int): FieldState? {
     val n = node(index) ?: return null
     if (!n.isTextField) return null
     fieldsMap[n.id]?.let { return it }
-    val external = (owner(index) ?: n).props["value"] ?: JsonValue.Null
+    val external = fieldExternal(n)
     val f = FieldState(n.id, external.displayText, external)
     fieldsMap[n.id] = f
     return f
@@ -145,7 +153,7 @@ internal fun SurfaceModel.echoFields() {
     for (n in nodes) {
         if (!n.isTextField) continue
         val f = fieldsMap[n.id] ?: continue
-        val external = (owner(n.index) ?: n).props["value"] ?: JsonValue.Null
+        val external = fieldExternal(n)
         if (external == f.external) continue
         f.external = external
         if (f.focused || f.pendingChange) continue

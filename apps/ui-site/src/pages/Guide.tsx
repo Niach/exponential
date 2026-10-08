@@ -6,7 +6,7 @@ import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
 import { DocsCallout, DocsCode, DocsLayout, DocsSection } from "@exp/site-shell"
 import { DocsTable, IcArrow } from "../components/Content"
 import { GuideFile } from "../components/GuideFile"
-import { CORE_CATALOG as CATALOG_ID } from "../lib/catalog-facts"
+import { CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT } from "../lib/catalog-facts"
 import { CHECK_DIR, GUIDE_CHECK, GUIDES_NAV } from "../lib/content"
 import { GUIDES, guidePath } from "../lib/guides"
 import type { PageProps } from "../lib/routes"
@@ -420,7 +420,7 @@ cd packages/exponential-ui-compose
         <>
           <p>
             A surface calls a function with <code>{`{"functionCall": {"call": "cart.add", "args": {…}}}`}</code> on
-            an event. The 14 catalog functions are built in; any other name must be registered, and passes the gate
+            an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name must be registered, and passes the gate
             first: <strong>deny</strong> wins, then <strong>allow</strong>, then <strong>ask</strong> (your{` `}
             <code>onFunctionCall</code> consent hook), then <code>default</code>. Patterns are exact names or prefixes
             ending in <code>*</code>. A function may be async; the button stays pending until it settles.

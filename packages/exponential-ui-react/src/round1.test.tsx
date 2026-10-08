@@ -607,6 +607,25 @@ describe(`new natives`, () => {
     expect(container.querySelector(`.xui-Image-fallback`)).not.toBeNull()
     expect(container.querySelector(`[data-xui-id="i"]`)!.getAttribute(`data-state`)).toBe(`error`)
   })
+  it(`Image: a host media fetch that fails shows the fallback and the alt (VAPP-99)`, async () => {
+    const fetchSpy = vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(null, { status: 404 }))
+    try {
+      const host: HostPlugin = { mediaRequest: (src) => ({ url: `https://x.test/${src}`, headers: { authorization: `Bearer t` } }) }
+      const { container } = render(<ExponentialSurface root={tree({ id: `i`, component: `Image`, props: { src: `gone.png`, alt: `Gone` } })} theme="neutral" id="imf" host={host} />)
+      const root = container.querySelector(`[data-xui-id="i"]`)!
+      expect(root.getAttribute(`data-state`)).toBe(`loading`)
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(`https://x.test/gone.png`, { headers: { authorization: `Bearer t` } })
+      expect(root.getAttribute(`data-state`)).toBe(`error`)
+      expect(root.getAttribute(`aria-label`)).toBe(`Gone`)
+      expect(container.querySelector(`.xui-Image-fallback`)).not.toBeNull()
+      expect(container.querySelector(`img`)).toBeNull()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
   it(`Textarea autosize sizes the field between rows and maxRows`, () => {
     const { container } = render(<ExponentialSurface root={tree({ id: `ta`, component: `Textarea`, props: { label: `Body`, name: `body`, rows: 2, maxRows: 4, autosize: true } })} theme="neutral" id="ta" />)
     const ta = container.querySelector(`textarea`)!

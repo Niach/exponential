@@ -86,8 +86,10 @@ class GeometryTest {
         assumeTrue("no dialog in the kitchen sink", dialogs.isNotEmpty())
         val owner = dialogs[0]
         m.setOpen(owner.id, true)
-        assertEquals(listOf(owner.id), m.layers.map { it.owner })
-        val layer = m.layers[0]
+        // The kitchen sink's Toast is open too (the toast class stacks above every overlay).
+        assertEquals(listOf(owner.id), m.layers.filter { !it.isToast }.map { it.owner })
+        val layer = m.layers.first { it.owner == owner.id }
+        assertTrue(layer.isModal)
         assertEquals("Dialog", layer.kind)
         assertTrue(layer.frame.width > 100f)
         assertEquals("centered", layer.position)
@@ -95,6 +97,6 @@ class GeometryTest {
         assertEquals(1, m.node(layer.root)?.layer)
         assertEquals(layer.frame, m.frame(layer.root))
         m.dismissLayer(owner.id)
-        assertTrue(m.layers.isEmpty())
+        assertTrue(m.layers.none { it.owner == owner.id })
     }
 }

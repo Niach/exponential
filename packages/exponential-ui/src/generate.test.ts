@@ -57,3 +57,21 @@ describe(`generated outputs (VAPP-85)`, () => {
     })
   }
 })
+
+describe(`core.schema.json actions (VAPP-99)`, () => {
+  const schema = JSON.parse(readFileSync(join(pkgRoot, `catalog/core.schema.json`), `utf8`)) as { $defs: Record<string, Record<string, unknown>> }
+
+  test(`an Action takes A2UI's functionCall beside the legacy function key`, () => {
+    const action = schema.$defs.Action as { properties: Record<string, unknown>; anyOf: unknown[] }
+    expect(action.properties.functionCall).toEqual({ $ref: `#/$defs/ActionFunctionCall` })
+    expect(action.properties.function).toEqual({ $ref: `#/$defs/ActionFunctionCall` })
+    expect(action.anyOf).toContainEqual({ required: [`functionCall`] })
+  })
+
+  test(`an action may call a host function; a value position stays catalog-only`, () => {
+    const call = (schema.$defs.ActionFunctionCall as { properties: { call: Record<string, unknown> } }).properties.call
+    expect(call.enum).toBeUndefined()
+    expect(call.type).toBe(`string`)
+    expect((schema.$defs.FunctionCall as { properties: { call: { enum: string[] } } }).properties.call.enum).toContain(`formatNumber`)
+  })
+})

@@ -106,7 +106,7 @@ internal fun PaintedLayers(model: SurfaceModel) {
                             }
                             .hiddenFromAccessibility(),
                     )
-                } else if (layer.kind != "Tooltip") {
+                } else if (layer.kind != "Tooltip" && !layer.isToast) {
                     Box(
                         unbounded
                             .requiredSize(catcherW.dp, catcherH.dp)
@@ -122,12 +122,13 @@ internal fun PaintedLayers(model: SurfaceModel) {
 
 /**
  * Native presentations of the open layers (under
- * [OverlayPresentation.Native]): a Dialog in a platform `Dialog` window, a
- * Drawer in an M3 `ModalBottomSheet` (a second modal stacks on the first),
- * a Popover (and a DropdownMenu whose recipe paints its items) in a
- * `Popup` anchored at the core's anchor frame on the side it landed. The
- * native DropdownMenu lives on its trigger ([TriggerMenu]); tooltips are
- * painted ([PaintedLayers]).
+ * [OverlayPresentation.Native]): a modal Drawer in an M3
+ * `ModalBottomSheet`, any other modal (Dialog, AlertDialog) in a platform
+ * `Dialog` window (a second modal stacks on the first), every other
+ * overlay (Popover, HoverCard, ContextMenu, a painted DropdownMenu, the
+ * core's picker popups) in a `Popup` anchored at the core's anchor frame
+ * on the side it landed. The native DropdownMenu lives on its trigger
+ * ([TriggerMenu]); tooltips and toasts are painted ([PaintedLayers]).
  */
 @Composable
 internal fun NativeOverlays(model: SurfaceModel) {
@@ -138,9 +139,9 @@ internal fun NativeOverlays(model: SurfaceModel) {
         }
     }
     for (layer in model.layers) {
-        if (layer.kind == "Popover" || (layer.kind == "DropdownMenu" && model.menuPainted(layer.owner))) {
-            key(layer.owner) { PopoverLayer(model, layer) }
-        }
+        if (layer.isModal || layer.isToast || layer.kind == "Tooltip") continue
+        if (layer.kind == "DropdownMenu" && !model.menuPainted(layer.owner)) continue
+        key(layer.owner) { PopoverLayer(model, layer) }
     }
 }
 
@@ -311,7 +312,7 @@ private fun MenuItems(owner: NodeInfo, model: SurfaceModel, close: () -> Unit) {
 }
 
 /**
- * The DatePicker popup: while `model.popup` names a DatePicker field, an
+ * The DatePicker popup: while `model.popup` names a DatePicker trigger, an
  * M3 `DatePickerDialog` (date only, UTC midnight millis ↔ ISO through
  * [DateModel], `min` / `max` from the owner's props as selectable dates).
  * Done → `pickDate`; dismiss / Cancel → `popup = null`.

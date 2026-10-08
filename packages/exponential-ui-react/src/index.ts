@@ -35,4 +35,4 @@ export { monthGrid } from "./natives/dates"
 // VAPP-91: the host API on React.
 export { HostSurface, hostPlugin, useHostSurface, useHostSurfaceIds, useHostStatus } from "./host-surface"
 export type { HostSurfaceProps } from "./host-surface"
-export { useMediaSrc } from "./media"
+export { useMediaSource, useMediaSrc } from "./media"

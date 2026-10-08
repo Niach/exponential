@@ -313,9 +313,10 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
     if let Some(sets) = &tpl.set {
         for (part_event, spec) in sets {
             let Some(bound) = exp.base_props.get(&spec.prop).filter(|b| is_binding(b)) else { continue };
-            let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("function")).is_some_and(js_truthy);
+            let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("functionCall").filter(|f| js_truthy(f)).or_else(|| a.get("function"))).is_some_and(js_truthy);
             if has_function {
-                // An Action carries ONE function: the author's routed function
+                // An Action carries ONE function (`functionCall`, or the legacy
+                // `function` key): the author's routed function
                 // call wins and the bound prop is not written back (reported,
                 // never lost silently). Route an `event` to keep the write.
                 let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).unwrap_or(part_event);

@@ -48,8 +48,12 @@ fun LeafContent(context: LeafContext) {
         "Input" -> if (n.part == "field") TextFieldLeaf(cx, multiline = false)
         "Textarea" -> if (n.part == "field") TextFieldLeaf(cx, multiline = true)
         "Composer" -> ComposerLeaf(cx)
-        "Select" -> if (n.part == "field") SelectFieldLeaf(cx)
-        "DatePicker" -> if (n.part == "field") DateFieldLeaf(cx)
+        // Round 1: the pickers' `trigger` part, the inline fields' `input` / `search`.
+        "Select", "DatePicker", "TimePicker", "DateRangePicker" -> when {
+            n.isPickerTrigger -> PickerTriggerLeaf(cx)
+            n.isInlineField -> InlineFieldLeaf(cx)
+        }
+        "NumberField", "ChipInput" -> if (n.isInlineField) InlineFieldLeaf(cx)
         "Checkbox" -> if (n.part == "box") CheckboxBox(cx)
         "Radio" -> if (n.part == "dot") RadioDot(cx)
         "Switch" -> if (n.part == "track") SwitchTrack(cx)

@@ -61,9 +61,11 @@ class ModelSmokeTest {
 
         val box = m.indexOf("form-agree.box")!!
         assertTrue(m.checked(box))
+        val before = m.style(box).background
         m.press(box)
         assertFalse(m.checked(box))
-        assertNotEquals(m.boxStyle(box).background, m.style(box).background)
+        // Round 1: the core keeps the unbound value and restyles the box itself.
+        assertNotEquals(before, m.style(box).background)
 
         val run = m.indexOf("tabs.tab.1")!!
         assertTrue(m.node(m.indexOf("tab-run")!!)!!.hidden)

@@ -219,6 +219,13 @@ describe(`$set meets an author function (§1, review minor)`, () => {
     expect(ok.issues).toEqual([])
     expect(ok.root.children[0].on!.press).toEqual({ event: { name: `tab`, context: { value: `a` } }, function: { call: `set`, args: { path: `/tab`, value: `a` } } })
   })
+
+  test(`an A2UI functionCall counts as the author's function too (VAPP-99)`, () => {
+    const { root, issues } = reduce({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/o` } }, on: { change: { functionCall: { call: `harness.track` } } } })
+    const press = byId(root, `c.trigger`)!.on!.press as Record<string, unknown>
+    expect(press).toEqual({ functionCall: { call: `harness.track` } })
+    expect(issues).toEqual([{ id: `c`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
+  })
 })
 
 describe(`numeric equality and clamping (§1, review minor)`, () => {

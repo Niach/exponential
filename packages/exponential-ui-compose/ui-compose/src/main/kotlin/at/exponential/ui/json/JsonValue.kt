@@ -28,7 +28,11 @@ sealed class JsonValue {
     data class Obj(val v: Map<String, JsonValue>) : JsonValue()
 
     /** Serialized: compact, object keys SORTED, integers without `.0`. */
-    val json: String get() = StringBuilder().also { write(this, it) }.toString()
+    val json: String get() = StringBuilder().also { write(this, it, sorted = true) }.toString()
+
+    /** Serialized with object keys in their PARSED order (where order is
+     *  meaningful, e.g. a theme whose issues are reported in key order). */
+    val orderedJson: String get() = StringBuilder().also { write(this, it, sorted = false) }.toString()
 
     override fun toString(): String = json
 
@@ -102,7 +106,7 @@ sealed class JsonValue {
             else if (n == floor(n) && abs(n) < 1e15) n.toLong().toString()
             else n.toString()
 
-        private fun write(v: JsonValue, sb: StringBuilder) {
+        private fun write(v: JsonValue, sb: StringBuilder, sorted: Boolean) {
             when (v) {
                 Null -> sb.append("null")
                 is Bool -> sb.append(if (v.v) "true" else "false")
@@ -110,16 +114,16 @@ sealed class JsonValue {
                 is Str -> writeString(v.v, sb)
                 is Arr -> {
                     sb.append('[')
-                    v.v.forEachIndexed { i, x -> if (i > 0) sb.append(','); write(x, sb) }
+                    v.v.forEachIndexed { i, x -> if (i > 0) sb.append(','); write(x, sb, sorted) }
                     sb.append(']')
                 }
                 is Obj -> {
                     sb.append('{')
-                    v.v.keys.sorted().forEachIndexed { i, k ->
+                    (if (sorted) v.v.keys.sorted() else v.v.keys).forEachIndexed { i, k ->
                         if (i > 0) sb.append(',')
                         writeString(k, sb)
                         sb.append(':')
-                        write(v.v.getValue(k), sb)
+                        write(v.v.getValue(k), sb, sorted)
                     }
                     sb.append('}')
                 }

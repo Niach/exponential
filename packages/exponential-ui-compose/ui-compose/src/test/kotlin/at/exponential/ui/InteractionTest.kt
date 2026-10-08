@@ -91,9 +91,12 @@ class InteractionTest {
         val m = sink(RecordingHost())
         val box = m.idx("form-agree.box")
         assertTrue(m.checked(box))
+        val before = m.style(box).background
         m.press(box)
         assertFalse(m.checked(box))
-        assertNotEquals("the box re-resolves its recipe from the mirror", m.style(box).background, m.boxStyle(box).background)
+        // Round 1: the core keeps the unbound value and restyles the box itself.
+        assertNotEquals("the core re-resolves the box's recipe", before, m.style(box).background)
+        assertEquals(m.style(box).background, m.boxStyle(box).background)
         val track = m.idx("nav-toggle.track")
         assertTrue(m.checked(track))
         m.press(track)
@@ -219,7 +222,9 @@ class InteractionTest {
         assertEquals(trigger.id, m.layerReturn[owner])
         assertFalse("a native dialog is not painted in the surface", m.paintsInSurface(m.modalLayers[0]))
         assertTrue(m.escape())
-        assertTrue(m.layers.isEmpty())
+        assertTrue(m.layers.none { it.owner == owner })
+        // The kitchen sink's open Toast stays: toasts paint in the surface and are never escaped.
+        assertTrue(m.layers.all { it.isToast && m.paintsInSurface(it) })
         assertFalse("nothing left to escape", m.escape())
         // A tooltip paints in the surface in native mode.
         val tip = m.nodes.firstOrNull { it.component == "Tooltip" }

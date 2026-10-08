@@ -475,6 +475,319 @@
       }
     ]
   },
+  "AlertDialog\/destructive=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "alert-dialog"
+      }
+    ]
+  },
+  "AlertDialog\/destructive=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "alert-dialog"
+      }
+    ]
+  },
+  "AlertDialog\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "alert-dialog"
+      }
+    ]
+  },
+  "AlertDialog\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "alert-dialog"
+      }
+    ]
+  },
+  "AlertDialog\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "alert-dialog"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          8,
+          301,
+          374,
+          198
+        ],
+        "id" : "alert-dialog.content",
+        "part" : "content",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          326,
+          324,
+          28
+        ],
+        "id" : "alert-dialog.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          370,
+          324,
+          20
+        ],
+        "id" : "alert-dialog.description",
+        "part" : "description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          406,
+          324,
+          20
+        ],
+        "id" : "alert-dialog.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          406,
+          324,
+          20
+        ],
+        "id" : "alert-dialog-child"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          442,
+          324,
+          32
+        ],
+        "id" : "alert-dialog.footer",
+        "part" : "footer"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          197,
+          442,
+          160,
+          32
+        ],
+        "id" : "alert-dialog.footer"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          197,
+          442,
+          72,
+          32
+        ],
+        "id" : "alert-dialog.footer.cancel",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          277,
+          442,
+          80,
+          32
+        ],
+        "id" : "alert-dialog.footer.confirm",
+        "radius" : 10
+      }
+    ]
+  },
+  "AppBar\/back=false" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "app-bar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          9.5,
+          366,
+          28
+        ],
+        "id" : "app-bar.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          9.5,
+          366,
+          28
+        ],
+        "id" : "app-bar.body.title"
+      }
+    ]
+  },
+  "AppBar\/back=true" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "app-bar"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          12,
+          7.5,
+          32,
+          32
+        ],
+        "id" : "app-bar.back",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          52,
+          9.5,
+          326,
+          28
+        ],
+        "id" : "app-bar.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          52,
+          9.5,
+          326,
+          28
+        ],
+        "id" : "app-bar.body.title"
+      }
+    ]
+  },
+  "AppBar\/example" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "app-bar"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          12,
+          7.5,
+          32,
+          32
+        ],
+        "id" : "app-bar.back",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          52,
+          9.5,
+          326,
+          28
+        ],
+        "id" : "app-bar.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          52,
+          9.5,
+          326,
+          28
+        ],
+        "id" : "app-bar.body.title"
+      }
+    ]
+  },
   "AudioPlayer\/example" : {
     "height" : 0,
     "nodes" : [
@@ -930,6 +1243,105 @@
       }
     ]
   },
+  "Breadcrumb\/example" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "breadcrumb"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          72,
+          24
+        ],
+        "id" : "breadcrumb.item.0"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          24
+        ],
+        "id" : "breadcrumb.item.0.link",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          76,
+          0,
+          116,
+          24
+        ],
+        "id" : "breadcrumb.item.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          76,
+          4,
+          16,
+          16
+        ],
+        "id" : "breadcrumb.item.1.separator"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          96,
+          0,
+          96,
+          24
+        ],
+        "id" : "breadcrumb.item.1.link",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          196,
+          2,
+          68,
+          20
+        ],
+        "id" : "breadcrumb.item.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          196,
+          4,
+          16,
+          16
+        ],
+        "id" : "breadcrumb.item.2.separator"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          216,
+          2,
+          48,
+          20
+        ],
+        "id" : "breadcrumb.item.2.current"
+      }
+    ]
+  },
   "Button\/disabled=false" : {
     "height" : 32,
     "nodes" : [
@@ -1169,6 +1581,60 @@
           0,
           40,
           24
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/submit=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/submit=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
         ],
         "id" : "button-child"
       }
@@ -1940,7 +2406,7 @@
     ]
   },
   "Chart\/example" : {
-    "height" : 0,
+    "height" : 200,
     "nodes" : [
       {
         "component" : "Chart",
@@ -1948,14 +2414,14 @@
           0,
           0,
           390,
-          0
+          200
         ],
         "id" : "chart"
       }
     ]
   },
   "Chart\/kind=area" : {
-    "height" : 0,
+    "height" : 200,
     "nodes" : [
       {
         "component" : "Chart",
@@ -1963,14 +2429,14 @@
           0,
           0,
           390,
-          0
+          200
         ],
         "id" : "chart"
       }
     ]
   },
   "Chart\/kind=bar" : {
-    "height" : 0,
+    "height" : 200,
     "nodes" : [
       {
         "component" : "Chart",
@@ -1978,14 +2444,29 @@
           0,
           0,
           390,
-          0
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=donut" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
         ],
         "id" : "chart"
       }
     ]
   },
   "Chart\/kind=line" : {
-    "height" : 0,
+    "height" : 200,
     "nodes" : [
       {
         "component" : "Chart",
@@ -1993,14 +2474,14 @@
           0,
           0,
           390,
-          0
+          200
         ],
         "id" : "chart"
       }
     ]
   },
   "Chart\/kind=pie" : {
-    "height" : 0,
+    "height" : 200,
     "nodes" : [
       {
         "component" : "Chart",
@@ -2008,7 +2489,157 @@
           0,
           0,
           390,
-          0
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=sparkline" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=stackedBar" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showAxes=false" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showAxes=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showGrid=false" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showGrid=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showLegend=false" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showLegend=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showValues=false" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/showValues=true" : {
+    "height" : 200,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          200
         ],
         "id" : "chart"
       }
@@ -2218,206 +2849,2598 @@
       }
     ]
   },
-  "Collapsible\/example" : {
-    "height" : 22,
+  "ChipInput\/disabled=false" : {
+    "height" : 60,
     "nodes" : [
       {
-        "component" : "Accordion",
+        "component" : "ChipInput",
         "frame" : [
           0,
           0,
           390,
-          22
+          60
         ],
-        "id" : "collapsible"
+        "id" : "chip-input"
       },
       {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "chip-input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Box",
         "frame" : [
           0,
+          24,
+          390,
+          36
+        ],
+        "id" : "chip-input.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          5,
+          32,
+          58,
+          20
+        ],
+        "id" : "chip-input.chip.0",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.0",
+        "part" : "chipLabel"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          39,
+          34,
+          16,
+          16
+        ],
+        "id" : "chip-input.remove.0",
+        "part" : "remove"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          67,
+          32,
+          58,
+          20
+        ],
+        "id" : "chip-input.chip.1",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          75,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.1",
+        "part" : "chipLabel"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          101,
+          34,
+          16,
+          16
+        ],
+        "id" : "chip-input.remove.1",
+        "part" : "remove"
+      },
+      {
+        "component" : "ChipInput",
+        "frame" : [
+          129,
+          32,
+          256,
+          20
+        ],
+        "id" : "chip-input.input",
+        "part" : "input"
+      }
+    ]
+  },
+  "ChipInput\/disabled=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "ChipInput",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "chip-input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "chip-input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "chip-input.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          5,
+          32,
+          40,
+          20
+        ],
+        "id" : "chip-input.chip.0",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.0",
+        "part" : "chipLabel"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          49,
+          32,
+          40,
+          20
+        ],
+        "id" : "chip-input.chip.1",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          57,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.1",
+        "part" : "chipLabel"
+      },
+      {
+        "component" : "ChipInput",
+        "frame" : [
+          93,
+          32,
+          292,
+          20
+        ],
+        "id" : "chip-input.input",
+        "part" : "input"
+      }
+    ]
+  },
+  "ChipInput\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "ChipInput",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "chip-input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "chip-input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "chip-input.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          5,
+          32,
+          58,
+          20
+        ],
+        "id" : "chip-input.chip.0",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.0",
+        "part" : "chipLabel"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          39,
+          34,
+          16,
+          16
+        ],
+        "id" : "chip-input.remove.0",
+        "part" : "remove"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          67,
+          32,
+          58,
+          20
+        ],
+        "id" : "chip-input.chip.1",
+        "part" : "chip",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          75,
+          32,
+          24,
+          20
+        ],
+        "id" : "chip-input.chipLabel.1",
+        "part" : "chipLabel"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          101,
+          34,
+          16,
+          16
+        ],
+        "id" : "chip-input.remove.1",
+        "part" : "remove"
+      },
+      {
+        "component" : "ChipInput",
+        "frame" : [
+          129,
+          32,
+          256,
+          20
+        ],
+        "id" : "chip-input.input",
+        "part" : "input"
+      }
+    ]
+  },
+  "CodeBlock\/copyable=false" : {
+    "height" : 22,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
           0,
           390,
           22
         ],
-        "id" : "collapsible.item.0",
-        "part" : "item"
+        "id" : "code-block",
+        "radius" : 10
       },
       {
-        "component" : "Text",
+        "component" : "Box",
         "frame" : [
           1,
           1,
           388,
           20
         ],
-        "id" : "collapsible.trigger.0",
-        "part" : "trigger"
+        "id" : "code-block.body",
+        "part" : "body"
       },
       {
         "component" : "Box",
         "frame" : [
-          0,
-          0,
-          0,
-          0
+          1,
+          1,
+          288,
+          20
         ],
-        "hidden" : true,
-        "id" : "collapsible.content.0",
-        "part" : "content"
-      },
-      {
-        "component" : "Box",
-        "frame" : [
-          0,
-          0,
-          0,
-          0
-        ],
-        "hidden" : true,
-        "id" : "collapsible.body"
+        "id" : "code-block.line.0",
+        "part" : "line"
       },
       {
         "component" : "Text",
         "frame" : [
+          13,
+          1,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          1,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/copyable=true" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
           0,
           0,
-          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
           0
         ],
-        "hidden" : true,
-        "id" : "collapsible-child"
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/example" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=bash" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=css" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=html" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=js" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=json" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=kotlin" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=markdown" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=plain" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=python" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=rust" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=sql" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=swift" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=ts" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=tsx" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=yaml" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/lineNumbers=false" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          272,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/lineNumbers=true" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/wrap=false" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          288,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          248,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/wrap=true" : {
+    "height" : 63,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          63
+        ],
+        "id" : "code-block",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          41
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          13,
+          21,
+          324,
+          0
+        ],
+        "id" : "code-block.spacer",
+        "part" : "spacer"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          5,
+          32,
+          32
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          42,
+          388,
+          20
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          42,
+          16,
+          20
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          42,
+          348,
+          20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "Collapsible\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "collapsible"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "collapsible.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "collapsible.trigger.chevron"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          32,
+          6,
+          350,
+          20
+        ],
+        "id" : "collapsible.trigger.title"
       }
     ]
   },
   "Collapsible\/open=false" : {
-    "height" : 22,
+    "height" : 32,
     "nodes" : [
       {
-        "component" : "Accordion",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          22
+          32
         ],
         "id" : "collapsible"
       },
       {
-        "border" : 1,
         "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          22
+          32
         ],
-        "id" : "collapsible.item.0",
-        "part" : "item"
+        "id" : "collapsible.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "collapsible.trigger.chevron"
       },
       {
         "component" : "Text",
         "frame" : [
-          1,
-          1,
-          388,
+          32,
+          6,
+          350,
           20
         ],
-        "id" : "collapsible.trigger.0",
-        "part" : "trigger"
-      },
-      {
-        "component" : "Box",
-        "frame" : [
-          0,
-          0,
-          0,
-          0
-        ],
-        "hidden" : true,
-        "id" : "collapsible.content.0",
-        "part" : "content"
-      },
-      {
-        "component" : "Box",
-        "frame" : [
-          0,
-          0,
-          0,
-          0
-        ],
-        "hidden" : true,
-        "id" : "collapsible.body"
-      },
-      {
-        "component" : "Text",
-        "frame" : [
-          0,
-          0,
-          0,
-          0
-        ],
-        "hidden" : true,
-        "id" : "collapsible-child"
+        "id" : "collapsible.trigger.title"
       }
     ]
   },
   "Collapsible\/open=true" : {
-    "height" : 66,
+    "height" : 56,
     "nodes" : [
       {
-        "component" : "Accordion",
+        "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          66
+          56
         ],
         "id" : "collapsible"
       },
       {
-        "border" : 1,
         "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          66
+          32
         ],
-        "id" : "collapsible.item.0",
-        "part" : "item"
+        "id" : "collapsible.trigger",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "collapsible.trigger.chevron"
       },
       {
         "component" : "Text",
         "frame" : [
-          1,
-          1,
-          388,
+          32,
+          6,
+          350,
           20
         ],
-        "id" : "collapsible.trigger.0",
-        "part" : "trigger",
-        "states" : [
-          "open"
-        ]
+        "id" : "collapsible.trigger.title"
       },
       {
         "component" : "Box",
         "frame" : [
-          1,
-          21,
-          388,
-          44
-        ],
-        "id" : "collapsible.content.0",
-        "part" : "content"
-      },
-      {
-        "component" : "Box",
-        "frame" : [
-          1,
-          33,
-          388,
+          0,
+          36,
+          390,
           20
         ],
         "id" : "collapsible.body"
@@ -2425,9 +5448,9 @@
       {
         "component" : "Text",
         "frame" : [
-          1,
-          33,
-          388,
+          8,
+          36,
+          374,
           20
         ],
         "id" : "collapsible-child"
@@ -2524,6 +5547,31 @@
       }
     ]
   },
+  "ContextMenu\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "ContextMenu",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "context-menu"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "context-menu-child"
+      }
+    ]
+  },
   "DatePicker\/example" : {
     "height" : 60,
     "nodes" : [
@@ -2549,6 +5597,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "DatePicker",
         "frame" : [
@@ -2557,8 +5606,48 @@
           390,
           36
         ],
-        "id" : "date-picker.field",
-        "part" : "field",
+        "id" : "date-picker.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "DateRangePicker\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "DateRangePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "date-range-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "date-range-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "DateRangePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "date-range-picker.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -2708,6 +5797,66 @@
         "id" : "dialog.close",
         "part" : "close",
         "radius" : 8
+      }
+    ]
+  },
+  "Drawer\/dismissible=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/dismissible=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/dragToDismiss=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/dragToDismiss=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
       }
     ]
   },
@@ -3078,6 +6227,564 @@
       }
     ]
   },
+  "FileUpload\/disabled=false" : {
+    "height" : 158,
+    "nodes" : [
+      {
+        "component" : "FileUpload",
+        "frame" : [
+          0,
+          0,
+          390,
+          158
+        ],
+        "id" : "file-upload"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "file-upload.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          134
+        ],
+        "id" : "file-upload.dropzone",
+        "part" : "dropzone",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          49,
+          24,
+          24
+        ],
+        "id" : "file-upload.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          135,
+          81,
+          120,
+          20
+        ],
+        "id" : "file-upload.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          159,
+          109,
+          72,
+          24
+        ],
+        "id" : "file-upload.browse",
+        "part" : "browse",
+        "radius" : 10
+      }
+    ]
+  },
+  "FileUpload\/disabled=true" : {
+    "height" : 158,
+    "nodes" : [
+      {
+        "component" : "FileUpload",
+        "frame" : [
+          0,
+          0,
+          390,
+          158
+        ],
+        "id" : "file-upload"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "file-upload.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          134
+        ],
+        "id" : "file-upload.dropzone",
+        "opacity" : 0.5,
+        "part" : "dropzone",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          49,
+          24,
+          24
+        ],
+        "id" : "file-upload.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          135,
+          81,
+          120,
+          20
+        ],
+        "id" : "file-upload.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          159,
+          109,
+          72,
+          24
+        ],
+        "id" : "file-upload.browse",
+        "opacity" : 0.5,
+        "part" : "browse",
+        "radius" : 10
+      }
+    ]
+  },
+  "FileUpload\/example" : {
+    "height" : 158,
+    "nodes" : [
+      {
+        "component" : "FileUpload",
+        "frame" : [
+          0,
+          0,
+          390,
+          158
+        ],
+        "id" : "file-upload"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "file-upload.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          134
+        ],
+        "id" : "file-upload.dropzone",
+        "part" : "dropzone",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          49,
+          24,
+          24
+        ],
+        "id" : "file-upload.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          135,
+          81,
+          120,
+          20
+        ],
+        "id" : "file-upload.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          159,
+          109,
+          72,
+          24
+        ],
+        "id" : "file-upload.browse",
+        "part" : "browse",
+        "radius" : 10
+      }
+    ]
+  },
+  "FileUpload\/multiple=false" : {
+    "height" : 158,
+    "nodes" : [
+      {
+        "component" : "FileUpload",
+        "frame" : [
+          0,
+          0,
+          390,
+          158
+        ],
+        "id" : "file-upload"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "file-upload.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          134
+        ],
+        "id" : "file-upload.dropzone",
+        "part" : "dropzone",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          49,
+          24,
+          24
+        ],
+        "id" : "file-upload.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          135,
+          81,
+          120,
+          20
+        ],
+        "id" : "file-upload.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          159,
+          109,
+          72,
+          24
+        ],
+        "id" : "file-upload.browse",
+        "part" : "browse",
+        "radius" : 10
+      }
+    ]
+  },
+  "FileUpload\/multiple=true" : {
+    "height" : 158,
+    "nodes" : [
+      {
+        "component" : "FileUpload",
+        "frame" : [
+          0,
+          0,
+          390,
+          158
+        ],
+        "id" : "file-upload"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "file-upload.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          134
+        ],
+        "id" : "file-upload.dropzone",
+        "part" : "dropzone",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          49,
+          24,
+          24
+        ],
+        "id" : "file-upload.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          135,
+          81,
+          120,
+          20
+        ],
+        "id" : "file-upload.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          159,
+          109,
+          72,
+          24
+        ],
+        "id" : "file-upload.browse",
+        "part" : "browse",
+        "radius" : 10
+      }
+    ]
+  },
+  "Form\/busy=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/busy=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/disabled=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/disabled=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form",
+        "opacity" : 0.5
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/summary=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
+  "Form\/summary=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Form",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "form-child"
+      }
+    ]
+  },
   "Grid\/example" : {
     "height" : 20,
     "nodes" : [
@@ -3376,6 +7083,138 @@
       }
     ]
   },
+  "HoverCard\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
+  "HoverCard\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
+  "HoverCard\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          158,
+          4,
+          74,
+          54
+        ],
+        "id" : "hover-card.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          21,
+          40,
+          20
+        ],
+        "id" : "hover-card-child"
+      }
+    ]
+  },
+  "HoverCard\/side=bottom" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
+  "HoverCard\/side=left" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
+  "HoverCard\/side=right" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
+  "HoverCard\/side=top" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "hover-card"
+      }
+    ]
+  },
   "Icon\/example" : {
     "height" : 20,
     "nodes" : [
@@ -3602,6 +7441,36 @@
     ]
   },
   "Image\/fit=scaleDown" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/loading=eager" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/loading=lazy" : {
     "height" : 180,
     "nodes" : [
       {
@@ -4134,6 +8003,119 @@
         "id" : "input.field",
         "part" : "field",
         "radius" : 10
+      }
+    ]
+  },
+  "Kbd\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "kbd",
+        "radius" : 8
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          5,
+          -0.5,
+          16,
+          20
+        ],
+        "id" : "kbd.label"
+      }
+    ]
+  },
+  "Label\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          80,
+          20
+        ],
+        "id" : "label.text"
+      }
+    ]
+  },
+  "Label\/required=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          80,
+          20
+        ],
+        "id" : "label.text"
+      }
+    ]
+  },
+  "Label\/required=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          80,
+          20
+        ],
+        "id" : "label.text"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          82,
+          0,
+          8,
+          20
+        ],
+        "id" : "label.mark"
       }
     ]
   },
@@ -5053,6 +9035,476 @@
       }
     ]
   },
+  "NumberField\/disabled=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "part" : "increment",
+        "radius" : 8
+      }
+    ]
+  },
+  "NumberField\/disabled=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "opacity" : 0.5,
+        "part" : "decrement",
+        "radius" : 8,
+        "states" : [
+          "disabled"
+        ]
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "opacity" : 0.5,
+        "part" : "increment",
+        "radius" : 8,
+        "states" : [
+          "disabled"
+        ]
+      }
+    ]
+  },
+  "NumberField\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "part" : "increment",
+        "radius" : 8
+      }
+    ]
+  },
+  "NumberField\/validateOn=blur" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "part" : "increment",
+        "radius" : 8
+      }
+    ]
+  },
+  "NumberField\/validateOn=change" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "part" : "increment",
+        "radius" : 8
+      }
+    ]
+  },
+  "NumberField\/validateOn=submit" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "NumberField",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "number-field"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "number-field.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "number-field.field",
+        "part" : "field",
+        "radius" : 10
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          13,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.decrement",
+        "part" : "decrement",
+        "radius" : 8
+      },
+      {
+        "component" : "NumberField",
+        "frame" : [
+          49,
+          32,
+          292,
+          20
+        ],
+        "id" : "number-field.input",
+        "part" : "input"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          345,
+          26,
+          32,
+          32
+        ],
+        "id" : "number-field.increment",
+        "part" : "increment",
+        "radius" : 8
+      }
+    ]
+  },
   "Pagination\/example" : {
     "height" : 32,
     "nodes" : [
@@ -5526,6 +9978,36 @@
           20
         ],
         "id" : "popover-child"
+      }
+    ]
+  },
+  "Popover\/openOn=hover" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/openOn=press" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
       }
     ]
   },
@@ -6303,6 +10785,696 @@
       }
     ]
   },
+  "Rating\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
+  "Rating\/readOnly=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
+  "Rating\/readOnly=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
+  "Rating\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          22,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          44,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          66,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          88,
+          0,
+          20,
+          20
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
+  "Rating\/size=lg" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          26,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          26,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          52,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          52,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          78,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          78,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          104,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          104,
+          0,
+          24,
+          24
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
+  "Rating\/size=sm" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          16
+        ],
+        "id" : "rating"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.0.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          18,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          18,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.1.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          36,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.2"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          36,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.2.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          54,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.3"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          54,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.3.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          72,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.4"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          72,
+          0,
+          16,
+          16
+        ],
+        "id" : "rating.star.4.icon"
+      }
+    ]
+  },
   "Ring\/example" : {
     "height" : 32,
     "nodes" : [
@@ -6528,6 +11700,106 @@
       }
     ]
   },
+  "ScrollArea\/direction=both" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area-child"
+      }
+    ]
+  },
+  "ScrollArea\/direction=horizontal" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "scroll-area-child"
+      }
+    ]
+  },
+  "ScrollArea\/direction=vertical" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area-child"
+      }
+    ]
+  },
+  "ScrollArea\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "scroll-area-child"
+      }
+    ]
+  },
   "Select\/disabled=false" : {
     "height" : 60,
     "nodes" : [
@@ -6553,6 +11825,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6561,8 +11834,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6592,6 +11865,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6600,8 +11874,9 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "opacity" : 0.5,
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6631,6 +11906,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6639,8 +11915,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6670,6 +11946,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6678,8 +11955,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6709,6 +11986,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6717,8 +11995,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6748,6 +12026,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6756,8 +12035,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6787,6 +12066,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6795,8 +12075,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6826,6 +12106,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6834,8 +12115,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6865,6 +12146,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6873,8 +12155,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -6904,6 +12186,7 @@
         "part" : "label"
       },
       {
+        "bg" : "#ffffff0f",
         "border" : 1,
         "component" : "Select",
         "frame" : [
@@ -6912,8 +12195,8 @@
           390,
           36
         ],
-        "id" : "select.field",
-        "part" : "field",
+        "id" : "select.trigger",
+        "part" : "trigger",
         "radius" : 10
       }
     ]
@@ -7060,6 +12343,455 @@
       }
     ]
   },
+  "Sidebar\/collapseBelow=lg" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapseBelow=md" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapseBelow=never" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          240,
+          20
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          240,
+          0,
+          150,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          240,
+          0,
+          150,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapseBelow=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapseBelow=xl" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapsed=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/collapsed=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/side=left" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
+  "Sidebar\/side=right" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "sidebar.sidebar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar.main"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "sidebar-child"
+      }
+    ]
+  },
   "Skeleton\/example" : {
     "height" : 16,
     "nodes" : [
@@ -7169,6 +12901,111 @@
         "id" : "slider.track",
         "part" : "track",
         "radius" : 9999
+      }
+    ]
+  },
+  "Sparkline\/example" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=danger" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=info" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=neutral" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=primary" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=success" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
+      }
+    ]
+  },
+  "Sparkline\/tone=warning" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "sparkline"
       }
     ]
   },
@@ -7757,6 +13594,528 @@
       }
     ]
   },
+  "Stepper\/example" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.0"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          49,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.0.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          53,
+          4,
+          16,
+          16
+        ],
+        "id" : "stepper.step.0.marker.check"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          134,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.1"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          183,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.1.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          191,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.1.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          268,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.2"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          317,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.2.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          325,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.2.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body.label"
+      }
+    ]
+  },
+  "Stepper\/orientation=horizontal" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          48
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.0"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          49,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.0.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          53,
+          4,
+          16,
+          16
+        ],
+        "id" : "stepper.step.0.marker.check"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          28,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          134,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.1"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          183,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.1.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          191,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.1.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          179,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          268,
+          0,
+          122,
+          48
+        ],
+        "id" : "stepper.step.2"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          317,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.2.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          325,
+          2,
+          8,
+          20
+        ],
+        "id" : "stepper.step.2.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          313,
+          28,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body.label"
+      }
+    ]
+  },
+  "Stepper\/orientation=vertical" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "stepper"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "stepper.step.0"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "stepper.step.0.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          4,
+          4,
+          16,
+          16
+        ],
+        "id" : "stepper.step.0.marker.check"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          28,
+          0,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          28,
+          0,
+          56,
+          20
+        ],
+        "id" : "stepper.step.0.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          36,
+          390,
+          24
+        ],
+        "id" : "stepper.step.1"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          36,
+          24,
+          24
+        ],
+        "id" : "stepper.step.1.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          38,
+          8,
+          20
+        ],
+        "id" : "stepper.step.1.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          28,
+          36,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          28,
+          36,
+          32,
+          20
+        ],
+        "id" : "stepper.step.1.body.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          390,
+          24
+        ],
+        "id" : "stepper.step.2"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          72,
+          24,
+          24
+        ],
+        "id" : "stepper.step.2.marker",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          74,
+          8,
+          20
+        ],
+        "id" : "stepper.step.2.marker.number"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          28,
+          72,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          28,
+          72,
+          32,
+          20
+        ],
+        "id" : "stepper.step.2.body.label"
+      }
+    ]
+  },
   "Switch\/checked=false" : {
     "height" : 20,
     "nodes" : [
@@ -7965,16 +14324,92 @@
       }
     ]
   },
-  "Table\/example" : {
-    "height" : 92,
+  "TabBar\/example" : {
+    "height" : 56,
     "nodes" : [
       {
+        "bg" : "#ffffff0f",
         "component" : "Box",
         "frame" : [
           0,
           0,
           390,
-          92
+          56
+        ],
+        "id" : "tab-bar"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          1,
+          195,
+          55
+        ],
+        "id" : "tab-bar.item.0"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          87.5,
+          7.5,
+          20,
+          20
+        ],
+        "id" : "tab-bar.item.0.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          77.5,
+          29.5,
+          40,
+          20
+        ],
+        "id" : "tab-bar.item.0.label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          195,
+          1,
+          195,
+          55
+        ],
+        "id" : "tab-bar.item.1"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          282.5,
+          7.5,
+          20,
+          20
+        ],
+        "id" : "tab-bar.item.1.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          268.5,
+          29.5,
+          48,
+          20
+        ],
+        "id" : "tab-bar.item.1.label"
+      }
+    ]
+  },
+  "Table\/density=compact" : {
+    "height" : 91,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          91
         ],
         "id" : "table"
       },
@@ -7984,89 +14419,1599 @@
           0,
           0,
           390,
-          92
+          33
         ],
-        "id" : "table.grid"
+        "id" : "table.header",
+        "part" : "header"
       },
       {
         "component" : "Text",
         "frame" : [
           0,
           0,
-          189,
-          20
+          130,
+          32
         ],
-        "id" : "table.grid.header.0"
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
       },
       {
         "component" : "Text",
         "frame" : [
-          201,
+          130,
           0,
-          189,
-          20
+          130,
+          32
         ],
-        "id" : "table.grid.header.1"
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
       },
       {
         "component" : "Box",
         "frame" : [
           0,
-          28,
+          33,
           390,
-          28
+          58
         ],
-        "id" : "table.grid.row.0"
-      },
-      {
-        "component" : "Text",
-        "frame" : [
-          0,
-          32,
-          189,
-          20
-        ],
-        "id" : "table.grid.row.0.cell.0"
-      },
-      {
-        "component" : "Text",
-        "frame" : [
-          201,
-          32,
-          189,
-          20
-        ],
-        "id" : "table.grid.row.0.cell.1"
+        "id" : "table.body",
+        "part" : "body"
       },
       {
         "component" : "Box",
         "frame" : [
           0,
-          64,
+          33,
           390,
-          28
+          29
         ],
-        "id" : "table.grid.row.1"
+        "id" : "table.row.a",
+        "part" : "row"
       },
       {
         "component" : "Text",
         "frame" : [
           0,
-          68,
-          189,
-          20
+          33,
+          130,
+          28
         ],
-        "id" : "table.grid.row.1.cell.0"
+        "id" : "table.cell.a.0",
+        "part" : "cell"
       },
       {
         "component" : "Text",
         "frame" : [
-          201,
-          68,
-          189,
-          20
+          130,
+          33,
+          130,
+          28
         ],
-        "id" : "table.grid.row.1.cell.1"
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          28
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          62,
+          390,
+          29
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          62,
+          130,
+          28
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          62,
+          130,
+          28
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          62,
+          130,
+          28
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/density=default" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/example" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/selectable=multiple" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          8,
+          16,
+          16
+        ],
+        "id" : "table.checkbox.header",
+        "part" : "checkbox"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          124.67,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          140.67,
+          0,
+          124.67,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          265.33,
+          0,
+          124.67,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          41,
+          16,
+          16
+        ],
+        "id" : "table.checkbox.a",
+        "part" : "checkbox"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          33,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          140.67,
+          33,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          265.33,
+          33,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          74,
+          16,
+          16
+        ],
+        "id" : "table.checkbox.b",
+        "part" : "checkbox"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          66,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          140.67,
+          66,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          265.33,
+          66,
+          124.67,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/selectable=none" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/selectable=single" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/stickyHeader=false" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/stickyHeader=true" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/striped=false" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      }
+    ]
+  },
+  "Table\/striped=true" : {
+    "height" : 99,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          99
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          0,
+          130,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          66
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          390,
+          33
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          33,
+          130,
+          32
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          66,
+          390,
+          33
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          130,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          260,
+          66,
+          130,
+          32
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
       }
     ]
   },
@@ -8364,6 +16309,51 @@
       }
     ]
   },
+  "Text\/live=assertive" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/live=off" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/live=polite" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
   "Text\/tone=danger" : {
     "height" : 20,
     "nodes" : [
@@ -8556,6 +16546,86 @@
           28
         ],
         "id" : "text"
+      }
+    ]
+  },
+  "Textarea\/autosize=false" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/autosize=true" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
       }
     ]
   },
@@ -8797,6 +16867,877 @@
         "id" : "textarea.field",
         "part" : "field",
         "radius" : 10
+      }
+    ]
+  },
+  "TimePicker\/disabled=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "time-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "time-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "time-picker.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "TimePicker\/disabled=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "time-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "time-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "time-picker.trigger",
+        "opacity" : 0.5,
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "TimePicker\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "time-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "time-picker.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "TimePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "time-picker.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toast\/dismissible=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          75,
+          724,
+          240,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          88,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          116,
+          737,
+          186,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          116,
+          737,
+          186,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          116,
+          759,
+          186,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      }
+    ]
+  },
+  "Toast\/dismissible=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      }
+    ]
+  },
+  "Toast\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/type=error" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/type=info" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/type=success" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Toast\/type=warning" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Toast",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "toast",
+        "radius" : 16
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          60,
+          724,
+          270,
+          68
+        ],
+        "id" : "toast.root",
+        "part" : "root",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          73,
+          737,
+          20,
+          20
+        ],
+        "id" : "toast.icon",
+        "part" : "icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          101,
+          737,
+          176,
+          42
+        ],
+        "id" : "toast.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          737,
+          176,
+          20
+        ],
+        "id" : "toast.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          101,
+          759,
+          176,
+          20
+        ],
+        "id" : "toast.description",
+        "part" : "description"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          285,
+          737,
+          32,
+          32
+        ],
+        "id" : "toast.close",
+        "part" : "close",
+        "radius" : 8
       }
     ]
   },

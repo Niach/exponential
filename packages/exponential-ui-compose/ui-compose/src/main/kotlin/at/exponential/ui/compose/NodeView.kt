@@ -26,12 +26,12 @@ import kotlin.math.min
 
 /**
  * Which pressables handle their own gestures (no clickable wrapper): the
- * text fields, the Select trigger, the Slider track, ToggleGroups and the
+ * text fields, the picker triggers, the Slider track, ToggleGroups and the
  * carousel indicator.
  */
 internal fun selfHandling(n: NodeInfo): Boolean {
     if (n.isTextField) return true
-    return (n.component == "Select" && n.part == "field") ||
+    return n.isPickerTrigger ||
         (n.component == "Slider" && n.part == "track") ||
         n.component == "ToggleGroup" ||
         (n.component == "Box" && n.part == "indicator")

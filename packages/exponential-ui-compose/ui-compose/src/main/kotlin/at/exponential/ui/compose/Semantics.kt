@@ -46,8 +46,8 @@ internal fun Modifier.hiddenFromAccessibility(): Modifier = clearAndSetSemantics
  * (`combinedLabel`, the children cleared, like SwiftUI's
  * `.accessibilityElement(children: .ignore)`), Card / Group / Alert /
  * `.content` containers a labelled group, leaves carry their role, label
- * and state. Text fields, Select / DatePicker triggers and ToggleGroups
- * keep the semantics their own composables set. Called during
+ * and state. Text fields, picker triggers and ToggleGroups keep the
+ * semantics their own composables set. Called during
  * composition: every value it reads is captured there.
  */
 internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifier {
@@ -73,7 +73,7 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel): Modifie
     val c = node.component
     val p = node.part
     return when {
-        (c == "Input" && p == "field") || (c == "Textarea" && p == "field") || c == "Composer" -> this
+        node.isTextField -> this
         c == "Image" || c == "Avatar" || c == "Video" || c == "Chart" -> clearAndSetSemantics {
             contentDescription = label ?: "image"
             role = Role.Image
@@ -129,7 +129,7 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel): Modifie
         }
         c == "Slider" && p == "track" -> sliderSemantics(node, model)
         c == "Spinner" || c == "Ring" -> clearAndSetSemantics { contentDescription = label ?: "Loading" }
-        (c == "Select" && p == "field") || (c == "DatePicker" && p == "field") || c == "ToggleGroup" -> this
+        node.isPickerTrigger || c == "ToggleGroup" -> this
         c == "Link" -> clearAndSetSemantics {
             contentDescription = label ?: ""
             role = Role.Button

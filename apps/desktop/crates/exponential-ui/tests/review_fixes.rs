@@ -434,3 +434,56 @@ fn a_snapshot_during_a_stepped_pass_does_not_rebuild_under_it() {
     assert!(!s.layout_in_progress());
     assert!(s.layout(&mut fixed()).surface_height > 0.0);
 }
+
+// ---------------------------------------------------------------------------
+// Merge by id keeps local control state (VAPP-99)
+// ---------------------------------------------------------------------------
+
+fn checked(s: &mut Surface) -> Value {
+    node(s, "tg").props.get("checked").cloned().unwrap_or(Value::Null)
+}
+
+#[test]
+fn a_partial_update_keeps_an_untouched_unbound_controls_local_value() {
+    let mut s = flat(json!([
+        {"id": "root", "component": "Box", "children": ["tg", "msg"]},
+        {"id": "tg", "component": "Checkbox", "name": "agree", "label": "Bold"},
+        {"id": "msg", "component": "Text", "text": "one"}
+    ]));
+    s.set_viewport(300.0, 0.0, None);
+    let mut m = fixed();
+    s.layout(&mut m);
+    press(&mut s, "tg");
+    s.layout(&mut m);
+    assert_eq!(checked(&mut s), json!(true));
+
+    // updateComponents carrying only the Text: the Checkbox keeps its state.
+    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "msg", "component": "Text", "text": "two"}]}})).expect("apply");
+    s.layout(&mut m);
+    assert_eq!(checked(&mut s), json!(true));
+    assert_eq!(node(&mut s, "msg").props["text"], json!("two"));
+
+    // A host re-sending the merged list unchanged (set_components): kept.
+    s.set_components(serde_json::from_value(json!([
+        {"id": "root", "component": "Box", "children": ["tg", "msg"]},
+        {"id": "tg", "component": "Checkbox", "name": "agree", "label": "Bold"},
+        {"id": "msg", "component": "Text", "text": "three"}
+    ])).unwrap());
+    s.layout(&mut m);
+    assert_eq!(checked(&mut s), json!(true));
+
+    // The Checkbox itself re-sent different: its local value resets.
+    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "tg", "component": "Checkbox", "name": "agree", "label": "Italic"}]}})).expect("apply");
+    s.layout(&mut m);
+    assert_ne!(checked(&mut s), json!(true));
+}
+
+#[test]
+fn an_a2ui_function_call_on_a_two_way_macro_is_reported_not_silently_dropped() {
+    let tree: NestedNode = serde_json::from_value(json!({"id": "c", "component": "Collapsible",
+        "props": {"title": "More", "open": {"path": "/o"}}, "on": {"change": {"functionCall": {"call": "harness.track"}}}})).unwrap();
+    let mut s = Surface::new("t", SurfaceOptions::default());
+    let outcome = s.set_nested(tree);
+    assert_eq!(outcome.issues.len(), 1, "{:?}", outcome.issues);
+    assert!(outcome.issues[0].message.starts_with("on.change: a function action replaces the two-way set of props.open"));
+}

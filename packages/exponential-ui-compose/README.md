@@ -89,7 +89,8 @@ The core memoizes the answers per measure identity, so a resize to a width it ha
 
 Every answer is the BORDER box: the recipe's padding and border around the content, with fixed and minimum sizes winning. The rules are a verbatim port of the Swift measurer (the gpui rules):
 - a `lines: 1` text shrinks to 0 at min-content;
-- Select and DatePicker fields size from the `trigger` recipe;
+- picker triggers (Select, DatePicker, TimePicker, DateRangePicker) size the core's `text` plus the glyph, at least 160 dp;
+- inline fields (NumberField / ChipInput `input`, Select `search`) size the wider of their text and placeholder;
 - Markdown measures with the same block layout it paints;
 - platform controls have recipe-fixed boxes.
 
@@ -100,14 +101,15 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 - **Native or drawn.** Controls are platform-native where users expect it, and drawn when the theme says so (`native: false` on the part's recipe; the built-in themes set it on the Switch track).
 - **Switch.** An M3 `Switch` scaled into the track frame, or the primitives' `DrawnSwitch`.
 - **Slider.** An M3 `Slider`, or the drawn range + thumb with a drag that snaps to `step`.
-- **DatePicker.** An M3 `DatePickerDialog`, date only, with `min` / `max` as `SelectableDates`.
-- **Select.** An M3 `DropdownMenu` on the trigger, with a filter field when `searchable`; it stays open per pick when `multiple`.
+- **DatePicker.** An M3 `DatePickerDialog`, date only, with `min` / `max` as `SelectableDates` (native overlays).
+- **Select.** An M3 `DropdownMenu` on the trigger, with a filter field when `searchable`; it stays open per pick when `multiple` (native overlays, unless the recipe paints the popup).
+- **TimePicker, DateRangePicker** (and the two above under painted overlays): the core's popup layer.
 - **DropdownMenu.** An M3 `DropdownMenu`, its open state driven by the core's layer.
-- **Text fields.** Input, Textarea and Composer are host-owned `BasicTextField`s (`OwnedTextField`):
+- **Text fields.** Input, Textarea, Composer and the inline fields (NumberField / ChipInput `input`, Select `search`) are host-owned `BasicTextField`s (`OwnedTextField`):
   - the view owns its `TextFieldValue`;
   - every edit carries a revision;
   - a model write (an echo, the composer clearing) reloads the view only when `FieldState.writeGeneration` moves.
-- **Unbound values.** Unbound Checkbox, Switch, Radio, Toggle, ToggleGroup, Select, DatePicker and Slider values live in a local mirror. The painter re-resolves part visuals from the mirror until the prop changes.
+- **Unbound values.** The core keeps every unbound control's value (round 1) and restyles its parts; the painter's mirror only bridges the press until the next pass.
 
 ## Overlays
 
@@ -116,9 +118,10 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 **`Native` (the default):**
 - **Dialog:** a Compose `Dialog`, back and outside-tap only when `dismissible`.
 - **Drawer:** an M3 `ModalBottomSheet`, which refuses Hidden when not dismissible. A second modal stacks.
-- **Popover:** a focusable `Popup` on the side the core placed it. It flips and clamps into the window.
+- **Popover** and every other overlay (HoverCard, ContextMenu, a painted DropdownMenu, the core's picker popups): a focusable `Popup` on the side the core placed it. It flips and clamps into the window.
 - **DropdownMenu:** an M3 menu.
 - **Tooltip:** painted in the surface at the core's frame after a long press.
+- **Toast:** painted in the surface at the core's frame; Escape never closes one.
 
 **`Painted`:** draws every layer inside the surface at the core's frames, with a scrim. Use it for snapshots and for hosts that own their windows.
 

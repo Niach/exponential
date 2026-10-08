@@ -206,6 +206,34 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
 }
 
 /**
+ * A one-line inline field of a control (round 1): a NumberField `.input`
+ * (number keyboard; the core parses, clamps on commit and formats its
+ * `text`), a ChipInput `.input` (a commit or a trailing comma adds the
+ * chip) or a searchable Select's `.search`. The owned text field in the
+ * part's content box; the owner's label names it.
+ */
+@Composable
+internal fun InlineFieldLeaf(cx: LeafContext) {
+    val owner = cx.ownerProps
+    val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
+    InnerBox(cx, contentAlignment = Alignment.CenterStart) {
+        OwnedTextField(
+            index = cx.index,
+            model = cx.model,
+            multiline = false,
+            placeholder = cx.props.str("placeholder").ifEmpty { owner.str("placeholder") },
+            textStyle = cx.composeTextStyle(),
+            placeholderColor = placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
+            disabled = cx.model.isDisabled(cx.index),
+            submitsOnReturn = false,
+            accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
+            modifier = Modifier.fillMaxSize(),
+            keyboardType = if (cx.node.component == "NumberField") KeyboardType.Decimal else KeyboardType.Text,
+        )
+    }
+}
+
+/**
  * The Composer: the owned multi-line field (the `Composer/field` font)
  * over the send row: attachment chips (`Composer/attachment`, a paperclip
  * + name) and the round send button (`Composer/send`; `busy` = stop), which

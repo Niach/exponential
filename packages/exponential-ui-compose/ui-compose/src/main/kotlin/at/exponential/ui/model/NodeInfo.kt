@@ -36,7 +36,10 @@ class NodeInfo(n: FfiNode) {
     val props: Props = JsonValue.parse(n.propsJson).obj ?: emptyMap()
     val lines: Int? = n.lines?.toInt()
     val pressable: Boolean = n.pressable
-    val hidden: Boolean = n.hidden
+
+    /** A freed slot (indices stay stable) paints nothing, like a hidden node. */
+    val removed: Boolean = n.removed
+    val hidden: Boolean = n.hidden || n.removed
     val triggerFor: String? = n.triggerFor
     val accessibility: Props? = n.accessibilityJson?.let { JsonValue.parse(it).obj }
 
@@ -54,9 +57,21 @@ class NodeInfo(n: FfiNode) {
     val checked: Boolean get() = partStates.contains("checked")
     val disabled: Boolean get() = props.flag("disabled")
 
-    /** Is this a host-owned text field (`Input`/`Textarea` `.field`, `Composer`)? */
+    /**
+     * Is this a host-owned text field (`Input`/`Textarea` `.field`, the
+     * `Composer`, or a one-line inline field: a NumberField / ChipInput
+     * `.input`, a searchable Select's `.search`)?
+     */
     val isTextField: Boolean
-        get() = (component == "Input" && part == "field") || (component == "Textarea" && part == "field") || (component == "Composer" && part == null)
+        get() = (component == "Input" && part == "field") || (component == "Textarea" && part == "field") || (component == "Composer" && part == null) || isInlineField
+
+    /** A one-line field inside a control (round 1): its text is the part's `text` prop, not the owner's `value`. */
+    val isInlineField: Boolean
+        get() = (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input") || (component == "Select" && part == "search")
+
+    /** A picker trigger (round 1: the core's `trigger` part opens the owner's popup layer). */
+    val isPickerTrigger: Boolean
+        get() = part == "trigger" && (component == "Select" || component == "DatePicker" || component == "TimePicker" || component == "DateRangePicker")
 
     /** Keyboard-focusable: pressables, controls, fields, carousel dots. */
     val isFocusable: Boolean
@@ -100,10 +115,16 @@ data class LayerInfo(
     val anchorFrame: Rect?,
     val placementSide: String?,
     val flipped: Boolean,
-    /** `centered`, a viewport edge, or the side an anchored layer landed on. */
+    /** `centered`, a viewport edge, the side an anchored layer landed on, `point` or `toast`. */
     val position: String,
     /** The root's frame. */
     val frame: Rect,
+    /** `overlay` | `toast` (layers stack base < overlay < toast). */
+    val layerClass: String = "overlay",
+    /** A scrim under it and the focus trapped inside (Dialog, Drawer, AlertDialog, Sheet). */
+    val modal: Boolean = kind == "Dialog" || kind == "Drawer",
+    /** Escape / a scrim press / a drag closes it. */
+    val dismissible: Boolean = true,
 ) {
     /** From the facade's record. */
     constructor(l: FfiLayer) : this(
@@ -116,13 +137,19 @@ data class LayerInfo(
         flipped = l.placement?.flipped ?: false,
         position = l.position,
         frame = l.frames.firstOrNull { it.index == l.root }?.toRect() ?: Rect.Zero,
+        layerClass = l.`class`,
+        modal = l.modal,
+        dismissible = l.dismissible,
     )
 
     /** The layer id (= its owner). */
     val id: String get() = owner
 
-    /** Dialog / Drawer. */
-    val isModal: Boolean get() = kind == "Dialog" || kind == "Drawer"
+    /** A modal layer (the core decides: Dialog, Drawer and the macros on them). */
+    val isModal: Boolean get() = modal
+
+    /** A toast (the toast class: painted in the surface, never escaped). */
+    val isToast: Boolean get() = layerClass == "toast"
 }
 
 /** A windowed list (the facade's `FfiList`). */

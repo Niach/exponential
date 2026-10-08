@@ -60,9 +60,18 @@ class FixtureReplayTest {
         assertEquals(m.nodes.size, m.frames.size)
         assertTrue("height ${m.surfaceSize.height}", m.surfaceSize.height > 1000f)
         assertTrue("upcalls ${m.stats.upcalls}", m.stats.upcalls <= 3)
-        // Every visible main-tree node has a frame inside the surface.
+        // Every visible main-tree node has a frame inside the surface (a
+        // scroll container's content overflows it unscrolled; it clips).
+        fun inScroller(i: Int): Boolean {
+            var p = m.node(i)?.parent
+            while (p != null) {
+                if (m.style(p).overflowScroll) return true
+                p = m.node(p)?.parent
+            }
+            return false
+        }
         for (n in m.nodes) {
-            if (n.hidden || n.layer != 0) continue
+            if (n.hidden || n.layer != 0 || inScroller(n.index)) continue
             val f = m.frame(n.index)
             assertTrue(n.id, f.left >= -0.01f)
             assertTrue(n.id, f.right <= m.surfaceSize.width + 0.01f)
@@ -164,7 +173,7 @@ class FixtureReplayTest {
         val registry = ExtensionRegistry.shared
         registry.reset()
         try {
-            ExponentialUi.register(definition, mapOf("Sparkline" to probe, "StatCard" to probe))
+            ExponentialUi.register(definition, mapOf("TrendLine" to probe, "StatCard" to probe))
             for (c in fixture["cases"]?.array ?: emptyList()) {
                 val name = c["name"]?.string ?: ""
                 val options = SurfaceOptions(catalogId = c["catalogId"]?.string ?: coreCatalogId())

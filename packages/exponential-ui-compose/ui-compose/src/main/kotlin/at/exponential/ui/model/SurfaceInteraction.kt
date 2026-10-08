@@ -99,6 +99,13 @@ fun SurfaceModel.press(index: Int) {
     if (isDisabled(index)) return
     val n = node(index) ?: return
     val owner = owner(index) ?: n
+    // A Select / DatePicker trigger under native overlays opens the platform
+    // picker (`popup`); otherwise (painted overlays, a painted Select, the
+    // other pickers) the core opens the owner's popup layer.
+    if (n.isPickerTrigger && nativePicker(n)) {
+        popup = if (popup == n.id) null else n.id
+        return
+    }
     val target = n.triggerFor
     if (target != null) {
         if (justDismissed == target) {
@@ -109,15 +116,7 @@ fun SurfaceModel.press(index: Int) {
         fire(index, "press")
         return
     }
-    when {
-        n.component == "DatePicker" && n.part == "field" -> {
-            popup = if (popup == n.id) null else n.id
-            return
-        }
-        (n.component == "Select" && n.part == "field") || (n.component == "Input" && n.part == "field") ||
-            (n.component == "Textarea" && n.part == "field") || (n.component == "Slider" && n.part == "track") ||
-            (n.component == "Composer" && n.part == null) || n.component == "ToggleGroup" -> return
-    }
+    if (n.isTextField || (n.component == "Slider" && n.part == "track") || n.component == "ToggleGroup") return
     when (owner.component) {
         "Checkbox", "Switch" -> {
             val external = owner.props["checked"] ?: JsonValue.Bool(false)
@@ -200,11 +199,20 @@ fun SurfaceModel.setOpen(owner: String, open: Boolean) {
     dispatch(surface.setOpen(owner, open))
 }
 
-/** Close the overlay `owner` (a swipe, the scrim, back). */
+/**
+ * Close the overlay `owner` (a swipe, the scrim, back): the core's
+ * `dismiss` on the layer root (it honours `dismissible` and fires the
+ * author's `dismiss`); a toast through `dismissToast`.
+ */
 fun SurfaceModel.dismissLayer(owner: String) {
-    if (layers.none { it.owner == owner }) return
+    val layer = layers.firstOrNull { it.owner == owner } ?: return
     justDismissed = owner
-    dispatch(surface.setOpen(owner, false))
+    val events = try {
+        if (layer.isToast) surface.dismissToast(owner) else surface.event(layer.root.toUInt(), "dismiss", null)
+    } catch (_: UiException) {
+        surface.setOpen(owner, false)
+    }
+    dispatch(events)
     // The remembered dismissal only guards the trigger's own tap.
     scope.launch {
         delay(300)
@@ -212,14 +220,30 @@ fun SurfaceModel.dismissLayer(owner: String) {
     }
 }
 
-/** Escape / back: close the date popup, else the TOP layer. Returns whether something closed. */
+/**
+ * Escape / back (the gpui painter's rule): close the native picker popup,
+ * else the TOP overlay (a pinned one presses its `.cancel`, an
+ * AlertDialog), else a tooltip. Toasts are never escaped. Returns whether
+ * something handled it.
+ */
 fun SurfaceModel.escape(): Boolean {
     if (popup != null) {
         popup = null
         return true
     }
-    val top = layers.lastOrNull() ?: return false
-    dispatch(surface.setOpen(top.owner, false))
+    val top = layers.lastOrNull { !it.isToast && it.kind != "Tooltip" }
+    if (top != null) {
+        if (top.dismissible) {
+            justDismissed = null
+            fire(top.root, "dismiss")
+        } else {
+            val ids = nodes.filter { it.layer == top.layer && !it.hidden }
+            ids.firstOrNull { it.id.endsWith(".cancel") && it.pressable }?.let { press(it.index) }
+        }
+        return true
+    }
+    val tip = layers.lastOrNull { it.kind == "Tooltip" } ?: return false
+    dispatch(surface.setOpen(tip.owner, false))
     return true
 }
 

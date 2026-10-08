@@ -126,7 +126,9 @@ view.update(cx, |v, cx| {
   - `on_input` gets host-owned text edits (below).
   - `open_url` handles `openUrl` and `Link`; `resolve_url` maps image,
     video and avatar sources.
-  - `on_call` gets client functions the core does not run.
+  - `on_function_call` gets host functions (a `functionCall` to a
+    non-built-in name; the runtime gates them).
+  - `media_request` maps a media source to a url plus headers.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The
     painter also exposes the latest announcement as a `status` a11y node;
     gpui has no live-region API.

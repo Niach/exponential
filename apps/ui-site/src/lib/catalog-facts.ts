@@ -11,6 +11,9 @@ export const CORE_LITE_CATALOG = `https://ui.exponential.at/catalogs/core-lite/v
 export const COMPONENT_COUNT: number = promptBudget.full.components
 export const NATIVE_COUNT = 45
 export const MACRO_COUNT = 36
+/** Built-in functions: the A2UI basic 14 plus the core ones. */
+export const BASIC_FUNCTION_COUNT = 14
+export const FUNCTION_COUNT = 29
 
 /** A component's page: its slug is its name in kebab case (`DropdownMenu` → `dropdown-menu`). */
 export const componentSlugOf = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()

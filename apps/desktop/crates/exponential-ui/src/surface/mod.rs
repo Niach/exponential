@@ -981,6 +981,7 @@ impl Surface {
             if self.nested.is_some() {
                 self.components.clear();
             }
+            let before = self.components.clone();
             for c in list {
                 match self.components.iter_mut().find(|x| x.id == c.id) {
                     Some(slot) => *slot = c,
@@ -989,7 +990,7 @@ impl Surface {
             }
             self.nested = None;
             self.template_cache.clear();
-            self.local.field_values.clear();
+            self.retain_field_values(&before);
             self.reduce();
             return Ok(ApplyOutcome { structure_changed: true, issues: self.issues.clone() });
         }
@@ -1024,12 +1025,39 @@ impl Surface {
 
     /// A flat component list (what `updateComponents` carries).
     pub fn set_components(&mut self, components: Vec<FlatComponent>) -> ApplyOutcome {
+        let before = if self.nested.is_some() { Vec::new() } else { std::mem::take(&mut self.components) };
         self.components = components;
         self.nested = None;
         self.template_cache.clear();
-        self.local.field_values.clear();
+        self.retain_field_values(&before);
         self.reduce();
         ApplyOutcome { structure_changed: true, issues: self.issues.clone() }
+    }
+
+    /// After a component update, keep an unbound control's local value
+    /// while the component that owns it is unchanged (React keeps the state
+    /// of a still-mounted node the same way); drop it when that component
+    /// was removed or re-sent different. A value's owner = the longest
+    /// component id equal to the key or prefixing it at a `.` (parts and
+    /// template instances).
+    fn retain_field_values(&mut self, before: &[FlatComponent]) {
+        if self.local.field_values.is_empty() {
+            return;
+        }
+        let old: HashMap<&str, &FlatComponent> = before.iter().map(|c| (c.id.as_str(), c)).collect();
+        let new: HashMap<&str, &FlatComponent> = self.components.iter().map(|c| (c.id.as_str(), c)).collect();
+        self.local.field_values.retain(|key, _| {
+            let mut candidate = key.as_str();
+            loop {
+                if old.contains_key(candidate) || new.contains_key(candidate) {
+                    return matches!((old.get(candidate), new.get(candidate)), (Some(a), Some(b)) if a == b);
+                }
+                match candidate.rfind('.') {
+                    Some(i) => candidate = &candidate[..i],
+                    None => return false,
+                }
+            }
+        });
     }
 
     /// Write `value` at `path` (`None` removes). Templates and bindings

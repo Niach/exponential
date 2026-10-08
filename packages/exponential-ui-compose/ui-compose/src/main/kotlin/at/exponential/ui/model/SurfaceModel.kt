@@ -518,10 +518,10 @@ class SurfaceModel(
                 if (pressed == (n.props["pressed"]?.bool ?: false)) return base
                 part("Toggle", "root", n.props + ("pressed" to JsonValue.Bool(pressed)), states).style
             }
-            (rc == "Select" || rc == "DatePicker") && n.part == "field" -> {
-                val st = if (popup == n.id) states + "open" else states
-                part(rc, "trigger", ownerProps(index), st).style
-            }
+            // The core paints the trigger recipe (open while ITS layer is);
+            // the native picker popup adds `open` here.
+            n.isPickerTrigger && popup == n.id && !n.open ->
+                part(rc, "trigger", ownerProps(index), states + "open").style
             else -> base
         }
     }
@@ -538,13 +538,24 @@ class SurfaceModel(
     /** Does a Select paint its popup (recipe `native: false`)? The native menu is the default. */
     fun selectPainted(ownerProps: Props): Boolean = part("Select", "content", ownerProps).native == false
 
-    /** Is `layer` painted inside the surface (Tooltip; every layer under [OverlayPresentation.Painted])? */
-    fun paintsInSurface(layer: LayerInfo): Boolean {
-        if (options.overlays == OverlayPresentation.Painted) return true
-        return when (layer.kind) {
-            "Tooltip" -> true
+    /**
+     * Does this picker trigger open a PLATFORM picker (native overlays: the
+     * M3 menu of a Select whose recipe does not paint it, the M3 date
+     * dialog)? Otherwise the core's popup layer opens.
+     */
+    fun nativePicker(n: NodeInfo): Boolean {
+        if (options.overlays != OverlayPresentation.Native || !n.isPickerTrigger) return false
+        return when (n.component) {
+            "DatePicker" -> true
+            "Select" -> !selectPainted(ownerProps(n.index))
             else -> false
         }
+    }
+
+    /** Is `layer` painted inside the surface (tooltips and toasts; every layer under [OverlayPresentation.Painted])? */
+    fun paintsInSurface(layer: LayerInfo): Boolean {
+        if (options.overlays == OverlayPresentation.Painted) return true
+        return layer.kind == "Tooltip" || layer.isToast
     }
 
     /** The family of a theme family NAME through the host and the registry (null = default). */

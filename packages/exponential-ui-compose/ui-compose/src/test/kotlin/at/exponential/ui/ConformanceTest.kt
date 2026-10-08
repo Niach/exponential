@@ -265,7 +265,7 @@ class ConformanceTest {
 
     private fun themeInvalidSuite(): List<Case> = list(json("theme-invalid.json"), "cases").map { c ->
         case(s(c, "name")) {
-            val issues = themeIssuesJson(c["theme"]!!.json, null)
+            val issues = themeIssuesJson(c["theme"]!!.orderedJson, null)
             if (issues == "[]") "loaded" else same(issues, c["issues"]!!)
         }
     }
@@ -304,13 +304,17 @@ class ConformanceTest {
         fun box(index: Int): Map<String, Float> {
             val f = m.frame(index)
             val st = m.boxStyle(index)
-            return mapOf("width" to f.width, "height" to f.height, "paddingHorizontal" to st.paddingHorizontal, "paddingVertical" to st.paddingVertical, "borderWidth" to st.borderWidth, "borderRadius" to st.radius)
+            // A CONTAINER part (round 1: the NumberField / ChipInput `field`)
+            // keeps its padding in the layout, not the visual: the recipe's,
+            // which the core lays its children out with (the gpui runner's rule).
+            val n = m.node(index)!!
+            val recipe = if (n.isContainer && n.part != null) m.part(component, n.part!!, m.ownerProps(index)) else null
+            fun pad(own: Float, key: String): Float = if (own != 0f || recipe == null) own else recipe.px(key) ?: recipe.px("padding") ?: 0f
+            return mapOf("width" to f.width, "height" to f.height, "paddingHorizontal" to pad(st.paddingHorizontal, "paddingHorizontal"), "paddingVertical" to pad(st.paddingVertical, "paddingVertical"), "borderWidth" to st.borderWidth, "borderRadius" to st.radius)
         }
         fun partNode(p: String): Int? = m.nodes.firstOrNull { it.owner == "c" && it.part == p }?.index
         return when {
             part == "root" -> m.indexOf("c")?.let(::box)
-            // The field paints the trigger recipe (SurfaceModel.boxStyle).
-            component == "Select" || component == "DatePicker" -> partNode("field")?.let(::box)
             // The Radio item recipe is the dot's.
             component == "Radio" -> partNode("dot")?.let(::box)
             // ToggleGroup: one leaf; the measurer sizes every item from the item recipe.

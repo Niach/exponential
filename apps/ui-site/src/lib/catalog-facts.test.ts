@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
+import coreCatalog from "@exponential-at/ui/catalog/core.catalog.json"
 import { CATALOG_ID, COMPONENT_DOCS, LITE_CATALOG_ID, componentSlug } from "./catalog"
-import { COMPONENT_COUNT, CORE_CATALOG, CORE_LITE_CATALOG, MACRO_COUNT, NATIVE_COUNT, componentSlugOf } from "./catalog-facts"
+import { BASIC_FUNCTION_COUNT, COMPONENT_COUNT, CORE_CATALOG, FUNCTION_COUNT, CORE_LITE_CATALOG, MACRO_COUNT, NATIVE_COUNT, componentSlugOf } from "./catalog-facts"
 
 describe(`catalog facts`, () => {
   test(`ids and counts match the generated docs`, () => {
@@ -10,6 +11,8 @@ describe(`catalog facts`, () => {
     expect(COMPONENT_COUNT).toBe(COMPONENT_DOCS.length)
     expect(NATIVE_COUNT).toBe(COMPONENT_DOCS.filter((d) => d.kind === `native`).length)
     expect(MACRO_COUNT).toBe(COMPONENT_DOCS.filter((d) => d.kind === `macro`).length)
+    expect(FUNCTION_COUNT).toBe(coreCatalog.functions.names.length)
+    expect(BASIC_FUNCTION_COUNT).toBe(FUNCTION_COUNT - Object.keys(coreCatalog.functions.core).length)
   })
 
   test(`every component's page slug is its kebab-case name`, () => {

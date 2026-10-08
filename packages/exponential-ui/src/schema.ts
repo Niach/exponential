@@ -179,11 +179,21 @@ function defsSchema(view: CatalogView, iconNames: readonly string[]): Json {
       properties: { call: { type: `string`, enum: [...coreCatalog.functions.names] }, args: { type: `object` }, returnType: { type: `string` } },
       required: [`call`],
     },
-    Action: {
-      description: `A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched.`,
+    ActionFunctionCall: {
+      description: `A function an action runs: a catalog function (built in) or a host function (any other name; the host registers it and its policy gates it, catalog/host.json).`,
       type: `object`,
-      properties: { event: { type: `object`, properties: { name: { type: `string` }, context: { type: `object` } }, required: [`name`] }, function: { $ref: `#/$defs/FunctionCall` } },
-      anyOf: [{ required: [`event`] }, { required: [`function`] }],
+      properties: { call: { type: `string`, minLength: 1, examples: [...coreCatalog.functions.names] }, args: { type: `object` }, returnType: { type: `string` } },
+      required: [`call`],
+    },
+    Action: {
+      description: `A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched. \`functionCall\` = A2UI's key; \`function\` = the legacy one (\`functionCall\` wins when both are present).`,
+      type: `object`,
+      properties: {
+        event: { type: `object`, properties: { name: { type: `string` }, context: { type: `object` } }, required: [`name`] },
+        functionCall: { $ref: `#/$defs/ActionFunctionCall` },
+        function: { $ref: `#/$defs/ActionFunctionCall` },
+      },
+      anyOf: [{ required: [`event`] }, { required: [`functionCall`] }, { required: [`function`] }],
       additionalProperties: false,
     },
     Style: styleSchema(),

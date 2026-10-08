@@ -217,8 +217,14 @@ class SurfaceMeasurer(
                 null -> Size(160f, 72f)
                 else -> Size.Zero
             }
-            "Select", "DatePicker" -> when (p) {
-                "field" -> return trigger(leaf, leaf.component)
+            "Select", "DatePicker", "TimePicker", "DateRangePicker" -> when (p) {
+                "trigger" -> trigger(leaf)
+                "search" -> inlineField(leaf)
+                null -> Size(160f, 36f)
+                else -> Size.Zero
+            }
+            "NumberField", "ChipInput" -> when (p) {
+                "input" -> inlineField(leaf)
                 null -> Size(160f, 36f)
                 else -> Size.Zero
             }
@@ -355,19 +361,31 @@ class SurfaceMeasurer(
     }
 
     /** Select / DatePicker `.field`: the TRIGGER recipe (the field has none). */
-    private fun trigger(leaf: LeafRequest, component: String): Size {
+    /**
+     * A picker `trigger` (round 1; the gpui measurer's rule): the core's
+     * `text` plus the glyph and the gap, at least the 160 dp control width
+     * (border box), one line. The `ControlBox` adds the recipe's padding.
+     */
+    private fun trigger(leaf: LeafRequest): Size {
+        val ts = leaf.textStyle
+        val c = leaf.control
+        val gap = max(c.gap, spacing("sm"))
+        val w = line(leaf.props.str("text"), ts) + gap + 16f
+        return Size(max(w, 160f - c.insets.first), ts.lineHeight)
+    }
+
+    /**
+     * An inline field (NumberField / ChipInput `.input`, Select `.search`):
+     * the wider of its text and placeholder plus the caret, at least 24 dp,
+     * one line; a search with an icon adds it.
+     */
+    private fun inlineField(leaf: LeafRequest): Size {
         val props = leaf.props
-        val t = part(component, "trigger", props)
-        val fs = t.px("fontSize") ?: leaf.textStyle.fontSize
-        val lh = t.px("lineHeight") ?: leaf.textStyle.lineHeight
-        val pad = t.px("paddingHorizontal") ?: t.px("padding") ?: 12f
-        val border = t.px("borderWidth") ?: 0f
-        val h = t.height ?: (lh + 16f)
-        val ts = ResolvedTextStyle(fs, 400, lh, t.fontFamily)
-        val label = if (component == "Select") selectLabel(props)
-        else dateLabel(props.str("value")) ?: props.str("placeholder").ifEmpty { "Pick a date" }
-        val w = max(line(label, ts) + 2 * (pad + border) + 16f + spacing("sm"), 160f)
-        return Size(w, h)
+        val ts = leaf.textStyle
+        val text = props.str("text").ifEmpty { props["value"]?.displayText ?: "" }
+        val w = max(line(text, ts), line(props.str("placeholder"), ts)) + 2f
+        val icon = if (leaf.part == "search" && props["icon"] != null) 16f + 8f else 0f
+        return Size(max(w, 24f) + icon, ts.lineHeight)
     }
 
     companion object {

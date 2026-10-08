@@ -61,10 +61,8 @@ import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
 import at.exponential.ui.json.num
 import at.exponential.ui.json.str
-import at.exponential.ui.measure.SurfaceMeasurer
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.checked
-import at.exponential.ui.model.dateValue
 import at.exponential.ui.model.press
 import at.exponential.ui.model.radioChecked
 import at.exponential.ui.model.selectPick
@@ -267,33 +265,34 @@ internal fun SliderTrack(cx: LeafContext) {
         }
     }
 }
-
 /**
- * A Select / DatePicker trigger's content (`<Component>/trigger` recipe):
- * the value or placeholder (muted, `<Component>/placeholder`) and the
- * chevrons / calendar glyph, padded like the measurer counted.
+ * A picker trigger's content (round 1: the core's `trigger` part paints the
+ * `<Component>/trigger` recipe and carries the resolved `text` and
+ * `placeholder` flag): the text (muted, `<Component>/placeholder`, while a
+ * placeholder) and the chevrons / calendar / clock glyph, in the leaf's
+ * content box (what the measurer counted).
  */
 @Composable
-internal fun TriggerContent(cx: LeafContext, label: String, isPlaceholder: Boolean, glyph: Glyph, modifier: Modifier = Modifier) {
+internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
     val component = cx.node.recipeComponent
-    val trigger = cx.part(component, "trigger")
     val ph = cx.part(component, "placeholder")
+    val placeholder = cx.props.flag("placeholder")
     val muted = ph.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
-    val ts = ResolvedTextStyle(
-        trigger.px("fontSize") ?: cx.textStyle.fontSize,
-        400,
-        trigger.px("lineHeight") ?: cx.textStyle.lineHeight,
-        trigger.fontFamily ?: cx.textStyle.fontFamily,
-    )
-    val pad = trigger.px("paddingHorizontal") ?: trigger.px("padding") ?: 12f
-    val border = trigger.px("borderWidth") ?: 0f
-    Row(
-        modifier.fillMaxSize().padding(horizontal = (pad + border).dp),
-        horizontalArrangement = Arrangement.spacedBy(cx.spacing("sm").dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LeafLine(cx, label, Modifier.weight(1f), color = if (isPlaceholder) muted else cx.ink, ts = ts)
-        GlyphView(glyph, 16f, cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
+    val glyph = when (component) {
+        "Select" -> Glyph.ChevronsUpDown
+        "TimePicker" -> Glyph.Clock
+        else -> Glyph.Calendar
+    }
+    val r = cx.inner
+    LeafFrame {
+        Row(
+            modifier.fillMaxSize().padding(start = r.left.dp, end = (cx.size.width - r.right).coerceAtLeast(0f).dp),
+            horizontalArrangement = Arrangement.spacedBy(max(cx.spacing("sm"), 0f).dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LeafLine(cx, cx.props.str("text"), Modifier.weight(1f), color = if (placeholder) muted else cx.ink)
+            GlyphView(glyph, 16f, cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
+        }
     }
 }
 
@@ -304,158 +303,112 @@ internal fun selectValues(v: JsonValue): List<String> = when (v) {
     else -> listOf(v.displayText)
 }
 
+/** The tap and the ONE TalkBack node of a picker trigger (its text is not a stop of its own). */
+private fun Modifier.triggerGestures(cx: LeafContext): Modifier {
+    val model = cx.model
+    val index = cx.index
+    val owner = cx.ownerProps
+    val disabled = model.isDisabled(index)
+    val text = cx.props.str("text")
+    return pointerInput(index, disabled) { detectTapGestures { if (!disabled) model.press(index) } }
+        .clearAndSetSemantics {
+            contentDescription = owner.str("label").ifEmpty { owner.str("placeholder") }
+            stateDescription = text
+            role = Role.DropdownList
+            if (disabled) disabled()
+            onClick {
+                if (!disabled) model.press(index)
+                true
+            }
+        }
+}
+
 /**
- * A Select `.field`: the trigger painted from `Select/trigger` (label via
- * `SurfaceMeasurer.selectLabel` over the mirrored value) with a Material 3
- * `DropdownMenu` anchored to it listing `options` (`searchable` = a filter
- * field on top; `multiple` = check marks, the menu stays open per pick);
- * a pick → `selectPick`.
+ * A picker `trigger` (Select, DatePicker, TimePicker, DateRangePicker): the
+ * core's text and the glyph; a tap presses it. Under native overlays a
+ * Select whose recipe does not paint its popup opens a Material 3
+ * `DropdownMenu` anchored here ([SelectMenu]) and a DatePicker the M3 date
+ * dialog (`DatePopup`); otherwise the core opens the owner's popup layer.
  */
 @Composable
-internal fun SelectFieldLeaf(cx: LeafContext) {
+internal fun PickerTriggerLeaf(cx: LeafContext) {
+    LeafFrame {
+        TriggerContent(cx, Modifier.triggerGestures(cx))
+        if (cx.node.component == "Select" && cx.model.nativePicker(cx.node)) SelectMenu(cx)
+    }
+}
+
+/**
+ * The native Select menu: expanded while `model.popup` names this trigger;
+ * `options` (`searchable` = a filter field on top; `multiple` = check
+ * marks, the menu stays open per pick); a pick → `selectPick`.
+ */
+@Composable
+private fun SelectMenu(cx: LeafContext) {
     @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
     val model = cx.model
     val index = cx.index
     val owner = cx.ownerProps
-    val value = model.selectValue(index)
-    val props = owner + ("value" to value)
-    val label = SurfaceMeasurer.selectLabel(props)
-    val isPlaceholder = value.isNull || value.array?.isEmpty() == true
-    val values = selectValues(value)
-    val disabled = model.isDisabled(index)
+    val values = selectValues(model.selectValue(index))
     val multiple = owner.flag("multiple")
     val searchable = owner.flag("searchable")
-    var expanded by remember(cx.node.id) { mutableStateOf(false) }
+    val expanded = model.popup == cx.node.id
     var query by remember(cx.node.id) { mutableStateOf("") }
     val content = cx.part("Select", "content")
     val itemPart = cx.part("Select", "item")
     val itemInk = itemPart.color ?: content.color ?: cx.themeColor("popoverForeground") ?: cx.ink
     val muted = cx.themeColor("mutedForeground") ?: itemInk.copy(alpha = 0.6f)
     val ts = cx.composeTextStyle(color = itemInk)
-    LeafFrame {
-        TriggerContent(
-            cx,
-            label,
-            isPlaceholder,
-            Glyph.ChevronsUpDown,
-            Modifier
-                .pointerInput(index, disabled) {
-                    detectTapGestures {
-                        if (!disabled) {
-                            expanded = true
-                            model.popup = cx.node.id
-                        }
-                    }
-                }
-                // ONE node for TalkBack: the trigger's text is not a stop of its own.
-                .clearAndSetSemantics {
-                    contentDescription = owner.str("label").ifEmpty { owner.str("placeholder") }
-                    stateDescription = label
-                    role = Role.DropdownList
-                    if (disabled) disabled()
-                    onClick {
-                        if (!disabled) {
-                            expanded = true
-                            model.popup = cx.node.id
-                        }
-                        true
-                    }
-                },
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = {
-                expanded = false
-                query = ""
-                if (model.popup == cx.node.id) model.popup = null
-            },
-            containerColor = content.style.background ?: cx.themeColor("popover") ?: MenuDefaults.containerColor,
-            shape = RoundedCornerShape((content.style.radius.takeIf { it > 0f } ?: 6f).dp),
-        ) {
-            if (searchable) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp).width(max(cx.size.width - 24f, 120f).dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    GlyphView(Glyph.Search, 16f, muted)
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        textStyle = ts,
-                        cursorBrush = SolidColor(itemInk),
-                        modifier = Modifier.weight(1f),
-                        decorationBox = { inner ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (query.isEmpty()) BasicText("Search…", style = ts.copy(color = muted), maxLines = 1)
-                                inner()
-                            }
-                        },
-                    )
-                }
-            }
-            val q = query.trim().lowercase()
-            for (option in owner.list("options")) {
-                val v = option["value"] ?: JsonValue.Null
-                val text = option["label"]?.displayText ?: v.displayText
-                if (q.isNotEmpty() && !text.lowercase().contains(q)) continue
-                val chosen = values.contains(v.displayText)
-                DropdownMenuItem(
-                    text = { BasicText(text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    onClick = {
-                        model.selectPick(index, v)
-                        if (!multiple) {
-                            expanded = false
-                            query = ""
-                            if (model.popup == cx.node.id) model.popup = null
+    val close = {
+        query = ""
+        if (model.popup == cx.node.id) model.popup = null
+    }
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = close,
+        containerColor = content.style.background ?: cx.themeColor("popover") ?: MenuDefaults.containerColor,
+        shape = RoundedCornerShape((content.style.radius.takeIf { it > 0f } ?: 6f).dp),
+    ) {
+        if (searchable) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 6.dp).width(max(cx.size.width - 24f, 120f).dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GlyphView(Glyph.Search, 16f, muted)
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    textStyle = ts,
+                    cursorBrush = SolidColor(itemInk),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) BasicText("Search…", style = ts.copy(color = muted), maxLines = 1)
+                            inner()
                         }
                     },
-                    enabled = option["disabled"]?.bool != true,
-                    leadingIcon = if (values.isEmpty()) null else ({
-                        Box(Modifier.size(16.dp)) { if (chosen) GlyphView(Glyph.Check, 16f, itemInk) }
-                    }),
                 )
             }
         }
-    }
-}
-
-/**
- * A DatePicker `.field`: the trigger from `DatePicker/trigger` (the value
- * as `Oct 14, 2026` or the placeholder, the calendar glyph); a tap presses
- * it (`model.popup` = the field: the surface's date popup presents the
- * Material 3 picker).
- */
-@Composable
-internal fun DateFieldLeaf(cx: LeafContext) {
-    @Suppress("UNUSED_VARIABLE") val gen = cx.model.mirrorGeneration
-    val model = cx.model
-    val index = cx.index
-    val owner = cx.ownerProps
-    val value = model.dateValue(index)
-    val dated = SurfaceMeasurer.dateLabel(value)
-    val label = dated ?: owner.str("placeholder").ifEmpty { "Pick a date" }
-    val disabled = model.isDisabled(index)
-    LeafFrame {
-        TriggerContent(
-            cx,
-            label,
-            dated == null,
-            Glyph.Calendar,
-            Modifier
-                .pointerInput(index, disabled) { detectTapGestures { if (!disabled) model.press(index) } }
-                // ONE node for TalkBack: the trigger's text is not a stop of its own.
-                .clearAndSetSemantics {
-                    contentDescription = owner.str("label").ifEmpty { owner.str("placeholder") }
-                    stateDescription = label
-                    role = Role.DropdownList
-                    if (disabled) disabled()
-                    onClick {
-                        if (!disabled) model.press(index)
-                        true
-                    }
+        val q = query.trim().lowercase()
+        for (option in owner.list("options")) {
+            val v = option["value"] ?: JsonValue.Null
+            val text = option["label"]?.displayText ?: v.displayText
+            if (q.isNotEmpty() && !text.lowercase().contains(q)) continue
+            val chosen = values.contains(v.displayText)
+            DropdownMenuItem(
+                text = { BasicText(text, style = ts, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                onClick = {
+                    model.selectPick(index, v)
+                    if (!multiple) close()
                 },
-        )
+                enabled = option["disabled"]?.bool != true,
+                leadingIcon = if (values.isEmpty()) null else ({
+                    Box(Modifier.size(16.dp)) { if (chosen) GlyphView(Glyph.Check, 16f, itemInk) }
+                }),
+            )
+        }
     }
 }
