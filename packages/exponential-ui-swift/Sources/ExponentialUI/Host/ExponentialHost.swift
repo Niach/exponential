@@ -20,6 +20,9 @@ public struct HostOptions {
     public var theme: ThemeHandle?
     public var mode: Mode
     public var overlays: OverlayPresentation
+    /// Locale, strings, `system` mode, density, contrast, font scale… for
+    /// every surface (nil = the defaults with `mode`).
+    public var settings: SurfaceSettings?
     /// Icons, fonts, markdown, input observers (actions, functions, urls and
     /// media route through the host first).
     public var plugin: HostPlugin?
@@ -38,6 +41,7 @@ public struct HostOptions {
         theme: ThemeHandle? = ThemeHandle.builtin(defaultThemeId()),
         mode: Mode = .light,
         overlays: OverlayPresentation = .native,
+        settings: SurfaceSettings? = nil,
         plugin: HostPlugin? = nil,
         onSend: ((String) -> Void)? = nil,
         onOp: ((JSONValue) -> Void)? = nil
@@ -51,6 +55,7 @@ public struct HostOptions {
         self.theme = theme
         self.mode = mode
         self.overlays = overlays
+        self.settings = settings
         self.plugin = plugin
         self.onSend = onSend
         self.onOp = onOp
@@ -76,6 +81,7 @@ public final class ExponentialHost {
     public private(set) var unsupportedCatalog: String?
     public private(set) var theme: ThemeHandle?
     public private(set) var mode: Mode
+    public private(set) var settings: SurfaceSettings?
 
     @ObservationIgnored private var options: HostOptions
     @ObservationIgnored private var functions: [String: HostFunction]
@@ -97,6 +103,7 @@ public final class ExponentialHost {
         self.extensions = exts
         self.theme = options.theme
         self.mode = options.mode
+        self.settings = options.settings
         self.router = HostRouter(extensionIds: exts.map(\.id))
         for pkg in options.packages { installPackage(pkg) }
     }
@@ -151,6 +158,12 @@ public final class ExponentialHost {
         for m in surfaces.values { m.setMode(mode) }
     }
 
+    /// The settings every surface uses (live; nil = the defaults with `mode`).
+    public func setSettings(_ settings: SurfaceSettings?) {
+        self.settings = settings
+        for m in surfaces.values { m.setSettings(settings ?? SurfaceSettings(mode: mode == .dark ? .dark : .light)) }
+    }
+
     // MARK: - transport
 
     public func connect() {
@@ -193,7 +206,7 @@ public final class ExponentialHost {
         switch op["op"]?.string {
         case "create":
             unbind(surfaceId)
-            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, overlays: options.overlays)
+            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, overlays: options.overlays, settings: settings)
             o.rounding = false
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
@@ -377,4 +390,12 @@ final class HostBridge: HostPlugin {
     func fontFamily(_ name: String) -> String? { base?.fontFamily(name) }
 
     func markdown(_ text: String, width: CGFloat) -> AnyView? { base?.markdown(text, width: width) }
+
+    func onUpload(_ event: SurfaceUploadEvent) { base?.onUpload(event) }
+
+    func pickFiles(_ request: FilePickRequest) -> Bool { base?.pickFiles(request) ?? false }
+
+    func announce(text: String, live: String) { base?.announce(text: text, live: live) }
+
+    func copy(_ text: String) -> Bool { base?.copy(text) ?? false }
 }

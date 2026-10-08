@@ -1,10 +1,14 @@
 import SwiftUI
 
-/// A scrolling container (`overflow: scroll`, or a `List` the core
-/// windowed): the children at their content offsets inside a scroll view
-/// whose content is as tall as the core says. A windowed list reports its
-/// visible offset back (`scroll(list, offset)`), which moves the window in
-/// constant work; nothing here guesses row heights.
+/// A scrolling container (`overflow: scroll` on either axis, or a `List` /
+/// `Table` the core windowed): the children at their content offsets inside
+/// a NATIVE scroll view (momentum, indicators) whose content is as large as
+/// the core says. The frames are unscrolled: the scroll view moves them and
+/// reports its offset back (`scrollReported`), so the core's offsets stay
+/// true (scrollIntoView, keyboard scrolling, windowing — a windowed list
+/// moves its window in constant work). When the CORE moves an offset (a
+/// command, the keyboard, a clamp) the view follows through
+/// `model.scrollJumps`. Nothing here guesses row heights.
 struct ScrollContainer: View {
     let index: Int
     let node: NodeInfo
@@ -13,30 +17,54 @@ struct ScrollContainer: View {
     let kids: [Int]
     let origin: CGPoint
 
-    private var contentHeight: CGFloat { max(model.contentHeight(index), size.height) }
-
     var body: some View {
-        let listId = node.id
-        let windowed = model.lists[listId]?.windowed ?? false
-        ScrollView(.vertical, showsIndicators: true) {
-            ChildrenLayout(size: CGSize(width: size.width, height: contentHeight), kids: kids, origin: origin, model: model)
+        let info = model.scroll(index)
+        let horizontal = info?.scrollsX ?? false
+        let vertical = info?.scrollsY ?? true
+        let axes: Axis.Set = horizontal && vertical ? [.horizontal, .vertical] : (horizontal ? .horizontal : .vertical)
+        let content = CGSize(
+            width: horizontal ? max(model.contentWidth(index), size.width) : size.width,
+            height: vertical ? max(model.contentHeight(index), size.height) : size.height
+        )
+        let space = "xui-scroll-\(node.id)"
+        let anchor = "xui-scroll-anchor-\(node.id)"
+        let jump = model.scrollJumps[index]
+        ScrollViewReader { proxy in
+            ScrollView(axes, showsIndicators: true) {
+                ZStack(alignment: .topLeading) {
+                    ChildrenLayout(size: content, kids: kids, origin: origin, model: model)
+                    // The target of a programmatic jump: a point at the
+                    // core's offset (iOS 17 scrolls to views, not offsets).
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .id(anchor)
+                        .padding(.leading, min(jump?.offset.x ?? 0, max(0, content.width - 1)))
+                        .padding(.top, min(jump?.offset.y ?? 0, max(0, content.height - 1)))
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
+                }
+                .frame(width: content.width, height: content.height, alignment: .topLeading)
                 .background {
-                    if windowed {
-                        GeometryReader { proxy in
-                            Color.clear.preference(key: ScrollOffsetKey.self, value: -proxy.frame(in: .named("xui-scroll-\(listId)")).minY)
-                        }
+                    GeometryReader { proxy in
+                        let f = proxy.frame(in: .named(space))
+                        Color.clear.preference(key: ScrollOffsetKey.self, value: CGPoint(x: max(0, -f.minX), y: max(0, -f.minY)))
                     }
                 }
-        }
-        .coordinateSpace(name: "xui-scroll-\(listId)")
-        .onPreferenceChange(ScrollOffsetKey.self) { offset in
-            if windowed { model.scroll(list: listId, offset: max(0, offset)) }
+            }
+            .coordinateSpace(name: space)
+            .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                model.scrollReported(index, offset: offset)
+            }
+            .onChange(of: jump) { _, j in
+                guard j != nil else { return }
+                proxy.scrollTo(anchor, anchor: .topLeading)
+            }
         }
         .frame(width: size.width, height: size.height)
     }
 }
 
 private struct ScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+    static let defaultValue: CGPoint = .zero
+    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) { value = nextValue() }
 }
