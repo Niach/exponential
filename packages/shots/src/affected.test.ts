@@ -311,6 +311,29 @@ describe(`fail-safe`, () => {
     expect(views(result, `web`).length).toBeGreaterThan(0)
   })
 
+  test(`the Exponential UI SDK packages narrow iOS to the kitchen sink`, () => {
+    // VAPP-88: the iOS shot comes from the SwiftUI painter's example app.
+    const swift = affectedScope({
+      changedFiles: [`packages/exponential-ui-swift/Sources/ExponentialUI/Painter.swift`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(swift.byPlatform.get(`ios`)).toEqual([`exponential-ui-kitchen-sink`])
+    for (const platform of PLATFORMS) {
+      if (platform !== `ios`) expect(swift.byPlatform.get(platform)).toEqual([])
+    }
+
+    // The core narrows iOS the same way but still widens every other client.
+    const core = affectedScope({
+      changedFiles: [`packages/exponential-ui/catalog/components.json`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(core.byPlatform.get(`ios`)).toEqual([`exponential-ui-kitchen-sink`])
+    expect(core.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+    expect(core.byPlatform.get(`web`)).toHaveLength(viewsFor(`web`).length)
+  })
+
   test(`the demo identity widens every lane, the relay stub the live ones`, () => {
     // Both used to be web-only rules. The stub is what puts a device ONLINE, so
     // without it the desktop app photographs "no desktop online" too — a

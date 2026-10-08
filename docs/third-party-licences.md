@@ -359,6 +359,10 @@ renderer itself adds no third-party source: its natives are Radix behaviour
 (MIT, in the npm inventory) painted from the theme's recipes, and the shadcn
 primitive set that moved from `@exp/ui` into `src/primitives/` was already
 ours (MIT-derived shadcn code, recorded with the web app's dependencies).
+The desktop app (VAPP-90) and the iOS SwiftUI painter (VAPP-88,
+`packages/exponential-ui-swift`, whose xcframework embeds the same Rust core
+with the generated catalog and themes) now carry them too, so both rows read
+`clients: ["web", "desktop", "ios"]`; Android follows with VAPP-89.
 **When a native painter (VAPP-88/89/90) bundles the catalog JSON or the
 built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the

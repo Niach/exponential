@@ -54,6 +54,10 @@ let expUiDependencies: [TargetDependency] = [
     // MarkdownConversion) lives in ExpUI and parses GFM via cmark.
     .external(name: "cmark-gfm"),
     .external(name: "cmark-gfm-extensions"),
+    // SLOP-18 / VAPP-88: the GENERIC drawing (pill, segmented control, field
+    // chrome, switch, avatar, meter track, ring) lives in the Exponential UI
+    // SDK; ExpUI's glass views are thin wrappers that feed it DesignTokens.
+    .external(name: "ExponentialUIPrimitives"),
 ]
 
 // Foundation-only files reused by the Share Extension. Compiled into the
@@ -144,6 +148,12 @@ let sharedInfoPlist: [String: Plist.Value] = [
 let baseSettings: SettingsDictionary = [
     "SWIFT_VERSION": "6.0",
     "SWIFT_STRICT_CONCURRENCY": "complete",
+    // SLOP-18 / VAPP-88: an extension member is visible only in a file that
+    // imports its module. Without it, ExpUI's dependency on the Exponential
+    // UI SDK leaked the SDK's `Color(hex: String)` into every file of ExpUI
+    // AND the app, silently out-ranking ExpUI's tolerant `Color(hex: String?)`
+    // (and, in the app, failing to link).
+    "SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY": "YES",
     "DEVELOPMENT_TEAM": "V6W7BVCSM8",
     "CODE_SIGN_STYLE": "Automatic",
 ]
@@ -192,7 +202,9 @@ let project = Project(
             bundleId: "at.exponential.ui.tests",
             deploymentTargets: .iOS("17.4"),
             sources: expUiTestSources,
-            dependencies: [.target(name: "ExpUI")],
+            // PrimitivesConvergenceTests reads the SDK style structs the glass
+            // wrappers build (one dynamic copy, see Tuist/Package.swift).
+            dependencies: [.target(name: "ExpUI"), .external(name: "ExponentialUIPrimitives")],
             settings: .settings(base: baseSettings)
         ),
         .target(

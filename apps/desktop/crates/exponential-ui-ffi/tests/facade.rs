@@ -205,3 +205,58 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     assert!(surface.set_theme_json(json!({"id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
     assert!(matches!(surface.set_theme_json("{\"id\":\"bad\"}".into()), Err(UiError::Theme { .. })));
 }
+
+#[test]
+fn a_theme_object_resolves_parts_colors_and_tokens_for_painters() {
+    // VAPP-88: the SwiftUI / Compose painters query sub-parts the core does
+    // not synthesize through a `Theme` object instead of re-parsing the
+    // resolved theme JSON per call.
+    let theme = Theme::builtin("exponential".into()).unwrap();
+    assert_eq!(theme.id(), "exponential");
+    let on = theme.resolve_part("Checkbox".into(), "box".into(), r#"{"checked":true}"#.into(), vec!["checked".into()], "dark".into()).unwrap();
+    let off = theme.resolve_part("Checkbox".into(), "box".into(), r#"{"checked":false}"#.into(), vec![], "dark".into()).unwrap();
+    assert_ne!(on.visual.background_color, off.visual.background_color);
+    let style: Value = serde_json::from_str(&on.style_json).unwrap();
+    assert!(style.get("width").is_some(), "the flat style map carries the geometry keys");
+    let trigger = theme.resolve_part("Select".into(), "trigger".into(), r#"{"options":[]}"#.into(), vec![], "light".into()).unwrap();
+    assert_eq!(trigger.visual.border_width, Some(1.0));
+    assert!(theme.color("foreground".into(), "dark".into()).unwrap().starts_with('#'));
+    assert!(theme.color("foreground".into(), "sideways".into()).is_none());
+    assert_eq!(theme.spacing("sm".into()), Some(8.0));
+    assert_eq!(theme.font_family("sans".into()).as_deref(), Some("Inter"));
+    assert!(theme.control("input".into()).is_some());
+    assert_eq!(theme.control("nope".into()), None);
+    let loaded = Theme::load(r##"{"id":"t","name":"T","extends":"neutral","modes":{"light":{"color":{"primary":"#ff0000"}},"dark":{"color":{"primary":"#00ff00"}}}}"##.into(), None).unwrap();
+    assert_eq!(loaded.color("primary".into(), "light".into()).as_deref(), Some("#ff0000"));
+    // A surface built on the object paints with it and hands it back.
+    let s = Surface::with_theme("s".into(), core_catalog_id(), Some(theme.clone()), "dark".into()).unwrap();
+    assert_eq!(s.mode(), "dark");
+    assert_eq!(s.theme().unwrap().id(), "exponential");
+    s.set_theme(loaded);
+    assert_eq!(s.theme().unwrap().id(), "t");
+    let geometry = Surface::with_theme("g".into(), core_catalog_id(), None, "light".into()).unwrap();
+    assert!(geometry.theme().is_none());
+}
+
+#[test]
+fn nodes_carry_the_part_states_and_the_macro_name() {
+    let s = Surface::new("s".into(), core_catalog_id(), None, "dark".into()).unwrap();
+    s.set_nested(
+        serde_json::json!({
+            "id": "root", "component": "Card", "props": {"title": "T"},
+            "children": [{"id": "tabs", "component": "Tabs", "props": {"tabs": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": "b"}, "children": [{"id": "pa", "component": "Text", "props": {"text": "a"}}, {"id": "pb", "component": "Text", "props": {"text": "b"}}]}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    s.set_viewport(390.0, 0.0, None);
+    s.layout_fixed(None, true).unwrap();
+    let nodes = s.nodes();
+    let root = &nodes[0];
+    assert_eq!(root.macro_name.as_deref(), Some("Card"));
+    let tab_b = nodes.iter().find(|n| n.id == "tabs.tab.1").expect("tab b");
+    assert_eq!(tab_b.part_states, vec!["selected".to_string()]);
+    assert!(tab_b.macro_name.is_none(), "a part names no macro");
+    let tab_a = nodes.iter().find(|n| n.id == "tabs.tab.0").unwrap();
+    assert!(tab_a.part_states.is_empty());
+}

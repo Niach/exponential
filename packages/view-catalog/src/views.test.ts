@@ -124,7 +124,7 @@ const webCaptureSchema = z.strictObject({
 
 const nativeCaptureSchema = z.strictObject({
   shot: z.string().min(1),
-  lane: z.enum([`store`, `styleguide`]),
+  lane: z.enum([`store`, `styleguide`, `package`]),
 })
 
 const desktopCaptureSchema = z.strictObject({
@@ -395,6 +395,23 @@ describe(`native suites match the manifest`, () => {
         }
       }
     }
+  })
+
+  test(`package captures are SDK example shots named by their view id`, () => {
+    // VAPP-88: a `package` capture comes from an SDK example app (the
+    // orchestrator launches it with `-shot <id>`), never from the product's UI
+    // test suites, so the suite gates above only compare store + styleguide.
+    const bad: string[] = []
+    for (const view of VIEWS) {
+      for (const key of [`ios`, `android`] as const) {
+        const capture = view[key]
+        if (capture?.lane !== `package`) continue
+        if (capture.shot !== view.id || view.group !== `exponential-ui`) {
+          bad.push(`${view.id} · ${key} → ${capture.shot} (${view.group})`)
+        }
+      }
+    }
+    expect(bad).toEqual([])
   })
 
   test(`no view declares a tablet capture`, () => {

@@ -21,6 +21,9 @@
  *
  * A missing source is a WARNING, never an error: capture lanes are run
  * independently and half a native set is a normal intermediate state.
+ *
+ * `package` captures (VAPP-88, SDK example apps) are skipped silently: the
+ * orchestrator's package lane writes them to `.shots-raw/` itself.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -56,6 +59,9 @@ interface SourceDir {
  * should not need a release to follow it.
  */
 function sourceDirs(platform: Platform, lane: NativeCapture[`lane`]): SourceDir[] {
+  // VAPP-88: `package` captures are photographed by the orchestrator straight
+  // into `.shots-raw/` from an SDK example app; there is no fastlane dir.
+  if (lane === `package`) return []
   const root = repoRoot()
   const ios = (sub: string): string => join(root, `apps/ios/fastlane`, sub, `en-US`)
   const android = (sub: string): string =>
@@ -121,7 +127,8 @@ export function importNative(opts: ImportNativeOptions = {}): ImportNativeResult
     for (const view of viewsFor(platform)) {
       if (wanted && !wanted.has(view.id)) continue
       const capture = captureFor(view, platform) as NativeCapture | undefined
-      if (!capture) continue
+      // `package` captures are already in `.shots-raw/` (see sourceDirs).
+      if (!capture || capture.lane === `package`) continue
 
       const found = findShot(platform, capture, warnings)
       if (!found) {

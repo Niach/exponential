@@ -26,8 +26,8 @@
  * Everything long-lived is tracked and killed in a `finally`, so a Ctrl-C leaves
  * no orphan relay stub or desktop window behind.
  */
-import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import { dirname, join } from "node:path"
 import {
   PLATFORMS,
   captureFor,
@@ -45,7 +45,7 @@ import {
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
 import { hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
-import { rawDir, repoRoot } from "./paths.ts"
+import { rawDir, rawShotPath, repoRoot } from "./paths.ts"
 import {
   formatDiffReport,
   indexStore,
@@ -369,7 +369,18 @@ function laneViews(scope: Scope, ...platforms: Platform[]): string[] {
  * views does not need it, and making it unconditional would tax the fast path.
  */
 function needsRelay(options: Options, scope: Scope): boolean {
-  if (options.platforms.some((platform) => NATIVE_PLATFORMS.includes(platform))) return true
+  // A `package` capture (VAPP-88) is an SDK example app with no backend; only
+  // the product app's fastlane lanes steer.
+  if (
+    options.platforms.some(
+      (platform) =>
+        NATIVE_PLATFORMS.includes(platform) &&
+        (platform !== `ios` ||
+          laneViews(scope, platform).length > packageViews(scope, `ios`).length)
+    )
+  ) {
+    return true
+  }
   return laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id))
 }
 
@@ -417,10 +428,13 @@ async function reachable(url: string): Promise<boolean> {
 
 async function preflight(options: Options, scope: Scope): Promise<Check[]> {
   const checks: Check[] = []
-  const services = await composeServices()
+  // VAPP-88: a package-only run (the SDK example apps) photographs nothing
+  // that talks to the backend; only the device tooling is checked.
+  const backendless = packageOnly(scope)
+  const services = backendless ? new Map<string, string>() : await composeServices()
   const running = (name: string): boolean => (services.get(name) ?? ``).toLowerCase() === `running`
 
-  for (const service of CORE_SERVICES) {
+  for (const service of backendless ? [] : CORE_SERVICES) {
     checks.push({
       label: `docker compose: ${service}`,
       ok: running(service),
@@ -439,18 +453,20 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     })
   }
 
-  const proxyOk = await reachable(PROXY_URL)
-  checks.push({
-    label: `web app: ${PROXY_URL}`,
-    ok: proxyOk,
-    detail: proxyOk ? undefined : `unreachable — is \`bun dev\` running and Caddy proxying it?`,
-  })
-  const devOk = await reachable(DEV_URL)
-  checks.push({
-    label: `dev server: ${DEV_URL}`,
-    ok: devOk,
-    detail: devOk ? undefined : `unreachable — \`bun dev\` (repo root)`,
-  })
+  if (!backendless) {
+    const proxyOk = await reachable(PROXY_URL)
+    checks.push({
+      label: `web app: ${PROXY_URL}`,
+      ok: proxyOk,
+      detail: proxyOk ? undefined : `unreachable — is \`bun dev\` running and Caddy proxying it?`,
+    })
+    const devOk = await reachable(DEV_URL)
+    checks.push({
+      label: `dev server: ${DEV_URL}`,
+      ok: devOk,
+      detail: devOk ? undefined : `unreachable — \`bun dev\` (repo root)`,
+    })
+  }
 
   if (laneViews(scope, `web`, `web-mobile`).length > 0) {
     const script = webCaptureScript()
@@ -490,6 +506,15 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
       label: `xcrun simctl`,
       ok,
       detail: ok ? undefined : `not on PATH — install Xcode and its command line tools`,
+    })
+  }
+
+  if (packageViews(scope, `ios`).length > 0) {
+    const ok = existsSync(join(repoRoot(), PACKAGE_IOS.project))
+    checks.push({
+      label: `iOS package example (${PACKAGE_IOS.project})`,
+      ok,
+      detail: ok ? undefined : `missing — the SwiftUI painter's example app has not landed`,
     })
   }
 
@@ -654,6 +679,166 @@ function laneShotIds(
     if (capture?.lane === lane) ids.add(capture.shot)
   }
   return [...ids]
+}
+
+/* ------------------------------------------------------- package lane (ios) */
+
+/**
+ * VAPP-88: the SDK example app the `package` captures come from. A blank Xcode
+ * app (no Tuist, no Exponential code) over the SwiftUI painter's xcframework;
+ * `-shot <view-id>` selects the view it renders.
+ */
+const PACKAGE_IOS = {
+  project: `packages/exponential-ui-swift/Example/KitchenSink.xcodeproj`,
+  scheme: `KitchenSink`,
+  derivedData: `packages/exponential-ui-swift/Example/build`,
+  app: `packages/exponential-ui-swift/Example/build/Build/Products/Release-iphonesimulator/KitchenSink.app`,
+  bundleId: `at.exponential.ui.kitchensink`,
+  /** The Snapfile's phone, so the package shot frames like the fastlane ones. */
+  simulator: `iPhone 17 Pro Max`,
+  settleMs: 3_000,
+} as const
+
+/** In-scope views whose capture on `platform` is the `package` lane. */
+/**
+ * Is EVERY view in scope a `package` capture (the SDK example apps)? Such a
+ * run drives no browser, desktop or fastlane lane, so it needs no backend:
+ * no compose stack, no dev server, no seed, no relay, no demo ids.
+ */
+function packageOnly(scope: Scope): boolean {
+  if (laneViews(scope, `web`, `web-mobile`, `desktop`).length > 0) return false
+  let any = false
+  for (const platform of [`ios`, `android`] as const) {
+    const views = laneViews(scope, platform)
+    if (views.length === 0) continue
+    any = true
+    const pkg = new Set(packageViews(scope, platform))
+    if (views.some((id) => !pkg.has(id))) return false
+  }
+  return any
+}
+
+function packageViews(scope: Scope, platform: `ios` | `android`): string[] {
+  return viewsFor(platform)
+    .filter((view) => scope.get(platform)?.has(view.id))
+    .filter((view) => (captureFor(view, platform) as NativeCapture | undefined)?.lane === `package`)
+    .map((view) => view.id)
+}
+
+/** The UDID of the named simulator, preferring a booted one. */
+async function simulatorUdid(name: string): Promise<string | undefined> {
+  const list = await run({
+    cmd: [`xcrun`, `simctl`, `list`, `devices`, `available`, `-j`],
+    timeoutMs: 60_000,
+  })
+  if (list.code !== 0) return undefined
+  try {
+    const parsed = JSON.parse(list.stdout) as {
+      devices: Record<string, { udid: string; name: string; state: string }[]>
+    }
+    const matches = Object.values(parsed.devices)
+      .flat()
+      .filter((device) => device.name === name)
+    return (matches.find((device) => device.state === `Booted`) ?? matches[0])?.udid
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Capture the iOS `package` views from the SDK example app: build it once,
+ * boot + pin the simulator like the fastlane lane (`override_status_bar`,
+ * dark mode), then per view launch `-shot <id>` and `simctl io screenshot`
+ * STRAIGHT into `.shots-raw/ios/<view-id>.png` — no fastlane dir, so the
+ * native importer never sees these.
+ */
+async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Promise<void> {
+  if (views.length === 0) return
+  console.log(`\n── ios: package example (${views.length} view(s)) ──────────────`)
+  const root = repoRoot()
+  const fail = (detail: string) => outcomes.push({ platform: `ios`, ok: false, detail })
+
+  const build = await run({
+    cmd: [
+      `xcodebuild`,
+      `-project`,
+      PACKAGE_IOS.project,
+      `-scheme`,
+      PACKAGE_IOS.scheme,
+      `-configuration`,
+      `Release`,
+      `-destination`,
+      `platform=iOS Simulator,name=${PACKAGE_IOS.simulator}`,
+      `-derivedDataPath`,
+      PACKAGE_IOS.derivedData,
+      `CODE_SIGNING_ALLOWED=NO`,
+      `build`,
+    ],
+    cwd: root,
+    stream: true,
+    label: `[ios:package]`,
+    timeoutMs: 45 * 60_000,
+  })
+  if (build.code !== 0) return void fail(`package example build exited ${build.code}`)
+  const app = join(root, PACKAGE_IOS.app)
+  if (!existsSync(app)) return void fail(`package example built, but ${PACKAGE_IOS.app} is missing`)
+
+  const udid = await simulatorUdid(PACKAGE_IOS.simulator)
+  if (!udid) return void fail(`no available simulator named ${PACKAGE_IOS.simulator}`)
+  const simctl = (args: string[], timeoutMs = 120_000) =>
+    run({ cmd: [`xcrun`, `simctl`, ...args], cwd: root, timeoutMs })
+
+  // `boot` refuses an already-booted device; `bootstatus -b` is the real wait.
+  await simctl([`boot`, udid])
+  const booted = await simctl([`bootstatus`, udid, `-b`], 10 * 60_000)
+  if (booted.code !== 0) return void fail(`simulator ${PACKAGE_IOS.simulator} did not boot`)
+  await simctl([`ui`, udid, `appearance`, `dark`])
+  await simctl([
+    `status_bar`,
+    udid,
+    `override`,
+    `--time`,
+    `9:41`,
+    `--batteryState`,
+    `charged`,
+    `--batteryLevel`,
+    `100`,
+    `--wifiBars`,
+    `3`,
+    `--cellularBars`,
+    `4`,
+  ])
+  const installed = await simctl([`install`, udid, app], 5 * 60_000)
+  if (installed.code !== 0) return void fail(`simctl install exited ${installed.code}`)
+
+  let failures = 0
+  for (const viewId of views) {
+    const png = rawShotPath(`ios`, viewId)
+    // A stale raw file would be stored as if this run had produced it.
+    rmSync(png, { force: true })
+    mkdirSync(dirname(png), { recursive: true })
+    await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
+    const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId])
+    if (launched.code !== 0) {
+      failures++
+      console.log(`  fail  ${viewId} — simctl launch exited ${launched.code}`)
+      continue
+    }
+    await sleep(PACKAGE_IOS.settleMs)
+    const shot = await simctl([`io`, udid, `screenshot`, png])
+    if (shot.code !== 0 || !existsSync(png)) {
+      failures++
+      console.log(`  fail  ${viewId} — simctl io screenshot exited ${shot.code}`)
+      continue
+    }
+    console.log(`  ok    ${viewId} → ${png}`)
+  }
+  await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
+  outcomes.push({
+    platform: `ios`,
+    ok: failures === 0,
+    detail: failures === 0 ? undefined : `${failures} package view(s) failed`,
+  })
 }
 
 /**
@@ -1214,7 +1399,18 @@ async function main(): Promise<number> {
   let ids: DemoIds | undefined
 
   try {
-    if (!options.dryRun && !options.writeOnly) {
+    if (!options.dryRun && !options.writeOnly && packageOnly(scope)) {
+      // VAPP-88: the SDK example apps need no backend: straight to the device lanes.
+      console.log(`\n── package-only run: no seed, no relay, no demo ids ──`)
+      for (const platform of [`ios`, `android`] as const) {
+        if (packageViews(scope, platform).length === 0) continue
+        try {
+          if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
+        } catch (error) {
+          outcomes.push({ platform, ok: false, detail: error instanceof Error ? error.message : String(error) })
+        }
+      }
+    } else if (!options.dryRun && !options.writeOnly) {
       if (!options.skipSeed) {
         console.log(`\n── seed:screenshots ──────────────────────────────────`)
         const seed = await run({
@@ -1282,6 +1478,9 @@ async function main(): Promise<number> {
             autofill = await disableAndroidAutofill()
             demoMode = await enableAndroidDemoMode()
           }
+          // VAPP-88: `package` views come from the SDK example app; the
+          // fastlane lanes below only ever pick store + styleguide shots.
+          if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
           await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
         } catch (error) {
           outcomes.push({

@@ -186,6 +186,20 @@ pub struct FfiNode {
     pub hidden: bool,
     pub trigger_for: Option<String>,
     pub accessibility_json: Option<String>,
+    /// The states the core resolved into the node's recipe query (a tab
+    /// `selected`, an accordion trigger `open`, a check part `checked`).
+    pub part_states: Vec<String>,
+    /// The macro a non-part node expands (`Card`, `Alert`…), else null.
+    pub macro_name: Option<String>,
+}
+
+/// A part's resolved look (VAPP-88): the painted visual plus the flat style
+/// map (`width`, `height`, `borderWidth`… as JSON) for the parts the core does
+/// not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiPartStyle {
+    pub visual: FfiVisual,
+    pub style_json: String,
 }
 
 #[derive(Debug, Clone, Default, uniffi::Record)]
@@ -299,7 +313,8 @@ fn convert(out: LayoutOutput) -> FfiLayout {
     }
 }
 
-fn node(n: &PlacedNode) -> FfiNode {
+fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>) -> FfiNode {
+    let query = lnode.and_then(|l| l.part_query.as_ref());
     FfiNode {
         index: n.index,
         id: n.id.clone(),
@@ -319,6 +334,11 @@ fn node(n: &PlacedNode) -> FfiNode {
         hidden: n.hidden,
         trigger_for: n.trigger_for.clone(),
         accessibility_json: n.accessibility.as_ref().map(Value::to_string),
+        part_states: query.map(|q| q.states.clone()).unwrap_or_default(),
+        macro_name: match (query, lnode) {
+            (Some(q), Some(l)) if l.owner.is_none() => Some(q.component.clone()),
+            _ => None,
+        },
     }
 }
 
@@ -378,6 +398,28 @@ impl Surface {
         };
         let options = SurfaceOptions { catalog_id, theme, mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false };
         Ok(Arc::new(Surface { inner: Mutex::new(CoreSurface::new(&surface_id, options)) }))
+    }
+
+    /// A surface painting with a `Theme` object (`None` = geometry mode).
+    #[uniffi::constructor]
+    pub fn with_theme(surface_id: String, catalog_id: String, theme: Option<Arc<Theme>>, mode: String) -> Result<Arc<Self>, UiError> {
+        let options = SurfaceOptions { catalog_id, theme: theme.map(|t| t.inner.clone()), mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false };
+        Ok(Arc::new(Surface { inner: Mutex::new(CoreSurface::new(&surface_id, options)) }))
+    }
+
+    /// Paint with this `Theme` object from the next pass on.
+    pub fn set_theme(&self, theme: Arc<Theme>) {
+        self.inner.lock().unwrap().set_theme(Some(theme.inner.clone()));
+    }
+
+    /// The theme in force, as a `Theme` object (null in geometry mode).
+    pub fn theme(&self) -> Option<Arc<Theme>> {
+        self.inner.lock().unwrap().theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+    }
+
+    /// `light|dark`.
+    pub fn mode(&self) -> String {
+        self.inner.lock().unwrap().mode().as_str().to_string()
     }
 
     /// Load a theme file (JSON; `extends` may name a built-in) and use it.
@@ -498,7 +540,9 @@ impl Surface {
 
     /// Every layout node, once per structure version.
     pub fn nodes(&self) -> Vec<FfiNode> {
-        self.inner.lock().unwrap().nodes().iter().map(node).collect()
+        let mut inner = self.inner.lock().unwrap();
+        let placed = inner.nodes();
+        placed.iter().map(|n| node(n, inner.layout_node(n.index))).collect()
     }
 
     pub fn visuals(&self) -> Vec<FfiVisual> {
@@ -537,6 +581,114 @@ impl Surface {
 
     pub fn failing_checks(&self, id: String) -> Vec<String> {
         self.inner.lock().unwrap().failing_checks(&id)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Theme: a resolved theme the painter queries per part (VAPP-88). Painters
+// never read recipes themselves: `resolve_part` answers a sub-part the core
+// does not synthesize exactly like the core resolves a synthetic part.
+// ---------------------------------------------------------------------------
+
+/// A RESOLVED theme (built-in or loaded), shared by surfaces and painters.
+#[derive(uniffi::Object)]
+pub struct Theme {
+    inner: Arc<exponential_ui::theme::ResolvedTheme>,
+}
+
+#[uniffi::export]
+impl Theme {
+    /// A built-in theme (`neutral`, `exponential`, `playful`).
+    #[uniffi::constructor]
+    pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
+        let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+        Ok(Arc::new(Theme { inner }))
+    }
+
+    /// Load a theme file over the built-ins (+ `parents_json` = extra sources).
+    #[uniffi::constructor]
+    pub fn load(theme_json: String, parents_json: Option<String>) -> Result<Arc<Self>, UiError> {
+        let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
+        Ok(Arc::new(Theme { inner: Arc::new(theme) }))
+    }
+
+    pub fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    /// The RESOLVED theme as JSON (what `builtin_theme_json` returns).
+    pub fn resolved_json(&self) -> String {
+        serde_json::to_string(&*self.inner).unwrap_or_default()
+    }
+
+    /// A sub-part's look: `owner_component/part` for the OWNER's props (the
+    /// recipe props are derived here, like the core does) and `states`.
+    pub fn resolve_part(&self, owner_component: String, part: String, owner_props_json: String, states: Vec<String>, mode: String) -> Result<FfiPartStyle, UiError> {
+        let props: serde_json::Map<String, Value> = parse(&owner_props_json)?;
+        let query = RecipeQuery::new(owner_component.as_str(), part, exponential_ui::recipes::native_recipe_props(&owner_component, &props), states);
+        let style = exponential_ui::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
+        let v = exponential_ui::style::visual(&style, exponential_ui::style::BoxKind::Leaf);
+        Ok(FfiPartStyle { visual: visual(&v), style_json: Value::Object(style).to_string() })
+    }
+
+    /// A colour token for the mode (`foreground`, `primary`, `chart1`…), hex.
+    pub fn color(&self, name: String, mode: String) -> Option<String> {
+        let mode = Mode::parse(&mode)?;
+        self.inner.modes.get(mode).color.get(&name).cloned()
+    }
+
+    /// Every colour token of the mode as `{name: hex}` JSON.
+    pub fn colors_json(&self, mode: String) -> String {
+        match Mode::parse(&mode) {
+            Some(mode) => serde_json::to_string(&self.inner.modes.get(mode).color).unwrap_or_default(),
+            None => "{}".into(),
+        }
+    }
+
+    pub fn spacing(&self, name: String) -> Option<f64> {
+        self.inner.tokens.spacing.get(&name).copied()
+    }
+
+    pub fn radius(&self, name: String) -> Option<f64> {
+        self.inner.tokens.radius.get(&name).copied()
+    }
+
+    /// A control token in px (`input`, `switch`, `iconSm`…).
+    pub fn control(&self, name: String) -> Option<f64> {
+        self.inner.tokens.control.get(&name).copied()
+    }
+
+    pub fn type_size(&self, name: String) -> Option<f64> {
+        self.inner.tokens.r#type.size.get(&name).copied()
+    }
+
+    pub fn line_height(&self, name: String) -> Option<f64> {
+        self.inner.tokens.r#type.line_height.get(&name).copied()
+    }
+
+    pub fn opacity(&self, name: String) -> Option<f64> {
+        self.inner.tokens.opacity.get(&name).copied()
+    }
+
+    /// A family NAME (`sans` → `Inter`); the host registers the font.
+    pub fn font_family(&self, kind: String) -> Option<String> {
+        self.inner.tokens.r#type.family.get(&kind).cloned()
+    }
+
+    /// `{family: {fallback, weights, source}}` JSON.
+    pub fn fonts_json(&self) -> String {
+        serde_json::to_string(&self.inner.fonts).unwrap_or_default()
+    }
+
+    /// The numeric box a control's recipe fixes (`{width, height, …}`), JSON.
+    pub fn control_geometry(&self, component: String, props_json: String) -> Result<String, UiError> {
+        let props: serde_json::Map<String, Value> = parse(&props_json)?;
+        let g = exponential_ui::geometry::control_geometry(&self.inner, &component, &props, &[]);
+        serde_json::to_string(&g).map_err(invalid)
     }
 }
 

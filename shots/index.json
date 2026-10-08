@@ -512,6 +512,13 @@
         "bytes": 48660,
         "sha256": "ae2f424dc8614315fd45f086427649d768217563cc1170660faedfc8aef5777c"
       },
+      "ios": {
+        "file": "shots/exponential-ui-kitchen-sink/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 37138,
+        "sha256": "aa83605ba3f2488b228a7a4d631bf762af0e2f9c1b8c204a27b229c15c675c7f"
+      },
       "web": {
         "file": "shots/exponential-ui-kitchen-sink/web.webp",
         "width": 1800,

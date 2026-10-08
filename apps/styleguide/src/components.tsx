@@ -655,6 +655,14 @@ const WEB_PROPERTY_ROW = `packages/ui/src/property-row.tsx`
 const IOS_META_ROW = `apps/ios/ExpUI/Sources/GlassMetaRow.swift`
 const DESKTOP_SURFACE = `apps/desktop/crates/ui/src/surface.rs`
 const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
+// VAPP-90 converged the IDE's generic controls into the Exponential UI gpui
+// painter crate (`exponential-ui-gpui/src/controls/*`); the rows below name
+// them there.
+const DESKTOP_GPUI_ROWS = `apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs`
+const DESKTOP_GPUI_BUTTONS = `apps/desktop/crates/exponential-ui-gpui/src/controls/buttons.rs`
+const DESKTOP_GPUI_PILLS = `apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs`
+const DESKTOP_GPUI_INPUTS = `apps/desktop/crates/exponential-ui-gpui/src/controls/inputs.rs`
+const DESKTOP_GPUI_FEEDBACK = `apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs`
 const IOS_THEME = `apps/ios/ExpUI/Sources/GlassTheme.swift`
 const IOS_CONTROLS = `apps/ios/ExpUI/Sources/GlassControls.swift`
 const IOS_OPTION_ROWS = `apps/ios/ExpUI/Sources/GlassOptionRows.swift`
@@ -816,7 +824,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.`,
     status: {
       web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
-      desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
+      desktop: ok(`controls::rows::glass_section_header`, DESKTOP_GPUI_ROWS, HEADER_EXCEPTION),
       ios: ok(`GlassSectionBand`, IOS_THEME, HEADER_EXCEPTION),
       android: ok(
         `Modifier.glassSectionBand()`,
@@ -856,8 +864,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`DisclosureHeader`, `packages/ui/src/disclosure-header.tsx`),
       desktop: ok(
-        `controls::disclosure_header`,
-        DESKTOP_CONTROLS,
+        `controls::rows::disclosure_header`,
+        DESKTOP_GPUI_ROWS,
         `EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it`
       ),
       ios: leftover(
@@ -1138,7 +1146,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The rhythm every grouped row inherits: padding 12/16, gap 12, 14px text. The shell never draws a stroke — the group's hairlines do.`,
     status: {
       web: ok(`GlassInputRow / GlassToggleRow / Combobox triggerVariant="row"`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_row_shell`, DESKTOP_SURFACE),
+      desktop: ok(`controls::rows::glass_row_shell`, DESKTOP_GPUI_ROWS),
       ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
       android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
     },
@@ -1174,7 +1182,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/combobox.tsx`,
         `EXP-958: the row IS the picker — its own Select and sheet are gone`
       ),
-      desktop: ok(`surface::glass_picker_row`, DESKTOP_SURFACE),
+      desktop: ok(`controls::rows::glass_picker_row`, DESKTOP_GPUI_ROWS),
       ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
       android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
     },
@@ -1215,7 +1223,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `A bare right-aligned field at 70% foreground inside the shell — no box, no border. The row is the field's chrome.`,
     status: {
       web: ok(`GlassInputRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_input_row`, DESKTOP_SURFACE),
+      desktop: ok(`controls::rows::glass_input_row`, DESKTOP_GPUI_ROWS),
       ios: na(`Form text rows use the system field inside GlassSection`),
       android: ok(`GlassTextField(bordered = false)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
@@ -1262,7 +1270,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The segmented control as the FIRST row of a group: padding 8, full width, no fill and no stroke of its own.`,
     status: {
       web: ok(`GlassTabsRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_tabs_row`, DESKTOP_SURFACE),
+      desktop: ok(`controls::rows::glass_tabs_row`, DESKTOP_GPUI_ROWS),
       ios: ok(`GlassSegmentedControl(style: .embedded)`, IOS_SEGMENTED),
       android: ok(`GlassSegmentedControl(embedded = true)`, `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`),
     },
@@ -1303,7 +1311,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/segmented-control.tsx`,
         `the SEGMENTED_* class constants stay in tabs.tsx byte-identical; this renders the strip from an option array`
       ),
-      desktop: ok(`controls::segmented`, DESKTOP_CONTROLS),
+      desktop: ok(`controls::rows::segmented`, DESKTOP_GPUI_ROWS),
       ios: ok(`GlassSegmentedControl`, IOS_SEGMENTED),
       android: ok(`GlassSegmentedControl`, `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`),
     },
@@ -1485,7 +1493,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength; a toggle that is ON says so with aria-pressed and keeps that wash (the editor rail's marks, EXP-960). Everything that is not the primary action wears this one: the "…" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.`,
     status: {
       web: ok(`buttonVariants variant="ghost" size="icon-sm"`, `packages/ui/src/button.tsx`),
-      desktop: ok(`controls::ghost_icon_button`, DESKTOP_CONTROLS),
+      desktop: ok(`controls::buttons::ghost_icon_button`, DESKTOP_GPUI_BUTTONS),
       ios: ok(`GhostIconButton`, IOS_CONTROLS),
       android: ok(
         `CircleIconButton(borderless = true)`,
@@ -1615,7 +1623,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/button.tsx`,
         `the same radius-10 rectangle on every client since EXP-1176; the mobile sheet submit is the full-width form of it`
       ),
-      desktop: ok(`surface::glass_pill_button_primary`, DESKTOP_SURFACE),
+      desktop: ok(`controls::pills::glass_pill_button_primary`, DESKTOP_GPUI_PILLS),
       ios: ok(`GlassSubmitButton`, IOS_CONTROLS),
       android: ok(`GlassSubmitButton`, `${ANDROID_COMPONENTS}/GlassSubmitButton.kt`),
     },
@@ -1676,7 +1684,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row. A bare COUNT is none of the six: a number with no word beside it is the 16px \`Badge\` below.`,
     status: {
       web: ok(`Pill`, `packages/ui/src/pill.tsx`),
-      desktop: ok(`surface::glass_pill`, DESKTOP_SURFACE),
+      desktop: ok(`controls::pills::glass_pill`, DESKTOP_GPUI_PILLS),
       ios: ok(`GlassPill`, `apps/ios/ExpUI/Sources/GlassPill.swift`),
       android: ok(`GlassPill`, `${ANDROID_COMPONENTS}/GlassPill.kt`),
     },
@@ -1735,8 +1743,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Badge`, `packages/ui/src/badge.tsx`),
       desktop: ok(
-        `surface::count_badge`,
-        DESKTOP_SURFACE,
+        `controls::pills::count_badge`,
+        DESKTOP_GPUI_PILLS,
         `EXP-963: RailBadge::Count hangs it on the rail's Drafts entry`
       ),
       ios: leftover(
@@ -1949,8 +1957,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Input`, `packages/ui/src/input.tsx`),
       desktop: ok(
-        `controls::glass_input`,
-        DESKTOP_CONTROLS,
+        `controls::inputs::glass_input`,
+        DESKTOP_GPUI_INPUTS,
         `focus swaps the stroke to strokeActive, no ring (EXP-720); the corner is radius.lg (EXP-963)`
       ),
       ios: ok(`GlassTextField`, IOS_CONTROLS),
@@ -1970,7 +1978,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The field's own recipe, grown: radius 12, card fill under a card stroke, focus swaps the stroke to active — no ring. Padding 8/12, three rows tall, and it GROWS with content; the drag handle is off everywhere. Inside a group it goes borderless, because the row is already the chrome.`,
     status: {
       web: ok(`Textarea`, `packages/ui/src/textarea.tsx`),
-      desktop: ok(`controls::web_textarea`, DESKTOP_CONTROLS),
+      desktop: ok(`controls::inputs::web_textarea`, DESKTOP_GPUI_INPUTS),
       ios: ok(`GlassTextField(lines:)`, IOS_CONTROLS),
       android: ok(`GlassTextField(minLines/maxLines)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
@@ -2850,8 +2858,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Checkbox`, `packages/ui/src/checkbox.tsx`),
       desktop: ok(
-        `controls::checkbox`,
-        DESKTOP_CONTROLS,
+        `controls::inputs::checkbox`,
+        DESKTOP_GPUI_INPUTS,
         `glass box (row fill, strong stroke, radius SM), primary when checked, ui-check / ui-minus; bulk-select + checklist rows`
       ),
       ios: na(`no checkbox exists: a multi-select row draws the ui-selected / ui-unselected circle pair`),
@@ -2874,8 +2882,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Switch`, `packages/ui/src/switch.tsx`),
       desktop: ok(
-        `controls::web_switch`,
-        DESKTOP_CONTROLS,
+        `controls::buttons::web_switch`,
+        DESKTOP_GPUI_BUTTONS,
         `a lint (only_controls_constructs_switches) refuses Switch::new anywhere else`
       ),
       ios: ok(
@@ -2904,7 +2912,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The closed single-select: a field-height trigger of card fill under a card hairline, the value left and a chevron right, focus swapping the stroke to active. Only the PLACEHOLDER arm can be photographed — SelectValue resolves against items that live inside the portalled list, so a valued trigger renders empty until the browser opens it (see @exp/ui's island limits). On the natives there is no free-standing select at all: the closed trigger is always a picker ROW opening a sheet.`,
     status: {
       web: ok(`Select / SelectTrigger`, `packages/ui/src/select.tsx`),
-      desktop: ok(`surface::glass_picker_select`, DESKTOP_SURFACE),
+      desktop: ok(`controls::rows::glass_picker_select`, DESKTOP_GPUI_ROWS),
       ios: na(`no free-standing select: the closed single-select is a GlassPickerRow opening a sheet (see picker row)`),
       android: na(`same as iOS — PickerRow (SheetOptionRows.kt) is the closed arm, and the sheet is the list`),
     },
@@ -3009,8 +3017,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the glyph is status-glyph.tsx; LIVE_DOT_TONE is locked against the app's SESSION_DOT_CLASS`
       ),
       desktop: ok(
-        `surface::live_dot`,
-        DESKTOP_SURFACE,
+        `controls::pills::live_dot`,
+        DESKTOP_GPUI_PILLS,
         `ping = an animated halo, twice the disc, 60% to 0 over 1s on the decelerate curve; the run list pings on agent_busy only`
       ),
       ios: ok(
@@ -3050,7 +3058,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results". Its in-list sibling is \`ListEmpty\` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong. The third of them is \`EmptyCta\` (EXP-962, next entry): the dashed box that STARTS the list, where the empty state itself is the button.`,
     status: {
       web: ok(`EmptyState`, `packages/ui/src/empty-state.tsx`),
-      desktop: ok(`controls::empty_state`, DESKTOP_CONTROLS),
+      desktop: ok(`controls::feedback::empty_state`, DESKTOP_GPUI_FEEDBACK),
       ios: leftover(
         `InboxView.emptyState`,
         `apps/ios/Exponential/UI/Inbox/InboxView.swift`,
@@ -3116,8 +3124,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Skeleton`, `packages/ui/src/skeleton.tsx`),
       desktop: ok(
-        `controls::skeleton`,
-        DESKTOP_CONTROLS,
+        `controls::feedback::skeleton`,
+        DESKTOP_GPUI_FEEDBACK,
         `radius MD on the theme skeleton fill, breathing 100% to 50% over the web 2s pulse on the standard curve`
       ),
       ios: na(`no skeleton or shimmer anywhere: a loading screen is a centred spinner`),
@@ -3492,8 +3500,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`SearchField`, `packages/ui/src/search-field.tsx`),
       desktop: ok(
-        `controls::search_field`,
-        DESKTOP_CONTROLS,
+        `controls::inputs::search_field`,
+        DESKTOP_GPUI_INPUTS,
         `EXP-963: SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it`
       ),
       ios: ok(`GlassSheetSearchField`, IOS_CONTROLS),
@@ -3614,8 +3622,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`Alert / AlertTitle / AlertDescription`, `packages/ui/src/alert.tsx`),
       desktop: ok(
-        `controls::alert / alert_title`,
-        DESKTOP_CONTROLS,
+        `controls::feedback::alert / alert_title`,
+        DESKTOP_GPUI_FEEDBACK,
         `default and destructive on the glass tokens, a glyph column only when one is passed; the repository dialog banner is one`
       ),
       ios: na(`no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red`),

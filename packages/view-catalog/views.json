@@ -2058,8 +2058,12 @@
         },
         "anchorDelayMs": 800
       },
+      "ios": {
+        "shot": "exponential-ui-kitchen-sink",
+        "lane": "package"
+      },
       "notes": {
-        "ios": "The SwiftUI painter is VAPP-88 (run 6 of the VAPP-84 line); no iOS surface yet.",
+        "ios": "Captured from the SwiftUI painter's example app (packages/exponential-ui-swift/Example, scheme KitchenSink, launched with -shot exponential-ui-kitchen-sink), not the Exponential app, which links the painter only in VAPP-91.",
         "android": "The Compose painter is VAPP-89 (run 7 of the VAPP-84 line); no Android surface yet."
       }
     }

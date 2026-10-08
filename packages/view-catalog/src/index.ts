@@ -123,11 +123,16 @@ export interface WebCapture {
 /**
  * How a native UI test reaches the view. `store` = the 8 App Store / Play
  * listing shots; `styleguide` = the wider parity lane that exists to be
- * compared against web, not published.
+ * compared against web, not published; `package` (VAPP-88) = captured by the
+ * shots orchestrator from an SDK EXAMPLE app (e.g.
+ * `packages/exponential-ui-swift/Example`), not the product app's UI tests:
+ * `shot` = the view id, launched as `-shot <id>`, group `exponential-ui`.
  */
+export type NativeLane = `store` | `styleguide` | `package`
+
 export interface NativeCapture {
   shot: string
-  lane: `store` | `styleguide`
+  lane: NativeLane
 }
 
 /**
