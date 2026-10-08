@@ -13,10 +13,11 @@ apps/
 ├── web/ # TanStack Start app
 ├── push-relay/ # Hono/Bun
 ├── steer-relay/# remote-start + steer WS hub (Bun)
-├── marketing/ # Vite + React; Remotion hero (src/movie/)
+├── marketing/ # Vite + React; Remotion hero
 ├── ios/ # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/ # Jetpack Compose
-├── styleguide/ # Shot gallery + REAL @exp/ui islands
+├── styleguide/ # Shot gallery + app-extension islands
+├── ui-site/ # ui.exponential.at (SDK site)
 └── desktop/ # gpui IDE; crates/cli = the `exponential` daemon (EXP-403); crates/exponential-ui* = the SDK
 packages/
 ├── db-schema/ # Drizzle schema + shared zod/domain types
@@ -29,6 +30,7 @@ packages/
 ├── steer-ticket/ # HS256 ticket (web mints, relay verifies)
 ├── widget/ # feedback widget (Preact + snapDOM)
 ├── view-catalog/ # views.json—every view × platform, drift-gated
+├── site-shell/ # shared site shell + prerender
 ├── exponential-ui{,-react,-swift,-compose}/ # the SDK (VAPP-84)
 ├── shots/ # capture pipeline
 └── tsconfig/
@@ -61,7 +63,7 @@ The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`); marketing owns the i
 
 **Enums:** canonical values live in `packages/domain-contract/contract.json`; a `db-schema/src/domain.ts` change = update `contract.json` + regenerate.
 
-**Exponential UI (VAPP-84):** `packages/exponential-ui` = catalog + runtime themes + HOST API (`catalog/host.json` ×4: TS `ExponentialHost`, Rust `host`) + conformance (`conformance/`, every renderer in `exponential-ui.yml`) + `release/` (`ui-v*` tags); fixtures = the contract ×4; `exponential-ui-react` = React renderer + the shadcn primitives `@exp/ui` re-exports; `crates/exponential-ui{,-ffi,-gpui}` = Rust core + UniFFI facade + gpui painter; natives mirror it: `packages/exponential-ui-swift` (`ExponentialUI` + `ExponentialUIPrimitives` ExpUI wraps), `packages/exponential-ui-compose` (+ `:ui-compose-primitives` the app includes); Example apps = shots lane `package`; `samples/exponential-ui` = 4 outside hosts. The SDK imports nothing from the app, a host like any other (`lib/exponential-ui-host.tsx`); extension + packages: `packages/ui/exponential-ui`.
+**Exponential UI (VAPP-84):** `packages/exponential-ui` = catalog + runtime themes + HOST API (`catalog/host.json` ×4: TS `ExponentialHost`, Rust `host`) + conformance (`conformance/`, every renderer in `exponential-ui.yml`) + `release/` (`ui-v*` tags); fixtures = the contract ×4; `exponential-ui-react` = React renderer + the shadcn primitives `@exp/ui` re-exports; `crates/exponential-ui{,-ffi,-gpui}` = Rust core + UniFFI facade + gpui painter; natives: `packages/exponential-ui-{swift,compose}` (+ primitives the apps wrap); Example apps = shots lane `package` (`fixtures/specimens.json`); `samples/exponential-ui` = 4 outside hosts. The SDK imports nothing from the app, a host like any other (`lib/exponential-ui-host.tsx`); extension + packages: `packages/ui/exponential-ui`.
 
 **Markdown:** `issues.description` + `comments.body` = plain `text` GFM, one interchange: web TipTap, iOS cmark-gfm, desktop comrak + vendored WYSIWYG `crates/gpui-markdown-editor`, Android commonmark-java. The round-trippable feature set IS `CONTRACT_FIXTURES` (byte-locked ×4). No underline, no slash commands. **Tables** (EXP-726): canonical `| a | b |`/`| --- |` rows, `:---` alignment, one inline paragraph per cell, `\|` escape; top-level only, natives HOIST nested ones out (EXP-728). **Mentions** = plain `@<email>` (`lib/integrations/mentions.ts`; fires `issue_mention`, auto-subscribes); **issue mentions** = plain `#<IDENTIFIER>` (`lib/issue-refs.ts`, `#` autocomplete ×4; a pill renders only for a synced same-team issue; a ref auto-links both as `related`, source `reference`). Images stored relative `![alt](/api/attachments/{id})` (server canonicalizes; attachments carry probed `width`/`height`). **Inline media (EXP-824):** `video/*`/`audio/*` rows embed as a PLAIN LINK alone in a paragraph, `[clip.mp4](/api/attachments/{id})`, upgraded to a player from the synced row (`duration_ms`, `poster_storage_key` → `?poster=1`); normalisation = CLIENT-side (H.264+AAC MP4, mobile 720p); the server probes MP4/MOV headers only. **Emoji** (EXP-551) insert as unicode, never `:shortcode:`; picker + `:` typeahead data generated ONCE by `packages/emoji` (drift-gated).
 
