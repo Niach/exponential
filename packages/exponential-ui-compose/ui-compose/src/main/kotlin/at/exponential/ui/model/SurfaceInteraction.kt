@@ -4,6 +4,7 @@ import at.exponential.ui.ffi.FfiEvent
 import at.exponential.ui.ffi.UiException
 import at.exponential.ui.host.InputKind
 import at.exponential.ui.host.SurfaceActionEvent
+import at.exponential.ui.host.SurfaceFunctionCallEvent
 import at.exponential.ui.host.SurfaceInputEvent
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.flag
@@ -39,6 +40,14 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
                 ),
             )
             "openUrl" -> host.openUrl(v["url"]?.string ?: "")
+            "functionCall" -> host.onFunctionCall(
+                SurfaceFunctionCallEvent(
+                    surfaceId = id,
+                    componentId = v["componentId"]?.string ?: v["component_id"]?.string ?: "",
+                    name = v["name"]?.string ?: "",
+                    args = v["args"]?.obj ?: emptyMap(),
+                ),
+            )
             "input" -> {
                 val component = v["component_id"]?.string ?: ""
                 val revision = inputRevision ?: ((revisions[component] ?: 0) + 1).also { revisions[component] = it }

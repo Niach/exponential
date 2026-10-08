@@ -20,6 +20,24 @@ data class SurfaceActionEvent(
     val payload: JsonValue?,
 )
 
+/**
+ * A function call the core does not run itself: an `on.<event>` with
+ * `{functionCall: {call, args}}` (A2UI; `function` is the legacy key) to a
+ * name outside the catalog's built-ins. An [ExponentialHost] gates it
+ * through its policy and runs the registered handler.
+ */
+data class SurfaceFunctionCallEvent(
+    val surfaceId: String,
+    val componentId: String,
+    /** The function name (`call`). */
+    val name: String,
+    /** The resolved `args` (an object; empty when the call has none). */
+    val args: Map<String, JsonValue>,
+)
+
+/** What the media loader fetches: the absolute url and the headers to send (auth for `/api/attachments`). */
+data class MediaRequest(val url: String, val headers: Map<String, String> = emptyMap())
+
 /** `change` (debounced while typing) or `commit` (blur / Enter). */
 enum class InputKind { Change, Commit }
 
@@ -67,11 +85,24 @@ interface HostPlugin {
     /** Host-owned text edits (debounced `change`, `commit` on blur / Enter). */
     fun onInput(event: SurfaceInputEvent) {}
 
+    /**
+     * A call to a host function (`functionCall` to a non-built-in name).
+     * Default: nothing ([ExponentialHost] routes it through its policy).
+     */
+    fun onFunctionCall(event: SurfaceFunctionCallEvent) {}
+
     /** `openUrl` and `Link`. Default: the system opener. */
     fun openUrl(url: String) = systemOpenUrl(url)
 
     /** Rewrites media URLs (relative attachment paths, signed URLs). */
     fun resolveUrl(src: String): String = src
+
+    /**
+     * The request the media loader makes for a picture `src` (images,
+     * avatars, video posters): the absolute url plus headers. null = do not
+     * load. Default: [resolveUrl], no headers.
+     */
+    fun mediaRequest(src: String): MediaRequest? = MediaRequest(resolveUrl(src))
 
     /** Called once per node id for each `Unknown` placeholder. */
     fun onUnknown(component: String, catalogId: String?, id: String) {}

@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -57,6 +58,7 @@ import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
+import at.exponential.ui.host.MediaRequest
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.floor
@@ -88,10 +90,14 @@ object LeafImages {
     }
 
     /** Load `url` (cache first); null when the scheme is unsupported or the load fails. */
-    suspend fun load(context: Context?, url: String): ImageBitmap? {
+    suspend fun load(context: Context?, url: String): ImageBitmap? = load(context, MediaRequest(url))
+
+    /** Load a host's media request (its headers go with an http(s) fetch); cached per url. */
+    suspend fun load(context: Context?, request: MediaRequest): ImageBitmap? {
+        val url = request.url
         cache.get(url)?.let { return it }
         if (hasFailed(url)) return null
-        val bitmap = withContext(Dispatchers.IO) { runCatching { decode(context, url) }.getOrNull() }
+        val bitmap = withContext(Dispatchers.IO) { runCatching { decode(context, url, request.headers) }.getOrNull() }
         if (bitmap == null) {
             synchronized(failed) { failed.add(url) }
             return null
@@ -100,13 +106,14 @@ object LeafImages {
         return bitmap
     }
 
-    private fun open(context: Context?, url: String): InputStream? {
+    private fun open(context: Context?, url: String, headers: Map<String, String>): InputStream? {
         val uri = Uri.parse(url)
         return when (uri.scheme?.lowercase()) {
             "http", "https" -> (URL(url).openConnection() as HttpURLConnection).run {
                 connectTimeout = 15_000
                 readTimeout = 30_000
                 instanceFollowRedirects = true
+                for ((k, v) in headers) setRequestProperty(k, v)
                 if (responseCode !in 200..299) null else inputStream
             }
             "file" -> uri.path?.let { java.io.File(it).inputStream() }
@@ -115,8 +122,8 @@ object LeafImages {
         }
     }
 
-    private fun decode(context: Context?, url: String): ImageBitmap? {
-        val bytes = open(context, url)?.use { it.readBytes() } ?: return null
+    private fun decode(context: Context?, url: String, headers: Map<String, String>): ImageBitmap? {
+        val bytes = open(context, url, headers)?.use { it.readBytes() } ?: return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -127,15 +134,16 @@ object LeafImages {
     }
 }
 
-/** The picture at `src` (resolved through the host), loading in the background; null while loading / without one. */
+/** The picture at `src` (the host's media request: url + headers), loading in the background; null while loading / without one. */
 @Composable
 internal fun rememberLeafImage(cx: LeafContext, src: String): ImageBitmap? {
     if (src.isEmpty()) return null
-    val url = cx.model.host.resolveUrl(src)
+    val request = remember(src, cx.model.host) { cx.model.host.mediaRequest(src) } ?: return null
+    val url = request.url
     val scheme = Uri.parse(url).scheme
     if (scheme.isNullOrEmpty()) return null
     val context = LocalContext.current.applicationContext
-    val image by produceState(LeafImages.cached(url), url) { value = LeafImages.load(context, url) }
+    val image by produceState(LeafImages.cached(url), request) { value = LeafImages.load(context, request) }
     return image
 }
 

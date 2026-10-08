@@ -53,6 +53,7 @@ fun NodeView(index: Int, modifier: Modifier = Modifier) {
     val model = LocalSurfaceModel.current
     val node = model.node(index) ?: return
     if (node.hidden) return
+    model.paintTrace?.add(index)
     NodeBody(index, node, model, modifier)
 }
 
@@ -109,7 +110,9 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .paintedBox(style, size)
             .then(clip),
     ) {
-        if (node.isLeaf) {
+        // An overlay owner the core marks as a leaf still carries its inline
+        // trigger (a DropdownMenu's default button): paint the children.
+        if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
             LeafContent(LeafContext(model, node, size, style, model.ink(index), model.textStyle(index)))
         } else {
             ContainerContent(index, node, model, style, size)

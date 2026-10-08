@@ -21,8 +21,9 @@ val ffiCrate = File(repoRoot, "apps/desktop/crates/exponential-ui-ffi")
 val cargoTarget = System.getenv("CARGO_TARGET_DIR")?.let(::File) ?: File(repoRoot, "apps/desktop/target")
 
 // The Maven coordinates (the POM maps project dependencies through them).
+// `-PuiVersion=…` sets the release version (VAPP-91).
 group = "at.exponential"
-version = "0.1.0"
+version = (findProperty("uiVersion") as String?) ?: "0.1.0"
 
 android {
     namespace = "at.exponential.ui"
@@ -60,6 +61,9 @@ android {
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
             it.systemProperty("exponential.ui.fixtures", File(repoRoot, "packages/exponential-ui/fixtures").absolutePath)
             it.systemProperty("exponential.ui.record", System.getenv("EXPONENTIAL_UI_RECORD") ?: "")
+            // ConformanceTest: the default report path and the renderer version (VAPP-91).
+            it.systemProperty("exponential.ui.conformanceReport", File(repoRoot, ".conformance/exponential-ui-compose.json").absolutePath)
+            it.systemProperty("exponential.ui.version", project.version.toString())
             it.maxHeapSize = "3g"
             // One JVM per test class: the facade keeps ONE callback vtable per
             // process, registered by whichever classloader loaded the binding
@@ -73,6 +77,7 @@ android {
     publishing {
         singleVariant("release") {
             withSourcesJar()
+            withJavadocJar()
         }
     }
 }
@@ -117,13 +122,12 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "at.exponential"
             artifactId = "ui-compose"
-            version = "0.1.0"
+            version = project.version.toString()
             afterEvaluate { from(components["release"]) }
+            // The rest of the POM (url, licence, developers, scm): the root build script.
             pom {
                 name.set("Exponential UI Compose")
-                description.set("The Jetpack Compose renderer of the Exponential UI SDK: paints A2UI surfaces at the frames the Rust core computes.")
-                url.set("https://ui.exponential.at")
-                licenses { license { name.set("Apache-2.0"); url.set("https://www.apache.org/licenses/LICENSE-2.0") } }
+                description.set("The Jetpack Compose renderer of the Exponential UI SDK: paints A2UI surfaces at the frames the Rust core computes, with the host runtime (transports, policy, sources).")
             }
         }
     }

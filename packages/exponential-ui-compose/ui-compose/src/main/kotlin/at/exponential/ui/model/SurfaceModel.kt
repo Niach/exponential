@@ -173,6 +173,12 @@ class SurfaceModel(
      */
     var fixedMeasure = false
 
+    /**
+     * Conformance / tests: when set, every node view records its index here
+     * as it composes (in composition order = paint order).
+     */
+    var paintTrace: MutableCollection<Int>? = null
+
     /** The open Select / DatePicker popup (the field node id). */
     var popup: String? by mutableStateOf(null)
 

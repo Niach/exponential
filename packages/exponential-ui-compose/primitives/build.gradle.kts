@@ -18,7 +18,7 @@ plugins {
 
 // The Maven coordinates (the POM maps project dependencies through them).
 group = "at.exponential"
-version = "0.1.0"
+version = (findProperty("uiVersion") as String?) ?: "0.1.0"
 
 android {
     namespace = "at.exponential.ui.primitives"
@@ -44,6 +44,7 @@ android {
     publishing {
         singleVariant("release") {
             withSourcesJar()
+            withJavadocJar()
         }
     }
 }
@@ -70,8 +71,12 @@ publishing {
         register<MavenPublication>("release") {
             groupId = "at.exponential"
             artifactId = "ui-compose-primitives"
-            version = "0.1.0"
+            version = project.version.toString()
             afterEvaluate { from(components["release"]) }
+            pom {
+                name.set("Exponential UI Compose primitives")
+                description.set("The generic Jetpack Compose primitives the Exponential UI Compose painter draws the catalog natives with, themed by PrimitiveTokens.")
+            }
         }
     }
 }

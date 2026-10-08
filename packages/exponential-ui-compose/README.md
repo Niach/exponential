@@ -31,7 +31,6 @@ cd packages/exponential-ui-compose
 
 - **The binding.** `ui-compose` compiles `exponential-ui-ffi/bindings/kotlin` (package `at.exponential.ui.ffi`) as a second source dir and takes the `.so` files from `out/jniLibs`.
 - **R8.** The consumer rules keep JNA and the binding, so an app with R8 on needs nothing extra.
-- **Publishing.** `maven-publish` is wired with group `at.exponential`, version `0.1.0`; uploading is VAPP-91.
 
 ### In a blank project
 
@@ -166,6 +165,62 @@ Launch extras (`adb shell am start -n at.exponential.ui.kitchensink/.MainActivit
 | `--ei bench <n>` (or `--es shot bench`) | `benchTreeJson(n)` instead of the kitchen sink |
 | `--ez benchLoop true` (or a tap on the `host:` line) | the timed pass series: one `exponential-ui: surface=… phase=… layout_ns=… wall_ns=… upcalls=… measure_calls=…` line per pass + `summary` lines |
 
+## The host API
+
+`at.exponential.ui.host` is the Kotlin twin of the TS reference runtime (`packages/exponential-ui/src/host/runtime.ts`, contract `catalog/host.json`). The rules (router, decoders, policy, sources, packages) are the Rust core's, reached through the facade; nothing is re-implemented here.
+
+```kotlin
+val host = remember {
+    ExponentialHost(HostOptions(
+        transport = JsonlStreamTransport("https://example.com/a2ui.jsonl", postUrl = "https://example.com/action"),
+        extensions = listOf(HostExtension(extensionJson, mapOf("Sparkline" to SparklinePainter))),
+        functions = mapOf("app.toast" to { args, call -> toast(args["text"]?.string) }),
+        sources = mapOf("exp" to SourceResolver { source, emit -> subscribe(source, emit) /* returns the cancel */ }),
+        policy = HostPolicy(functions = FunctionPolicy(ask = listOf("app.*")), onFunctionCall = { consent(it) },
+            urls = UrlPolicy(hosts = listOf("*.example.com")), media = MediaOptions(baseUrl, listOf(MediaRule(prefix, authHeaders)))),
+        theme = ThemeHandle.load(themeJson), mode = Mode.Light, plugin = myIcons,
+    ))
+}
+DisposableEffect(host) { host.connect(); onDispose { host.dispose() } }
+HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
+```
+
+- **`ExponentialHost`** owns the transport, the core's `HostRouter`, one `SurfaceModel` per surface, the source subscriptions, the function registry and the policy. Its `surfaces`, `status` (`connecting|open|closed|error`, `hasTransport`) and `unsupportedCatalog` are Compose snapshot state.
+  - Transport and source callbacks hop onto its `scope` (default `Main.immediate`).
+  - `receive(json)` feeds a message directly; `installPackage(json)` installs a declarative package for `applyTemplate`.
+  - `supportedCatalogIds` and `clientCapabilities()` cover catalog negotiation.
+- **Ops.**
+  - `create` makes a new model with the host's theme, mode and extensions.
+  - `components` merges by id.
+  - `data` sets data; no `value` removes the path.
+  - `bind` runs the scheme's resolver; with no resolver it sends `VALIDATION_FAILED`.
+  - `delete` drops the model and cancels its subscriptions.
+  - `send` goes out on the transport; an `UNSUPPORTED_CATALOG` also sets `unsupportedCatalog`.
+- **Painter events.**
+  - An `action` becomes the A2UI client message on the transport (the plugin's `onAction` still fires).
+  - A `functionCall` goes through `callFunction`: `not_found` → `FUNCTION_NOT_FOUND`, `ask` → the `onFunctionCall` consent hook, `deny` → `FUNCTION_DENIED`, `allow` → the handler. A package surface's `functions` list narrows the decision.
+  - `openUrl` and `Link` go through the URL policy (relative urls resolve against the media `baseUrl`), then `policy.openUrl` (default: the system opener).
+  - Images, avatars and posters load through `host.mediaRequest`, so the media rules' headers reach the fetch (`HostPlugin.mediaRequest` without a host).
+- **Transports.** All of them parse through the core's decoders.
+  - `MemoryTransport` (`feed`, `feedJsonl`, `sent`).
+  - `JsonlStreamTransport` and `SseTransport`: a streamed `HttpURLConnection` GET on `Dispatchers.IO`, client messages POSTed to `postUrl`, reconnecting after `reconnectMs` (0 = never).
+  - `McpTransport`: JSON-RPC `initialize`, then `tools/call`; client messages go out as `a2ui_event` calls.
+  - `WebSocketTransport` runs over a socket the APP supplies. The AAR has no HTTP or WebSocket dependency: implement `fun interface WebSocketConnector { fun connect(url, listener): WebSocketConnection }`. The KDoc has the OkHttp version; it is ten lines.
+
+## Publishing
+
+Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
+- Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
+- The version is the `uiVersion` Gradle property (default `0.1.0`).
+- Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
+
+```bash
+bash apps/desktop/crates/exponential-ui-ffi/build-android.sh       # the .so files the AAR bundles
+bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.0
+```
+
+`central-bundle.sh` publishes into the local `centralBundle` repository (`build/central-bundle`). It drops `maven-metadata.xml`, adds any missing `.md5`/`.sha1`, and zips the Maven layout into `build/central-bundle.zip`, the Central Portal upload format. The upload is a CI `curl`; an unsigned bundle builds but the Portal rejects it.
+
 ## Tests
 
 - **`./gradlew :ui-compose:testDebugUnitTest`** runs on the JVM (Robolectric) against the host build of the facade. Export `CARGO_TARGET_DIR` (the tests load `$CARGO_TARGET_DIR/release/libexponential_ui_ffi.dylib` through `jna.library.path`). Each test class runs in its own JVM. The suite covers:
@@ -174,7 +229,12 @@ Launch extras (`adb shell am start -n at.exponential.ui.kitchensink/.MainActivit
   - the measurer rules;
   - interaction (actions, mirrors, the field debounce + revisions + echo rule, a 40-key burst, layers, windowed lists);
   - `src/test/snapshots/components.json`, the painted tree of every component case under the fixed measure;
-  - Roborazzi image snapshots (`src/test/snapshots/images/`).
+  - Roborazzi image snapshots (`src/test/snapshots/images/`);
+  - `HostTest`: the host runtime (router ops, sources + cancel, the function gate + consent + package narrowing, the URL policy, media requests, the in-memory transport, actions → client messages, catalog negotiation);
+  - `ConformanceTest`: every suite of `packages/exponential-ui/conformance/manifest.json`.
+    - The painted suites run THROUGH this painter: catalog and replay composed by `ExponentialSurface`, control geometry from `SurfaceMeasurer`.
+    - The pure suites run through the bindings.
+    - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential-at/ui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
 
   `EXPONENTIAL_UI_RECORD=1` rewrites the snapshots.
 - **`./gradlew :example:connectedDebugAndroidTest`** runs on a device:
