@@ -358,7 +358,9 @@ pub(crate) fn build_screen_content(
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
-        Screen::ExponentialUiKitchenSink => cx.new(|_| NeverUndocked).into(),
+        Screen::ExponentialUiKitchenSink | Screen::ExponentialUiDevices => {
+            cx.new(|_| NeverUndocked).into()
+        }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
         // EXP-851: the list screens are never undockable (only a detail is),
         // so this arm exists to keep the match total.
@@ -1147,6 +1149,8 @@ pub struct ScreensPanel {
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
+    /// VAPP-91: the Devices template through the IDE host, built on first use.
+    exponential_ui_devices: Option<Entity<crate::exponential_ui_devices::ExponentialUiDevices>>,
     /// EXP-746: one session screen per OPEN session tab, keyed by the
     /// `coding_sessions` row id. Not a shared single instance like the views
     /// above: each one owns a feed (a relay socket, or the local engine's
@@ -1369,6 +1373,7 @@ impl ScreensPanel {
             reviews,
             getting_started,
             exponential_ui: None,
+            exponential_ui_devices: None,
             sessions: HashMap::new(),
             list,
             side_list,
@@ -1685,6 +1690,7 @@ impl ScreensPanel {
             | Screen::Reviews
             | Screen::GettingStarted { .. }
             | Screen::ExponentialUiKitchenSink
+            | Screen::ExponentialUiDevices
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -3837,6 +3843,16 @@ impl Render for ScreensPanel {
                 .get_or_insert_with(|| {
                     cx.new(|cx| {
                         crate::exponential_ui_screen::ExponentialUiKitchenSink::new(window, cx)
+                    })
+                })
+                .clone()
+                .into_any_element(),
+            // VAPP-91: the Devices template through the IDE host (dev-only).
+            Some(Screen::ExponentialUiDevices) => self
+                .exponential_ui_devices
+                .get_or_insert_with(|| {
+                    cx.new(|cx| {
+                        crate::exponential_ui_devices::ExponentialUiDevices::new(window, cx)
                     })
                 })
                 .clone()

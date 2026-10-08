@@ -37,3 +37,22 @@ fn update_components_merges_by_id() {
     let a = nodes.iter().find(|n| n.id == "a").expect("a survives the second update with root kept");
     assert_eq!(a.props.get("text").and_then(|v| v.as_str()), Some("two"));
 }
+
+#[test]
+fn a_template_row_press_fires_its_handler_with_the_item_scope() {
+    use exponential_ui::surface::OutEvent;
+    let mut s = Surface::new("s", SurfaceOptions::default());
+    s.apply(&json!({"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}})).unwrap();
+    s.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [
+        {"id": "root", "component": "List", "children": {"componentId": "row", "path": "/rows"}},
+        {"id": "row", "component": "Box", "pressable": true, "children": ["label"],
+         "on": {"press": {"functionCall": {"call": "harness.openDevice", "args": {"id": {"path": "id"}}}}}},
+        {"id": "label", "component": "Text", "text": {"path": "name"}}
+    ]}})).unwrap();
+    s.apply(&json!({"version": "v0.9", "updateDataModel": {"surfaceId": "s", "path": "/rows", "value": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]}})).unwrap();
+    s.set_viewport(390.0, 0.0, None);
+    s.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+    let index = s.nodes().iter().position(|n| n.id == "row.1").expect("row.1 laid out") as u32;
+    let events = s.event(index, "press", None);
+    assert!(events.iter().any(|e| matches!(e, OutEvent::FunctionCall { name, args, .. } if name == "harness.openDevice" && args["id"] == "b")), "{events:?}");
+}

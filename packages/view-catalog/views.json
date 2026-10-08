@@ -2086,8 +2086,14 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-devices"
+        },
+        "anchorDelayMs": 800
+      },
       "notes": {
-        "desktop": "The IDE host renders the same package under EXP_DEV_SCREEN=exponential-ui-devices; its committed shot lands with VAPP-83.",
         "ios": "The iOS app does not link the SwiftUI painter yet (VAPP-83).",
         "android": "The Android app does not link the Compose painter yet (VAPP-83)."
       }

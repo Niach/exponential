@@ -1175,14 +1175,35 @@ impl Surface {
     }
 
     fn source_node(&self, id: &str) -> Option<UiNode> {
-        let root = self.root.as_ref()?;
-        let mut found = None;
-        root.walk(&mut |n| {
-            if found.is_none() && n.id == id {
-                found = Some(n.clone());
+        let find = |root: &UiNode, id: &str| {
+            let mut found = None;
+            root.walk(&mut |n| {
+                if found.is_none() && n.id == id {
+                    found = Some(n.clone());
+                }
+            });
+            found
+        };
+        if let Some(n) = self.root.as_ref().and_then(|r| find(r, id)) {
+            return Some(n);
+        }
+        // A template instance (`row.0`, `label.2.1`): its source node is the
+        // template component's, found under the suffix-free id (VAPP-91: a
+        // List row's `on.press` fired nothing). Its scope is the instance's
+        // own layout node, so bindings still resolve per item.
+        let mut base = id;
+        while let Some((head, tail)) = base.rsplit_once('.') {
+            if tail.is_empty() || !tail.bytes().all(|b| b.is_ascii_digit()) {
+                break;
             }
-        });
-        found
+            base = head;
+            for tpl in self.template_cache.values().flatten() {
+                if let Some(n) = find(tpl, base) {
+                    return Some(n);
+                }
+            }
+        }
+        None
     }
 
     /// If `prop` on `id` is bound, write `value` to the data model.

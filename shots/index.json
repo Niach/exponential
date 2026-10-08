@@ -505,6 +505,13 @@
       }
     },
     "exponential-ui-devices": {
+      "desktop": {
+        "file": "shots/exponential-ui-devices/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 27578,
+        "sha256": "b322a1616723b70f5ebdac37544b4bda6fb7420dc464e30c3f39784249c2a94a"
+      },
       "web": {
         "file": "shots/exponential-ui-devices/web.webp",
         "width": 1800,
