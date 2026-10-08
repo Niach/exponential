@@ -1,0 +1,43 @@
+{
+  "$comment": "The renderer CONFORMANCE matrix (packages/exponential-ui/conformance): every fixture × theme × mode × width × direction is laid out by the React renderer in headless Chromium and by the gpui painter headless (gpui's cosmic-text system), both with the font set of `fonts`, and dumped as frames (conformance/dump.ts). `kitchen-sink` = fixtures/kitchen-sink.json with the React harness's data; `responsive` = the kitchen sink's responsive section exactly as layout-geometry-round1.json frames it (its `surface` + `data`), but REAL text instead of the fixed measure. The case's direction replaces the root's `direction` style. `textComponents` = the components whose `lines` both sides report (the leaves that lay out a plain text block). Tolerances: every node ±`px` on x/y/w/h; a node with text lines on either side may differ by `textLines` line heights in height (the wrap tolerance) — everything else is a divergence. Paths are repo-relative.",
+  "format": 1,
+  "fonts": "packages/exponential-ui/conformance/fonts.json",
+  "fixtures": {
+    "kitchen-sink": {
+      "tree": "packages/exponential-ui/fixtures/kitchen-sink.json",
+      "data": "packages/exponential-ui-react/fixtures/kitchen-sink.data.json"
+    },
+    "responsive": {
+      "geometry": "packages/exponential-ui/fixtures/layout-geometry-round1.json"
+    }
+  },
+  "themes": [
+    "exponential",
+    "neutral",
+    "playful"
+  ],
+  "modes": [
+    "dark"
+  ],
+  "widths": [
+    390,
+    600,
+    900,
+    1280
+  ],
+  "directions": [
+    "ltr",
+    "rtl"
+  ],
+  "locale": "en-US",
+  "tolerance": {
+    "px": 1,
+    "textLines": 1
+  },
+  "textComponents": [
+    "Text",
+    "Heading",
+    "Link",
+    "Label"
+  ]
+}
