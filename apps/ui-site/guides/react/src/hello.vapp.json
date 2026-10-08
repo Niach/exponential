@@ -1,0 +1,21 @@
+{
+  "id": "com.example.hello",
+  "name": "Hello",
+  "version": "1.0.0",
+  "description": "A greeting card that follows the weather source and can toast.",
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "theme": "neutral",
+  "functions": ["app.toast"],
+  "templates": {
+    "main": {
+      "components": [
+        { "id": "root", "component": "Card", "padded": true, "children": ["title", "body", "wave"] },
+        { "id": "title", "component": "Text", "text": { "path": "/title" }, "variant": "title" },
+        { "id": "body", "component": "Text", "text": { "path": "/weather/summary" }, "variant": "muted" },
+        { "id": "wave", "component": "Button", "label": "Wave", "on": { "press": { "functionCall": { "call": "app.toast", "args": { "text": "Hello back!" } } } } }
+      ],
+      "data": { "title": "Hello, world", "weather": { "summary": "Loading the weather…" } },
+      "bindings": [{ "path": "/weather", "source": "weather:current?city=Vienna" }]
+    }
+  }
+}

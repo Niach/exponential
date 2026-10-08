@@ -8,7 +8,8 @@ name: exponential-ui
 # failed). The React renderer runs in headless Chromium, the Rust core and
 # the gpui painter on Linux, the SwiftUI painter on macOS against the
 # xcframework, the Compose painter under Robolectric against the host build
-# of the facade.
+# of the facade. Each job also compiles its ui.exponential.at guides from a
+# fresh project (`apps/ui-site/guides/check.ts`, VAPP-93).
 #
 # Once per change: the pull request (path-filtered to the SDK), like test.yml.
 
@@ -23,6 +24,7 @@ on:
       - 'apps/desktop/crates/exponential-ui/**'
       - 'apps/desktop/crates/exponential-ui-ffi/**'
       - 'apps/desktop/crates/exponential-ui-gpui/**'
+      - 'apps/ui-site/guides/**'
       - '.github/workflows/exponential-ui.yml'
   workflow_dispatch: {}
 
@@ -55,6 +57,11 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
         run: bun run --filter @exponential-at/ui-react test:conformance
+      - name: Guides (React, agent, theme) from a fresh project
+        run: |
+          bun apps/ui-site/guides/check.ts react
+          bun apps/ui-site/guides/check.ts agent
+          bun apps/ui-site/guides/check.ts theme
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-react
@@ -84,6 +91,9 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
         run: cargo test --locked -p exponential-ui-gpui
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (gpui) from a fresh project
+        run: bun apps/ui-site/guides/check.ts gpui
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-rust
@@ -108,6 +118,9 @@ jobs:
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-swift.json
         run: swift test
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (SwiftUI) from a fresh project
+        run: bun apps/ui-site/guides/check.ts swift
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-swift
@@ -141,6 +154,9 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest --no-daemon
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (Compose) from a fresh project
+        run: bun apps/ui-site/guides/check.ts compose
       - uses: actions/upload-artifact@v4
         with:
           name: conformance-compose
