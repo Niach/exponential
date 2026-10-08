@@ -28,7 +28,7 @@
     "dev:harness": "bun ./harness/serve.ts",
     "smoke:pack": "bun run ./scripts/pack-smoke.ts",
     "shots": "bun run ./scripts/shots.ts",
-    "test:conformance": "vitest run --config vitest.browser.config.ts browser/conformance.test.ts"
+    "test:conformance": "vitest run --config vitest.browser.config.ts browser/suites.test.ts"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

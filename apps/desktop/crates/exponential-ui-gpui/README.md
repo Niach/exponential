@@ -266,8 +266,8 @@ host.update(cx, |h, cx| h.connect(cx));
 
 ## Conformance
 
-`cargo test -p exponential-ui-gpui --test conformance` runs all 15 suites of
-`packages/exponential-ui/conformance/manifest.json` (1008 cases) and writes
+`cargo test -p exponential-ui-gpui --test suites` runs all 15 suites of
+`packages/exponential-ui/conformance/manifest.json` (1009 cases) and writes
 `<repo>/.conformance/exponential-ui-gpui.json` (or
 `$EXPONENTIAL_UI_CONFORMANCE_REPORT`). Check it with `bun run --filter
 @exponential-at/ui conformance:check <abs path>`.

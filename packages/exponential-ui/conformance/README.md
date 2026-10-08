@@ -49,13 +49,27 @@ passed, failed: [names], skipped?}}}`. Our runners write it to
 | renderer | runner | command |
 |---|---|---|
 | `exponential-ui` (Rust core) | `apps/desktop/crates/exponential-ui/tests/conformance.rs` | `cargo test -p exponential-ui --test conformance` |
-| `@exponential-at/ui-react` | `packages/exponential-ui-react/browser/conformance.test.ts` | `bun run --filter @exponential-at/ui-react test:conformance` (headless Chromium) |
-| `exponential-ui-gpui` | `apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs` | `cargo test -p exponential-ui-gpui --test conformance` |
+| `@exponential-at/ui-react` | `packages/exponential-ui-react/browser/suites.test.ts` | `bun run --filter @exponential-at/ui-react test:conformance` (headless Chromium) |
+| `exponential-ui-gpui` | `apps/desktop/crates/exponential-ui-gpui/tests/suites.rs` | `cargo test -p exponential-ui-gpui --test suites` |
 | `ExponentialUI` (SwiftUI) | `packages/exponential-ui-swift/Tests/ExponentialUITests/ConformanceTests.swift` | `swift test` |
 | `at.exponential:ui-compose` | `packages/exponential-ui-compose/ui-compose/src/test/…/ConformanceTest.kt` | `./gradlew :ui-compose:testDebugUnitTest` |
 
 CI (`.github/workflows/exponential-ui.yml`) runs all four renderers plus the
 core on every SDK pull request and fails unless every report is conformant.
+
+## With the real-font harness (VAPP-98, round 1)
+
+Round 1 (#VAPP-98) adds the other half to this directory: `run.ts` dumps the
+kitchen sink and the responsive cases from the web and desktop renderers with
+the conformance fonts and compares them with `fixtures/conformance-baseline.json`
+(geometry with real text, plus a reported pixel step). The two halves do not
+overlap: this manifest locks the CONTRACT every renderer replays case by case
+(no fonts involved), the harness locks what real text does to it. Once both
+are on master, the harness's comparison becomes suite `real-font` here
+(cases = its matrix, a renderer passes when its dump has no divergence
+beyond `conformance-known.json`), so `conformance:check` stays the one verdict.
+Runner files are named `suites` (`browser/suites.test.ts`, gpui
+`tests/suites.rs`) beside the harness's own `conformance` ones.
 
 ## Listing
 

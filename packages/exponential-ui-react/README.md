@@ -137,7 +137,7 @@ joined: `onFunctionCall(call)` and `mediaRequest(src)` (a request with
 headers is fetched once and shown as a blob url). Template items (a List's
 `{componentId, path}` rows) wear their component's node styles.
 
-`browser/conformance.test.ts` is the renderer's conformance runner (every
+`browser/suites.test.ts` is the renderer's conformance runner (every
 suite of the manifest; `test:conformance`).
 
 ## Overlays
