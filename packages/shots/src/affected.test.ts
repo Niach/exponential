@@ -297,6 +297,12 @@ describe(`native attribution`, () => {
   })
 })
 
+/** The views an SDK example app photographs (the kitchen sink + the specimens, VAPP-93). */
+const packageViews = (platform: `ios` | `android`) =>
+  viewsFor(platform)
+    .filter((view) => view.group.startsWith(`exponential-ui`))
+    .map((view) => view.id)
+
 describe(`fail-safe`, () => {
   test(`an unrecognised repo-wide path widens every lane`, () => {
     const result = scope(`docker-compose.yaml`)
@@ -311,14 +317,14 @@ describe(`fail-safe`, () => {
     expect(views(result, `web`).length).toBeGreaterThan(0)
   })
 
-  test(`the Exponential UI SDK packages narrow iOS to the kitchen sink`, () => {
+  test(`the Exponential UI SDK packages narrow iOS to the example app's views`, () => {
     // VAPP-88: the iOS shot comes from the SwiftUI painter's example app.
     const swift = affectedScope({
       changedFiles: [`packages/exponential-ui-swift/Sources/ExponentialUI/Painter.swift`],
       platforms: PLATFORMS,
       includeMissing: false,
     })
-    expect(swift.byPlatform.get(`ios`)).toEqual([`exponential-ui-kitchen-sink`])
+    expect(swift.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
     for (const platform of PLATFORMS) {
       if (platform !== `ios`) expect(swift.byPlatform.get(platform)).toEqual([])
     }
@@ -329,7 +335,7 @@ describe(`fail-safe`, () => {
       platforms: PLATFORMS,
       includeMissing: false,
     })
-    expect(compose.byPlatform.get(`android`)).toEqual([`exponential-ui-kitchen-sink`])
+    expect(compose.byPlatform.get(`android`)).toEqual(packageViews(`android`))
     for (const platform of PLATFORMS) {
       if (platform !== `android`) expect(compose.byPlatform.get(platform)).toEqual([])
     }
@@ -351,8 +357,8 @@ describe(`fail-safe`, () => {
       platforms: PLATFORMS,
       includeMissing: false,
     })
-    expect(core.byPlatform.get(`ios`)).toEqual([`exponential-ui-kitchen-sink`])
-    expect(core.byPlatform.get(`android`)).toEqual([`exponential-ui-kitchen-sink`])
+    expect(core.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
+    expect(core.byPlatform.get(`android`)).toEqual(packageViews(`android`))
     expect(core.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
     expect(core.byPlatform.get(`web`)).toHaveLength(viewsFor(`web`).length)
   })

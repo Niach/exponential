@@ -373,7 +373,8 @@ const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string
 
 /**
  * Exponential UI SDK packages (VAPP-88/89), in match order. On `narrow`
- * platforms their pixels land ONLY in the `exponential-ui` group: the iOS and
+ * platforms their pixels land ONLY in the `exponential-ui*` groups (VAPP-93: + the
+ * core-catalog specimens): the iOS and
  * android shots are taken from the SwiftUI / Compose painters' example apps (a
  * `package` capture), and neither Exponential mobile app links a painter until
  * VAPP-91 — that run must move `ios`/`android` out of `narrow` here.
@@ -611,7 +612,7 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
       for (const platform of sdk.narrow) {
         if (!hits.has(platform)) continue
         for (const view of viewsFor(platform)) {
-          if (view.group === `exponential-ui`) add(view.id, platform, `${path}: draws ${sdk.why}`)
+          if (view.group.startsWith(`exponential-ui`)) add(view.id, platform, `${path}: draws ${sdk.why}`)
         }
       }
       const rest = platforms.filter((platform) => !sdk.narrow.includes(platform))
