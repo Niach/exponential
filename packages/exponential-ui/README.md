@@ -228,6 +228,7 @@ so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 | `catalog-basic-map.json` | hand-written A2UI basic surfaces → expected trees + issues |
 | `catalog-extension.json` | an example extension (native + macro + enum) and its cases |
 | `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept; view id `exponential-ui-kitchen-sink` |
+| `specimens.json` | generated (VAPP-93): one surface per component (its example, up to two enum props and two booleans, captioned; an overlay once, open) + `exponential-ui-demo` from the hand-written `demo-surface.json`; id = the view id ui.exponential.at shows four shots of |
 | `prompt-budget.json` | the prompt's size on record (full / lite / terse) and the budget |
 | `theme-resolved.json` | every built-in theme resolved: what a native loader must produce from the same files |
 | `theme-recipes.json` | theme × component part × recipe props → visuals per mode and state (one case per distinct look) |

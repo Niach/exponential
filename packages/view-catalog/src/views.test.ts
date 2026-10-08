@@ -99,6 +99,7 @@ const groupIds = [
   `ide`,
   `getting-started`,
   `exponential-ui`,
+  `exponential-ui-catalog`,
 ] as const
 
 const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`])
@@ -406,7 +407,7 @@ describe(`native suites match the manifest`, () => {
       for (const key of [`ios`, `android`] as const) {
         const capture = view[key]
         if (capture?.lane !== `package`) continue
-        if (capture.shot !== view.id || view.group !== `exponential-ui`) {
+        if (capture.shot !== view.id || !view.group.startsWith(`exponential-ui`)) {
           bad.push(`${view.id} · ${key} → ${capture.shot} (${view.group})`)
         }
       }

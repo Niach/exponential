@@ -16,6 +16,7 @@
 //   fixtures/catalog-extension.json       the example extension's cases → expected trees
 //   fixtures/kitchen-sink.expanded.json   fixtures/kitchen-sink.json, reduced + expanded
 //   fixtures/prompt-budget.json           the prompt's size on record
+//   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //
 // The icon name list is read from packages/icons/icons.json at GENERATE time
@@ -352,6 +353,109 @@ function componentCases(): ComponentCase[] {
   return cases
 }
 
+// ---------------------------------------------------------------------------
+// Specimens (VAPP-93): one surface per component, the page shot of
+// ui.exponential.at, painted by every renderer from the same JSON
+// ---------------------------------------------------------------------------
+
+/** Components that size to their content: their cases sit at the start of the
+ *  column instead of stretching across it. */
+const INLINE_SPECIMENS = new Set([
+  `Avatar`, `Badge`, `Button`, `ButtonGroup`, `Checkbox`, `DropdownMenu`, `EntityChip`, `Icon`, `Link`, `Pill`,
+  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `ToggleGroup`, `Tooltip`, `Popover`, `Pagination`,
+])
+/** The enum props a specimen shows, in priority order (at most two of them). */
+const SPECIMEN_ENUMS = [`variant`, `type`, `kind`, `level`, `size`, `tone`, `density`, `orientation`, `direction`, `fit`]
+/** The boolean props a specimen shows `true` for, in priority order (at most two). */
+const SPECIMEN_BOOLEANS = [`checked`, `pressed`, `selected`, `disabled`, `loading`, `busy`, `removable`, `attachments`, `chevron`, `padded`, `divided`, `guides`, `tee`, `rounded`]
+const SPECIMEN_MAX_CASES = 8
+
+/** Re-ids a nested tree so several cases of one component share a surface. */
+function prefixIds(node: NestedNode, prefix: string): NestedNode {
+  const out: NestedNode = { ...node, id: `${prefix}${node.id}` }
+  if (node.children) out.children = node.children.map((c) => prefixIds(c, prefix))
+  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, prefixIds(v, prefix)]))
+  return out
+}
+
+/** The cases a component's specimen shows: an overlay (an `open` prop) once,
+ *  open; anything else its example, then up to two enum props × every value,
+ *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
+function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
+  const own = all.filter((c) => c.node.component === name)
+  const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
+  const def = coreCatalog.components[name]
+  if (def.props.open) {
+    const open = own.find((c) => suffix(c) === `open=true`)!
+    return [{ label: `open`, node: open.node }]
+  }
+  const picked: ComponentCase[] = [own.find((c) => suffix(c) === `example`)!]
+  const enums = SPECIMEN_ENUMS.filter((p) => def.props[p]?.type === `enum`).slice(0, 2)
+  const bools = SPECIMEN_BOOLEANS.filter((p) => def.props[p]?.type === `boolean`).slice(0, 2)
+  for (const prop of enums) picked.push(...own.filter((c) => suffix(c).startsWith(`${prop}=`)))
+  for (const prop of bools) picked.push(...own.filter((c) => suffix(c) === `${prop}=true`))
+  const seen = new Set<string>()
+  const out: { label: string; node: NestedNode }[] = []
+  for (const c of picked) {
+    const key = JSON.stringify(c.node.props ?? {}, Object.keys(c.node.props ?? {}).sort())
+    if (seen.has(key)) continue
+    seen.add(key)
+    const label = suffix(c) === `example` ? `example` : suffix(c).replace(`=`, ` · `)
+    out.push({ label, node: c.node })
+    if (out.length === SPECIMEN_MAX_CASES) break
+  }
+  return out
+}
+
+/** One component's specimen: a padded column of captioned cases. */
+function specimenNode(name: string, all: ComponentCase[]): NestedNode {
+  const inline = INLINE_SPECIMENS.has(name)
+  const root = `specimen-${kebab(name)}`
+  return {
+    id: root,
+    component: `Box`,
+    style: { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+    children: specimenCases(name, all).map((c, i) => ({
+      id: `${root}-case-${i}`,
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
+      children: [
+        { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
+        prefixIds(c.node, `c${i}-`),
+      ],
+    })),
+  }
+}
+
+interface SpecimenEntry {
+  id: string
+  component: string | null
+  title: string
+  node: NestedNode
+}
+
+/** fixtures/specimens.json: every visible component's specimen (view id =
+ *  its specimenId) plus the home page's demo surface (fixtures/demo-surface.json). */
+function renderSpecimens(all: ComponentCase[], demo: NestedNode) {
+  const specimens: SpecimenEntry[] = visible.map(([name]) => ({
+    id: specimenId(name),
+    component: name,
+    title: name,
+    node: specimenNode(name, all),
+  }))
+  const { $comment: _, ...demoNode } = demo as NestedNode & { $comment?: string }
+  specimens.push({ id: `exponential-ui-demo`, component: null, title: `Demo`, node: demoNode })
+  for (const s of specimens) {
+    const result = reduceNested(s.node, { catalogId: CORE_CATALOG_ID })
+    if (result.issues.length > 0) throw new Error(`specimen ${s.id}: ${result.issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
+  }
+  return {
+    $comment: `${HEADER} One surface per visible component (id = its docs specimenId = its view-catalog id) plus the home page demo (exponential-ui-demo, from fixtures/demo-surface.json). ui.exponential.at shows the four platform shots of each; every renderer's example host paints an entry by id (web harness ?view=specimen&id=, the IDE's EXP_DEV_SCREEN, the Swift example's -shot, the Compose example's shot extra).`,
+    catalogId: CORE_CATALOG_ID,
+    specimens,
+  }
+}
+
 function macroCases(all: ComponentCase[]) {
   return all
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
@@ -463,6 +567,7 @@ function renderFiles(): Record<string, string> {
       ...kitchenResult,
     }),
     "fixtures/prompt-budget.json": json(promptBudget()),
+    "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).
     ...renderHost(),

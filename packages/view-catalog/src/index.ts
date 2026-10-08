@@ -65,6 +65,7 @@ export type GroupId =
   | `ide`
   | `getting-started`
   | `exponential-ui`
+  | `exponential-ui-catalog`
 
 /** A section of the catalog. Purely presentational grouping. */
 export interface Group {
@@ -128,7 +129,7 @@ export interface WebCapture {
  * `packages/exponential-ui-swift/Example`, launched as `-shot <id>`; android
  * `packages/exponential-ui-compose/example`, launched with the `--es shot <id>`
  * extra), not the product app's UI tests: `shot` = the view id, group
- * `exponential-ui`.
+ * `exponential-ui` or `exponential-ui-catalog` (VAPP-93: the site's specimens).
  */
 export type NativeLane = `store` | `styleguide` | `package`
 
