@@ -170,8 +170,11 @@ fn layout_geometry_round1_the_responsive_rules_show() {
     assert!(w("390", "resp-only-narrow") > 0.0);
     assert!(w("1280", "resp-only-wide") > 0.0);
     assert_eq!(w("1280", "resp-only-narrow"), 0.0);
-    // RTL mirrors: the sidebar sits at the right edge.
+    // RTL mirrors: the sidebar sits at the right edge (root padding 16, the
+    // Card's 1 px border and its padded body's 16, VAPP-91).
     let root_w = w("900-rtl", "root");
     let sb = frame("900-rtl", "resp-shell.sidebar").unwrap();
-    assert!((sb["x"].as_f64().unwrap() + sb["w"].as_f64().unwrap() - (root_w - 16.0 - 1.0)).abs() < 1.5);
+    assert!((sb["x"].as_f64().unwrap() + sb["w"].as_f64().unwrap() - (root_w - 16.0 - 1.0 - 16.0)).abs() < 1.5);
+    let shell = frame("900-rtl", "resp-shell").unwrap();
+    assert!((sb["x"].as_f64().unwrap() + sb["w"].as_f64().unwrap() - (shell["x"].as_f64().unwrap() + shell["w"].as_f64().unwrap())).abs() < 0.01, "flush with the shell's end");
 }

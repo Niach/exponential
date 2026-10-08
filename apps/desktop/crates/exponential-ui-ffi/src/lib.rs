@@ -12,6 +12,10 @@
 //!   events the host forwards (server actions, data writes, input edits).
 //! - Free functions expose the reducer, the theme loader and the placement
 //!   rule so the binding test suites replay the shared fixtures.
+//! - The host API (VAPP-91, `catalog/host.json`): a `HostRouter` object
+//!   (server messages in, ops out), the `JsonlDecoder` / `SseDecoder`
+//!   transports' decoders, and the policy / sources / packages functions,
+//!   JSON text in and out; a `Theme` object painters query per part (VAPP-88).
 //!
 //! Round 1:
 //! - `layout(measurer)` calls the measurer WITHOUT holding the surface lock
@@ -267,7 +271,7 @@ pub struct FfiNode {
     /// Children in paint order.
     pub children: Vec<u32>,
     /// The part states the core decided (`selected`, `open`, `checked`,
-    /// `invalid`, `disabled`).
+    /// `invalid`, `disabled`): the part query's and the node's own.
     pub states: Vec<String>,
     /// The enclosing Form's id.
     pub form: Option<String>,
@@ -275,6 +279,21 @@ pub struct FfiNode {
     pub live: Option<String>,
     /// A freed slot (indices are stable; `nodes()[i].index == i`).
     pub removed: bool,
+    /// The states the core resolved into the node's PART recipe query only
+    /// (a tab `selected`, an accordion trigger `open`, a check part
+    /// `checked`; VAPP-88).
+    pub part_states: Vec<String>,
+    /// The macro a non-part node expands (`Card`, `Alert`…), else null.
+    pub macro_name: Option<String>,
+}
+
+/// A part's resolved look (VAPP-88): the painted visual plus the flat style
+/// map (`width`, `height`, `borderWidth`… as JSON) for the parts the core does
+/// not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiPartStyle {
+    pub visual: FfiVisual,
+    pub style_json: String,
 }
 
 #[derive(Debug, Clone, Default, uniffi::Record)]
@@ -356,8 +375,10 @@ pub struct FfiSettings {
     pub hover_close_ms: u32,
 }
 
-/// One event for the host: `kind` = `action | openUrl | dataChanged | input |
-/// relayout`, `json` = the event's fields.
+/// One event for the host: `kind` = `action | openUrl | functionCall |
+/// dataChanged | input | focus | announce | copy | pickFiles | relayout |
+/// hoverTimer`, `json` = the event's fields (`functionCall`: `{componentId,
+/// name, args}`, a host function for the registry + `decideFunction` gate).
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct FfiEvent {
     pub kind: String,
@@ -447,7 +468,8 @@ fn convert(out: LayoutOutput) -> FfiLayout {
     }
 }
 
-fn node(n: &PlacedNode) -> FfiNode {
+fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>) -> FfiNode {
+    let query = lnode.and_then(|l| l.part_query.as_ref());
     FfiNode {
         index: n.index,
         id: n.id.clone(),
@@ -472,6 +494,11 @@ fn node(n: &PlacedNode) -> FfiNode {
         form: n.form.clone(),
         live: n.live.clone(),
         removed: n.removed,
+        part_states: query.map(|q| q.states.clone()).unwrap_or_default(),
+        macro_name: match (query, lnode) {
+            (Some(q), Some(l)) if l.owner.is_none() => Some(q.component.clone()),
+            _ => None,
+        },
     }
 }
 
@@ -784,6 +811,28 @@ impl Surface {
         Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
     }
 
+    /// A surface painting with a `Theme` object (`None` = geometry mode).
+    #[uniffi::constructor]
+    pub fn with_theme(surface_id: String, catalog_id: String, theme: Option<Arc<Theme>>, mode: String) -> Result<Arc<Self>, UiError> {
+        let options = SurfaceOptions { catalog_id, theme: theme.map(|t| t.inner.clone()), mode: mode_of(&mode)?, extensions: Vec::new(), rounding: false, expand_controls: None };
+        Ok(Surface::wrap(CoreSurface::new(&surface_id, options)))
+    }
+
+    /// Paint with this `Theme` object from the next pass on.
+    pub fn set_theme(&self, theme: Arc<Theme>) {
+        self.core().set_theme(Some(theme.inner.clone()));
+    }
+
+    /// The theme in force, as a `Theme` object (null in geometry mode).
+    pub fn theme(&self) -> Option<Arc<Theme>> {
+        self.core().theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+    }
+
+    /// `light|dark`.
+    pub fn mode(&self) -> String {
+        self.core().mode().as_str().to_string()
+    }
+
     /// Load a theme file (JSON; `extends` may name a built-in) and use it.
     pub fn set_theme_json(&self, theme_json: String) -> Result<(), UiError> {
         let theme = load_theme_inner(&theme_json, None)?;
@@ -1006,12 +1055,16 @@ impl Surface {
     /// Every slot (removed ones as tombstones): fetch once, then patch with
     /// `FfiLayout.delta` through `nodes_at`.
     pub fn nodes(&self) -> Vec<FfiNode> {
-        self.core().nodes().iter().map(node).collect()
+        let mut inner = self.core();
+        let placed = inner.nodes();
+        placed.iter().map(|n| node(n, inner.layout_node(n.index))).collect()
     }
 
     /// The given slots only (a delta's `added` + `changed`).
     pub fn nodes_at(&self, indices: Vec<u32>) -> Vec<FfiNode> {
-        self.core().nodes_at(&indices).iter().map(node).collect()
+        let mut inner = self.core();
+        let placed = inner.nodes_at(&indices);
+        placed.iter().map(|n| node(n, inner.layout_node(n.index))).collect()
     }
 
     pub fn visuals(&self) -> Vec<FfiVisual> {
@@ -1085,6 +1138,114 @@ impl Surface {
     /// overlay unless its trigger or content is hovered again.
     pub fn hover_timeout(&self, owner: String) -> Vec<FfiEvent> {
         events(self.core().hover_timeout(&owner))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Theme: a resolved theme the painter queries per part (VAPP-88). Painters
+// never read recipes themselves: `resolve_part` answers a sub-part the core
+// does not synthesize exactly like the core resolves a synthetic part.
+// ---------------------------------------------------------------------------
+
+/// A RESOLVED theme (built-in or loaded), shared by surfaces and painters.
+#[derive(uniffi::Object)]
+pub struct Theme {
+    inner: Arc<exponential_ui::theme::ResolvedTheme>,
+}
+
+#[uniffi::export]
+impl Theme {
+    /// A built-in theme (`neutral`, `exponential`, `playful`).
+    #[uniffi::constructor]
+    pub fn builtin(id: String) -> Result<Arc<Self>, UiError> {
+        let inner = exponential_ui::themes::builtin_theme(&id).ok_or_else(|| invalid(format!("unknown built-in theme {id:?}")))?;
+        Ok(Arc::new(Theme { inner }))
+    }
+
+    /// Load a theme file over the built-ins (+ `parents_json` = extra sources).
+    #[uniffi::constructor]
+    pub fn load(theme_json: String, parents_json: Option<String>) -> Result<Arc<Self>, UiError> {
+        let theme = load_theme_inner(&theme_json, parents_json.as_deref())?;
+        Ok(Arc::new(Theme { inner: Arc::new(theme) }))
+    }
+
+    pub fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    /// The RESOLVED theme as JSON (what `builtin_theme_json` returns).
+    pub fn resolved_json(&self) -> String {
+        serde_json::to_string(&*self.inner).unwrap_or_default()
+    }
+
+    /// A sub-part's look: `owner_component/part` for the OWNER's props (the
+    /// recipe props are derived here, like the core does) and `states`.
+    pub fn resolve_part(&self, owner_component: String, part: String, owner_props_json: String, states: Vec<String>, mode: String) -> Result<FfiPartStyle, UiError> {
+        let props: serde_json::Map<String, Value> = parse(&owner_props_json)?;
+        let query = RecipeQuery::new(owner_component.as_str(), part, exponential_ui::recipes::native_recipe_props(&owner_component, &props), states);
+        let style = exponential_ui::theme::resolve_recipe(&self.inner, &query, mode_of(&mode)?);
+        let v = exponential_ui::style::visual(&style, exponential_ui::style::BoxKind::Leaf);
+        Ok(FfiPartStyle { visual: visual(&v), style_json: Value::Object(style).to_string() })
+    }
+
+    /// A colour token for the mode (`foreground`, `primary`, `chart1`…), hex.
+    pub fn color(&self, name: String, mode: String) -> Option<String> {
+        let mode = Mode::parse(&mode)?;
+        self.inner.modes.get(mode).color.get(&name).cloned()
+    }
+
+    /// Every colour token of the mode as `{name: hex}` JSON.
+    pub fn colors_json(&self, mode: String) -> String {
+        match Mode::parse(&mode) {
+            Some(mode) => serde_json::to_string(&self.inner.modes.get(mode).color).unwrap_or_default(),
+            None => "{}".into(),
+        }
+    }
+
+    pub fn spacing(&self, name: String) -> Option<f64> {
+        self.inner.tokens.spacing.get(&name).copied()
+    }
+
+    pub fn radius(&self, name: String) -> Option<f64> {
+        self.inner.tokens.radius.get(&name).copied()
+    }
+
+    /// A control token in px (`input`, `switch`, `iconSm`…).
+    pub fn control(&self, name: String) -> Option<f64> {
+        self.inner.tokens.control.get(&name).copied()
+    }
+
+    pub fn type_size(&self, name: String) -> Option<f64> {
+        self.inner.tokens.r#type.size.get(&name).copied()
+    }
+
+    pub fn line_height(&self, name: String) -> Option<f64> {
+        self.inner.tokens.r#type.line_height.get(&name).copied()
+    }
+
+    pub fn opacity(&self, name: String) -> Option<f64> {
+        self.inner.tokens.opacity.get(&name).copied()
+    }
+
+    /// A family NAME (`sans` → `Inter`); the host registers the font.
+    pub fn font_family(&self, kind: String) -> Option<String> {
+        self.inner.tokens.r#type.family.get(&kind).cloned()
+    }
+
+    /// `{family: {fallback, weights, source}}` JSON.
+    pub fn fonts_json(&self) -> String {
+        serde_json::to_string(&self.inner.fonts).unwrap_or_default()
+    }
+
+    /// The numeric box a control's recipe fixes (`{width, height, …}`), JSON.
+    pub fn control_geometry(&self, component: String, props_json: String) -> Result<String, UiError> {
+        let props: serde_json::Map<String, Value> = parse(&props_json)?;
+        let g = exponential_ui::geometry::control_geometry(&self.inner, &component, &props, &[]);
+        serde_json::to_string(&g).map_err(invalid)
     }
 }
 
@@ -1283,4 +1444,233 @@ pub fn bench_tree_json(n: u32) -> String {
 #[uniffi::export]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ---------------------------------------------------------------------------
+// The host API (VAPP-91): `exponential_ui::host`, JSON in and out. The
+// platform host owns the I/O (transports, resolvers, function registry) and
+// performs the router's ops on its surfaces.
+// ---------------------------------------------------------------------------
+
+use exponential_ui::host as h;
+
+fn json_string<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_string(v).unwrap_or_default()
+}
+
+fn decision_of(s: &str) -> Result<h::FunctionDecision, UiError> {
+    h::FunctionDecision::parse(s).ok_or_else(|| invalid(format!("a decision is allow|ask|deny|not_found, got {s:?}")))
+}
+
+/// Server messages in, ops out (`catalog/host.json` ops), one per connection.
+#[derive(uniffi::Object)]
+pub struct HostRouter {
+    inner: Mutex<h::HostRouter>,
+}
+
+#[uniffi::export]
+impl HostRouter {
+    /// `extension_ids` = the extension catalog ids the host registered.
+    #[uniffi::constructor]
+    pub fn new(extension_ids: Vec<String>) -> Arc<Self> {
+        Arc::new(HostRouter { inner: Mutex::new(h::HostRouter::new(&extension_ids)) })
+    }
+
+    /// One server message (JSON) → the ops to perform, in order, as a JSON
+    /// array (`[{op: create|components|data|bind|delete|send, …}]`). Never
+    /// fails: unparseable text is an INVALID_MESSAGE `send` op.
+    pub fn route(&self, message_json: String) -> String {
+        let ops = match serde_json::from_str::<Value>(&message_json) {
+            Ok(message) => self.inner.lock().unwrap().route(&message),
+            Err(_) => vec![serde_json::json!({"op": "send", "message": h::error_message(h::INVALID_MESSAGE, "", "a message is a JSON object", None)})],
+        };
+        Value::Array(ops).to_string()
+    }
+
+    /// Install a declarative package (JSON); returns its issues as a JSON
+    /// array `[{path, message}]` (installed only when empty).
+    pub fn install_package(&self, package_json: String) -> Result<String, UiError> {
+        let pkg: Value = parse(&package_json)?;
+        Ok(json_string(&self.inner.lock().unwrap().install_package(&pkg)))
+    }
+
+    pub fn register_extension(&self, id: String) {
+        self.inner.lock().unwrap().register_extension(&id)
+    }
+
+    pub fn supported_catalog_ids(&self) -> Vec<String> {
+        self.inner.lock().unwrap().supported_catalog_ids()
+    }
+
+    /// The live surfaces, in creation order.
+    pub fn surface_ids(&self) -> Vec<String> {
+        self.inner.lock().unwrap().surface_ids()
+    }
+
+    /// The package whose template created the surface (its function policy).
+    pub fn package_id_of(&self, surface_id: String) -> Option<String> {
+        self.inner.lock().unwrap().package_id_of(&surface_id)
+    }
+}
+
+/// A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
+/// Both return `{"messages": […], "issues": [{at, message}]}`.
+#[derive(uniffi::Object)]
+pub struct JsonlDecoder {
+    inner: Mutex<h::JsonlDecoder>,
+}
+
+#[uniffi::export]
+impl JsonlDecoder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(JsonlDecoder { inner: Mutex::new(h::JsonlDecoder::new()) })
+    }
+
+    pub fn push(&self, chunk: String) -> String {
+        self.inner.lock().unwrap().push(&chunk).to_json().to_string()
+    }
+
+    pub fn end(&self) -> String {
+        self.inner.lock().unwrap().end().to_json().to_string()
+    }
+}
+
+/// Server-Sent Events (`data:` lines per event; an event = one message or
+/// JSONL). Same `{messages, issues}` JSON as `JsonlDecoder`.
+#[derive(uniffi::Object)]
+pub struct SseDecoder {
+    inner: Mutex<h::SseDecoder>,
+}
+
+#[uniffi::export]
+impl SseDecoder {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        Arc::new(SseDecoder { inner: Mutex::new(h::SseDecoder::new()) })
+    }
+
+    pub fn push(&self, chunk: String) -> String {
+        self.inner.lock().unwrap().push(&chunk).to_json().to_string()
+    }
+
+    pub fn end(&self) -> String {
+        self.inner.lock().unwrap().end().to_json().to_string()
+    }
+}
+
+/// A whole JSONL document (or one JSON value / a JSON array) →
+/// `{messages, issues}` JSON.
+#[uniffi::export]
+pub fn decode_jsonl_json(text: String) -> String {
+    h::decode_jsonl(&text).to_json().to_string()
+}
+
+/// The A2UI messages inside an MCP tool result (JSON) → `{messages, issues}`.
+#[uniffi::export]
+pub fn messages_from_mcp_result_json(result_json: String) -> Result<String, UiError> {
+    let result: Value = parse(&result_json)?;
+    Ok(h::messages_from_mcp_result(&result).to_json().to_string())
+}
+
+/// A client message as the MCP `tools/call` that carries it back (`tool`
+/// defaults to `a2ui_event`).
+#[uniffi::export]
+pub fn mcp_action_call_json(message_json: String, tool: Option<String>) -> Result<String, UiError> {
+    let message: Value = parse(&message_json)?;
+    Ok(h::mcp_action_call(&message, tool.as_deref()).to_string())
+}
+
+/// The function gate: `allow | ask | deny | not_found`. `policy_json` =
+/// `{allow?, ask?, deny?, default?}`.
+#[uniffi::export]
+pub fn decide_function(policy_json: Option<String>, name: String, registered: bool) -> Result<String, UiError> {
+    let policy: Option<h::FunctionPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
+    Ok(h::decide_function(policy.as_ref(), &name, registered).as_str().to_string())
+}
+
+/// Two stacked decisions: the stricter wins.
+#[uniffi::export]
+pub fn combine_decisions(a: String, b: String) -> Result<String, UiError> {
+    Ok(h::combine_decisions(decision_of(&a)?, decision_of(&b)?).as_str().to_string())
+}
+
+/// A package's `functions` list (JSON array, or null) as a policy JSON.
+#[uniffi::export]
+pub fn package_policy_json(functions_json: Option<String>) -> Result<String, UiError> {
+    let functions: Option<Vec<String>> = functions_json.map(|f| parse(&f)).transpose()?;
+    Ok(json_string(&h::package_policy(functions.as_deref())))
+}
+
+/// openUrl / Link: `{allowed, url?, reason?}` JSON. `policy_json` =
+/// `{schemes?, hosts?, baseUrl?}`.
+#[uniffi::export]
+pub fn decide_url_json(policy_json: Option<String>, url: String) -> Result<String, UiError> {
+    let policy: Option<h::UrlPolicy> = policy_json.map(|p| parse(&p)).transpose()?;
+    Ok(json_string(&h::decide_url(policy.as_ref(), &url)))
+}
+
+/// The media loader's request `{url, headers}` JSON (null when the url does
+/// not resolve). `options_json` = `{baseUrl?, rules?: [{prefix, headers}]}`.
+#[uniffi::export]
+pub fn media_request_json(url: String, options_json: String) -> Result<Option<String>, UiError> {
+    let options: h::MediaOptions = parse(&options_json)?;
+    Ok(h::media_request(&url, &options).map(|r| json_string(&r)))
+}
+
+/// A binding source URI → `{uri, scheme, name, params}` JSON, null when it
+/// does not parse.
+#[uniffi::export]
+pub fn parse_source_json(uri: String) -> Option<String> {
+    h::parse_source(&uri).map(|s| json_string(&s))
+}
+
+/// The core, the core lite, the basic catalog, then the extension ids.
+#[uniffi::export]
+pub fn supported_catalog_ids_for(extension_ids: Vec<String>) -> Vec<String> {
+    h::supported_catalog_ids(&extension_ids)
+}
+
+/// A2UI `a2uiClientCapabilities` JSON.
+#[uniffi::export]
+pub fn client_capabilities_json(extension_ids: Vec<String>) -> String {
+    h::client_capabilities(&extension_ids).to_string()
+}
+
+/// A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
+/// three built-in catalogs).
+#[uniffi::export]
+pub fn validate_package_json(package_json: String, catalog_ids: Option<Vec<String>>) -> Result<String, UiError> {
+    let pkg: Value = parse(&package_json)?;
+    let ids = catalog_ids.unwrap_or_else(|| h::supported_catalog_ids::<&str>(&[]));
+    Ok(json_string(&h::validate_package(&pkg, &ids)))
+}
+
+/// A package template as its server messages (JSON array), null when the
+/// package has no such template. `data_json` = the caller's data.
+#[uniffi::export]
+pub fn template_messages_json(package_json: String, template_id: String, surface_id: String, data_json: Option<String>) -> Result<Option<String>, UiError> {
+    let pkg: Value = parse(&package_json)?;
+    let data: Option<Value> = data_json.map(|d| parse(&d)).transpose()?;
+    Ok(h::template_messages(&pkg, &template_id, &surface_id, data.as_ref()).map(|m| Value::Array(m).to_string()))
+}
+
+/// A client action message (A2UI v0.9 `action`) JSON.
+#[uniffi::export]
+pub fn action_message_json(surface_id: String, component_id: String, name: String, context_json: String, payload_json: Option<String>, timestamp: String) -> Result<String, UiError> {
+    let context: Value = parse(&context_json)?;
+    let payload: Option<Value> = payload_json.map(|p| parse(&p)).transpose()?;
+    Ok(h::action_message(&surface_id, &component_id, &name, context, payload, &timestamp).to_string())
+}
+
+/// A client error message (A2UI v0.9 `error`) JSON.
+#[uniffi::export]
+pub fn error_message_json(code: String, surface_id: String, message: String, path: Option<String>) -> String {
+    h::error_message(&code, &surface_id, &message, path.as_deref()).to_string()
+}
+
+/// `catalog/host.json` without its comments.
+#[uniffi::export]
+pub fn host_contract_json() -> String {
+    h::host_contract().to_string()
 }

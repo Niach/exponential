@@ -552,7 +552,7 @@ pub fn avatar(cx: &LeafCx) -> AnyElement {
     };
     let src = cx.str("src");
     let mut out = div().size_full().rounded_full().overflow_hidden();
-    match image_source(&cx.host.resolve_url(src)).filter(|_| !src.is_empty()) {
+    match crate::media::image_source(cx.host, src) {
         Some(source) => {
             let fb = initials_el.clone();
             out = out.child(img(source).size_full().rounded_full().object_fit(ObjectFit::Cover).with_fallback(fb).with_loading(initials_el));
@@ -617,7 +617,8 @@ fn render_image(source: &ImageSource, window: &mut Window, cx: &mut App) -> Opti
             out.map(Ok)
         }
         ImageSource::Render(r) => Some(Ok(r.clone())),
-        _ => None,
+        // The host's media loader (VAPP-91: a request with headers).
+        ImageSource::Custom(load) => load(window, cx).map(|r| r.map_err(|_| ())),
     }
 }
 
@@ -630,8 +631,7 @@ pub fn image(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
     let alt = if cx.str("alt").is_empty() { String::new() } else { cx.str("alt").to_string() };
     let muted = cx.theme_color("mutedForeground").unwrap_or(cx.ink);
     let fallback_icon = if cx.str("fallback").is_empty() { "ui-icon-placeholder".to_string() } else { cx.str("fallback").to_string() };
-    let host_resolved = cx.host.resolve_url(src);
-    let Some(source) = image_source(&host_resolved).filter(|_| !src.is_empty()) else {
+    let Some(source) = crate::media::image_source(cx.host, src) else {
         return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx.host, muted, &alt, &fallback_icon)).into_any_element();
     };
     let fit_name = match cx.str("fit") {
@@ -706,7 +706,7 @@ pub fn fmt_duration(ms: f64) -> String {
 pub fn video(cx: &LeafCx) -> AnyElement {
     let poster = cx.str("poster");
     let mut out = rounded(div().size_full().relative().overflow_hidden().bg(gpui::black().opacity(0.85)), cx.radii);
-    if let Some(source) = image_source(&cx.host.resolve_url(poster)).filter(|_| !poster.is_empty()) {
+    if let Some(source) = crate::media::image_source(cx.host, poster) {
         out = out.child(img(source).absolute().size_full().object_fit(ObjectFit::Cover).with_fallback(|| div().into_any_element()));
     }
     let white = gpui::white();

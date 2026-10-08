@@ -1,0 +1,41 @@
+{
+  "$comment": "VAPP-91 sample: a third-party theme (extends neutral): a teal primary, round buttons, a softer card.",
+  "id": "sample-brand",
+  "name": "Sample brand",
+  "extends": "neutral",
+  "modes": {
+    "light": {
+      "color": {
+        "primary": "#0d9488",
+        "primaryForeground": "#ffffff",
+        "ring": "#14b8a6",
+        "background": "#f8fafc"
+      }
+    },
+    "dark": {
+      "color": {
+        "primary": "#2dd4bf",
+        "primaryForeground": "#042f2e",
+        "ring": "#2dd4bf",
+        "background": "#0b1220"
+      }
+    }
+  },
+  "tokens": {
+    "radius": {
+      "md": 10,
+      "lg": 14
+    }
+  },
+  "recipes": {
+    "Button": {
+      "root": [
+        {
+          "style": {
+            "borderRadius": "$radius.full"
+          }
+        }
+      ]
+    }
+  }
+}

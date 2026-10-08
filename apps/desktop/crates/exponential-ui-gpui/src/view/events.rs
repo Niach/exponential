@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 
 use super::state::{focus_order, is_focusable, is_text_field, next_focus, NodeFlags};
 use super::{Drag, ScrollDrag, SurfaceView, ToastTimer};
-use crate::host::{ActionEvent, FilePickRequest, InputEvent, InputKind, UploadEvent};
+use crate::host::{ActionEvent, FilePickRequest, FunctionCallEvent, InputEvent, InputKind, UploadEvent};
 
 /// The hover delay of tooltips and hover cards.
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(300);
@@ -107,6 +107,7 @@ impl SurfaceView {
             match e {
                 OutEvent::Action { name, component_id, event, context, payload } => host.on_action(&ActionEvent { surface_id: surface_id.clone(), event, name, component_id, context, payload }, cx),
                 OutEvent::OpenUrl { url } => host.open_url(&host.resolve_url(&url), cx),
+                OutEvent::FunctionCall { component_id, name, args } => host.on_function_call(&FunctionCallEvent { surface_id: surface_id.clone(), component_id, name, args }, cx),
                 OutEvent::Input { component_id, name, path, value, commit } => {
                     let revision = match input {
                         Some(r) => r,
@@ -118,7 +119,6 @@ impl SurfaceView {
                     };
                     host.on_input(&InputEvent { surface_id: surface_id.clone(), component_id, name, path, value, revision, kind: if commit { InputKind::Commit } else { InputKind::Change } }, cx)
                 }
-                OutEvent::Call { name, args } => host.on_call(&name, &args, cx),
                 OutEvent::Focus { id, .. } => {
                     self.keyboard = true;
                     self.pending_focus = Some(id);

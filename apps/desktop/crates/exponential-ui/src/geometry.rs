@@ -102,7 +102,11 @@ pub fn check_geometry(expected: &IndexMap<String, f64>, measured: &MeasuredBox, 
         }
     };
     probe("width", measured.width);
-    probe("height", measured.height);
+    // A control with a minimum height (Textarea) grows from it: the recipe's
+    // `height` is its one-line base, so only the floor is checked (VAPP-91).
+    if !expected.contains_key("minHeight") {
+        probe("height", measured.height);
+    }
     probe("paddingHorizontal", measured.padding_horizontal);
     probe("paddingVertical", measured.padding_vertical);
     probe("borderWidth", measured.border_width);

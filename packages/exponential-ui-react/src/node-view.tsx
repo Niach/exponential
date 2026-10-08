@@ -53,13 +53,18 @@ function responsiveProps(component: string, extensions: readonly ExtensionDef[])
   return hit
 }
 
+/** The id a node's style rules are keyed by. */
+export function styleIdOf(node: UiNode): string {
+  return (node as UiNode & { styleId?: string }).styleId ?? node.id
+}
+
 /** The attributes every painted root carries. */
 export function useRootProps(node: UiNode, props: Record<string, unknown>, domId: string = node.id, recipeProps?: Record<string, unknown>, style?: CSSProperties): Record<string, unknown> {
   const ctx = useSurfaceContext()
   const scope = useContext(ScopeContext)
   return useMemo(() => {
     const macros = extensionMacroNames(ctx.extensions)
-    const classes = [`xui-el`, nodeClass(node.id), ctx.compiled.scope, partClass(node.component, `root`)]
+    const classes = [`xui-el`, nodeClass(styleIdOf(node)), ctx.compiled.scope, partClass(node.component, `root`)]
     const attrs: Record<string, unknown> = {}
     if (node.recipe) {
       classes.push(partClass(node.recipe.macro, node.recipe.part))
@@ -113,27 +118,38 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   const fn = (action as { functionCall?: { call: string; args?: Record<string, unknown> } }).functionCall ?? action.function
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
+  let pending: unknown
   if (fn && args) {
     if (fn.call === `set`) {
       if (typeof args.path === `string`) ctx.setData(absolutePath(args.path, scope), args.value)
     } else {
       const f = ctx.functions[fn.call]
-      f?.(args, rctx)
+      // A name outside the client functions is a HOST function (VAPP-91):
+      // the host's registry + policy gate (`ExponentialHost.callFunction`).
+      if (f) f(args, rctx)
+      else pending = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: domId, name: fn.call, args })
     }
   }
-  if (action.event) {
-    const e: SurfaceActionEvent = {
-      surfaceId: ctx.surfaceId,
-      event,
-      name: action.event.name,
-      componentId: domId,
-      context: { ...(context ?? {}), ...(payload ?? {}) },
-      payload,
-      timestamp: new Date().toISOString(),
-    }
-    return ctx.host.onAction?.(e) ?? undefined
+  if (pending instanceof Promise) {
+    // The source control stays pending until the host function settles.
+    const sent = action.event ? runNodeEvent(ctx, action.event, domId, event, context, payload) : undefined
+    return Promise.all([pending, sent]).then(() => undefined)
   }
+  if (action.event) return runNodeEvent(ctx, action.event, domId, event, context, payload)
   return undefined
+}
+
+function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: string, event: string, context: Record<string, unknown> | undefined, payload?: Record<string, unknown>): Promise<void> | void {
+  const e: SurfaceActionEvent = {
+    surfaceId: ctx.surfaceId,
+    event,
+    name: ev.name,
+    componentId: domId,
+    context: { ...(context ?? {}), ...(payload ?? {}) },
+    payload,
+    timestamp: new Date().toISOString(),
+  }
+  return ctx.host.onAction?.(e) ?? undefined
 }
 
 export function useEmitter(node: UiNode, scope: string, domId: string = node.id) {

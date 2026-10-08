@@ -13,12 +13,13 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the twenty-eight outputs`, () => {
+  test(`renders the thirty-three outputs`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
       `../../apps/desktop/crates/exponential-ui/src/generated/themes.rs`,
       `catalog/core.schema.json`,
       `catalog/theme.schema.json`,
+      `conformance/manifest.json`,
       `docs/components.generated.json`,
       `docs/themes.generated.json`,
       `fixtures/bind-time.json`,
@@ -28,8 +29,12 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/catalog-macros.json`,
       `fixtures/code-tokens.json`,
       `fixtures/control-geometry.json`,
+      `fixtures/host-policy.json`,
+      `fixtures/host-router.json`,
+      `fixtures/host-transport.json`,
       `fixtures/kitchen-sink.expanded.json`,
       `fixtures/prompt-budget.json`,
+      `fixtures/specimens.json`,
       `fixtures/style-conditions.json`,
       `fixtures/theme-extends.json`,
       `fixtures/theme-invalid.json`,

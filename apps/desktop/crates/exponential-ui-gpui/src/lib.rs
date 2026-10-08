@@ -16,6 +16,10 @@
 //!   the windowed list.
 //! - [`extension`]: the painter trait registered per extension kind.
 //! - [`text`]: web-aligned line breaking shared by the measurer and painter.
+//! - [`runtime`] + [`transport`] (VAPP-91): the host runtime
+//!   ([`runtime::ExponentialHost`]: transport, router, one `SurfaceView` per
+//!   surface, sources, functions, policy) and its transports.
+//! - [`media`]: images through the host's media rules (headers).
 //! - [`chrome`] + [`controls`]: the generic glass controls the IDE and the SDK
 //!   share, keyed on a host-installed [`chrome::Chrome`].
 
@@ -26,8 +30,11 @@ pub mod controls;
 pub mod extension;
 pub mod host;
 pub mod measure;
+pub mod media;
 pub mod paint;
+pub mod runtime;
 pub mod text;
+pub mod transport;
 pub mod view;
 
 pub use exponential_ui;

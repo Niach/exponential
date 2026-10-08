@@ -32,3 +32,7 @@ export { sortRows } from "./natives/table"
 export { parseLocaleNumber } from "./natives/inputs"
 export { acceptsFile } from "./natives/chips"
 export { monthGrid } from "./natives/dates"
+// VAPP-91: the host API on React.
+export { HostSurface, hostPlugin, useHostSurface, useHostSurfaceIds, useHostStatus } from "./host-surface"
+export type { HostSurfaceProps } from "./host-surface"
+export { useMediaSrc } from "./media"

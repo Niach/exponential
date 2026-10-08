@@ -5,7 +5,8 @@ core catalog (`@exponential-at/ui`) painted with real CSS on shadcn/Radix.
 Themes load at runtime, extensions register their own components, overlays
 ride Radix portals, inputs are host-owned, and the layout is the one the
 Rust core computes (the geometry fixture holds the browser to taffy's
-frames within a pixel). `"private": true` until VAPP-91 publishes it.
+frames within a pixel). Published to npm from `release/` (VAPP-91); the
+workspace package.json stays private on the sources.
 
 It depends on `@exponential-at/ui`, React 18 or 19, `radix-ui` and
 `lucide-react` (its own chrome glyphs) — nothing from the Exponential app, no
@@ -123,7 +124,7 @@ interface HostPlugin {
   onAction?(e: SurfaceActionEvent): void | Promise<void>   // on.<event> = {event: {name, context}}; a promise keeps the Button pending
   onInput?(e: SurfaceInputEvent): void | Promise<void>     // host-owned edits: {name, path?, value, revision, kind: change|commit}
   openUrl?(url: string): void
-  functions?: Record<string, ClientFunction>        // adds to / overrides the 14 catalog functions
+  functions?: Record<string, ClientFunction>        // adds to / overrides the catalog functions
   Markdown?: ComponentType<{ text: string }>       // a richer renderer than the built-in GFM subset
   resolveUrl?(src: string): string
   onUnknown?(node: UiNode): void
@@ -173,6 +174,23 @@ interface HostPlugin {
 - **Templates**: `children: {componentId, path, key?}` renders the component
   once per item at `path`, keyed by `key` (reordering keeps the item's
   state); a flat `useSurface` list or a node of that id in a nested tree.
+
+### The host API (VAPP-91)
+
+An `ExponentialHost` from `@exponential-at/ui` (transport, router, sources,
+functions, policy; see that package's README) feeds `<HostSurface host
+surfaceId plugin? …ExponentialSurface props>`; `hostPlugin(host, base)`
+routes actions to A2UI client messages, `functionCall`s to
+`host.callFunction` (the gate + consent), `openUrl` to the URL policy and
+media to `host.mediaRequest`. `useHostSurfaceIds(host)` and
+`useHostStatus(host)` (`status`, `unsupportedCatalog`) drive a host's own
+chrome (`host_offline`, the catalog-update banner). Two plugin members
+joined: `onFunctionCall(call)` and `mediaRequest(src)` (a request with
+headers is fetched once and shown as a blob url). Template items (a List's
+`{componentId, path}` rows) wear their component's node styles.
+
+`browser/suites.test.ts` is the renderer's conformance runner (every
+suite of the manifest; `test:conformance`).
 
 ## Overlays
 

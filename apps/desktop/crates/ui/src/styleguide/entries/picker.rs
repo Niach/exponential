@@ -1,10 +1,8 @@
-//! EXP-1021 — the `picker` styleguide entry: THE picker primitive itself,
-//! its two surfaces and its selection language.
-//!
-//! This file also holds the small demo kit the ten TYPED picker entries
-//! share (`demo`, `chip`, the fixture rows) — each demo cell builds its
-//! live picker at PAINT time through [`PickerDemo`], under its caption.
-//! Filled by EXP-1021; no entry file edits `entries/mod.rs` nor the index.
+//! EXP-1021 — the small demo kit the TYPED picker entries share (`demo`,
+//! `chip`, the fixture rows): each demo cell builds its live picker at PAINT
+//! time through [`PickerDemo`], under its caption. Not an entry itself since
+//! VAPP-93: the generic picker primitive (the `picker` entry) moved to
+//! ui.exponential.at with the rest of the core catalog's specimens.
 
 use std::rc::Rc;
 
@@ -14,10 +12,7 @@ use gpui::{
 };
 use gpui_component::{v_flex, ActiveTheme as _};
 
-use crate::picker::{OnPickerChange, Picker, PickerItem, PickerMode};
-
-pub(crate) const ID: &str = "picker";
-pub(crate) const OWNER: &str = "EXP-1021";
+use crate::picker::{OnPickerChange, PickerMode};
 
 /// One demo cell: a muted caption over a LIVE element the entry builds at
 /// paint time.
@@ -73,84 +68,6 @@ pub(crate) fn chip(id: &'static str, label: impl Into<SharedString>, cx: &App) -
 /// A demo picker never writes anything.
 pub(crate) fn inert<T: Clone>() -> OnPickerChange<T> {
     Rc::new(|_, _, _| {})
-}
-
-pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
-    column(vec![
-        demo(
-            "single, short — the PopupMenu surface; the picked row wears the check",
-            |window, cx| {
-                Picker::single(
-                    vec![
-                        PickerItem::new("a".to_string(), "Alpha"),
-                        PickerItem::new("b".to_string(), "Beta").description("second"),
-                        PickerItem::new("c".to_string(), "Gamma").disabled(true),
-                    ],
-                    Some("a".to_string()),
-                    chip("sg-picker-single", "Alpha", cx),
-                    inert(),
-                )
-                .id("sg-picker-single-surface")
-                .render(window, cx)
-            },
-        ),
-        demo("search — the filter field over the rows", |window, cx| {
-            Picker::single(
-                vec![
-                    PickerItem::new("a".to_string(), "Alpha").keywords(vec!["APP-1".into()]),
-                    PickerItem::new("b".to_string(), "Beta").keywords(vec!["APP-2".into()]),
-                ],
-                None,
-                chip("sg-picker-search", "Search…", cx),
-                inert(),
-            )
-            .search(true)
-            .empty_text("No options")
-            .id("sg-picker-search-surface")
-            .render(window, cx)
-        }),
-        demo(
-            "multi — a picked row IS its highlight (fill + active stroke), never a circle",
-            |window, cx| {
-                Picker::multi(
-                    vec![
-                        PickerItem::new("a".to_string(), "Alpha"),
-                        PickerItem::new("b".to_string(), "Beta"),
-                        PickerItem::new("c".to_string(), "Gamma"),
-                    ],
-                    vec!["a".to_string(), "c".to_string()],
-                    chip("sg-picker-multi", "Alpha, Gamma", cx),
-                    inert(),
-                )
-                .search(true)
-                .id("sg-picker-multi-surface")
-                .render(window, cx)
-            },
-        ),
-        demo("empty — one copy for no rows and for no matches", |window, cx| {
-            Picker::<String>::single(
-                vec![],
-                None,
-                chip("sg-picker-empty", "Nothing", cx),
-                inert(),
-            )
-            .search(true)
-            .empty_text("No boards")
-            .id("sg-picker-empty-surface")
-            .render(window, cx)
-        }),
-        demo("disabled — the trigger, inert; no surface is mounted", |window, cx| {
-            Picker::single(
-                vec![PickerItem::new("a".to_string(), "Alpha")],
-                None,
-                chip("sg-picker-disabled", "Unavailable", cx),
-                inert(),
-            )
-            .disabled(true)
-            .id("sg-picker-disabled-surface")
-            .render(window, cx)
-        }),
-    ])
 }
 
 /// The demo rows the typed entries share.

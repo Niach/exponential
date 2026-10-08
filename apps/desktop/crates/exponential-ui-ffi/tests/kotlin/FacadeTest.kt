@@ -254,6 +254,64 @@ fun main(args: Array<String>) {
     check(tFrame.y == 10f) { "baseline alignment: text at ${tFrame.y}" }
     println("round 1: $checks checks so far")
 
+    // --- host API (VAPP-91) ---------------------------------------------------
+    fun decodeFeed(push: (String) -> String, end: () -> String, chunks: List<Any?>): Map<String, Any?> {
+        val messages = ArrayList<Any?>()
+        val issues = ArrayList<Any?>()
+        for (out in chunks.map { push(it as String) } + listOf(end())) {
+            val v = obj(Json.parse(out))
+            messages.addAll(list(v["messages"]))
+            issues.addAll(list(v["issues"]))
+        }
+        return mapOf("messages" to messages, "issues" to issues)
+    }
+    val transport = load("host-transport.json")
+    for (c in list(transport["jsonl"]).map(::obj)) { val d = JsonlDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "jsonl ${c["name"]}") }
+    for (c in list(transport["sse"]).map(::obj)) { val d = SseDecoder(); equal(Json.write(decodeFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "sse ${c["name"]}") }
+    for (c in list(transport["mcp"]).map(::obj)) equal(messagesFromMcpResultJson(Json.write(c["result"])), c["expected"], "mcp ${c["name"]}")
+    for (c in list(transport["mcpAction"]).map(::obj)) equal(mcpActionCallJson(Json.write(c["message"]), c["tool"] as String?), c["expected"], "mcpAction ${c["name"]}")
+    val policy = load("host-policy.json")
+    for (c in list(policy["functions"]).map(::obj)) {
+        val got = decideFunction(if (c.containsKey("policy")) Json.write(c["policy"]) else null, c["fn"] as String, c["registered"] as Boolean)
+        check(got == c["expected"]) { "function ${c["name"]}: $got" }
+    }
+    for (c in list(policy["combine"]).map(::obj)) check(combineDecisions(c["a"] as String, c["b"] as String) == c["expected"]) { "combine $c" }
+    for (c in list(policy["urls"]).map(::obj)) equal(decideUrlJson(if (c.containsKey("policy")) Json.write(c["policy"]) else null, c["url"] as String), c["expected"], "url ${c["name"]}")
+    for (c in list(policy["media"]).map(::obj)) equal(mediaRequestJson(c["url"] as String, Json.write(c["options"])) ?: "null", c["expected"], "media ${c["name"]}")
+    for (c in list(policy["sources"]).map(::obj)) equal(parseSourceJson(c["uri"] as String) ?: "null", c["expected"], "source ${c["uri"]}")
+    for (c in list(policy["negotiation"]).map(::obj)) {
+        val ids = list(c["extensionIds"]).map { it as String }
+        val expected = obj(c["expected"])
+        check(supportedCatalogIdsFor(ids) == list(expected["supportedCatalogIds"])) { "negotiation $ids" }
+        equal(clientCapabilitiesJson(ids), expected["clientCapabilities"], "capabilities $ids")
+    }
+    val routerFixture = load("host-router.json")
+    val hostPackages = obj(routerFixture["packages"])
+    for (v in list(routerFixture["validation"]).map(::obj)) equal(validatePackageJson(Json.write(hostPackages[v["package"] as String]), null), v["expected"], "validation ${v["package"]}")
+    for (flow in list(routerFixture["flows"]).map(::obj)) {
+        val name = flow["name"] as String
+        val router = HostRouter((flow["extensionIds"] as List<String>?) ?: emptyList())
+        for (id in (flow["packages"] as List<String>?) ?: emptyList()) equal(router.installPackage(Json.write(hostPackages[id])), obj(flow["installIssues"])[id], "$name: install $id")
+        for ((i, step) in list(flow["steps"]).map(::obj).withIndex()) equal(router.route(Json.write(step["message"])), step["expected"], "$name: step $i")
+    }
+    val hostRouter = HostRouter(emptyList())
+    hostRouter.installPackage(Json.write(hostPackages["acme.devices"]))
+    hostRouter.route(Json.write(mapOf("version" to "v0.9", "applyTemplate" to mapOf("surfaceId" to "d", "templateId" to "list"))))
+    check(hostRouter.surfaceIds() == listOf("d") && hostRouter.packageIdOf("d") == "acme.devices") { "router state" }
+    equal(errorMessageJson("FUNCTION_DENIED", "s", "m", null), mapOf("version" to "v0.9", "error" to mapOf("code" to "FUNCTION_DENIED", "surfaceId" to "s", "message" to "m")), "errorMessage")
+    equal(actionMessageJson("s", "b", "go", "{}", null, "t"), mapOf("version" to "v0.9", "action" to mapOf("name" to "go", "surfaceId" to "s", "sourceComponentId" to "b", "timestamp" to "t", "context" to emptyMap<String, Any>())), "actionMessage")
+    check(templateMessagesJson(Json.write(hostPackages["acme.devices"]), "nope", "x", null) == null) { "missing template" }
+    val fnSurface = Surface("f", coreCatalogId(), null, "light")
+    fnSurface.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "b", "component" to "Button", "props" to mapOf("label" to "Go"), "on" to mapOf("press" to mapOf("functionCall" to mapOf("call" to "harness.toast", "args" to mapOf("message" to mapOf("path" to "/m"))))))))))
+    fnSurface.setData("/m", "\"hi\"")
+    fnSurface.setViewport(400f, 0f, null)
+    fnSurface.layoutFixed(null, false)
+    val fnEvents = fnSurface.event(fnSurface.indexOf("b")!!, "press", null)
+    val fnCall = fnEvents.firstOrNull { it.kind == "functionCall" }
+    check(fnCall != null) { "functionCall event ${fnEvents.map { it.kind }}" }
+    if (fnCall != null) equal(fnCall.json, mapOf("kind" to "functionCall", "componentId" to "b", "name" to "harness.toast", "args" to mapOf("message" to "hi")), "functionCall json")
+    println("host fixtures: $checks checks so far")
+
     println("kotlin binding suite: $checks checks, $failures failures")
     exitProcess(if (failures == 0) 0 else 1)
 }

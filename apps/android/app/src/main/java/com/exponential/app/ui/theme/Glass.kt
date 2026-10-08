@@ -274,11 +274,11 @@ fun Modifier.glassButton(
 
 /** The tone-tinted hairline of a status badge — the same 40% every other
  *  client draws (web `color-mix(.. 40%)`, IDE `.opacity(0.4)`). */
-private const val TintedStrokeAlpha = 0.4f
+internal const val TintedStrokeAlpha = 0.4f
 
 /** How far a pressed primary capsule dims — the glass rungs use fill/stroke
  *  swaps for this, which a solid fill has nothing to swap to. */
-private const val PrimaryPressedAlpha = 0.85f
+internal const val PrimaryPressedAlpha = 0.85f
 
 /**
  * Let an element escape its parent's horizontal padding and run edge to edge

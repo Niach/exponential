@@ -184,6 +184,21 @@ z-index) and stay inside the safe-area insets; anchored popups flip and
 shift (`place_overlay`), `start`/`end` alignment and submenus follow the
 direction.
 
+## Host API (`host`, VAPP-91)
+
+The pure half of the host API, JSON-equal to the TS reference
+(`packages/exponential-ui/src/host`): `HostRouter` (messages → ops),
+`JsonlDecoder` / `SseDecoder` / `messages_from_mcp_result` /
+`mcp_action_call`, `decide_function` / `combine_decisions` /
+`package_policy`, `decide_url`, `media_request`, `parse_source`,
+`supported_catalog_ids` / `client_capabilities`, `validate_package` /
+`template_messages`, `action_message` / `error_message`; `contract.rs`
+mirrors `catalog/host.json` (drift-tested). An `on.<event>`
+`{functionCall: …}` (or the legacy `function`) to a non-built-in name yields
+`OutEvent::FunctionCall { component_id, name, args }` (args resolved); the
+facade exposes all of it as JSON-string functions and a `HostRouter` object.
+`tests/conformance.rs` runs the whole conformance suite against the core.
+
 ## Fixtures (`packages/exponential-ui/fixtures`, replayed in `tests/`)
 
 | file | test |
@@ -195,6 +210,7 @@ direction.
 | `layout-geometry-round1.json` (WRITTEN here: the kitchen sink's responsive section at 390/600/700/768/900/1280, LTR/RTL, theme neutral, fixed measures per case; replayed by gpui, not yet by React) | `tests/round1_geometry.rs` (`EXP_UI_WRITE_FIXTURES=1` regenerates) |
 | `interactions-round1.json` (HAND-AUTHORED: NumberField stepping/rounding/text, check semantics, the unbound Table sort; the React half is `interactions-fixture.test.tsx`) | `tests/interactions_fixture.rs` |
 | the generated constants | `tests/generated_drift.rs` |
+| `host-transport/policy/router.json` | `tests/host_fixtures.rs` |
 
 `tests/round1_layout.rs` covers the rest of round 1 end to end (bound
 macros at layout time, `visible`, baselines, per-side padding, `%` radii,

@@ -276,5 +276,88 @@ let tIndex = bl.indexOf(id: "t")!
 check(blOut.frames.first { $0.index == tIndex }!.y == 10, "baseline alignment")
 print("round 1: \(checks) checks so far")
 
+// --- host API (VAPP-91) -----------------------------------------------------------
+func decodeFeed(_ push: (String) -> String, _ end: () -> String, _ chunks: [String]) -> [String: Any] {
+    var messages: [Any] = []
+    var issues: [Any] = []
+    for out in chunks.map(push) + [end()] {
+        let v = try! JSONSerialization.jsonObject(with: out.data(using: .utf8)!) as! [String: Any]
+        messages += v["messages"] as! [Any]
+        issues += v["issues"] as! [Any]
+    }
+    return ["messages": messages, "issues": issues]
+}
+let transport = load("host-transport.json") as! [String: Any]
+for c in transport["jsonl"] as! [[String: Any]] {
+    let d = JsonlDecoder()
+    equal(text(decodeFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "jsonl \(c["name"]!)")
+}
+for c in transport["sse"] as! [[String: Any]] {
+    let d = SseDecoder()
+    equal(text(decodeFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "sse \(c["name"]!)")
+}
+for c in transport["mcp"] as! [[String: Any]] {
+    equal(try! messagesFromMcpResultJson(resultJson: text(c["result"]!)), c["expected"]!, "mcp \(c["name"]!)")
+}
+for c in transport["mcpAction"] as! [[String: Any]] {
+    equal(try! mcpActionCallJson(messageJson: text(c["message"]!), tool: c["tool"] as? String), c["expected"]!, "mcpAction \(c["name"]!)")
+}
+let policy = load("host-policy.json") as! [String: Any]
+for c in policy["functions"] as! [[String: Any]] {
+    let got = try! decideFunction(policyJson: c["policy"].map(text), name: c["fn"] as! String, registered: c["registered"] as! Bool)
+    check(got == c["expected"] as! String, "function \(c["name"]!): \(got)")
+}
+for c in policy["combine"] as! [[String: Any]] {
+    check(try! combineDecisions(a: c["a"] as! String, b: c["b"] as! String) == c["expected"] as! String, "combine \(c)")
+}
+for c in policy["urls"] as! [[String: Any]] {
+    equal(try! decideUrlJson(policyJson: c["policy"].map(text), url: c["url"] as! String), c["expected"]!, "url \(c["name"]!)")
+}
+for c in policy["media"] as! [[String: Any]] {
+    equal(try! mediaRequestJson(url: c["url"] as! String, optionsJson: text(c["options"]!)) ?? "null", c["expected"]!, "media \(c["name"]!)")
+}
+for c in policy["sources"] as! [[String: Any]] {
+    equal(parseSourceJson(uri: c["uri"] as! String) ?? "null", c["expected"]!, "source \(c["uri"]!)")
+}
+for c in policy["negotiation"] as! [[String: Any]] {
+    let ids = c["extensionIds"] as! [String]
+    let expected = c["expected"] as! [String: Any]
+    check(supportedCatalogIdsFor(extensionIds: ids) == expected["supportedCatalogIds"] as! [String], "negotiation \(ids)")
+    equal(clientCapabilitiesJson(extensionIds: ids), expected["clientCapabilities"]!, "capabilities \(ids)")
+}
+let routerFixture = load("host-router.json") as! [String: Any]
+let hostPackages = routerFixture["packages"] as! [String: Any]
+for v in routerFixture["validation"] as! [[String: Any]] {
+    let id = v["package"] as! String
+    equal(try! validatePackageJson(packageJson: text(hostPackages[id]!), catalogIds: nil), v["expected"]!, "validation \(id)")
+}
+for flow in routerFixture["flows"] as! [[String: Any]] {
+    let name = flow["name"] as! String
+    let router = HostRouter(extensionIds: flow["extensionIds"] as? [String] ?? [])
+    for id in flow["packages"] as? [String] ?? [] {
+        equal(try! router.installPackage(packageJson: text(hostPackages[id]!)), (flow["installIssues"] as! [String: Any])[id]!, "\(name): install \(id)")
+    }
+    for (i, step) in (flow["steps"] as! [[String: Any]]).enumerated() {
+        equal(router.route(messageJson: text(step["message"]!)), step["expected"]!, "\(name): step \(i)")
+    }
+}
+let hostRouter = HostRouter(extensionIds: [])
+_ = try! hostRouter.installPackage(packageJson: text(hostPackages["acme.devices"]!))
+_ = hostRouter.route(messageJson: text(["version": "v0.9", "applyTemplate": ["surfaceId": "d", "templateId": "list"]]))
+check(hostRouter.surfaceIds() == ["d"] && hostRouter.packageIdOf(surfaceId: "d") == "acme.devices", "router state")
+equal(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: "s", message: "m", path: nil), ["version": "v0.9", "error": ["code": "FUNCTION_DENIED", "surfaceId": "s", "message": "m"]], "errorMessage")
+equal(try! actionMessageJson(surfaceId: "s", componentId: "b", name: "go", contextJson: "{}", payloadJson: nil, timestamp: "t"), ["version": "v0.9", "action": ["name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": [String: Any]()]], "actionMessage")
+check(try! templateMessagesJson(packageJson: text(hostPackages["acme.devices"]!), templateId: "nope", surfaceId: "x", dataJson: nil) == nil, "missing template")
+let fnSurface = try! Surface(surfaceId: "f", catalogId: coreCatalogId(), themeId: nil, mode: "light")
+_ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["call": "harness.toast", "args": ["message": ["path": "/m"]]]]]]]]))
+try! fnSurface.setData(path: "/m", valueJson: "\"hi\"")
+_ = fnSurface.setViewport(width: 400, height: 0, maxHeight: nil)
+_ = try! fnSurface.layoutFixed(sizesJson: nil, wrap: false)
+let fnEvents = try! fnSurface.event(index: fnSurface.indexOf(id: "b")!, name: "press", payloadJson: nil)
+let fnCall = fnEvents.first { $0.kind == "functionCall" }
+check(fnCall != nil, "functionCall event \(fnEvents.map { $0.kind })")
+if let fnCall { equal(fnCall.json, ["kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": ["message": "hi"]], "functionCall json") }
+print("host fixtures: \(checks) checks so far")
+
 print("swift binding suite: \(checks) checks, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

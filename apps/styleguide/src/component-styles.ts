@@ -227,24 +227,6 @@ export const componentStyles = `
 .cmp-ghost-icon-button:hover { background: var(--active); color: var(--fg); }
 .cmp-ghost-icon-button .glyph { width: 16px; height: 16px; }
 
-/* The MOBILE sheet submit: full width, radius 10, solid. Web and desktop
-   primaries stay capsules — see the status table. */
-.cmp-button-primary {
-  display: block;
-  width: 100%;
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid transparent;
-  background: var(--primary);
-  color: var(--primary-fg);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  text-align: center;
-  cursor: pointer;
-}
-.cmp-button-primary.disabled { background: var(--card); border-color: var(--stroke); color: var(--fg-50); }
-
 /* ------------------------------------------------------------------ pill */
 /* ONE capsule for every label-sized thing (EXP-698). What used to be a chip is
    readonly, what used to be a "header button" is sm + action: the same
@@ -510,21 +492,6 @@ export const componentStyles = `
 .cmp-comment .reply-row { padding: 6px 0; font-size: 12px; color: var(--fg-50); cursor: pointer; }
 .cmp-comment .reply-row:hover { color: var(--fg); }
 
-/* ---------------------------------------------------------------- sheet */
-.cmp-sheet {
-  border-radius: var(--r-xl3) var(--r-xl3) 0 0;
-  border-top: 1px solid var(--stroke);
-  background: var(--bg-bottom);
-  overflow: hidden;
-}
-.cmp-sheet .grabber { width: 36px; height: 4px; margin: 8px auto 0; border-radius: 9999px; background: var(--fg-30); }
-/* The header gutter is 20, the content gutter 16 — the title optically aligns
-   with row labels once the group's own 16 is added. */
-.cmp-sheet .header { display: flex; align-items: center; gap: 8px; padding: 22px 20px 10px; }
-.cmp-sheet .header .title { font-size: 18px; font-weight: 600; }
-.cmp-sheet .header .trailing { margin-left: auto; }
-.cmp-sheet .content { display: grid; gap: 12px; padding: 0 16px 16px; }
-
 /* ------------------------------------------------- markdown / steer feed */
 /* The chat-sized block set. Only the person's turn gets a bubble; the agent's
    narration is bare text, because a wall of bubbles is unreadable at length. */
@@ -717,25 +684,6 @@ export const componentStyles = `
 .cmp-motion .box.ease-standard { transition-timing-function: var(--ease); }
 .cmp-motion .box.ease-decelerate { transition-timing-function: var(--ease-decelerate); }
 .cmp-motion .box.ease-accelerate { transition-timing-function: var(--ease-accelerate); }
-
-/* ---------------------------------------------------------------- dialog */
-/* The centred modal (EXP-941). A radius-XL card on the OPAQUE card fill under
-   a card hairline — a dialog dims the page behind it, and an alpha fill would
-   still show the row it covers — with a title, one line of body and a footer
-   whose LAST capsule is the primary. Cancel is borderless: two boxed buttons
-   side by side ask the reader to choose between two equals. */
-.cmp-dialog {
-  max-width: 340px;
-  padding: 20px;
-  border-radius: var(--r-xl);
-  border: 1px solid var(--stroke);
-  background: var(--opaque-card);
-}
-.cmp-dialog .title { font-size: 16px; font-weight: 600; }
-.cmp-dialog .text { margin-top: 8px; font-size: 14px; color: var(--fg-70); }
-.cmp-dialog .footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-.cmp-dialog .footer .cmp-pill.borderless { background: transparent; border-color: transparent; }
-.cmp-dialog .footer .cmp-pill.borderless:hover { background: var(--active); }
 
 /* ------------------------------------------------------------ the launcher */
 /* EXP-1019 — the start-coding dialog. The frame is the "dialog" control and

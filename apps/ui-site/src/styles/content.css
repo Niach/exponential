@@ -1,0 +1,536 @@
+/* The content pages of ui.exponential.at (home, concepts, guides, conformance).
+   Built on the shared tokens + classes of @exp/site-shell (shell, btn,
+   section-eyebrow, section-title, glass-card, docs-*): no new design language. */
+
+/* ─── Shared ─── */
+.content-hero {
+  padding-bottom: 8px;
+}
+
+.content-hero .section-eyebrow {
+  margin-bottom: 12px;
+}
+
+.content-link {
+  color: var(--fg);
+  border-bottom: 1px solid var(--input);
+  transition: border-color 140ms;
+}
+
+.content-link:hover {
+  border-bottom-color: var(--fg-muted);
+}
+
+/* Tables in the docs column (packages, the basic map, the suites). */
+.content-table-wrap {
+  margin: 4px 0 20px;
+  overflow-x: auto;
+  border: 1px solid var(--glass-stroke-section);
+  border-radius: var(--radius-section);
+  background: var(--glass-fill-section);
+}
+
+.content-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.content-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--glass-stroke-section);
+  white-space: nowrap;
+}
+
+.content-table td {
+  padding: 10px 14px;
+  color: var(--fg-muted);
+  vertical-align: top;
+  border-bottom: 1px solid var(--glass-stroke-row);
+}
+
+.content-table tr:last-child td {
+  border-bottom: none;
+}
+
+.content-table td:first-child {
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.content-table code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+}
+
+/* Inside .docs-content the inline code chip would box every cell; keep
+   table code plain. */
+.docs-content .content-table code:not(pre code) {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+.docs-content .content-table a {
+  border-bottom: none;
+}
+
+.content-quote {
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border-left: 2px solid var(--fg-dim);
+  background: var(--glass-fill-section);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-muted);
+}
+
+.content-quote strong {
+  color: var(--fg);
+}
+
+/* ─── Home ─── */
+.home-hero {
+  padding: 56px 0 24px;
+}
+
+.home-hero-text {
+  text-align: center;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.home-hero-text .section-eyebrow {
+  justify-content: center;
+}
+
+h1.home-title {
+  font-size: clamp(36px, 6.2vw, 68px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+  margin: 0 0 20px;
+}
+
+.home-title em {
+  font-style: normal;
+  color: var(--fg-muted);
+}
+
+.home-sub {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  max-width: 600px;
+  margin: 0 auto 28px;
+}
+
+.home-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.home-demo {
+  margin: 44px auto 0;
+  max-width: 1120px;
+  min-width: 0;
+}
+
+section.home-section {
+  padding: 64px 0;
+}
+
+.home-section .section-sub {
+  margin-bottom: 32px;
+}
+
+.home-section .section-title {
+  max-width: 820px;
+}
+
+.home-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-step {
+  padding: 20px 22px 22px;
+}
+
+.home-step-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.home-step h3,
+.home-pitch-item h3 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 10px 0 8px;
+}
+
+.home-step p,
+.home-pitch-item p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  margin: 0;
+}
+
+.home-renderers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.home-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px;
+  transition:
+    border-color 140ms,
+    background 140ms;
+}
+
+.home-renderer:hover {
+  border-color: var(--glass-stroke-active);
+  background: var(--glass-fill-active);
+}
+
+.home-renderer-platform {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.home-renderer-framework {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.home-renderer-pkg {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.home-renderer-note {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  margin-top: 6px;
+  flex: 1;
+}
+
+.home-renderer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.home-pitch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.home-pitch-item {
+  padding: 22px 24px 26px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transition: background 140ms;
+}
+
+.home-pitch-item:hover {
+  background: var(--glass-fill-row);
+}
+
+.home-pitch-item h3 {
+  margin-top: 0;
+}
+
+.home-entry .docs-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.home-packages {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-packages .section-sub code {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.home-packages .section-sub strong {
+  color: var(--fg);
+}
+
+.home-packages .docs-callout {
+  max-width: 820px;
+}
+
+.home-packages .docs-callout code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.home-packages .docs-callout a {
+  color: var(--fg);
+  border-bottom: 1px solid var(--input);
+}
+
+.home-packages-table .content-table td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.home-packages-table .content-table td:last-child {
+  color: var(--fg-dim);
+  font-size: 12.5px;
+}
+
+section.home-dogfood {
+  padding-bottom: 96px;
+}
+
+.home-dogfood-card {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 36px 40px;
+}
+
+.home-dogfood-card p {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-muted);
+  max-width: 640px;
+  margin: 0;
+}
+
+.home-dogfood-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ─── Guides ─── */
+.guide-file {
+  margin: 4px 0 20px;
+}
+
+.guide-file figcaption {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 8px;
+}
+
+.docs-content a.guide-file-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  border-bottom: none;
+}
+
+.docs-content a.guide-file-path:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.guide-file-caption {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.guide-file .docs-code {
+  margin: 0;
+}
+
+.guide-file .docs-code pre {
+  max-height: 560px;
+  overflow: auto;
+}
+
+.docs-content a.guide-next {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-section);
+  background: var(--glass-fill-card);
+  transition:
+    border-color 140ms,
+    background 140ms;
+}
+
+.docs-content a.guide-next:hover {
+  border-color: var(--glass-stroke-active);
+  background: var(--glass-fill-active);
+}
+
+.guide-next-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+}
+
+.guide-next-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* ─── Concepts + conformance ─── */
+.concepts-map .content-table td:last-child code {
+  color: var(--fg-muted);
+}
+
+.conf-suites .content-table td:nth-child(2) {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.conf-num {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.conf-suites .content-table td:nth-child(3) {
+  text-align: right;
+}
+
+.docs-content p.conf-total {
+  font-size: 13px;
+  margin-top: -8px;
+}
+
+.conf-runners .content-table td:nth-child(2),
+.conf-runners .content-table td:last-child code {
+  white-space: nowrap;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1080px) {
+  .home-renderers,
+  .home-entry .docs-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .home-pitch {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .home-hero {
+    padding-top: 36px;
+  }
+  .home-sub {
+    font-size: 16px;
+  }
+  .home-demo {
+    margin-top: 32px;
+  }
+  section.home-section {
+    padding: 44px 0;
+  }
+  .home-steps,
+  .home-renderers,
+  .home-pitch,
+  .home-entry .docs-cards {
+    grid-template-columns: 1fr;
+  }
+  .home-dogfood-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 24px 22px;
+  }
+  .home-dogfood-cta {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+/* Grids that follow a section title directly (no .section-sub between). */
+.home-section .section-title + .home-renderers,
+.home-section .section-title + .home-pitch,
+.home-section .section-title + .home-entry {
+  margin-top: 32px;
+}
+
+.home-dogfood-card h2.section-title {
+  font-size: clamp(26px, 3.2vw, 38px);
+  margin-bottom: 14px;
+}
+
+/* Phones: the packages table stacks into one block per package. */
+@media (max-width: 720px) {
+  .home-packages-table .content-table thead {
+    display: none;
+  }
+  .home-packages-table .content-table tr {
+    display: block;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--glass-stroke-row);
+  }
+  .home-packages-table .content-table tr:last-child {
+    border-bottom: none;
+  }
+  .home-packages-table .content-table td {
+    display: block;
+    padding: 2px 0;
+    border: 0;
+    white-space: normal;
+  }
+  .home-packages-table .content-table td:nth-child(2) {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+  }
+}

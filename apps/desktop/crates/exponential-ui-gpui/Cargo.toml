@@ -12,7 +12,19 @@ keywords = ["a2ui", "gpui", "generative-ui"]
 # gpui-component where it already paints a control the catalog uses) and on
 # NOTHING from the Exponential app's crates (`ui`, `theme`, `domain`, …): the
 # IDE links it like a third party and installs its own `Chrome`.
+# Not on crates.io (VAPP-91): `gpui` and `gpui-component` are GIT dependencies
+# (pinned through apps/desktop/Cargo.lock), and crates.io refuses a crate with
+# git dependencies. Publishing waits for crates.io releases of both at
+# compatible versions; until then a third party takes it as a git/path
+# dependency (samples/exponential-ui/gpui shows how).
 publish = false
+
+[features]
+default = ["net"]
+# The network transports (JSONL / SSE over HTTP, WebSocket, MCP) and the
+# media loader's http(s) fetches. Off = MemoryTransport + your own Transport
+# impls, file:// media only.
+net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dependencies]
 exponential-ui = { path = "../exponential-ui", version = "0.1.0" }
@@ -23,6 +35,15 @@ serde_json.workspace = true
 # CSS-aligned break opportunities (UAX #14) for min-content and the
 # painter's own line wrapping; already in the lock via cosmic-text.
 unicode-linebreak = "0.1.5"
+# VAPP-91 host runtime: transport threads and source emits hand their events
+# to the gpui main thread through one channel (already in the tree).
+flume.workspace = true
+# `net`: the blocking client on transport threads (its own private runtime,
+# never gpui's executors), a current-thread tokio runtime per WebSocket.
+reqwest = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
 
 [dev-dependencies]
 # `#[gpui::test]` needs test-support; it only widens the TEST build's gpui

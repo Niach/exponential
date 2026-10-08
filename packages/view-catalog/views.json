@@ -65,6 +65,12 @@
       "label": "Exponential UI",
       "blurb": "The open generative-UI SDK (VAPP-84): the core catalog’s kitchen sink painted by each platform’s renderer, the reference every painter is compared against.",
       "order": 11
+    },
+    {
+      "id": "exponential-ui-catalog",
+      "label": "Exponential UI · core catalog",
+      "blurb": "One specimen per core catalog component (packages/exponential-ui/fixtures/specimens.json) plus the home page demo, painted by all four renderers under the exponential theme: the shots ui.exponential.at shows on each component page. The site owns these; apps/styleguide does not list them.",
+      "order": 12
     }
   ],
   "excludedRoutes": [
@@ -2038,7 +2044,7 @@
     },
     {
       "id": "exponential-ui-kitchen-sink",
-      "group": "exponential-ui",
+      "group": "exponential-ui-catalog",
       "title": "Exponential UI · kitchen sink",
       "blurb": "Every component of the core catalog once (packages/exponential-ui/fixtures/kitchen-sink.json) under the exponential theme: the VAPP-4 layout cases, the form controls with a 150 ms host echo, overlays, lists, feedback. Web = the React renderer (VAPP-87); desktop, iOS and Android land with their painters (VAPP-90, VAPP-88, VAPP-89).",
       "order": 1,
@@ -2058,9 +2064,2057 @@
         },
         "anchorDelayMs": 800
       },
+      "ios": {
+        "shot": "exponential-ui-kitchen-sink",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-kitchen-sink",
+        "lane": "package"
+      },
       "notes": {
-        "ios": "The SwiftUI painter is VAPP-88 (run 6 of the VAPP-84 line); no iOS surface yet.",
-        "android": "The Compose painter is VAPP-89 (run 7 of the VAPP-84 line); no Android surface yet."
+        "ios": "Captured from the SwiftUI painter's example app (packages/exponential-ui-swift/Example, scheme KitchenSink, launched with -shot exponential-ui-kitchen-sink), not the Exponential app, which links the painter only in VAPP-91.",
+        "android": "Captured from the Compose painter's example app (packages/exponential-ui-compose/example, app at.exponential.ui.kitchensink, launched with the `shot` extra exponential-ui-kitchen-sink), not the Exponential app, which links the painter only in VAPP-91."
+      }
+    },
+    {
+      "id": "exponential-ui-devices",
+      "group": "exponential-ui",
+      "title": "Exponential UI · Devices template",
+      "blurb": "The Devices page as a declarative package (packages/ui/exponential-ui/templates/devices.json) rendered through the public host API (VAPP-91): the app host's `exp:devices` binding over the synced devices, the app extension's IconDisc + LiveDot painters, a row press through the function policy. VAPP-83 puts it beside the native page on every client.",
+      "order": 2,
+      "web": {
+        "route": "/exponential-ui-devices",
+        "anchor": {
+          "text": "Devices",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-devices"
+        },
+        "anchorDelayMs": 800
+      },
+      "notes": {
+        "ios": "The iOS app does not link the SwiftUI painter yet (VAPP-83).",
+        "android": "The Android app does not link the Compose painter yet (VAPP-83)."
+      }
+    },
+    {
+      "id": "exponential-ui-box",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Box",
+      "blurb": "A styled container laid out by the whitelisted style object; the primitive every macro expands into. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/box/.",
+      "order": 2,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-box",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-box"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-box",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-box",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-stack",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Stack",
+      "blurb": "A flex container that lays its children out in one direction with a gap. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/stack/.",
+      "order": 3,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-stack",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-stack"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-stack",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-stack",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-grid",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Grid",
+      "blurb": "An equal-column grid for cards and tiles. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/grid/.",
+      "order": 4,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-grid",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-grid"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-grid",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-grid",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-card",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Card",
+      "blurb": "A bordered content card with an optional title and description; use it for grouped content, not page headers. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/card/.",
+      "order": 5,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-card",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-card"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-card",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-card",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-separator",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Separator",
+      "blurb": "A hairline that divides content. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/separator/.",
+      "order": 6,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-separator",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-separator"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-separator",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-separator",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-list",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · List",
+      "blurb": "A windowed scrolling list; required for anything longer than a screen, children may come from a data template. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/list/.",
+      "order": 7,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-list",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-list"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-list",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-list",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-band",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Band",
+      "blurb": "A filled header strip over a run of flat rows, with a title and an optional count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/band/.",
+      "order": 8,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-band",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-band"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-band",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-band",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-row-list",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · RowList",
+      "blurb": "The flat list language: hairline-divided rows under a band, optionally with tree guides. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/row-list/.",
+      "order": 9,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-row-list",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-row-list"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-row-list",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-row-list",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-group",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Group",
+      "blurb": "A form-field container: a rounded group of rows with an optional title and footnote. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/group/.",
+      "order": 10,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-group",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-group"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-group",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-group",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-text",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Text",
+      "blurb": "A run of text in one of the type styles; prefer dedicated components over inline markdown. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/text/.",
+      "order": 11,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-text",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-text"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-text",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-text",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-heading",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Heading",
+      "blurb": "A section or page heading at one of four levels. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/heading/.",
+      "order": 12,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-heading",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-heading"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-heading",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-heading",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-markdown",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Markdown",
+      "blurb": "Rendered GitHub-flavoured markdown (paragraphs, lists, code, tables, images), the one interchange every platform shares. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/markdown/.",
+      "order": 13,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-markdown",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-markdown"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-markdown",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-markdown",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-image",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Image",
+      "blurb": "A picture from a URL, or a placeholder box when it has none. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/image/.",
+      "order": 14,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-image",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-image"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-image",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-image",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-icon",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Icon",
+      "blurb": "One icon from the shared Lucide registry, by name. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/icon/.",
+      "order": 15,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-icon",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-icon"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-icon",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-icon",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-video",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Video",
+      "blurb": "An inline video player with native controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/video/.",
+      "order": 16,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-video",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-video"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-video",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-video",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-audio-player",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · AudioPlayer",
+      "blurb": "An inline audio player with a title and native controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/audio-player/.",
+      "order": 17,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-audio-player",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-audio-player"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-audio-player",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-audio-player",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-avatar",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Avatar",
+      "blurb": "A round user picture that falls back to initials on a stable hue. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/avatar/.",
+      "order": 18,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-avatar",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-avatar"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-avatar",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-avatar",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-carousel",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Carousel",
+      "blurb": "A horizontally paging scroller; each child is one page. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/carousel/.",
+      "order": 19,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-carousel",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-carousel"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-carousel",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-carousel",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-tabs",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Tabs",
+      "blurb": "Tab navigation; the child at index i is the panel of tab i. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/tabs/.",
+      "order": 20,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-tabs",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-tabs"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-tabs",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-tabs",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-toggle-group",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · ToggleGroup",
+      "blurb": "A row of toggle buttons selecting one or many values; `segmented` is the pill-shaped segmented control. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toggle-group/.",
+      "order": 21,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-toggle-group",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-toggle-group"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-toggle-group",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-toggle-group",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-accordion",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Accordion",
+      "blurb": "Collapsible sections; the child at index i is the body of item i. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/accordion/.",
+      "order": 22,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-accordion",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-accordion"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-accordion",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-accordion",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-collapsible",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Collapsible",
+      "blurb": "One disclosure section with a title row that shows or hides its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/collapsible/.",
+      "order": 23,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-collapsible",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-collapsible"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-collapsible",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-collapsible",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-pagination",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Pagination",
+      "blurb": "Previous, next and the current page out of a total. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/pagination/.",
+      "order": 24,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-pagination",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-pagination"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-pagination",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-pagination",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-button-group",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · ButtonGroup",
+      "blurb": "Attached buttons with one selected value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/button-group/.",
+      "order": 25,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-button-group",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-button-group"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-button-group",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-button-group",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-dialog",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Dialog",
+      "blurb": "A centred modal over the surface, opened by its trigger slot or by binding `open`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dialog/.",
+      "order": 26,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-dialog",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-dialog"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-dialog",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-dialog",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-drawer",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Drawer",
+      "blurb": "A panel sliding in from an edge (a bottom sheet on phones). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/drawer/.",
+      "order": 27,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-drawer",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-drawer"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-drawer",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-drawer",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-sheet",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Sheet",
+      "blurb": "A side sheet: a drawer from the trailing edge. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sheet/.",
+      "order": 28,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-sheet",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-sheet"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-sheet",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-sheet",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-popover",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Popover",
+      "blurb": "A small panel anchored to its trigger, opened on press. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/popover/.",
+      "order": 29,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-popover",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-popover"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-popover",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-popover",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-tooltip",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Tooltip",
+      "blurb": "A short hint shown on hover or long-press over its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/tooltip/.",
+      "order": 30,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-tooltip",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-tooltip"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-tooltip",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-tooltip",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-dropdown-menu",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · DropdownMenu",
+      "blurb": "A menu of actions behind a trigger; the default trigger is a button with the label. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/dropdown-menu/.",
+      "order": 31,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-dropdown-menu",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-dropdown-menu"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-dropdown-menu",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-dropdown-menu",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-badge",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Badge",
+      "blurb": "A small status label or count. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/badge/.",
+      "order": 32,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-badge",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-badge"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-badge",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-badge",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-alert",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Alert",
+      "blurb": "An inline banner with an icon, a title and a message. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/alert/.",
+      "order": 33,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-alert",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-alert"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-alert",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-alert",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-pill",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Pill",
+      "blurb": "A rounded chip for a filter, a label or a state; optionally selected, with a colour dot or an icon. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/pill/.",
+      "order": 34,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-pill",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-pill"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-pill",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-pill",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-empty-state",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · EmptyState",
+      "blurb": "A centred icon, title and explanation for an empty list, with an optional action. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/empty-state/.",
+      "order": 35,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-empty-state",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-empty-state"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-empty-state",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-empty-state",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-progress",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Progress",
+      "blurb": "A horizontal progress bar with an optional label. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/progress/.",
+      "order": 36,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-progress",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-progress"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-progress",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-progress",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-meter",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Meter",
+      "blurb": "A usage track: a bar of coloured segments against a maximum, with a caption and a value. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/meter/.",
+      "order": 37,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-meter",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-meter"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-meter",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-meter",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-ring",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Ring",
+      "blurb": "A circular progress ring for a fraction, sized like an icon. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/ring/.",
+      "order": 38,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-ring",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-ring"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-ring",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-ring",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-spinner",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Spinner",
+      "blurb": "An indeterminate activity indicator. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/spinner/.",
+      "order": 39,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-spinner",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-spinner"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-spinner",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-spinner",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-skeleton",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Skeleton",
+      "blurb": "A shimmering placeholder block while content loads. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/skeleton/.",
+      "order": 40,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-skeleton",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-skeleton"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-skeleton",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-skeleton",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-table",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Table",
+      "blurb": "A small data table from header labels and rows of cell strings; v1 lays it out as a grid without sorting. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/table/.",
+      "order": 41,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-table",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-table"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-table",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-table",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-chart",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Chart",
+      "blurb": "A bar, line, area or pie chart from categories and series (VAPP-50; painters land later). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/chart/.",
+      "order": 42,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-chart",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-chart"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-chart",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-chart",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-button",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Button",
+      "blurb": "A press target with a label and optional icon (or one custom child); bind `press` for the handler. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/button/.",
+      "order": 43,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-button",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-button"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-button",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-button",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-link",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Link",
+      "blurb": "Inline link text that opens a URL or fires `press`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/link/.",
+      "order": 44,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-link",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-link"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-link",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-link",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-toggle",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Toggle",
+      "blurb": "A two-state button that stays pressed. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/toggle/.",
+      "order": 45,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-toggle",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-toggle"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-toggle",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-toggle",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-input",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Input",
+      "blurb": "A single-line text field the host owns; bind `value` for two-way state and add `checks` for validation. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/input/.",
+      "order": 46,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-input",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-input"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-input",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-input",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-textarea",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Textarea",
+      "blurb": "A multi-line text field the host owns; bind `value` for two-way state. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/textarea/.",
+      "order": 47,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-textarea",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-textarea"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-textarea",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-textarea",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-checkbox",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Checkbox",
+      "blurb": "A labelled checkbox; bind `checked`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/checkbox/.",
+      "order": 48,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-checkbox",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-checkbox"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-checkbox",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-checkbox",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-radio",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Radio",
+      "blurb": "A labelled group of radio options choosing one value; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/radio/.",
+      "order": 49,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-radio",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-radio"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-radio",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-radio",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-switch",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Switch",
+      "blurb": "A labelled on/off switch; bind `checked`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/switch/.",
+      "order": 50,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-switch",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-switch"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-switch",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-switch",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-slider",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Slider",
+      "blurb": "A range slider between min and max; bind `value`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/slider/.",
+      "order": 51,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-slider",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-slider"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-slider",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-slider",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-select",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Select",
+      "blurb": "A picker of one (or many) options in a dropdown; searchable, and `source` binds the host's own lists (statuses, members) instead of inline options. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/select/.",
+      "order": 52,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-select",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-select"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-select",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-select",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-date-picker",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · DatePicker",
+      "blurb": "A calendar date field (date only in v1); bind `value` as an ISO date. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/date-picker/.",
+      "order": 53,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-date-picker",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-date-picker"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-date-picker",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-date-picker",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-composer",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Composer",
+      "blurb": "The chat input box: a growing text field with a submit button and optional attachments. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/composer/.",
+      "order": 54,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-composer",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-composer"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-composer",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-composer",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-list-row",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · ListRow",
+      "blurb": "A flat list row: an optional leading icon, a title with a subtitle, trailing meta text. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/list-row/.",
+      "order": 55,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-list-row",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-list-row"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-list-row",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-list-row",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-card-row",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · CardRow",
+      "blurb": "A gapped card-shaped row with a title, a subtitle and an optional leading icon. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/card-row/.",
+      "order": 56,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-card-row",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-card-row"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-card-row",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-card-row",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-property-row",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · PropertyRow",
+      "blurb": "A label on the left and a value on the right, for read-only properties. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/property-row/.",
+      "order": 57,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-property-row",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-property-row"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-property-row",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-property-row",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-picker-row",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · PickerRow",
+      "blurb": "A form row that shows a chosen value and opens a picker on press. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/picker-row/.",
+      "order": 58,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-picker-row",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-picker-row"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-picker-row",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-picker-row",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-nav-row",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · NavRow",
+      "blurb": "A sidebar or drawer navigation row with an icon, a label, a count and a selected state. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/nav-row/.",
+      "order": 59,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-nav-row",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-nav-row"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-nav-row",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-nav-row",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-entity-chip",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · EntityChip",
+      "blurb": "A compact chip naming an entity with an icon or picture, optionally removable. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/entity-chip/.",
+      "order": 60,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-entity-chip",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-entity-chip"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-entity-chip",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-entity-chip",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-tree-guides",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · TreeGuides",
+      "blurb": "The tree connector gutter beside a nested row: an elbow at its depth and pass-through lines for deeper ancestors. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/tree-guides/.",
+      "order": 61,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-tree-guides",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-tree-guides"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-tree-guides",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-tree-guides",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-demo",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · demo surface",
+      "blurb": "The home page demo of ui.exponential.at (packages/exponential-ui/fixtures/demo-surface.json): the answer an agent streams for `How did last night's release go?`, shown beside its live React replay.",
+      "order": 62,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-demo",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-demo"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-demo",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-demo",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
       }
     }
   ]

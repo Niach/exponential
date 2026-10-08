@@ -153,13 +153,15 @@ export function runAction(action: Action, data: unknown, options: ResolveOptions
   const event = action.event
     ? { name: action.event.name, ...(action.event.context ? { context: resolveDynamic(action.event.context, data, options) as Record<string, unknown> } : {}) }
     : undefined
-  if (action.function) {
-    const args = resolveDynamic(action.function.args ?? {}, data, options) as Record<string, unknown>
-    if (action.function.call === `set`) {
+  // A2UI's `functionCall` (VAPP-91) or the legacy `function` key.
+  const fn = action.functionCall ?? action.function
+  if (fn) {
+    const args = resolveDynamic(fn.args ?? {}, data, options) as Record<string, unknown>
+    if (fn.call === `set`) {
       // A relative path under a literal-item scope names no data: no write.
       if (typeof args.path === `string` && (args.path.startsWith(`/`) || !hasItem(options.scope)))
         out.data = writePointer(data, absolutePath(args.path, options.scope), args.value)
-    } else out.call = { call: action.function.call, args }
+    } else out.call = { call: fn.call, args }
   }
   if (event) out.event = event
   return out

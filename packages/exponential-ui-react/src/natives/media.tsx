@@ -8,6 +8,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView, mergeStyle } from "../node-view"
 import { bool, BuiltinIcon, num, str, useParts } from "./shared"
+import { useMediaSrc } from "../media"
 
 /** Image (contract §3): `loading` lazy|eager, `focalX/focalY` (0..1, the
  *  point kept when the picture is cropped → `object-position`), and the
@@ -30,11 +31,13 @@ export function ImageNative({ node, props, rootProps }: NativeProps) {
   const fy = Math.max(0, Math.min(1, num(props.focalY, 0.5)))
   const failed = !src || state === `error`
   const fallback = str(props.fallback)
+  // The host's media request (VAPP-91: headers → a blob url once fetched).
+  const url = useMediaSrc(ctx.host, src)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, Object.keys(style).length ? style : undefined)} role={failed ? `img` : undefined} aria-label={failed ? alt : undefined} data-state={src ? state : `empty`}>
-      {src && state !== `error` ? (
+      {src && url && state !== `error` ? (
         <img
-          src={ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src}
+          src={url}
           alt={alt}
           loading={props.loading === `eager` ? `eager` : `lazy`}
           decoding="async"
@@ -57,10 +60,11 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const poster = str(props.poster)
-  const resolve = (u: string) => (ctx.host.resolveUrl ? ctx.host.resolveUrl(u) : u)
+  const url = useMediaSrc(ctx.host, src)
+  const posterUrl = useMediaSrc(ctx.host, poster)
   return (
     <div {...(rootProps as Record<string, unknown>)}>
-      <video {...(part(`controls`) as Record<string, string>)} src={src ? resolve(src) : undefined} poster={poster ? resolve(poster) : undefined} controls autoPlay={bool(props.autoplay)} muted={bool(props.autoplay)} playsInline preload="metadata" data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
+      <video {...(part(`controls`) as Record<string, string>)} src={url} poster={posterUrl} controls autoPlay={bool(props.autoplay)} muted={bool(props.autoplay)} playsInline preload="metadata" data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
     </div>
   )
 }
@@ -70,10 +74,11 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const title = str(props.title)
+  const url = useMediaSrc(ctx.host, src)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
-      <audio {...(part(`controls`) as Record<string, string>)} src={src ? (ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src) : undefined} controls preload="metadata" aria-label={title || undefined} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
+      <audio {...(part(`controls`) as Record<string, string>)} src={url} controls preload="metadata" aria-label={title || undefined} data-duration-ms={props.durationMs !== undefined ? num(props.durationMs) : undefined} />
     </div>
   )
 }
@@ -103,10 +108,11 @@ export function AvatarNative({ node, props, rootProps }: NativeProps) {
   const src = str(props.src)
   const seed = str(props.seed) || name
   const hue = seed ? seedHue(seed) : null
+  const url = useMediaSrc(ctx.host, src)
   const tint = hue === null ? undefined : { backgroundColor: `color-mix(in oklab, hsl(${hue} 70% 55%) 22%, transparent)`, color: `hsl(${hue} 60% ${ctx.mode === `dark` ? 72 : 38}%)` }
   return (
     <AvatarPrimitive.Root {...(rootProps as Record<string, unknown>)} aria-label={name || undefined} role="img">
-      {src ? <AvatarPrimitive.Image {...(part(`image`) as Record<string, string>)} src={ctx.host.resolveUrl ? ctx.host.resolveUrl(src) : src} alt={name} /> : null}
+      {src ? <AvatarPrimitive.Image {...(part(`image`) as Record<string, string>)} src={url} alt={name} /> : null}
       <AvatarPrimitive.Fallback {...(part(`fallback`) as Record<string, string>)} delayMs={src ? 300 : 0} style={tint}>
         {initials(name) || `?`}
       </AvatarPrimitive.Fallback>

@@ -83,7 +83,9 @@ export function checkGeometry(expected: ControlGeometry, measured: MeasuredBox, 
     if (actual === undefined || Math.abs(actual - want) > tolerance) issues.push({ key, expected: want, actual })
   }
   probe(`width`, measured.width)
-  probe(`height`, measured.height ?? (expected.minHeight !== undefined ? undefined : measured.height))
+  // A control with a minimum height (Textarea) grows from it: the recipe's
+  // `height` is its one-line base, so only the floor is checked (VAPP-91).
+  if (expected.minHeight === undefined) probe(`height`, measured.height)
   probe(`paddingHorizontal`, measured.paddingHorizontal)
   probe(`paddingVertical`, measured.paddingVertical)
   probe(`borderWidth`, measured.borderWidth)

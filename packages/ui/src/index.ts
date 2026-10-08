@@ -77,6 +77,7 @@ export * from "./issue-group-band"
 export * from "./label"
 export * from "./label-colors"
 export * from "./live-dot"
+export * from "./exponential-ui-app-extension"
 export * from "./menu-surface"
 // EXP-1074: the menu at rest (styleguide) and THE issue context menu's layout.
 export * from "./menu-specimen"

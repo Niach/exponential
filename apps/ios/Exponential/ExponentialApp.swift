@@ -1,5 +1,7 @@
 import FirebaseCore
 import SwiftUI
+import ExpCore
+import ExpUI
 
 @main
 struct ExponentialApp: App {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Round 1: regenerate the COMMITTED Swift + Kotlin binding sources from the
-# host library (macOS: .dylib, Linux: .so), without building device targets.
+# host library (macOS: .dylib, Linux: .so), without building device targets,
+# plus the Swift package's copy (packages/exponential-ui-swift).
 #   bash apps/desktop/crates/exponential-ui-ffi/generate-bindings.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,4 +24,8 @@ cp "$HERE/out/swift/ExponentialUIFFIFFI.h" "$HERE/bindings/swift/ExponentialUIFF
 cp "$HERE/out/swift/ExponentialUIFFIFFI.modulemap" "$HERE/bindings/swift/module.modulemap"
 rm -rf "$HERE/bindings/kotlin/at"
 cp -R "$HERE/out/kotlin/at" "$HERE/bindings/kotlin/"
+# The Swift painter package compiles its own copy (VAPP-88; build-ios.sh too).
+SWIFT_PKG="$(cd "$HERE/../../../../packages/exponential-ui-swift" && pwd)"
+mkdir -p "$SWIFT_PKG/Sources/ExponentialUICore"
+cp "$HERE/bindings/swift/ExponentialUIFFI.swift" "$SWIFT_PKG/Sources/ExponentialUICore/ExponentialUIFFI.swift"
 echo "bindings regenerated from $LIB"

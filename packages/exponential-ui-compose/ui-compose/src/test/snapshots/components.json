@@ -1,0 +1,9393 @@
+{
+  "Accordion\/example" : {
+    "height" : 66,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "accordion.trigger.0",
+        "part" : "trigger",
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          21,
+          388,
+          44
+        ],
+        "id" : "accordion.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          33,
+          388,
+          20
+        ],
+        "id" : "accordion-child"
+      }
+    ]
+  },
+  "Accordion\/type=multiple" : {
+    "height" : 66,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "accordion.trigger.0",
+        "part" : "trigger",
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          21,
+          388,
+          44
+        ],
+        "id" : "accordion.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          33,
+          388,
+          20
+        ],
+        "id" : "accordion-child"
+      }
+    ]
+  },
+  "Accordion\/type=single" : {
+    "height" : 66,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "accordion.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "accordion.trigger.0",
+        "part" : "trigger",
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          21,
+          388,
+          44
+        ],
+        "id" : "accordion.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          33,
+          388,
+          20
+        ],
+        "id" : "accordion-child"
+      }
+    ]
+  },
+  "Alert\/example" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "alert",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "alert.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "alert.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "alert.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "alert.body.message"
+      }
+    ]
+  },
+  "Alert\/type=error" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "alert",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "alert.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "alert.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "alert.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "alert.body.message"
+      }
+    ]
+  },
+  "Alert\/type=info" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "alert",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "alert.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "alert.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "alert.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "alert.body.message"
+      }
+    ]
+  },
+  "Alert\/type=success" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "alert",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "alert.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "alert.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "alert.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "alert.body.message"
+      }
+    ]
+  },
+  "Alert\/type=warning" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "alert",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          13,
+          16,
+          16
+        ],
+        "id" : "alert.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          37,
+          13,
+          340,
+          42
+        ],
+        "id" : "alert.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          13,
+          340,
+          20
+        ],
+        "id" : "alert.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          35,
+          340,
+          20
+        ],
+        "id" : "alert.body.message"
+      }
+    ]
+  },
+  "AudioPlayer\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "AudioPlayer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "audio-player"
+      }
+    ]
+  },
+  "Avatar\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Avatar\/size=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Avatar\/size=lg" : {
+    "height" : 40,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          40,
+          40
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Avatar\/size=sm" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Avatar",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "avatar",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Badge\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=destructive" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#ff6467",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=ghost" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=link" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=outline" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Badge\/variant=secondary" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "badge",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          0,
+          48,
+          20
+        ],
+        "id" : "badge.label"
+      }
+    ]
+  },
+  "Band\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "band",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          6,
+          358,
+          20
+        ],
+        "id" : "band.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          374,
+          6,
+          8,
+          20
+        ],
+        "id" : "band.count"
+      }
+    ]
+  },
+  "Band\/variant=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "band",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          350,
+          20
+        ],
+        "id" : "band.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          370,
+          6,
+          8,
+          20
+        ],
+        "id" : "band.count"
+      }
+    ]
+  },
+  "Band\/variant=group" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "band",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          8,
+          6,
+          358,
+          20
+        ],
+        "id" : "band.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          374,
+          6,
+          8,
+          20
+        ],
+        "id" : "band.count"
+      }
+    ]
+  },
+  "Box\/example" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "box"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          16,
+          358,
+          20
+        ],
+        "id" : "box-child"
+      }
+    ]
+  },
+  "Box\/pressable=false" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "box"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          16,
+          358,
+          20
+        ],
+        "id" : "box-child"
+      }
+    ]
+  },
+  "Box\/pressable=true" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "box"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          16,
+          358,
+          20
+        ],
+        "id" : "box-child"
+      }
+    ]
+  },
+  "Button\/disabled=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/disabled=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "opacity" : 0.5,
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/loading=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/loading=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/size=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/size=icon" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/size=lg" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          88,
+          36
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          40,
+          36
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/size=sm" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          64,
+          24
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          0,
+          40,
+          24
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=destructive" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ff6467",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=ghost" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=link" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          40,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=outline" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          74,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          1,
+          40,
+          30
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "Button\/variant=secondary" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          72,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          16,
+          0,
+          40,
+          32
+        ],
+        "id" : "button-child"
+      }
+    ]
+  },
+  "ButtonGroup\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "button-group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          48,
+          32
+        ],
+        "id" : "button-group.button.0",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          48,
+          0,
+          56,
+          32
+        ],
+        "id" : "button-group.button.1",
+        "radius" : 10
+      }
+    ]
+  },
+  "ButtonGroup\/size=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "button-group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          48,
+          32
+        ],
+        "id" : "button-group.button.0",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          48,
+          0,
+          56,
+          32
+        ],
+        "id" : "button-group.button.1",
+        "radius" : 10
+      }
+    ]
+  },
+  "ButtonGroup\/size=lg" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "button-group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          48,
+          36
+        ],
+        "id" : "button-group.button.0",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          48,
+          0,
+          56,
+          36
+        ],
+        "id" : "button-group.button.1",
+        "radius" : 10
+      }
+    ]
+  },
+  "ButtonGroup\/size=sm" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "button-group"
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          48,
+          24
+        ],
+        "id" : "button-group.button.0",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          48,
+          0,
+          56,
+          24
+        ],
+        "id" : "button-group.button.1",
+        "radius" : 10
+      }
+    ]
+  },
+  "Card\/example" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
+  "Card\/padded=false" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          20
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          67,
+          388,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
+  "Card\/padded=true" : {
+    "height" : 120,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          120
+        ],
+        "id" : "card",
+        "radius" : 16
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          1,
+          388,
+          66
+        ],
+        "id" : "card.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          17,
+          356,
+          28
+        ],
+        "id" : "card.header.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          47,
+          356,
+          20
+        ],
+        "id" : "card.header.description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          67,
+          388,
+          52
+        ],
+        "id" : "card.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          17,
+          83,
+          356,
+          20
+        ],
+        "id" : "card-child"
+      }
+    ]
+  },
+  "CardRow\/example" : {
+    "height" : 68,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          68
+        ],
+        "id" : "card-row",
+        "radius" : 12
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          13,
+          24,
+          20,
+          20
+        ],
+        "id" : "card-row.icon"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          41,
+          13,
+          336,
+          42
+        ],
+        "id" : "card-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          13,
+          336,
+          20
+        ],
+        "id" : "card-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          41,
+          35,
+          336,
+          20
+        ],
+        "id" : "card-row.body.subtitle"
+      }
+    ]
+  },
+  "Carousel\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Carousel",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel.page",
+        "part" : "page"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel-child"
+      }
+    ]
+  },
+  "Carousel\/indicators=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Carousel",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel.page",
+        "part" : "page"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel-child"
+      }
+    ]
+  },
+  "Carousel\/indicators=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Carousel",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel.page",
+        "part" : "page"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel-child"
+      }
+    ]
+  },
+  "Carousel\/loop=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Carousel",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel.page",
+        "part" : "page"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel-child"
+      }
+    ]
+  },
+  "Carousel\/loop=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Carousel",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel.page",
+        "part" : "page"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "carousel-child"
+      }
+    ]
+  },
+  "Chart\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=area" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=bar" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=line" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Chart\/kind=pie" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Chart",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "chart"
+      }
+    ]
+  },
+  "Checkbox\/checked=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/checked=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4,
+        "states" : [
+          "checked"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/disabled=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/disabled=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "opacity" : 0.5,
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Checkbox\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "checkbox"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Checkbox",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "checkbox.box",
+        "part" : "box",
+        "radius" : 4
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          366,
+          20
+        ],
+        "id" : "checkbox.label",
+        "part" : "label"
+      }
+    ]
+  },
+  "Collapsible\/example" : {
+    "height" : 22,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          22
+        ],
+        "id" : "collapsible"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          22
+        ],
+        "id" : "collapsible.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "collapsible.trigger.0",
+        "part" : "trigger"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible-child"
+      }
+    ]
+  },
+  "Collapsible\/open=false" : {
+    "height" : 22,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          22
+        ],
+        "id" : "collapsible"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          22
+        ],
+        "id" : "collapsible.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "collapsible.trigger.0",
+        "part" : "trigger"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "hidden" : true,
+        "id" : "collapsible-child"
+      }
+    ]
+  },
+  "Collapsible\/open=true" : {
+    "height" : 66,
+    "nodes" : [
+      {
+        "component" : "Accordion",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "collapsible"
+      },
+      {
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          66
+        ],
+        "id" : "collapsible.item.0",
+        "part" : "item"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          1,
+          388,
+          20
+        ],
+        "id" : "collapsible.trigger.0",
+        "part" : "trigger",
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          21,
+          388,
+          44
+        ],
+        "id" : "collapsible.content.0",
+        "part" : "content"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          33,
+          388,
+          20
+        ],
+        "id" : "collapsible.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          33,
+          388,
+          20
+        ],
+        "id" : "collapsible-child"
+      }
+    ]
+  },
+  "Composer\/attachments=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/attachments=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/busy=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/busy=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "Composer\/example" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Composer",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "composer",
+        "radius" : 12
+      }
+    ]
+  },
+  "DatePicker\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "date-picker"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "date-picker.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "DatePicker",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "date-picker.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Dialog\/dismissible=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "dialog"
+      }
+    ]
+  },
+  "Dialog\/dismissible=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "dialog"
+      }
+    ]
+  },
+  "Dialog\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "dialog"
+      }
+    ]
+  },
+  "Dialog\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "dialog"
+      }
+    ]
+  },
+  "Dialog\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Dialog",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "dialog"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          8,
+          325,
+          374,
+          150
+        ],
+        "id" : "dialog.content",
+        "part" : "content",
+        "radius" : 16,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          350,
+          324,
+          28
+        ],
+        "id" : "dialog.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          394,
+          324,
+          20
+        ],
+        "id" : "dialog.description",
+        "part" : "description"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          33,
+          430,
+          324,
+          20
+        ],
+        "id" : "dialog.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          33,
+          430,
+          324,
+          20
+        ],
+        "id" : "dialog-child"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          341,
+          334,
+          32,
+          32
+        ],
+        "id" : "dialog.close",
+        "part" : "close",
+        "radius" : 8
+      }
+    ]
+  },
+  "Drawer\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          662,
+          390,
+          138
+        ],
+        "id" : "drawer.content",
+        "part" : "content",
+        "radius" : 24,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          145,
+          687,
+          100,
+          8
+        ],
+        "id" : "drawer.handle",
+        "part" : "handle",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          25,
+          711,
+          340,
+          28
+        ],
+        "id" : "drawer.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          25,
+          755,
+          340,
+          20
+        ],
+        "id" : "drawer.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          25,
+          755,
+          340,
+          20
+        ],
+        "id" : "drawer-child"
+      }
+    ]
+  },
+  "Drawer\/side=bottom" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/side=left" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/side=right" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "Drawer\/side=top" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "drawer"
+      }
+    ]
+  },
+  "DropdownMenu\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "DropdownMenu",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "dropdown-menu"
+      },
+      {
+        "bg" : "#0a0a0a",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "dropdown-menu.trigger",
+        "part" : "trigger",
+        "radius" : 10
+      }
+    ]
+  },
+  "EmptyState\/example" : {
+    "height" : 128,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          128
+        ],
+        "id" : "empty-state"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          24,
+          24,
+          24
+        ],
+        "id" : "empty-state.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          131,
+          56,
+          128,
+          20
+        ],
+        "id" : "empty-state.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          107,
+          84,
+          176,
+          20
+        ],
+        "id" : "empty-state.description"
+      }
+    ]
+  },
+  "EntityChip\/example" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "entity-chip",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          4,
+          16,
+          16
+        ],
+        "id" : "entity-chip.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          2,
+          72,
+          20
+        ],
+        "id" : "entity-chip.label"
+      }
+    ]
+  },
+  "EntityChip\/removable=false" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "entity-chip",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          4,
+          16,
+          16
+        ],
+        "id" : "entity-chip.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          2,
+          72,
+          20
+        ],
+        "id" : "entity-chip.label"
+      }
+    ]
+  },
+  "EntityChip\/removable=true" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "entity-chip",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          9,
+          4,
+          16,
+          16
+        ],
+        "id" : "entity-chip.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          29,
+          2,
+          72,
+          20
+        ],
+        "id" : "entity-chip.label"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          105,
+          -4,
+          32,
+          32
+        ],
+        "id" : "entity-chip.remove",
+        "radius" : 10
+      }
+    ]
+  },
+  "Grid\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          122,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=lg" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          119.33,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=md" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          122,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=none" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          130,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          124.67,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=xl" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          114,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Grid\/gap=xs" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          127.33,
+          20
+        ],
+        "id" : "grid-child"
+      }
+    ]
+  },
+  "Group\/example" : {
+    "height" : 46,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          46
+        ],
+        "id" : "group"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "group.title"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          22
+        ],
+        "id" : "group.body",
+        "radius" : 12
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          1,
+          25,
+          388,
+          20
+        ],
+        "id" : "group-child"
+      }
+    ]
+  },
+  "Heading\/example" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "heading"
+      }
+    ]
+  },
+  "Heading\/level=h1" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          36
+        ],
+        "id" : "heading"
+      }
+    ]
+  },
+  "Heading\/level=h2" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "heading"
+      }
+    ]
+  },
+  "Heading\/level=h3" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "heading"
+      }
+    ]
+  },
+  "Heading\/level=h4" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "heading"
+      }
+    ]
+  },
+  "Icon\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/size=lg" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/size=sm" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=danger" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=info" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=neutral" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=primary" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=success" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Icon\/tone=warning" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "icon"
+      }
+    ]
+  },
+  "Image\/example" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/fit=contain" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/fit=cover" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/fit=fill" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/fit=none" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Image\/fit=scaleDown" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Image",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "image"
+      }
+    ]
+  },
+  "Input\/disabled=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/disabled=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "opacity" : 0.5,
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=email" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=number" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=password" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=search" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=tel" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=text" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/type=url" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/validateOn=blur" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/validateOn=change" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Input\/validateOn=submit" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Input",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "input"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "input.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Input",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "input.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Link\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Link",
+        "frame" : [
+          0,
+          0,
+          72,
+          20
+        ],
+        "id" : "link"
+      }
+    ]
+  },
+  "Link\/external=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Link",
+        "frame" : [
+          0,
+          0,
+          72,
+          20
+        ],
+        "id" : "link"
+      }
+    ]
+  },
+  "Link\/external=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Link",
+        "frame" : [
+          0,
+          0,
+          72,
+          20
+        ],
+        "id" : "link"
+      }
+    ]
+  },
+  "List\/direction=horizontal" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/direction=vertical" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/divided=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/divided=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=lg" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=md" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=none" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=xl" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "List\/gap=xs" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "list-child"
+      }
+    ]
+  },
+  "ListRow\/chevron=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "ListRow\/chevron=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          262,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          262,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          282,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          362,
+          8,
+          16,
+          16
+        ],
+        "id" : "list-row.chevron"
+      }
+    ]
+  },
+  "ListRow\/density=compact" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          4,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          4,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          4,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "ListRow\/density=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "ListRow\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "ListRow\/selected=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "ListRow\/selected=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "list-row"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "list-row.body.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "list-row.meta"
+      }
+    ]
+  },
+  "Markdown\/example" : {
+    "height" : 80,
+    "nodes" : [
+      {
+        "component" : "Markdown",
+        "frame" : [
+          0,
+          0,
+          390,
+          80
+        ],
+        "id" : "markdown"
+      }
+    ]
+  },
+  "Meter\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "meter"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "meter.header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          270,
+          20
+        ],
+        "id" : "meter.header.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          278,
+          0,
+          112,
+          20
+        ],
+        "id" : "meter.header.value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "meter.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          156,
+          8
+        ],
+        "id" : "meter.track.segment.0"
+      },
+      {
+        "bg" : "#facc15",
+        "component" : "Box",
+        "frame" : [
+          156,
+          24,
+          97.5,
+          8
+        ],
+        "id" : "meter.track.segment.1"
+      }
+    ]
+  },
+  "NavRow\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "nav-row",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "nav-row.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          32,
+          6,
+          318,
+          20
+        ],
+        "id" : "nav-row.label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          358,
+          0,
+          24,
+          20
+        ],
+        "id" : "nav-row.count",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          8,
+          20
+        ],
+        "id" : "nav-row.count.label"
+      }
+    ]
+  },
+  "NavRow\/selected=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "nav-row",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "nav-row.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          32,
+          6,
+          318,
+          20
+        ],
+        "id" : "nav-row.label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          358,
+          0,
+          24,
+          20
+        ],
+        "id" : "nav-row.count",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          8,
+          20
+        ],
+        "id" : "nav-row.count.label"
+      }
+    ]
+  },
+  "NavRow\/selected=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "nav-row",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          8,
+          8,
+          16,
+          16
+        ],
+        "id" : "nav-row.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          32,
+          6,
+          318,
+          20
+        ],
+        "id" : "nav-row.label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Box",
+        "frame" : [
+          358,
+          0,
+          24,
+          20
+        ],
+        "id" : "nav-row.count",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          366,
+          0,
+          8,
+          20
+        ],
+        "id" : "nav-row.count.label"
+      }
+    ]
+  },
+  "Pagination\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "pagination"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "pagination.prev",
+        "radius" : 10
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          40,
+          6,
+          40,
+          20
+        ],
+        "id" : "pagination.label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Button",
+        "frame" : [
+          88,
+          0,
+          32,
+          32
+        ],
+        "id" : "pagination.next",
+        "radius" : 10
+      }
+    ]
+  },
+  "PickerRow\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "picker-row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          246,
+          20
+        ],
+        "id" : "picker-row.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          266,
+          6,
+          88,
+          20
+        ],
+        "id" : "picker-row.value"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          362,
+          8,
+          16,
+          16
+        ],
+        "id" : "picker-row.chevron"
+      }
+    ]
+  },
+  "Pill\/example" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/pressable=false" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/pressable=true" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/selected=false" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/selected=true" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=danger" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=info" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=neutral" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=primary" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=success" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Pill\/tone=warning" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          24
+        ],
+        "id" : "pill",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          9,
+          2,
+          48,
+          20
+        ],
+        "id" : "pill.label"
+      }
+    ]
+  },
+  "Popover\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          158,
+          4,
+          74,
+          54
+        ],
+        "id" : "popover.content",
+        "part" : "content",
+        "radius" : 10,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          21,
+          40,
+          20
+        ],
+        "id" : "popover-child"
+      }
+    ]
+  },
+  "Popover\/side=bottom" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/side=left" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/side=right" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Popover\/side=top" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Popover",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "popover"
+      }
+    ]
+  },
+  "Progress\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=danger" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#ff6467",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=info" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#3b82f6",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=neutral" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#a1a1a1",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=primary" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=success" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#22c55e",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Progress\/tone=warning" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "progress"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "progress.label"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          8
+        ],
+        "id" : "progress.track",
+        "radius" : 9999
+      },
+      {
+        "bg" : "#facc15",
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          253.5,
+          8
+        ],
+        "id" : "progress.track.fill",
+        "radius" : 9999
+      }
+    ]
+  },
+  "PropertyRow\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "property-row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          12,
+          6,
+          286,
+          20
+        ],
+        "id" : "property-row.label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          306,
+          6,
+          72,
+          20
+        ],
+        "id" : "property-row.value"
+      }
+    ]
+  },
+  "Radio\/example" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Radio",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "radio"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "radio.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          48
+        ],
+        "id" : "radio.items",
+        "part" : "items"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          20
+        ],
+        "id" : "radio.item.0",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          0,
+          26,
+          16,
+          16
+        ],
+        "id" : "radio.dot.0",
+        "part" : "dot",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          24,
+          32,
+          20
+        ],
+        "id" : "radio.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          52,
+          390,
+          20
+        ],
+        "id" : "radio.item.1",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          0,
+          54,
+          16,
+          16
+        ],
+        "id" : "radio.dot.1",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          52,
+          32,
+          20
+        ],
+        "id" : "radio.label.1",
+        "part" : "label"
+      }
+    ]
+  },
+  "Radio\/orientation=horizontal" : {
+    "height" : 44,
+    "nodes" : [
+      {
+        "component" : "Radio",
+        "frame" : [
+          0,
+          0,
+          390,
+          44
+        ],
+        "id" : "radio"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "radio.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          20
+        ],
+        "id" : "radio.items",
+        "part" : "items"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          56,
+          20
+        ],
+        "id" : "radio.item.0",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          0,
+          26,
+          16,
+          16
+        ],
+        "id" : "radio.dot.0",
+        "part" : "dot",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          24,
+          32,
+          20
+        ],
+        "id" : "radio.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          64,
+          24,
+          56,
+          20
+        ],
+        "id" : "radio.item.1",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          64,
+          26,
+          16,
+          16
+        ],
+        "id" : "radio.dot.1",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          88,
+          24,
+          32,
+          20
+        ],
+        "id" : "radio.label.1",
+        "part" : "label"
+      }
+    ]
+  },
+  "Radio\/orientation=vertical" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Radio",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "radio"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "radio.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          48
+        ],
+        "id" : "radio.items",
+        "part" : "items"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          24,
+          390,
+          20
+        ],
+        "id" : "radio.item.0",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          0,
+          26,
+          16,
+          16
+        ],
+        "id" : "radio.dot.0",
+        "part" : "dot",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          24,
+          32,
+          20
+        ],
+        "id" : "radio.label.0",
+        "part" : "label"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          52,
+          390,
+          20
+        ],
+        "id" : "radio.item.1",
+        "part" : "item"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Radio",
+        "frame" : [
+          0,
+          54,
+          16,
+          16
+        ],
+        "id" : "radio.dot.1",
+        "part" : "dot",
+        "radius" : 9999
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          52,
+          32,
+          20
+        ],
+        "id" : "radio.label.1",
+        "part" : "label"
+      }
+    ]
+  },
+  "Ring\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/size=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/size=lg" : {
+    "height" : 40,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          40,
+          40
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/size=sm" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=danger" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=info" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=neutral" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=primary" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=success" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "Ring\/tone=warning" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "component" : "Ring",
+        "frame" : [
+          0,
+          0,
+          32,
+          32
+        ],
+        "id" : "ring"
+      }
+    ]
+  },
+  "RowList\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list-child"
+      }
+    ]
+  },
+  "RowList\/guides=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list-child"
+      }
+    ]
+  },
+  "RowList\/guides=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "row-list-child"
+      }
+    ]
+  },
+  "Select\/disabled=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/disabled=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/example" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/multiple=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/multiple=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/searchable=false" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/searchable=true" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/validateOn=blur" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/validateOn=change" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Select\/validateOn=submit" : {
+    "height" : 60,
+    "nodes" : [
+      {
+        "component" : "Select",
+        "frame" : [
+          0,
+          0,
+          390,
+          60
+        ],
+        "id" : "select"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "select.label",
+        "part" : "label"
+      },
+      {
+        "border" : 1,
+        "component" : "Select",
+        "frame" : [
+          0,
+          24,
+          390,
+          36
+        ],
+        "id" : "select.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Separator\/example" : {
+    "height" : 1,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          1
+        ],
+        "id" : "separator"
+      }
+    ]
+  },
+  "Separator\/orientation=horizontal" : {
+    "height" : 1,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          1
+        ],
+        "id" : "separator"
+      }
+    ]
+  },
+  "Separator\/orientation=vertical" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          1,
+          0
+        ],
+        "id" : "separator"
+      }
+    ]
+  },
+  "Sheet\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "sheet"
+      }
+    ]
+  },
+  "Sheet\/open=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "sheet"
+      }
+    ]
+  },
+  "Sheet\/open=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "Drawer",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "sheet"
+      },
+      {
+        "bg" : "#171717",
+        "border" : 1,
+        "component" : "Box",
+        "frame" : [
+          284,
+          0,
+          106,
+          800
+        ],
+        "id" : "sheet.content",
+        "part" : "content",
+        "radius" : 24,
+        "states" : [
+          "open"
+        ]
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          309,
+          25,
+          56,
+          28
+        ],
+        "id" : "sheet.title",
+        "part" : "title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          309,
+          69,
+          56,
+          20
+        ],
+        "id" : "sheet.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          309,
+          69,
+          56,
+          20
+        ],
+        "id" : "sheet-child"
+      }
+    ]
+  },
+  "Skeleton\/example" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Skeleton",
+        "frame" : [
+          0,
+          0,
+          390,
+          16
+        ],
+        "id" : "skeleton",
+        "radius" : 10
+      }
+    ]
+  },
+  "Skeleton\/rounded=false" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Skeleton",
+        "frame" : [
+          0,
+          0,
+          390,
+          16
+        ],
+        "id" : "skeleton",
+        "radius" : 10
+      }
+    ]
+  },
+  "Skeleton\/rounded=true" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0f",
+        "component" : "Skeleton",
+        "frame" : [
+          0,
+          0,
+          390,
+          16
+        ],
+        "id" : "skeleton",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Slider\/example" : {
+    "height" : 30,
+    "nodes" : [
+      {
+        "component" : "Slider",
+        "frame" : [
+          0,
+          0,
+          390,
+          30
+        ],
+        "id" : "slider"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "slider.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          48,
+          20
+        ],
+        "id" : "slider.label",
+        "part" : "label"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          374,
+          0,
+          16,
+          20
+        ],
+        "id" : "slider.value",
+        "part" : "value"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Slider",
+        "frame" : [
+          0,
+          24,
+          390,
+          6
+        ],
+        "id" : "slider.track",
+        "part" : "track",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Spinner\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Spinner",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "spinner"
+      }
+    ]
+  },
+  "Spinner\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Spinner",
+        "frame" : [
+          0,
+          0,
+          20,
+          20
+        ],
+        "id" : "spinner"
+      }
+    ]
+  },
+  "Spinner\/size=lg" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "component" : "Spinner",
+        "frame" : [
+          0,
+          0,
+          24,
+          24
+        ],
+        "id" : "spinner"
+      }
+    ]
+  },
+  "Spinner\/size=sm" : {
+    "height" : 16,
+    "nodes" : [
+      {
+        "component" : "Spinner",
+        "frame" : [
+          0,
+          0,
+          16,
+          16
+        ],
+        "id" : "spinner"
+      }
+    ]
+  },
+  "Stack\/align=center" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/align=end" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/align=start" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/align=stretch" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/direction=horizontal" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/direction=vertical" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=lg" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=md" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=none" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=xl" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/gap=xs" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=around" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=between" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=center" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=end" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          350,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=evenly" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          175,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/justify=start" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/wrap=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Stack\/wrap=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "stack"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "stack-child"
+      }
+    ]
+  },
+  "Switch\/checked=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff26",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999
+      }
+    ]
+  },
+  "Switch\/checked=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
+  "Switch\/disabled=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
+  "Switch\/disabled=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "opacity" : 0.5,
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
+  "Switch\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
+  "Table\/example" : {
+    "height" : 92,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "table.grid"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          189,
+          20
+        ],
+        "id" : "table.grid.header.0"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          201,
+          0,
+          189,
+          20
+        ],
+        "id" : "table.grid.header.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          28
+        ],
+        "id" : "table.grid.row.0"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          32,
+          189,
+          20
+        ],
+        "id" : "table.grid.row.0.cell.0"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          201,
+          32,
+          189,
+          20
+        ],
+        "id" : "table.grid.row.0.cell.1"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          64,
+          390,
+          28
+        ],
+        "id" : "table.grid.row.1"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          68,
+          189,
+          20
+        ],
+        "id" : "table.grid.row.1.cell.0"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          201,
+          68,
+          189,
+          20
+        ],
+        "id" : "table.grid.row.1.cell.1"
+      }
+    ]
+  },
+  "Tabs\/example" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          70,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          24,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/fill=false" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          70,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          40,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          44,
+          2,
+          24,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Tabs\/fill=true" : {
+    "height" : 72,
+    "nodes" : [
+      {
+        "component" : "Tabs",
+        "frame" : [
+          0,
+          0,
+          390,
+          72
+        ],
+        "id" : "tabs"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "tabs.list",
+        "part" : "list",
+        "radius" : 10
+      },
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Text",
+        "frame" : [
+          2,
+          2,
+          192,
+          24
+        ],
+        "id" : "tabs.tab.0",
+        "part" : "tab",
+        "radius" : 8,
+        "states" : [
+          "selected"
+        ]
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Text",
+        "frame" : [
+          196,
+          2,
+          192,
+          24
+        ],
+        "id" : "tabs.tab.1",
+        "part" : "tab",
+        "radius" : 8
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          28,
+          390,
+          44
+        ],
+        "id" : "tabs.content",
+        "part" : "content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          40,
+          390,
+          20
+        ],
+        "id" : "tabs-child"
+      }
+    ]
+  },
+  "Text\/align=center" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/align=end" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/align=start" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=danger" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=info" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=neutral" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=primary" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=success" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/tone=warning" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=body" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=caption" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=code" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=label" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=lead" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=muted" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/variant=title" : {
+    "height" : 28,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          28
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Textarea\/disabled=false" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/disabled=true" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "opacity" : 0.5,
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/example" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/validateOn=blur" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/validateOn=change" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Textarea\/validateOn=submit" : {
+    "height" : 88,
+    "nodes" : [
+      {
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          0,
+          390,
+          88
+        ],
+        "id" : "textarea"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "textarea.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#ffffff0f",
+        "border" : 1,
+        "component" : "Textarea",
+        "frame" : [
+          0,
+          24,
+          390,
+          64
+        ],
+        "id" : "textarea.field",
+        "part" : "field",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/example" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/pressed=false" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/pressed=true" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#ffffff1c",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/size=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/size=lg" : {
+    "height" : 36,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          36
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/size=sm" : {
+    "height" : 24,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          24
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/variant=default" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "Toggle\/variant=outline" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "border" : 1,
+        "component" : "Toggle",
+        "frame" : [
+          0,
+          0,
+          56,
+          32
+        ],
+        "id" : "toggle",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/fill=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/fill=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/size=default" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/size=lg" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/size=sm" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/type=multiple" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/type=single" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "ToggleGroup\/variant=default" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group"
+      }
+    ]
+  },
+  "ToggleGroup\/variant=outline" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group"
+      }
+    ]
+  },
+  "ToggleGroup\/variant=segmented" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "component" : "ToggleGroup",
+        "frame" : [
+          0,
+          0,
+          0,
+          0
+        ],
+        "id" : "toggle-group",
+        "radius" : 10
+      }
+    ]
+  },
+  "Tooltip\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "tooltip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip-child"
+      }
+    ]
+  },
+  "Tooltip\/side=bottom" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "tooltip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip-child"
+      }
+    ]
+  },
+  "Tooltip\/side=left" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "tooltip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip-child"
+      }
+    ]
+  },
+  "Tooltip\/side=right" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "tooltip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip-child"
+      }
+    ]
+  },
+  "Tooltip\/side=top" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Tooltip",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "tooltip"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip.anchor",
+        "part" : "anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "tooltip-child"
+      }
+    ]
+  },
+  "TreeGuides\/example" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "TreeGuides",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "tree-guides"
+      }
+    ]
+  },
+  "TreeGuides\/tee=false" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "TreeGuides",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "tree-guides"
+      }
+    ]
+  },
+  "TreeGuides\/tee=true" : {
+    "height" : 0,
+    "nodes" : [
+      {
+        "component" : "TreeGuides",
+        "frame" : [
+          0,
+          0,
+          390,
+          0
+        ],
+        "id" : "tree-guides"
+      }
+    ]
+  },
+  "Video\/autoplay=false" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Video",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "video"
+      }
+    ]
+  },
+  "Video\/autoplay=true" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Video",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "video"
+      }
+    ]
+  },
+  "Video\/example" : {
+    "height" : 180,
+    "nodes" : [
+      {
+        "component" : "Video",
+        "frame" : [
+          0,
+          0,
+          390,
+          180
+        ],
+        "id" : "video"
+      }
+    ]
+  }
+}

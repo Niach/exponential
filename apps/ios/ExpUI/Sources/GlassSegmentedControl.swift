@@ -1,4 +1,5 @@
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 /// The chrome constants of the segmented strip, pinned so a drift breaks a
 /// build instead of shipping two different-looking strips. Android's mirror is
@@ -153,91 +154,93 @@ public struct GlassSegmentedControl<Option: Hashable>: View {
         self.onSelect = onSelect
     }
 
-    @ViewBuilder
+    /// SLOP-18 / VAPP-88: the strip is the SDK's `SegmentedControl`; this
+    /// type supplies the glass style and each segment's content (icon,
+    /// leading/trailing accessories, the count badge).
     public var body: some View {
-        switch style {
-        case .capsule:
-            segments
-                .padding(GlassSegmentedControlTokens.capsulePadding)
-                .frame(minHeight: GlassSegmentedControlTokens.height)
-                .background(GlassSegmentedControlTokens.containerFill, in: Capsule())
-                .overlay(
-                    Capsule().stroke(
-                        GlassSegmentedControlTokens.stroke,
-                        lineWidth: GlassSegmentedControlTokens.hairline
-                    )
-                )
-        case .embedded:
-            segments
-        }
+        SegmentedControl(
+            options.map(segment),
+            selection: Binding(get: { selection }, set: { onSelect($0) }),
+            style: Self.segmentedStyle(style)
+        )
     }
 
-    private var segments: some View {
-        HStack(spacing: GlassSegmentedControlTokens.segmentSpacing) {
-            ForEach(options, id: \.self) { option in
-                segmentButton(option)
-            }
-        }
+    /// The SDK style for a placement: capsule track and segments, the
+    /// `controlLg` MINIMUM height, `capsulePadding` inset, the section fill +
+    /// hairline (`.capsule`) or no track at all (`.embedded`), segments sized
+    /// by their own vertical padding.
+    static func segmentedStyle(_ style: Style) -> SegmentedStyle {
+        SegmentedStyle(
+            height: GlassSegmentedControlTokens.height,
+            trackFill: GlassSegmentedControlTokens.containerFill,
+            trackStroke: GlassSegmentedControlTokens.stroke,
+            segmentFill: GlassSegmentedControlTokens.activeFill,
+            inset: GlassSegmentedControlTokens.capsulePadding,
+            horizontalPadding: 0,
+            font: .subheadline.weight(.medium),
+            capsule: true,
+            minimumHeight: true,
+            segmentVerticalPadding: GlassSegmentedControlTokens.segmentVerticalPadding,
+            showsTrack: style == .capsule,
+            trackStrokeWidth: GlassSegmentedControlTokens.hairline,
+            strokeCentered: true,
+            minimumScaleFactor: 0.8
+        )
     }
 
-    private func segmentButton(_ option: Option) -> some View {
-        let active = option == selection
-        return Button {
-            onSelect(option)
-        } label: {
-            HStack(spacing: 6) {
-                if let mark = icon(option) {
-                    mark
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 14, height: 14)
-                }
-                HStack(spacing: accessoryGap) {
-                    HStack(spacing: leadingGap) {
-                        if let mark = leading(option) {
-                            mark
-                        }
-                        if let custom = content(option) {
-                            custom
-                                .opacity(active ? 1 : TextOpacity.secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        } else {
-                            Text(label(option))
-                                // EXP-698: the weight is CONSTANT — only the opacity
-                                // moves. A semibold/regular swap re-flowed the strip on
-                                // every tap and made two adjacent segments look like
-                                // two type scales.
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
+    private func segment(_ option: Option) -> Segment<Option> {
+        Segment(
+            option,
+            label: label(option),
+            content: AnyView(segmentContent(option, active: option == selection)),
+            accessibilityLabel: spokenLabel(option) ?? label(option),
+            identifier: identifier(option)
+        )
+    }
+
+    private func segmentContent(_ option: Option, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            if let mark = icon(option) {
+                mark
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+            }
+            HStack(spacing: accessoryGap) {
+                HStack(spacing: leadingGap) {
+                    if let mark = leading(option) {
+                        mark
                     }
-                    if let trailing = accessory(option) {
-                        trailing
+                    if let custom = content(option) {
+                        custom
+                            .opacity(active ? 1 : TextOpacity.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    } else {
+                        Text(label(option))
+                            // EXP-698: the weight is CONSTANT — only the opacity
+                            // moves. A semibold/regular swap re-flowed the strip on
+                            // every tap and made two adjacent segments look like
+                            // two type scales.
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                 }
-                let count = badge(option)
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(DesignTokens.Palette.primaryForeground)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(DesignTokens.Palette.primary, in: Capsule())
+                if let trailing = accessory(option) {
+                    trailing
                 }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, GlassSegmentedControlTokens.segmentVerticalPadding)
-            .background(
-                active ? GlassSegmentedControlTokens.activeFill : .clear,
-                in: Capsule()
-            )
-            .contentShape(Capsule())
+            let count = badge(option)
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(DesignTokens.Palette.primaryForeground)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(DesignTokens.Palette.primary, in: Capsule())
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(spokenLabel(option) ?? label(option))
-        .accessibilityIdentifier(identifier(option) ?? "")
     }
 }

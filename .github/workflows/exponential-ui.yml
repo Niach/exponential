@@ -1,0 +1,178 @@
+name: exponential-ui
+
+# VAPP-91: the Exponential UI conformance suite on every renderer. Each job
+# runs its renderer's conformance runner (every suite of
+# packages/exponential-ui/conformance/manifest.json through that renderer's
+# painter and bindings) and uploads the report; `conformant` fails unless
+# every report passes `conformance:check` (all suites, every case, nothing
+# failed). The React renderer runs in headless Chromium, the Rust core and
+# the gpui painter on Linux, the SwiftUI painter on macOS against the
+# xcframework, the Compose painter under Robolectric against the host build
+# of the facade. Each job also compiles its ui.exponential.at guides from a
+# fresh project (`apps/ui-site/guides/check.ts`, VAPP-93).
+#
+# Once per change: the pull request (path-filtered to the SDK), like test.yml.
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'packages/exponential-ui/**'
+      - 'packages/exponential-ui-react/**'
+      - 'packages/exponential-ui-swift/**'
+      - 'packages/exponential-ui-compose/**'
+      - 'apps/desktop/crates/exponential-ui/**'
+      - 'apps/desktop/crates/exponential-ui-ffi/**'
+      - 'apps/desktop/crates/exponential-ui-gpui/**'
+      - 'apps/ui-site/guides/**'
+      - '.github/workflows/exponential-ui.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: exponential-ui-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  react:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Catalog package tests (TS reference, host fixtures)
+        run: bun run --filter @exponential-at/ui test
+      - name: React renderer tests
+        run: bun run --filter @exponential-at/ui-react test
+      - name: React conformance (headless Chromium)
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-react.json
+        run: bun run --filter @exponential-at/ui-react test:conformance
+      - name: Guides (React, agent, theme) from a fresh project
+        run: |
+          bun apps/ui-site/guides/check.ts react
+          bun apps/ui-site/guides/check.ts agent
+          bun apps/ui-site/guides/check.ts theme
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-react
+          path: .conformance/
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (wgpu/gpui)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Core + facade tests (core conformance)
+        working-directory: apps/desktop
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui.json
+        run: cargo test --locked -p exponential-ui -p exponential-ui-ffi
+      - name: gpui painter tests (gpui conformance)
+        working-directory: apps/desktop
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-gpui.json
+        run: cargo test --locked -p exponential-ui-gpui
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (gpui) from a fresh project
+        run: bun apps/ui-site/guides/check.ts gpui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-rust
+          path: .conformance/
+
+  swift:
+    # Same image as test-ios.yml / build-ios.yml.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Build the xcframework (iOS device + simulator + macOS)
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - name: Swift painter tests (SwiftUI conformance)
+        working-directory: packages/exponential-ui-swift
+        env:
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-swift.json
+        run: swift test
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (SwiftUI) from a fresh project
+        run: bun apps/ui-site/guides/check.ts swift
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-swift
+          path: .conformance/
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Host build of the facade (the JVM tests load it through JNA)
+        working-directory: apps/desktop
+        run: cargo build --locked -p exponential-ui-ffi --release
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
+      - name: Compose painter tests (Compose conformance)
+        working-directory: packages/exponential-ui-compose
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-compose.json
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest --no-daemon
+      - uses: oven-sh/setup-bun@v2
+      - name: Guide (Compose) from a fresh project
+        run: bun apps/ui-site/guides/check.ts compose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conformance-compose
+          path: .conformance/
+
+  conformant:
+    needs: [react, rust, swift, compose]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: conformance-*
+          path: .conformance
+          merge-multiple: true
+      - name: Every renderer is Exponential UI conformant
+        run: bun run --filter @exponential-at/ui conformance:check $(ls "$GITHUB_WORKSPACE"/.conformance/*.json)

@@ -1421,6 +1421,50 @@
           ]
         },
         "DropdownMenu": {
+          "trigger": [
+            {
+              "style": {
+                "height": "$control.buttonMd",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.xs",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
           "content": [
             {
               "style": {
@@ -6285,6 +6329,50 @@
           ]
         },
         "DropdownMenu": {
+          "trigger": [
+            {
+              "style": {
+                "height": "$control.buttonMd",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.xs",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
           "content": [
             {
               "style": {
@@ -11547,6 +11635,50 @@
           ]
         },
         "DropdownMenu": {
+          "trigger": [
+            {
+              "style": {
+                "height": "$control.buttonMd",
+                "paddingHorizontal": "$spacing.md",
+                "gap": "$spacing.xs",
+                "borderRadius": "$radius.md",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.input",
+                "backgroundColor": "$color.background",
+                "color": "$color.foreground",
+                "fontFamily": "$type.family.sans",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontWeight": "$type.weight.medium"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "open"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "focus"
+              },
+              "style": {
+                "borderColor": "$color.ring"
+              }
+            }
+          ],
           "content": [
             {
               "style": {

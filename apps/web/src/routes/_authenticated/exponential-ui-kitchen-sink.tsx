@@ -7,16 +7,18 @@ import kitchenSinkData from "@exponential-at/ui-react/fixtures/kitchen-sink.data
 import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential-at/ui-react"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 import { pageTitle } from "@/lib/page-title"
+import { ExponentialUiSpecimen, isSpecimenId } from "@/components/exponential-ui-specimen"
 
 // VAPP-87: the Exponential UI kitchen sink rendered by the React renderer
 // inside the app (view `exponential-ui-kitchen-sink`, the web reference shot
 // every painter is compared against). `?theme=` picks a built-in,
 // `?mode=light|dark`, `?width=N` forces the surface width, `?rtl=1` flips
-// it. The host stub echoes every input edit back after 150 ms and logs
-// actions to the console — the app's real host plugin is VAPP-91. Round 1:
-// the sink renders against the renderer's shared data model
+// it. `?specimen=<id>` paints ONE fixtures/specimens.json entry alone
+// (VAPP-93: the ui.exponential.at per-component web shots). The host stub
+// echoes every input edit back after 150 ms and logs actions to the console.
+// Round 1: the sink renders against the renderer's shared data model
 // (`kitchen-sink.data.json`: the template list, bound macros, form fields).
-type SinkSearch = { theme?: string; mode?: `light` | `dark`; width?: number; rtl?: boolean }
+type SinkSearch = { specimen?: string; theme?: string; mode?: `light` | `dark`; width?: number; rtl?: boolean }
 
 const flag = (v: unknown) => v === 1 || v === `1` || v === true || v === `true`
 
@@ -26,6 +28,7 @@ export const Route = createFileRoute(`/_authenticated/exponential-ui-kitchen-sin
   validateSearch: (search: Record<string, unknown>): SinkSearch => {
     const width = Number(search.width)
     return {
+      specimen: isSpecimenId(search.specimen) ? search.specimen : undefined,
       theme: typeof search.theme === `string` && BUILTIN_THEME_IDS.includes(search.theme) ? search.theme : undefined,
       mode: search.mode === `light` ? `light` : undefined,
       width: Number.isFinite(width) && width > 0 ? width : undefined,
@@ -38,7 +41,12 @@ export const Route = createFileRoute(`/_authenticated/exponential-ui-kitchen-sin
 const { $comment: _comment, ...SINK_DATA } = kitchenSinkData as Record<string, unknown>
 
 function KitchenSinkPage() {
-  const { theme, mode, width, rtl } = Route.useSearch()
+  const { specimen, theme, mode, width, rtl } = Route.useSearch()
+  if (specimen) return <ExponentialUiSpecimen id={specimen} theme={theme} mode={mode} width={width} rtl={rtl} />
+  return <KitchenSink theme={theme} mode={mode} width={width} rtl={rtl} />
+}
+
+function KitchenSink({ theme, mode, width, rtl }: Omit<SinkSearch, `specimen`>) {
   const surface = useSurface({ surfaceId: `kitchen-sink`, catalogId: CORE_CATALOG_ID, initial: kitchenSink as unknown as NestedNode, data: SINK_DATA })
   const [echo, setEcho] = useState(``)
   const host = useMemo<HostPlugin>(

@@ -121,6 +121,9 @@ impl SurfaceView {
         if n.hidden {
             return None;
         }
+        if let Some(t) = self.paint_trace.borrow_mut().as_mut() {
+            t.push(index);
+        }
         let style = self.shown_style(index);
         if style.invisible {
             // `visibility: hidden`: the box keeps its place, nothing paints.

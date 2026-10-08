@@ -241,8 +241,19 @@ pub enum OutEvent {
     Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
-    /// A client function the core does not run (a host function).
-    Call { name: String, args: Value },
+    /// An `on.<event>` `functionCall` (or the legacy `function`) naming a
+    /// HOST function (not one of the catalog's built-ins, `FUNCTION_NAMES`):
+    /// the host looks it up in its registry and runs it through the policy
+    /// gate (`host::decide_function`, VAPP-91). `args` = the call's args
+    /// resolved against the data model and scope. Serialized `{kind:
+    /// "functionCall", componentId, name, args}` (the host API's camelCase;
+    /// the older variants keep `component_id`).
+    FunctionCall {
+        #[serde(rename = "componentId")]
+        component_id: String,
+        name: String,
+        args: Value,
+    },
     /// A bound value was written through to the data model.
     DataChanged { path: String, value: Value },
     /// A host-owned input edit (the host forwards with its revision).
@@ -965,7 +976,17 @@ impl Surface {
         if let Some(update) = obj.get("updateComponents") {
             let components = update.get("components").ok_or("updateComponents.components is required")?;
             let list: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| format!("components: {e}"))?;
-            self.components = list;
+            // A2UI: a later update replaces components BY ID and keeps the
+            // rest (the TS reference's SurfaceStore does the same, VAPP-91).
+            if self.nested.is_some() {
+                self.components.clear();
+            }
+            for c in list {
+                match self.components.iter_mut().find(|x| x.id == c.id) {
+                    Some(slot) => *slot = c,
+                    None => self.components.push(c),
+                }
+            }
             self.nested = None;
             self.template_cache.clear();
             self.local.field_values.clear();

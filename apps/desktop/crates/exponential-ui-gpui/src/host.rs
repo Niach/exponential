@@ -19,6 +19,19 @@ pub struct ActionEvent {
     pub payload: Option<serde_json::Value>,
 }
 
+/// An `on.<event> = {functionCall: {call, args}}` naming a HOST function
+/// (not one of the catalog's built-ins): the host gates it through its
+/// function policy and runs its registered handler
+/// ([`crate::runtime::ExponentialHost::call_function`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionCallEvent {
+    pub surface_id: String,
+    pub component_id: String,
+    pub name: String,
+    /// The call's args, resolved against the data model and scope.
+    pub args: serde_json::Value,
+}
+
 /// A host-owned text edit: `Change` while typing (debounced), `Commit` on
 /// blur / Enter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +66,18 @@ pub trait HostPlugin: 'static {
     /// A server event fired (forward it to the producer).
     fn on_action(&self, _event: &ActionEvent, _cx: &mut gpui::App) {}
 
+    /// A host function call (`functionCall` to a non-built-in name). The
+    /// default ignores it; [`crate::runtime::host_plugin`] routes it through
+    /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
+    fn on_function_call(&self, _event: &FunctionCallEvent, _cx: &mut gpui::App) {}
+
+    /// Map an `Image`/`Video`/`Avatar` `src` to the request the image loader
+    /// makes (absolute url + headers, e.g. auth for `/api/attachments`).
+    /// `None` = the default: `resolve_url(src)` with no headers.
+    fn media_request(&self, _src: &str) -> Option<exponential_ui::host::MediaRequest> {
+        None
+    }
+
     /// A host-owned text edit: `Change` debounced 150 ms with a monotonically
     /// increasing revision, `Commit` on blur / Enter.
     fn on_input(&self, _event: &InputEvent, _cx: &mut gpui::App) {}
@@ -81,10 +106,6 @@ pub trait HostPlugin: 'static {
     /// commands, live regions. The painter also exposes the latest
     /// announcement as a `status` node; gpui has no live-region API.
     fn announce(&self, _text: &str, _live: &str, _cx: &mut gpui::App) {}
-
-    /// A client function the core does not run (an A2UI `functionCall`
-    /// naming a host function).
-    fn on_call(&self, _name: &str, _args: &serde_json::Value, _cx: &mut gpui::App) {}
 
     /// Open a file picker for a FileUpload. Return `true` when the host
     /// handles it (and later calls `SurfaceView::files_picked`); `false` =

@@ -1,0 +1,32 @@
+{
+  "id": "brand",
+  "name": "Brand",
+  "extends": "neutral",
+  "modes": {
+    "light": {
+      "color": {
+        "primary": "#2563eb",
+        "primaryForeground": "#ffffff",
+        "ring": "#2563eb"
+      }
+    },
+    "dark": {
+      "color": {
+        "primary": "#60a5fa",
+        "primaryForeground": "#0b1220",
+        "ring": "#60a5fa"
+      }
+    }
+  },
+  "recipes": {
+    "Button": {
+      "root": [
+        {
+          "style": {
+            "borderRadius": "$radius.full"
+          }
+        }
+      ]
+    }
+  }
+}

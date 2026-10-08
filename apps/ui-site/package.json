@@ -1,0 +1,33 @@
+{
+  "name": "@exp/ui-site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "ui.exponential.at: the Exponential UI SDK's public site (generative UI explained, the component gallery with four platform shots each, themes and the builder, guides, the playground, conformance). Vite + React, prerendered, indexed; rendered with the SDK wherever it shows components.",
+  "scripts": {
+    "dev": "bun run scripts/guide-sources.ts && vite",
+    "build": "bun run scripts/guide-sources.ts && tsc --noEmit && vite build && bun run scripts/prerender.tsx",
+    "typecheck": "bun run scripts/guide-sources.ts && tsc --noEmit",
+    "test": "bun test ./src",
+    "check:guides": "bun run ./guides/check.ts all",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@exp/site-shell": "workspace:*",
+    "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
+    "lucide-react": "^0.544.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "satori": "^0.26.0",
+    "typescript": "^5.7.2",
+    "vite": "7.3.3"
+  }
+}

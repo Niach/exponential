@@ -769,7 +769,8 @@ pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
         name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
         context: e.get("context").filter(|c| !c.is_null()).map(|c| resolve_value(c, ctx).unwrap_or(Value::Null)),
     });
-    if let Some(function) = action.get("function").filter(|f| f.is_object()) {
+    // A2UI's `functionCall` (VAPP-91) or the legacy `function` key.
+    if let Some(function) = action.get("functionCall").or_else(|| action.get("function")).filter(|f| f.is_object()) {
         let name = function.get("call").and_then(Value::as_str).unwrap_or("").to_string();
         let args = match resolve_value(function.get("args").unwrap_or(&Value::Object(Map::new())), ctx) {
             Some(Value::Object(a)) => a,

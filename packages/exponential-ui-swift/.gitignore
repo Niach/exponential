@@ -1,0 +1,9 @@
+# The FFI artefact is built by apps/desktop/crates/exponential-ui-ffi/build-ios.sh.
+Binaries/
+.build/
+.swiftpm/
+Example/build/
+Example/screenshots/
+# Tuist (apps/ios) generates the local package's project here (VAPP-88).
+/ExponentialUI.xcodeproj/
+/Derived/

@@ -148,6 +148,15 @@ impl Surface {
         let mut frames = vec![Frame::default(); self.nodes.len()];
         let mut placed = Vec::with_capacity(self.layers.len());
         if let Some(root) = self.main_root {
+            // CSS parity (VAPP-91): a block-level surface root is as wide as
+            // the surface unless its own style sets a width; the web's
+            // inline-flex natives (base-css.ts) keep their content width.
+            let inline_root = matches!(self.nodes[root as usize].component.as_str(), "Button" | "Toggle" | "Link" | "Icon" | "Ring" | "Spinner" | "ToggleGroup");
+            if !inline_root && self.engine.style(root).size.width == Dimension::auto() {
+                let mut style = self.engine.style(root).clone();
+                style.size.width = Dimension::percent(1.0);
+                self.engine.set_style(root, style);
+            }
             let available = Size { width: AvailableSpace::Definite(vw.max(0.0)), height: if vh > 0.0 { AvailableSpace::Definite(vh) } else { AvailableSpace::MaxContent } };
             self.compute(root, available, &guesses);
             self.walk_frames(root, 0.0, 0.0, &mut frames);

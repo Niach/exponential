@@ -406,6 +406,128 @@ impl Render for ExponentialUiKitchenSink {
     }
 }
 
+/// VAPP-93: the site's specimens (`packages/exponential-ui/fixtures/specimens.json`):
+/// one surface per core component plus the home demo, each painted alone by
+/// [`ExponentialUiSpecimen`] for the ui.exponential.at desktop shots.
+const SPECIMENS_JSON: &str =
+    include_str!("../../../../../packages/exponential-ui/fixtures/specimens.json");
+
+/// The specimens fixture's entries, `(id, node)`, parsed once.
+fn specimens() -> &'static [(String, Value)] {
+    static SPECIMENS: std::sync::OnceLock<Vec<(String, Value)>> = std::sync::OnceLock::new();
+    SPECIMENS.get_or_init(|| {
+        let doc: Value = serde_json::from_str(SPECIMENS_JSON).expect("the specimens fixture parses");
+        doc.get("specimens")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        let id = row.get("id")?.as_str()?.to_string();
+                        Some((id, row.get("node")?.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// Whether `id` names an entry of the specimens fixture (an
+/// `EXP_DEV_SCREEN` value that opens [`Screen::ExponentialUiSpecimen`]).
+pub(crate) fn is_specimen_id(id: &str) -> bool {
+    specimens().iter().any(|(entry, _)| entry == id)
+}
+
+/// The specimen's host: icons by concept like the kitchen sink, actions only
+/// logged (a specimen is a still photograph).
+struct SpecimenHost;
+
+impl HostPlugin for SpecimenHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        crate::icons::registry::concept_by_name(name)
+            .or_else(|| crate::icons::registry::icon_by_name(name))
+            .map(|icon| icon.path())
+    }
+
+    fn on_action(&self, event: &ActionEvent, _cx: &mut App) {
+        log::info!("[exponential-ui specimen] action {} ← {}", event.name, event.component_id);
+    }
+
+    fn on_input(&self, _event: &InputEvent, _cx: &mut App) {}
+
+    fn on_unknown(&self, node: &PlacedNode) {
+        log::warn!("[exponential-ui specimen] unknown component {} ({})", node.component, node.id);
+    }
+}
+
+/// VAPP-93 (DEV-ONLY): ONE specimen of `fixtures/specimens.json` painted by
+/// the gpui painter with no switcher chrome — just the specimen column at
+/// the top-left of the content area (`EXP_DEV_SCREEN=<specimen id>`). Theme
+/// and mode follow the kitchen sink's env overrides (default exponential,
+/// dark).
+pub struct ExponentialUiSpecimen {
+    id: String,
+    view: Entity<SurfaceView>,
+    scroll: ScrollHandle,
+}
+
+impl ExponentialUiSpecimen {
+    pub fn new(id: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let theme_id = parse_theme(env_trimmed("EXP_DEV_EXPONENTIAL_UI_THEME").as_deref());
+        let mode = parse_mode(env_trimmed("EXP_DEV_EXPONENTIAL_UI_MODE").as_deref());
+        let options = SurfaceViewOptions {
+            surface_id: id.to_string(),
+            theme: exponential_ui::themes::builtin_theme(theme_id),
+            mode,
+            host: Rc::new(SpecimenHost),
+            ..SurfaceViewOptions::default()
+        };
+        let node = specimens().iter().find(|(entry, _)| entry == id).map(|(_, node)| node.clone());
+        let tree: Option<NestedNode> = node.and_then(|node| match serde_json::from_value(node) {
+            Ok(tree) => Some(tree),
+            Err(err) => {
+                log::warn!("[exponential-ui specimen] {id} does not parse: {err}");
+                None
+            }
+        });
+        let view = cx.new(|cx| {
+            let mut view = SurfaceView::new(options, window, cx);
+            if let Some(tree) = tree {
+                let outcome = view.set_nested(tree, cx);
+                for issue in &outcome.issues {
+                    log::warn!("[exponential-ui specimen] {}: {}", issue.id, issue.message);
+                }
+            }
+            view
+        });
+        cx.observe(&view, |_, _, cx| cx.notify()).detach();
+        Self { id: id.to_string(), view, scroll: ScrollHandle::new() }
+    }
+
+    /// The specimen id this screen paints.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+}
+
+impl Render for ExponentialUiSpecimen {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // The painter lays out at the pane's width from the first frame and
+        // reads the pane's clip itself (round 1: no viewport probe).
+        div()
+            .id("exponential-ui-specimen")
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(crate::scroll_pane::v_scroll_pane(
+                "exponential-ui-specimen-scroll",
+                &self.scroll,
+                div().w_full().child(self.view.clone()),
+            ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +537,19 @@ mod tests {
         let tree: NestedNode = serde_json::from_str(KITCHEN_SINK_JSON).expect("parses");
         assert_eq!(tree.id, "root");
         assert_eq!(tree.component, "Box");
+    }
+
+    #[test]
+    fn every_specimen_parses_as_a_nested_node() {
+        // Every visible core component (81 since round 1) + the home demo.
+        assert_eq!(specimens().len(), 82);
+        for (id, node) in specimens() {
+            let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
+            assert!(tree.is_ok(), "{id}: {:?}", tree.err());
+        }
+        assert!(is_specimen_id("exponential-ui-button"));
+        assert!(is_specimen_id("exponential-ui-demo"));
+        assert!(!is_specimen_id("exponential-ui-kitchen-sink"));
     }
 
     #[test]

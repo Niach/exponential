@@ -42,8 +42,9 @@ bindings), so an embedder never builds Rust.
   `setPointer(hover, reducedMotion)`; `effectiveThemeJson()` (density +
   contrast applied), `stringsJson()`.
 - `event(index, name, payloadJson)` → `[FfiEvent {kind, json}]` with
-  `action | openUrl | call | dataChanged | input | focus | announce | copy |
-  pickFiles | relayout | hoverTimer`; `setOpen`, `scroll`, `scrollTo`, `setStates`
+  `action | openUrl | functionCall | dataChanged | input | focus | announce |
+  copy | pickFiles | relayout | hoverTimer` (`functionCall` = `{componentId,
+  name, args}`, a host function for the registry + `decideFunction` gate); `setOpen`, `scroll`, `scrollTo`, `setStates`
   (`hover`, `pressed`, `focus`, `focus-visible`, …), `setPressed`,
   `submitForm`, `dismissToast`, `commandJson` (`focus`, `announce`,
   `scrollIntoView`), `takeEvents` (events raised outside a call: a hover
@@ -54,6 +55,15 @@ bindings), so an embedder never builds Rust.
   again; with 0 it closes at once and the host delays the un-hover),
   `setTheme*`, `setMode`,
   `registerExtension`.
+- `Theme` (VAPP-88): a RESOLVED theme as an object (`Theme.builtin(id)`,
+  `Theme.load(json, parents?)`), shared by surfaces (`Surface.withTheme`,
+  `setTheme`, `theme()`, `mode()`) and queried by painters per part
+  without re-parsing JSON: `resolvePart(owner, part, ownerPropsJson,
+  states, mode)` → `{visual, styleJson}` (the owner's recipe props are
+  derived like the core does), `color(name, mode)`, `spacing`, `radius`,
+  `control`, `typeSize`, `lineHeight`, `opacity`, `fontFamily(kind)`,
+  `fontsJson`, `controlGeometry`. `FfiNode` carries `partStates` (the
+  core's `selected` / `open` / `checked`) and `macroName`.
 - Free functions for suites and hosts: `reduceSurfaceJson`,
   `reduceNestedJson`, `extensionErrors`, `loadThemeJson`, `themeIssuesJson`,
   `builtinThemeJson`, `resolveRecipeJson`, `controlGeometryJson`,
@@ -74,7 +84,10 @@ bash apps/desktop/crates/exponential-ui-ffi/run-binding-tests.sh [swift|kotlin|a
 ```
 
 Device builds use the workspace's `mobile` profile (release + LTO + one
-codegen unit + stripped). The generated binding sources under `bindings/`
+codegen unit + stripped); the xcframework also carries the host's macOS
+slice so the Swift package tests and macOS embedders link it, and
+`build-ios.sh` copies the artefact and the Swift binding into
+`packages/exponential-ui-swift` (the painter package). The generated binding sources under `bindings/`
 are COMMITTED (the contract, reviewable without a toolchain); `out/` holds
 the artefacts and is ignored. The suites under `tests/swift` and
 `tests/kotlin` replay every shared fixture through the bindings against the

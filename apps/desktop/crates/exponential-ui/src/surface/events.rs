@@ -246,8 +246,10 @@ impl Surface {
                 if let Some(url) = call.args.get("url").and_then(Value::as_str) {
                     out.push(OutEvent::OpenUrl { url: url.to_string() });
                 }
-            } else {
-                out.push(OutEvent::Call { name: call.call, args: Value::Object(call.args) });
+            } else if !call.call.is_empty() && !crate::host::is_builtin_function(&call.call) {
+                // A host function: the host's registry + policy gate decide
+                // (VAPP-91). The other built-ins are value functions: no effect.
+                out.push(OutEvent::FunctionCall { component_id: id.to_string(), name: call.call, args: Value::Object(call.args) });
             }
         }
         out

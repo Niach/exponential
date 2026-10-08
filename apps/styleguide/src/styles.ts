@@ -363,10 +363,8 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 }
 /* The icon registry is a TABLE of 228 rows, not a control specimen: it gets
    the full reading column instead of the phone-width canvas every other demo
-   is measured against. The combobox shows its single and multi lists SIDE BY
-   SIDE, which is the whole point of that entry, and needs two 14rem columns. */
+   is measured against. */
 .view.component[data-view="tokens-icons"] .cmp-demo { width: min(100%, 880px); }
-.view.component[data-view="combobox"] .cmp-demo { width: min(100%, 620px); }
 /* The dialog entries draw the panel at the product's own width: the
    dialog's max-w-lg (32rem), the Prompt card's max-w-md (28rem), in the
    package's rem, plus this canvas's padding and border. In the phone-width
@@ -374,7 +372,6 @@ body.actual figure.shot img { max-height: none; max-width: none; }
    draws that narrow. */
 .view.component[data-view="blocked-start-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
 .view.component[data-view="stack-merge-choice-dialog"] .cmp-demo { width: min(100%, calc(32rem + 42px)); }
-.view.component[data-view="prompt"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
 .view.component[data-view="draft-leave-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
 .cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
 .cmp-status th {

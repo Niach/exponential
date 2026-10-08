@@ -1,17 +1,11 @@
 package com.exponential.app.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import at.exponential.ui.primitives.MeterTrack
 import com.exponential.app.domain.AgentUsageSeverity
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -48,25 +42,14 @@ fun UsageTrack(
     modifier: Modifier = Modifier,
     height: Dp = UsageTrackHeight,
 ) {
-    val fraction = (percent / 100.0).coerceIn(0.0, 1.0).toFloat()
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(height / 2))
-            .background(GlassTokens.StrokeStrong),
-    ) {
-        if (fraction > 0f) {
-            // The fill takes the track's own capsule (EXP-698) — a square-ended
-            // bar inside a rounded track left two corner slivers of track
-            // showing at 100%.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(height / 2))
-                    .background(severityColor(severity)),
-            )
-        }
-    }
+    // SLOP-18 / VAPP-89: the SDK's `MeterTrack`. Its fill takes the track's
+    // own capsule (EXP-698): a square-ended bar inside a rounded track left
+    // two corner slivers of track showing at 100%.
+    MeterTrack(
+        fraction = (percent / 100.0).coerceIn(0.0, 1.0).toFloat(),
+        modifier = modifier,
+        height = height,
+        track = GlassTokens.StrokeStrong,
+        fill = severityColor(severity),
+    )
 }

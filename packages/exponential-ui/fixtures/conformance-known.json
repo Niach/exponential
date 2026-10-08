@@ -4,28 +4,28 @@
   "cases": {
     "kitchen-sink/exponential/dark/390/ltr": {
       "size": 55,
-      "position": 249,
+      "position": 253,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/390/rtl": {
       "size": 55,
-      "position": 249,
+      "position": 253,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/600/ltr": {
-      "size": 54,
-      "position": 250,
+      "size": 55,
+      "position": 249,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/600/rtl": {
-      "size": 54,
-      "position": 250,
+      "size": 55,
+      "position": 249,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
@@ -59,29 +59,29 @@
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/390/ltr": {
-      "size": 56,
-      "position": 248,
+      "size": 55,
+      "position": 253,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/390/rtl": {
-      "size": 56,
-      "position": 248,
+      "size": 55,
+      "position": 253,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/600/ltr": {
-      "size": 54,
-      "position": 250,
+      "size": 55,
+      "position": 249,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/600/rtl": {
-      "size": 54,
-      "position": 250,
+      "size": 55,
+      "position": 249,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
@@ -115,29 +115,29 @@
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/390/ltr": {
-      "size": 56,
-      "position": 311,
+      "size": 57,
+      "position": 309,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/390/rtl": {
-      "size": 56,
-      "position": 311,
+      "size": 57,
+      "position": 309,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/600/ltr": {
-      "size": 56,
-      "position": 239,
+      "size": 57,
+      "position": 242,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/600/rtl": {
-      "size": 56,
-      "position": 239,
+      "size": 57,
+      "position": 242,
       "wrap": 0,
       "onlyRef": 1,
       "onlyCand": 110

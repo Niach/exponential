@@ -4,7 +4,7 @@
  *
  * Two things feed it and they are shaped differently on purpose:
  *
- *   - `COMPONENTS` (`components.tsx`) — the ~95 entries the page already had.
+ *   - `COMPONENTS` (`components.tsx`) — the app-specialised entries (VAPP-93 moved the generic ones to ui.exponential.at).
  *     They carry a `kind` and nothing else, so their SECTION is DERIVED here
  *     (`sectionOfSpec`): a Style kind is Style, an id in `SPECIAL_ENTRY_IDS`
  *     is a composition, everything else is a general control.
@@ -57,8 +57,7 @@ export const SPECIAL_ENTRY_IDS: readonly string[] = [
   `work-header`,
   `bulk-bar`,
   `session-bar`,
-  // The agent run: what it types into, what it says, what it produced.
-  `composer`,
+  // The agent run: what it says, what it produced.
   `markdown`,
   `session-results`,
   `file-diff-card`,
@@ -66,7 +65,6 @@ export const SPECIAL_ENTRY_IDS: readonly string[] = [
   `edited-files-card`,
   `changes-file-sheet`,
   `pr-github-button`,
-  `context-ring`,
   `usage-bar`,
   `usage-mini`,
   // One-owner cards.
@@ -106,7 +104,6 @@ export const BAND_ORDER: Record<SectionId, readonly ComponentKind[]> = {
  * registered id appears here.
  */
 export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
-  picker: `Inputs & pickers`,
   [`picker-board`]: `Inputs & pickers`,
   [`picker-issue`]: `Inputs & pickers`,
   [`picker-action`]: `Inputs & pickers`,
@@ -120,7 +117,6 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`picker-mcp`]: `Inputs & pickers`,
   [`picker-repository`]: `Inputs & pickers`,
   [`scope-picker`]: `Inputs & pickers`,
-  menu: `Surfaces`,
   [`issue-context-menu`]: `Surfaces`,
   [`composer-dialog`]: `Surfaces`,
   [`composer-fix-conflicts`]: `Surfaces`,

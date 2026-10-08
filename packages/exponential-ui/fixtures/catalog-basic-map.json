@@ -567,7 +567,7 @@
                     "display": "flex",
                     "flexDirection": "column",
                     "gap": "$spacing.md",
-                    "padding": "$spacing.none"
+                    "padding": "$spacing.lg"
                   },
                   "recipe": {
                     "macro": "Card",

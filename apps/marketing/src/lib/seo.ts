@@ -9,25 +9,10 @@ import { PLANS } from "./plans"
 export const SITE_ORIGIN = `https://exponential.at`
 export const SITE_NAME = `Exponential`
 
-/* JSON-LD is emitted verbatim as the contents of a
-   <script type="application/ld+json"> tag. Kept as plain objects (or arrays of
-   objects → emitted as an @graph-less array) so the manifest stays declarative. */
-export type JsonLd = Record<string, unknown> | Record<string, unknown>[]
-
-export type PageSeo = {
-  /* Site-root-relative path WITH trailing slash, matching the dist layout and
-     the vite rollup inputs. Home is `/`. */
-  path: string
-  /* dist/<...>/index.html path relative to dist, used by the prerender rewriter. */
-  htmlFile: string
-  /* src page-component source file(s), used for sitemap lastmod (git log). */
-  sources: string[]
-  title: string
-  description: string
-  /* Absolute-from-root OG image path under /og/. */
-  ogImage: string
-  jsonLd?: JsonLd
-}
+/* The manifest types + the breadcrumb helper are shared with
+   ui.exponential.at (@exp/site-shell/seo). */
+import { breadcrumb as sharedBreadcrumb, type JsonLd, type PageSeo } from "@exp/site-shell/seo"
+export type { JsonLd, PageSeo }
 
 const organization: Record<string, unknown> = {
   "@context": `https://schema.org`,
@@ -87,19 +72,8 @@ const pricingProduct: Record<string, unknown> = {
   ),
 }
 
-function breadcrumb(
-  items: { name: string; path: string }[]
-): Record<string, unknown> {
-  return {
-    "@context": `https://schema.org`,
-    "@type": `BreadcrumbList`,
-    itemListElement: items.map((it, i) => ({
-      "@type": `ListItem`,
-      position: i + 1,
-      name: it.name,
-      item: `${SITE_ORIGIN}${it.path}`,
-    })),
-  }
+function breadcrumb(items: { name: string; path: string }[]) {
+  return sharedBreadcrumb(SITE_ORIGIN, items)
 }
 
 export const PAGES: PageSeo[] = [

@@ -11,6 +11,8 @@ const REPO = `https://github.com/Niach/exponential`
 
 export const LINKS = {
   downloadPage: `/download/`,
+  // Exponential UI, the open generative-UI SDK the apps are built on (VAPP-93).
+  ui: `https://ui.exponential.at/`,
   app: {
     // Signup and login are ONE merged page (EXP-188) — every auth CTA
     // points here; /auth/register is a pure redirect and must not be linked.

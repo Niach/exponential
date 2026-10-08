@@ -19,6 +19,7 @@
 //   fixtures/bind-time.json               round 1: bound macro cases × data → the BOUND tree + presses
 //   fixtures/style-conditions.json        round 1: style × surface/state context → the flattened style
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
+//   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //
 // The icon name list is read from packages/icons/icons.json at GENERATE time
@@ -40,6 +41,8 @@ import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
+import { renderHost } from "./generate-host"
+import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
 import localeJson from "../catalog/locale.json" with { type: "json" }
 import type { ComponentDef, ExtensionDef, FlatComponent, NestedNode, PropSchema, UiNode } from "../src/types"
@@ -422,6 +425,165 @@ function componentCases(): ComponentCase[] {
   return cases
 }
 
+// ---------------------------------------------------------------------------
+// Specimens (VAPP-93): one surface per component, the page shot of
+// ui.exponential.at, painted by every renderer from the same JSON
+// ---------------------------------------------------------------------------
+
+/** Components that size to their content: their cases sit at the start of the
+ *  column instead of stretching across it. */
+const INLINE_SPECIMENS = new Set([
+  `Avatar`, `Badge`, `Button`, `ButtonGroup`, `Checkbox`, `DropdownMenu`, `EntityChip`, `Icon`, `Link`, `Pill`,
+  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `ToggleGroup`, `Tooltip`, `Popover`, `Pagination`,
+])
+/** The enum props a specimen shows, in priority order (at most two of them). */
+const SPECIMEN_ENUMS = [`variant`, `type`, `kind`, `level`, `size`, `tone`, `density`, `orientation`, `direction`, `fit`]
+/** The boolean props a specimen shows `true` for, in priority order (at most two). */
+const SPECIMEN_BOOLEANS = [`checked`, `pressed`, `selected`, `disabled`, `loading`, `busy`, `removable`, `attachments`, `chevron`, `padded`, `divided`, `guides`, `tee`, `rounded`]
+const SPECIMEN_MAX_CASES = 8
+
+const text = (id: string, value: string, variant = `body`): NestedNode => ({ id, component: `Text`, props: { text: value, variant } })
+const button = (id: string, label: string, variant = `default`): NestedNode => ({ id, component: `Button`, props: { label, variant } })
+const row = (id: string, title: string, meta: string): NestedNode => ({ id, component: `ListRow`, props: { title, meta } })
+const card = (id: string, title: string, description: string): NestedNode => ({ id, component: `Card`, props: { title, description } })
+
+/** What a specimen puts inside a container instead of the cases' generic
+ *  `Child` (a component missing here keeps the case's children as they are). */
+const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
+  Box: [text(`t1`, `A Box lays its children out by style.`), text(`t2`, `Flex, grid, spacing and colours come from the whitelist.`, `muted`)],
+  Stack: [
+    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, size: `sm` } },
+    text(`t`, `Ada Lovelace`),
+    { id: `b`, component: `Badge`, props: { text: `Owner`, variant: `outline` } },
+  ],
+  Grid: [1, 2, 3, 4, 5, 6].map((n) => card(`g${n}`, `Cell ${n}`, `Grid item`)),
+  Card: [text(`t`, `3 open issues · 2 in review`), button(`b`, `Open board`, `outline`)],
+  List: [text(`l1`, `Inbox`), text(`l2`, `Drafts`), text(`l3`, `Archive`)],
+  RowList: [row(`r1`, `r/selfhosted`, `312 posts`), row(`r2`, `r/rust`, `128 posts`), row(`r3`, `r/swift`, `64 posts`)],
+  Group: [row(`r1`, `Mentions`, `Push + email`), row(`r2`, `Assigned to me`, `Push`)],
+  Carousel: [card(`p1`, `Page one`, `Swipe for more`), card(`p2`, `Page two`, ``), card(`p3`, `Page three`, ``)],
+  Tabs: [text(`p1`, `The issue panel.`), text(`p2`, `The run panel.`)],
+  Accordion: [text(`p`, `Created 2 days ago by Ada; 3 comments.`)],
+  Collapsible: [text(`p`, `Retries, timeouts and the proxy live here.`, `muted`)],
+  Dialog: [text(`p`, `The board and its 42 issues move to the trash for 48 hours.`)],
+  Drawer: [text(`p`, `Status, assignee and labels.`)],
+  Sheet: [text(`p`, `Everything about the selected item.`)],
+  Popover: [text(`p`, `Popover content.`)],
+  Tooltip: [button(`b`, `Hover me`, `outline`)],
+  Button: [],
+}
+
+/** Slots a specimen fills (triggers and footers of the overlays). */
+const SPECIMEN_SLOTS: Record<string, Record<string, NestedNode>> = {
+  Dialog: {
+    trigger: button(`trigger`, `Delete board`, `destructive`),
+    footer: { id: `footer`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, justify: `end` }, children: [button(`cancel`, `Cancel`, `outline`), button(`ok`, `Delete`, `destructive`)] },
+  },
+  Drawer: { trigger: button(`trigger`, `Filters`, `outline`), footer: button(`apply`, `Apply`) },
+  Sheet: { trigger: button(`trigger`, `Details`, `outline`), footer: button(`close`, `Done`) },
+  Popover: { trigger: button(`trigger`, `Open popover`, `outline`) },
+  DropdownMenu: { trigger: button(`trigger`, `More`, `outline`) },
+}
+
+/** A case node with the specimen's children + slots in place of `Child`. */
+function specimenContent(node: NestedNode): NestedNode {
+  const children = SPECIMEN_CHILDREN[node.component]
+  const slots = SPECIMEN_SLOTS[node.component]
+  const out: NestedNode = { ...node }
+  if (children) {
+    if (children.length > 0) out.children = children
+    else delete out.children
+  }
+  if (slots) out.slots = slots
+  return out
+}
+
+/** Re-ids a nested tree so several cases of one component share a surface. */
+function prefixIds(node: NestedNode, prefix: string): NestedNode {
+  const out: NestedNode = { ...node, id: `${prefix}${node.id}` }
+  if (node.children) out.children = node.children.map((c) => prefixIds(c, prefix))
+  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, prefixIds(v, prefix)]))
+  return out
+}
+
+/** The cases a component's specimen shows: an overlay (an `open` prop) once,
+ *  open; anything else its example, then up to two enum props × every value,
+ *  then `true` for up to two booleans, deduplicated, at most SPECIMEN_MAX_CASES. */
+function specimenCases(name: string, all: ComponentCase[]): { label: string; node: NestedNode }[] {
+  const own = all.filter((c) => c.node.component === name)
+  const suffix = (c: ComponentCase) => c.name.slice(name.length + 1)
+  const def = coreCatalog.components[name]
+  if (def.props.open) {
+    const open = own.find((c) => suffix(c) === `open=true`)!
+    return [{ label: `open`, node: open.node }]
+  }
+  const picked: ComponentCase[] = [own.find((c) => suffix(c) === `example`)!]
+  const enums = SPECIMEN_ENUMS.filter((p) => def.props[p]?.type === `enum`).slice(0, 2)
+  const bools = SPECIMEN_BOOLEANS.filter((p) => def.props[p]?.type === `boolean`).slice(0, 2)
+  for (const prop of enums) picked.push(...own.filter((c) => suffix(c).startsWith(`${prop}=`)))
+  for (const prop of bools) picked.push(...own.filter((c) => suffix(c) === `${prop}=true`))
+  const seen = new Set<string>()
+  const out: { label: string; node: NestedNode }[] = []
+  for (const c of picked) {
+    const key = JSON.stringify(c.node.props ?? {}, Object.keys(c.node.props ?? {}).sort())
+    if (seen.has(key)) continue
+    seen.add(key)
+    const label = suffix(c) === `example` ? `example` : suffix(c).replace(`=`, ` · `)
+    out.push({ label, node: c.node })
+    if (out.length === SPECIMEN_MAX_CASES) break
+  }
+  return out
+}
+
+/** One component's specimen: a padded column of captioned cases. */
+function specimenNode(name: string, all: ComponentCase[]): NestedNode {
+  const inline = INLINE_SPECIMENS.has(name)
+  const root = `specimen-${kebab(name)}`
+  return {
+    id: root,
+    component: `Box`,
+    style: { display: `flex`, flexDirection: `column`, gap: `$spacing.lg`, padding: `$spacing.xl`, maxWidth: 720 },
+    children: specimenCases(name, all).map((c, i) => ({
+      id: `${root}-case-${i}`,
+      component: `Stack`,
+      props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
+      children: [
+        { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
+        prefixIds(specimenContent(c.node), `c${i}-`),
+      ],
+    })),
+  }
+}
+
+interface SpecimenEntry {
+  id: string
+  component: string | null
+  title: string
+  node: NestedNode
+}
+
+/** fixtures/specimens.json: every visible component's specimen (view id =
+ *  its specimenId) plus the home page's demo surface (fixtures/demo-surface.json). */
+function renderSpecimens(all: ComponentCase[], demo: NestedNode) {
+  const specimens: SpecimenEntry[] = visible.map(([name]) => ({
+    id: specimenId(name),
+    component: name,
+    title: name,
+    node: specimenNode(name, all),
+  }))
+  const { $comment: _, ...demoNode } = demo as NestedNode & { $comment?: string }
+  specimens.push({ id: `exponential-ui-demo`, component: null, title: `Demo`, node: demoNode })
+  for (const s of specimens) {
+    const result = reduceNested(s.node, { catalogId: CORE_CATALOG_ID })
+    if (result.issues.length > 0) throw new Error(`specimen ${s.id}: ${result.issues.map((i) => `${i.id}: ${i.message}`).join(`; `)}`)
+  }
+  return {
+    $comment: `${HEADER} One surface per visible component (id = its docs specimenId = its view-catalog id) plus the home page demo (exponential-ui-demo, from fixtures/demo-surface.json). ui.exponential.at shows the four platform shots of each; every renderer's example host paints an entry by id (web harness ?view=specimen&id=, the IDE's EXP_DEV_SCREEN, the Swift example's -shot, the Compose example's shot extra).`,
+    catalogId: CORE_CATALOG_ID,
+    specimens,
+  }
+}
+
 function macroCases(all: ComponentCase[]) {
   return [...all, ...boundMacroCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
@@ -643,6 +805,13 @@ function readJson<T>(rel: string): T {
 
 /** Every generated file, keyed by its path relative to the package root. */
 export function render(): Record<string, string> {
+  const files = renderFiles()
+  // The manifest counts the fixtures being written, not the bundled ones.
+  const read = (name: string) => JSON.parse(files[`fixtures/${name}`] ?? readFileSync(join(pkgRoot, `fixtures`, name), `utf8`))
+  return { ...files, "conformance/manifest.json": json(conformanceManifest(read)) }
+}
+
+function renderFiles(): Record<string, string> {
   const icons = iconNames()
   const cases = componentCases()
   const kitchen = readJson<NestedNode>(`fixtures/kitchen-sink.json`)
@@ -687,7 +856,10 @@ export function render(): Record<string, string> {
     }),
     "fixtures/style-conditions.json": json(styleConditionCases(readJson<ConditionCaseFile>(`fixtures/style-conditions.json`))),
     "fixtures/code-tokens.json": json(codeCases(readJson<CodeCaseFile>(`fixtures/code-tokens.json`))),
+    "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
+    // VAPP-91: the host fixtures (inputs hand-written, expected filled).
+    ...renderHost(),
   }
 }
 

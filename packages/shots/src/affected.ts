@@ -371,6 +371,54 @@ const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string
   },
 ]
 
+/**
+ * Exponential UI SDK packages (VAPP-88/89), in match order. On `narrow`
+ * platforms their pixels land ONLY in the `exponential-ui*` groups (VAPP-93: + the
+ * core-catalog specimens): the iOS and
+ * android shots are taken from the SwiftUI / Compose painters' example apps (a
+ * `package` capture), and neither Exponential mobile app links a painter until
+ * VAPP-91 — that run must move `ios`/`android` out of `narrow` here.
+ * `widenOthers` = every other platform still widens (the core's catalog +
+ * themes reach the desktop IDE's controls through the gpui painter, so
+ * narrowing them would commit stale shots). `widen` = platforms that widen
+ * outright: the Compose primitives module IS linked by the Android app
+ * (`:ui-compose-primitives`, SLOP-18 convergence), so it feeds every android
+ * shot, not just the kitchen sink.
+ */
+const SDK_PACKAGES: {
+  test: RegExp
+  narrow: readonly Platform[]
+  widenOthers: boolean
+  widen?: readonly Platform[]
+  why: string
+}[] = [
+  {
+    test: /^packages\/exponential-ui-swift\//,
+    narrow: [`ios`],
+    widenOthers: false,
+    why: `the SwiftUI painter (example app only)`,
+  },
+  {
+    test: /^packages\/exponential-ui-compose\/primitives\//,
+    narrow: [`android`],
+    widenOthers: false,
+    widen: [`android`],
+    why: `the Compose primitives the Android app links`,
+  },
+  {
+    test: /^packages\/exponential-ui-compose\//,
+    narrow: [`android`],
+    widenOthers: false,
+    why: `the Compose painter (example app only)`,
+  },
+  {
+    test: /^packages\/exponential-ui\//,
+    narrow: [`ios`, `android`],
+    widenOthers: true,
+    why: `the Exponential UI core`,
+  },
+]
+
 /** Where a changed path lands when nothing narrowed it — its platform roots. */
 const SOURCE_ROOTS: { test: RegExp; platforms: readonly Platform[] }[] = [
   { test: /^apps\/web\//, platforms: [`web`, `web-mobile`] },
@@ -557,6 +605,20 @@ export function affectedScope(options: AffectedOptions): AffectedScope {
         attributed = true
       }
       if (attributed) continue
+    }
+
+    const sdk = SDK_PACKAGES.find((rule) => rule.test.test(path))
+    if (sdk) {
+      for (const platform of sdk.narrow) {
+        if (!hits.has(platform)) continue
+        for (const view of viewsFor(platform)) {
+          if (view.group.startsWith(`exponential-ui`)) add(view.id, platform, `${path}: draws ${sdk.why}`)
+        }
+      }
+      const rest = platforms.filter((platform) => !sdk.narrow.includes(platform))
+      if (sdk.widenOthers && rest.length > 0) widen(path, rest, `${sdk.why}, embedded by the other clients`)
+      if (sdk.widen) widen(path, sdk.widen, sdk.why)
+      continue
     }
 
     if (!attributed && graph && path.startsWith(`packages/`)) {

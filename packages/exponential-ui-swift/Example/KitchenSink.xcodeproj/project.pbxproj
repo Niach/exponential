@@ -1,0 +1,404 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3AEAF98C8BDD067996CFDE4C /* KitchenSinkApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A77B842A6104934B8ECC0CD /* KitchenSinkApp.swift */; };
+		82FDB5029E6F8623BBAF7240 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB3E48D4B9BABC5FB05CF463 /* ContentView.swift */; };
+		1FAE3B57999FD76C6C0F8555 /* AccessibilityWalk.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */; };
+		28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */ = {isa = PBXBuildFile; fileRef = 0BF880DA00B4E4D2AC437015 /* brand.theme.json */; };
+		D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */ = {isa = PBXBuildFile; fileRef = 8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */; };
+		A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */ = {isa = PBXBuildFile; fileRef = A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */; };
+		672E4077B1D764DA5C4187E7 /* ExponentialUI in Frameworks */ = {isa = PBXBuildFile; productRef = B09E15060E6130D7F40CF1F4 /* ExponentialUI */; };
+		BB07D7BCE881322437CA395D /* FullSurfaceDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */; };
+		CA1456D61BF864A97B82E840 /* AccessibilityOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070194FBC32E65261D1BFAF2 /* AccessibilityOrderTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1A77B842A6104934B8ECC0CD /* KitchenSinkApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "KitchenSinkApp.swift"; path = "KitchenSink/KitchenSinkApp.swift"; sourceTree = "<group>"; };
+		CB3E48D4B9BABC5FB05CF463 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "ContentView.swift"; path = "KitchenSink/ContentView.swift"; sourceTree = "<group>"; };
+		A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AccessibilityWalk.swift"; path = "KitchenSink/AccessibilityWalk.swift"; sourceTree = "<group>"; };
+		0BF880DA00B4E4D2AC437015 /* brand.theme.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "brand.theme.json"; path = "KitchenSink/Resources/brand.theme.json"; sourceTree = "<group>"; };
+		8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "kitchen-sink.json"; path = "../../exponential-ui/fixtures/kitchen-sink.json"; sourceTree = "<group>"; };
+		A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "specimens.json"; path = "../../exponential-ui/fixtures/specimens.json"; sourceTree = "<group>"; };
+		FE930DE1182D979D65C54991 /* KitchenSink.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KitchenSink.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "FullSurfaceDump.swift"; path = "KitchenSink/FullSurfaceDump.swift"; sourceTree = "<group>"; };
+		070194FBC32E65261D1BFAF2 /* AccessibilityOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AccessibilityOrderTests.swift"; path = "KitchenSinkUITests/AccessibilityOrderTests.swift"; sourceTree = "<group>"; };
+		F875CB72D7F52DF7732A149A /* KitchenSinkUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KitchenSinkUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		424153ED3CD079DB4DB459AF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				672E4077B1D764DA5C4187E7 /* ExponentialUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8E1A93C8FAEFC0854905AEC4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		518DA81DB9B99529C0C0AEBE = {
+			isa = PBXGroup;
+			children = (
+				1129B6A53940C88B539F2B2B /* KitchenSink */,
+				46E2F6E4A02F03F2B8FB9DCE /* KitchenSinkUITests */,
+				547D009064F7C3F13BEF3460 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		46E2F6E4A02F03F2B8FB9DCE /* KitchenSinkUITests */ = {
+			isa = PBXGroup;
+			children = (
+				070194FBC32E65261D1BFAF2 /* AccessibilityOrderTests.swift */,
+			);
+			name = KitchenSinkUITests;
+			sourceTree = "<group>";
+		};
+		1129B6A53940C88B539F2B2B /* KitchenSink */ = {
+			isa = PBXGroup;
+			children = (
+				1A77B842A6104934B8ECC0CD /* KitchenSinkApp.swift */,
+				CB3E48D4B9BABC5FB05CF463 /* ContentView.swift */,
+				A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */,
+				925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */,
+				0BF880DA00B4E4D2AC437015 /* brand.theme.json */,
+				8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */,
+				A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */,
+			);
+			name = KitchenSink;
+			sourceTree = "<group>";
+		};
+		547D009064F7C3F13BEF3460 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FE930DE1182D979D65C54991 /* KitchenSink.app */,
+				F875CB72D7F52DF7732A149A /* KitchenSinkUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E3435DDA2687639586BF0B70 /* KitchenSink */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2F62AAE534BA46EC59716F3 /* Build configuration list for PBXNativeTarget "KitchenSink" */;
+			buildPhases = (
+				7A70D71C385290AF96BF1031 /* Sources */,
+				424153ED3CD079DB4DB459AF /* Frameworks */,
+				285BB1C1430063331E9F5DD0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KitchenSink;
+			packageProductDependencies = (
+				B09E15060E6130D7F40CF1F4 /* ExponentialUI */,
+			);
+			productName = KitchenSink;
+			productReference = FE930DE1182D979D65C54991 /* KitchenSink.app */;
+			productType = "com.apple.product-type.application";
+		};
+		678B4DE61235C519CC844609 /* KitchenSinkUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FAE6690EA02E2507A57DFB5C /* Build configuration list for PBXNativeTarget "KitchenSinkUITests" */;
+			buildPhases = (
+				39C1779BAED844418FD0F11D /* Sources */,
+				8E1A93C8FAEFC0854905AEC4 /* Frameworks */,
+				CD88F48A03E74E9202847661 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				103B7FFCD4C1D25A61371B2A /* PBXTargetDependency */,
+			);
+			name = KitchenSinkUITests;
+			productName = KitchenSinkUITests;
+			productReference = F875CB72D7F52DF7732A149A /* KitchenSinkUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					E3435DDA2687639586BF0B70 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					678B4DE61235C519CC844609 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = E3435DDA2687639586BF0B70;
+					};
+				};
+			};
+			buildConfigurationList = 7EF2517A8FE63F4681EC5EEA /* Build configuration list for PBXProject "KitchenSink" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 518DA81DB9B99529C0C0AEBE;
+			packageReferences = (
+				2F6BC13275D2F0A465A84047 /* XCLocalSwiftPackageReference ".." */,
+			);
+			productRefGroup = 547D009064F7C3F13BEF3460 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E3435DDA2687639586BF0B70 /* KitchenSink */,
+				678B4DE61235C519CC844609 /* KitchenSinkUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXContainerItemProxy section */
+		74FC7C536795609A8C25D6E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E3435DDA2687639586BF0B70;
+			remoteInfo = KitchenSink;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		103B7FFCD4C1D25A61371B2A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E3435DDA2687639586BF0B70 /* KitchenSink */;
+			targetProxy = 74FC7C536795609A8C25D6E6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXResourcesBuildPhase section */
+		285BB1C1430063331E9F5DD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */,
+				D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */,
+				A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CD88F48A03E74E9202847661 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7A70D71C385290AF96BF1031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3AEAF98C8BDD067996CFDE4C /* KitchenSinkApp.swift in Sources */,
+				82FDB5029E6F8623BBAF7240 /* ContentView.swift in Sources */,
+				1FAE3B57999FD76C6C0F8555 /* AccessibilityWalk.swift in Sources */,
+				BB07D7BCE881322437CA395D /* FullSurfaceDump.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		39C1779BAED844418FD0F11D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CA1456D61BF864A97B82E840 /* AccessibilityOrderTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		969595A508627F35A110362C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+			};
+			name = Debug;
+		};
+		A3FD2624D90AA76C1E18FB70 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = at.exponential.ui.kitchensink;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		4C95F91A6D5CD87BB5DB8FDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		CB4CAEBFF1A865FD02635BC0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = at.exponential.ui.kitchensink;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		D00062DCF91EC7918D8B5C21 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = at.exponential.ui.kitchensink.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = KitchenSink;
+			};
+			name = Debug;
+		};
+		760445127ABCB7BEC0B3CF25 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = at.exponential.ui.kitchensink.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = KitchenSink;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7EF2517A8FE63F4681EC5EEA /* Build configuration list for PBXProject "KitchenSink" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				969595A508627F35A110362C /* Debug */,
+				4C95F91A6D5CD87BB5DB8FDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F2F62AAE534BA46EC59716F3 /* Build configuration list for PBXNativeTarget "KitchenSink" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3FD2624D90AA76C1E18FB70 /* Debug */,
+				CB4CAEBFF1A865FD02635BC0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FAE6690EA02E2507A57DFB5C /* Build configuration list for PBXNativeTarget "KitchenSinkUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00062DCF91EC7918D8B5C21 /* Debug */,
+				760445127ABCB7BEC0B3CF25 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2F6BC13275D2F0A465A84047 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B09E15060E6130D7F40CF1F4 /* ExponentialUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ExponentialUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

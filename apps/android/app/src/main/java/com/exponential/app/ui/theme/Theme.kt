@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.exponential.ui.primitives.LocalPrimitiveTokens
 
 // Dark-only, by design — matches iOS and web. Maps the full Material 3 role set
 // onto the shared palette (DesignTokens.Palette, generated from the web OKLCH
@@ -106,7 +107,11 @@ fun ExponentialTheme(content: @Composable () -> Unit) {
     // EXP-523: one read of the OS animation scale for the whole tree. Provided
     // HERE and not in MainActivity so previews, instrumentation tests and any
     // future entry point cannot forget it — they all go through the theme.
-    CompositionLocalProvider(LocalReduceMotion provides rememberReduceMotion()) {
+    // VAPP-89: the SDK primitives' tokens ride the same root ([AppPrimitiveTokens]).
+    CompositionLocalProvider(
+        LocalReduceMotion provides rememberReduceMotion(),
+        LocalPrimitiveTokens provides AppPrimitiveTokens,
+    ) {
         MaterialTheme(
             colorScheme = ZincDarkColors,
             typography = ExpoTypography,

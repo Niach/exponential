@@ -36,3 +36,4 @@ apps/web/public/mcp-apps/
 # Raw capture output for the screenshot store (EXP-566) — only the optimized
 # shots/**.webp are committed; regenerate with `bun run shots`.
 /.shots-raw/
+.conformance/

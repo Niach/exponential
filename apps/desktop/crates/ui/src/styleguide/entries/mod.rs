@@ -3,6 +3,7 @@
 
 use gpui::{App, Div, Window};
 
+/// The typed pickers' shared demo kit, not an entry (VAPP-93).
 pub(crate) mod picker;
 pub(crate) mod picker_board;
 pub(crate) mod picker_issue;
@@ -17,7 +18,6 @@ pub(crate) mod picker_label;
 pub(crate) mod picker_mcp;
 pub(crate) mod picker_repository;
 pub(crate) mod scope_picker;
-pub(crate) mod menu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
@@ -58,7 +58,6 @@ pub(crate) struct Entry {
 
 /// Every entry, in the section index's order.
 pub(crate) const ENTRIES: &[Entry] = &[
-    Entry { id: picker::ID, owner: picker::OWNER, render: picker::render },
     Entry { id: picker_board::ID, owner: picker_board::OWNER, render: picker_board::render },
     Entry { id: picker_issue::ID, owner: picker_issue::OWNER, render: picker_issue::render },
     Entry { id: picker_action::ID, owner: picker_action::OWNER, render: picker_action::render },
@@ -72,7 +71,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
     Entry { id: picker_repository::ID, owner: picker_repository::OWNER, render: picker_repository::render },
     Entry { id: scope_picker::ID, owner: scope_picker::OWNER, render: scope_picker::render },
-    Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
