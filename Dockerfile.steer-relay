@@ -23,6 +23,8 @@ COPY packages/mcp-apps/package.json packages/mcp-apps/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
+COPY apps/ui-site/package.json apps/ui-site/package.json
+COPY packages/site-shell/package.json packages/site-shell/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 
