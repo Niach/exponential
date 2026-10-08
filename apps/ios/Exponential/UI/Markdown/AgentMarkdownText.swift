@@ -93,15 +93,63 @@ struct AgentMarkdownText: View {
         // the EXP-70 failure mode again) and cache the result, so a
         // re-realized row renders at full height on the first pass and a
         // cache hit parses nothing.
-        _displayModel = State(initialValue: Self.model(
+        // EXP-1238: the row OWNS its model and adopts the cached parse's
+        // blocks — a shared model cannot be reloaded in place (two rows
+        // showing one text would follow each other's updates), and in-place
+        // is the point: see `adoptDisplayBlocks`.
+        _displayModel = State(initialValue: Self.rowModel(
             text, context: context, options: options, overrides: overrides
         ))
         _displayedText = State(initialValue: text)
     }
 
-    /// Parsed display models keyed by text + base URL + parse options. The
-    /// models are read-only (no focus, no edits), so sharing one between two
-    /// bubbles showing the same text is harmless. Bounded by `countLimit`
+    /// The row's own display model, holding the cached prototype's blocks.
+    private static func rowModel(
+        _ text: String,
+        context: AgentMarkdownContext?,
+        options: MarkdownParseOptions,
+        overrides: MarkdownStyle.Overrides
+    ) -> IssueEditorModel {
+        let model = IssueEditorModel()
+        configureDisplay(model, context: context)
+        model.adoptDisplayBlocks(from: prototype(
+            text, context: context, options: options, overrides: overrides
+        ))
+        return model
+    }
+
+    /// Display-only wiring shared by the cached prototypes and the row models:
+    /// read-only chips resolved against the run's team through the same memo
+    /// the issue editors use (`bareIssueRefs` is what makes a narrated
+    /// `EXP-758` chip alongside `#EXP-758`, EXP-760), and EXP-824's attachment
+    /// resolver so a narrated `[clip.mp4](/api/attachments/{id})` gets the
+    /// same player. The raw text is untouched, nothing here ever serializes.
+    private static func configureDisplay(_ model: IssueEditorModel, context: AgentMarkdownContext?) {
+        guard let refs = context?.issueRefs else { return }
+        let accountId = context?.accountId ?? ""
+        model.attachmentResolver = AttachmentInfoCache.resolver(db: refs.db, accountId: accountId)
+        let scope = IssueRefLookup.Scope.team(id: refs.teamId)
+        let db = refs.db
+        model.isDisplayOnly = true
+        model.bareIssueRefs = refs.bareRefs
+        model.issueRefResolver = { identifier in
+            IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
+                .issueId
+        }
+        model.issueRefTitleResolver = { identifier in
+            IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
+                .title
+        }
+        model.issueRefStatusResolver = { identifier in
+            IssueRefChipCache.statusInfo(
+                identifier, scope: scope, db: db, accountId: accountId)
+        }
+    }
+
+    /// Parsed display PROTOTYPES keyed by text + base URL + parse options:
+    /// read-only models whose blocks the rows adopt (EXP-1238), never
+    /// rendered themselves, so sharing one between two bubbles showing the
+    /// same text is harmless. Bounded by `countLimit`
     /// below and by NSCache's own eviction under pressure — EXP-783 uncapped
     /// the feed itself, so the count limit here is the only bound that
     /// matters (and the session view renders a window of it anyway).
@@ -125,7 +173,7 @@ struct AgentMarkdownText: View {
     }
 
     /// Cache hit or a synchronous parse that populates the cache.
-    private static func model(
+    private static func prototype(
         _ text: String,
         context: AgentMarkdownContext?,
         options: MarkdownParseOptions,
@@ -139,31 +187,7 @@ struct AgentMarkdownText: View {
         )
         if let cached = cache.object(forKey: key) { return cached }
         let model = IssueEditorModel()
-        if let refs {
-            // EXP-824: an agent narrating `[clip.mp4](/api/attachments/{id})`
-            // gets the same player, resolved off the store.
-            model.attachmentResolver = AttachmentInfoCache.resolver(db: refs.db, accountId: accountId)
-            // Read-only chips, resolved against the run's team through the
-            // same memo the issue editors use. `bareIssueRefs` is what makes a
-            // narrated `EXP-758` chip alongside `#EXP-758` (EXP-760); the raw
-            // text is untouched, nothing here ever serializes.
-            let scope = IssueRefLookup.Scope.team(id: refs.teamId)
-            let db = refs.db
-            model.isDisplayOnly = true
-            model.bareIssueRefs = refs.bareRefs
-            model.issueRefResolver = { identifier in
-                IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
-                    .issueId
-            }
-            model.issueRefTitleResolver = { identifier in
-                IssueRefChipCache.chip(identifier, scope: scope, db: db, accountId: accountId)?
-                    .title
-            }
-            model.issueRefStatusResolver = { identifier in
-                IssueRefChipCache.statusInfo(
-                    identifier, scope: scope, db: db, accountId: accountId)
-            }
-        }
+        configureDisplay(model, context: context)
         model.load(
             markdown: text, baseURL: context?.baseURL, options: options, overrides: overrides
         )
@@ -184,17 +208,21 @@ struct AgentMarkdownText: View {
             hugsContentWidth: hugsWidth
         )
         .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
+        // EXP-1238: a streamed fragment or a text-size change reloads the
+        // row's model IN PLACE (block ids kept), so the text view SwiftUI
+        // already holds re-applies its content and re-measures — never a
+        // fresh UITextView per fragment.
         .onChange(of: text) { _, newText in
             guard displayedText != newText else { return }
             displayedText = newText
-            displayModel = Self.model(
+            displayModel.adoptDisplayBlocks(from: Self.prototype(
                 newText, context: context, options: options, overrides: overrides
-            )
+            ))
         }
         .onChange(of: dynamicTypeSize) { _, _ in
-            displayModel = Self.model(
+            displayModel.adoptDisplayBlocks(from: Self.prototype(
                 text, context: context, options: options, overrides: overrides
-            )
+            ))
         }
     }
 }
