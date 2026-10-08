@@ -525,8 +525,8 @@
         "file": "shots/exponential-ui-kitchen-sink/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 36924,
-        "sha256": "8371e6b7d39893952074cfcc6583e282fdf696d6c751bb30de775597ea5c8beb"
+        "bytes": 34036,
+        "sha256": "aefef6ef486bc2ae170482795c3a80c91bbda760174c1a0aba091cc8299d4de1"
       },
       "desktop": {
         "file": "shots/exponential-ui-kitchen-sink/desktop.webp",
@@ -539,22 +539,22 @@
         "file": "shots/exponential-ui-kitchen-sink/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 37138,
-        "sha256": "aa83605ba3f2488b228a7a4d631bf762af0e2f9c1b8c204a27b229c15c675c7f"
+        "bytes": 35692,
+        "sha256": "837fe7a8b457456822188124653b782d92adc30c36e47bf7b64a5a3a6b910734"
       },
       "web": {
         "file": "shots/exponential-ui-kitchen-sink/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37008,
-        "sha256": "a87d47434da23bb1ddce50866cf81ac6e27bc9318d329be9dfbd60e241f9a229"
+        "bytes": 36698,
+        "sha256": "1b4ca442371ba3d4f5ad783549d35a740776afaafe72cf9aa5fde9a71211f677"
       },
       "web-mobile": {
         "file": "shots/exponential-ui-kitchen-sink/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 43244,
-        "sha256": "994cdf35e6d60e8ecc8c8ee60f39df164cd21593b5b39f203258f588116e2a70"
+        "bytes": 40728,
+        "sha256": "0f316f82898193fcad6829788f175cd65eef8aebb4f1685ffcbf6c46083056b7"
       }
     },
     "files": {
