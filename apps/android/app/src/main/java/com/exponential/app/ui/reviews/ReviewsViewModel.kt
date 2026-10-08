@@ -20,7 +20,16 @@ import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.chatRunSubject
-import com.exponential.app.domain.sortableTimestamp
+import com.exponential.app.domain.PullRepo
+import com.exponential.app.domain.ReviewsQueue
+import com.exponential.app.data.api.OpenPull
+import com.exponential.app.data.api.RepositoriesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformLatest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -79,114 +88,78 @@ data class RunReviewEntry(
 )
 
 /**
- * The open-PR runs → review entries: collapsed by `pr_url` (a resumed run
- * continues the same PR) keeping the NEWEST row, newest first. Every run
- * stamps its own PR on its row — a batch run's combined PR too — so a run
- * whose `pr_url` an issue already carries ([issuePrUrls]) stays with that
- * issue's entry instead. Top-level and pure so it can be tested without a
- * database.
+ * The open-PR runs → review entries: [ReviewsQueue.runs] (collapsed by
+ * `pr_url`, the NEWEST row kept, newest first; a run whose `pr_url` an issue
+ * already carries ([issuePrUrls]) stays with that issue's entry) mapped to the
+ * screen's rows.
  */
 fun buildRunEntries(
     sessions: List<CodingSessionEntity>,
     issuePrUrls: Set<String> = emptySet(),
-): List<RunReviewEntry> {
-    val byPrUrl = LinkedHashMap<String, CodingSessionEntity>()
-    for (session in sessions) {
-        val prUrl = session.prUrl
-        if (prUrl.isNullOrEmpty() || prUrl in issuePrUrls) continue
-        val current = byPrUrl[prUrl]
-        if (current == null ||
-            sortableTimestamp(session.startedAt) > sortableTimestamp(current.startedAt)
-        ) {
-            byPrUrl[prUrl] = session
-        }
-    }
-    return byPrUrl.values
-        .sortedByDescending { sortableTimestamp(it.startedAt) }
-        .map { session ->
-            RunReviewEntry(
-                groupKey = "session:${session.id}",
-                session = session,
-                prUrl = session.prUrl,
-                prNumber = session.prNumber,
-                branch = session.branch,
-                title = chatRunSubject(session) ?: session.actionName ?: CHAT_RUN_NAME,
-            )
-        }
-}
+): List<RunReviewEntry> = ReviewsQueue.runs(sessions, issuePrUrls).map(::runEntry)
+
+private fun runEntry(session: CodingSessionEntity) = RunReviewEntry(
+    groupKey = "session:${session.id}",
+    session = session,
+    prUrl = session.prUrl,
+    prNumber = session.prNumber,
+    branch = session.branch,
+    title = chatRunSubject(session) ?: session.actionName ?: CHAT_RUN_NAME,
+)
+
+/** EXP-1244: the merge/error key of an unlinked pull request's row. */
+fun externalPullKey(repositoryId: String, number: Int): String = "pull:$repositoryId#$number"
 
 /**
- * The open-PR issues, boards and open-PR runs → the Reviews state.
- * Issues group by `pr_url` so a batch PR (N issues, one url) is ONE entry;
- * entries are newest first and grouped by the representative issue's board.
- * EXP-1186: the list spans every member team ([teams], name order). Boards
- * order by team (its position in [teams]) then board order (sortOrder, name
- * tiebreak); with MORE than one team each board band names its team and the
- * run PRs band once per team. One team = exactly the single-team list. Pure
- * so it can be tested without a database.
+ * The Reviews state: a thin adapter over [ReviewsQueue.build] (EXP-1244, the
+ * ONE queue ×4, fixture-locked). [teams] in display order (name order, every
+ * member team — EXP-1186); with MORE than one team each band names its team.
  */
 fun buildReviewsState(
     issues: List<IssueEntity>,
     boards: List<BoardEntity>,
     runs: List<CodingSessionEntity>,
-    teams: List<TeamEntity> = emptyList(),
+    teams: List<TeamEntity>,
+    pulls: List<PullRepo> = emptyList(),
 ): ReviewsState {
-    val boardsById = boards.associateBy { it.id }
+    val queue = ReviewsQueue.build(teams, boards, issues, runs, pulls)
     val multiTeam = teams.size > 1
     val teamsById = teams.associateBy { it.id }
-    val teamOrder = teams.withIndex().associate { (index, team) -> team.id to index }
-    // An issue without a url (defensive — the query only selects pr_state
-    // 'open', which normally implies a url) keys on its own id so it stays a
-    // distinct single-issue row.
-    val entries = issues
-        .filter { it.boardId in boardsById }
-        .groupBy { it.prUrl ?: "issue:${it.id}" }
-        .map { (groupKey, rows) ->
-            val ordered = rows.sortedByDescending { sortableTimestamp(it.createdAt) }
-            val representative = ordered.first()
-            ReviewEntry(
-                groupKey = groupKey,
-                prUrl = representative.prUrl,
-                prNumber = representative.prNumber,
-                branch = representative.branch,
-                boardId = representative.boardId,
-                issues = ordered,
-            )
-        }
-        .sortedByDescending { sortableTimestamp(it.representative.createdAt) }
-    val groups = entries
-        .groupBy { it.boardId }
-        .mapNotNull { (boardId, boardEntries) ->
-            val board = boardsById[boardId] ?: return@mapNotNull null
-            ReviewBoardGroup(
-                board = board,
-                entries = boardEntries,
-                teamName = if (multiTeam) teamsById[board.teamId]?.name else null,
-            )
-        }
-        .sortedWith(
-            compareBy(
-                { teamOrder[it.board.teamId] ?: Int.MAX_VALUE },
-                { it.board.sortOrder },
-                { it.board.name.lowercase() },
-            ),
+    val groups = queue.boardGroups.map { group ->
+        ReviewBoardGroup(
+            board = group.board,
+            entries = group.entries.map { entry ->
+                val representative = entry.representative
+                ReviewEntry(
+                    groupKey = entry.key,
+                    prUrl = representative.prUrl,
+                    prNumber = representative.prNumber,
+                    branch = representative.branch,
+                    boardId = representative.boardId,
+                    issues = entry.issues,
+                )
+            },
+            teamName = if (multiTeam) teamsById[group.board.teamId]?.name else null,
         )
-    val issuePrUrls = issues.mapNotNullTo(HashSet()) { it.prUrl?.takeIf(String::isNotEmpty) }
-    val runEntries = buildRunEntries(runs, issuePrUrls)
-    val runGroups = if (runEntries.isEmpty()) {
-        emptyList()
-    } else if (!multiTeam) {
-        listOf(ReviewRunGroup(team = null, entries = runEntries))
-    } else {
-        runEntries
-            .groupBy { it.session.teamId }
-            .map { (teamId, rows) -> ReviewRunGroup(team = teamsById[teamId], entries = rows) }
-            .sortedBy { group -> group.team?.let { teamOrder[it.id] } ?: Int.MAX_VALUE }
+    }
+    val runGroups = queue.runGroups.map { group ->
+        ReviewRunGroup(
+            team = if (multiTeam) teamsById[group.teamId] else null,
+            entries = group.sessions.map(::runEntry),
+        )
+    }
+    val repoGroups = queue.repoGroups.map { repo ->
+        ReviewRepoGroup(
+            repo = repo,
+            teamName = if (multiTeam) teamsById[repo.teamId]?.name else null,
+        )
     }
     return ReviewsState(
         groups = groups,
-        runs = runEntries,
+        runs = runGroups.flatMap { it.entries },
         runGroups = runGroups,
+        repoGroups = repoGroups,
+        count = queue.count,
         loaded = true,
     )
 }
@@ -208,6 +181,17 @@ data class ReviewRunGroup(
     val entries: List<RunReviewEntry>,
 )
 
+/**
+ * EXP-1244: one repository band of open pull requests NO issue or run links
+ * (`repositories.openPulls`), after the "Agent runs" bands. [teamName] names
+ * the team on a multi-team list, else the band reads
+ * [ReviewsQueue.REPO_BAND_CAPTION].
+ */
+data class ReviewRepoGroup(
+    val repo: PullRepo,
+    val teamName: String? = null,
+)
+
 data class ReviewsState(
     val groups: List<ReviewBoardGroup> = emptyList(),
     // EXP-734: issueless runs whose OWN pull request is open — listed under
@@ -215,9 +199,13 @@ data class ReviewsState(
     val runs: List<RunReviewEntry> = emptyList(),
     /** EXP-1186: [runs] banded per team (one band with a single team). */
     val runGroups: List<ReviewRunGroup> = emptyList(),
+    /** EXP-1244: the unlinked pull requests, one band per repository. */
+    val repoGroups: List<ReviewRepoGroup> = emptyList(),
+    /** Entries + runs + repo pulls (`ReviewsQueue` rule 8). */
+    val count: Int = 0,
     val loaded: Boolean = false,
 ) {
-    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty()
+    val isEmpty: Boolean get() = groups.isEmpty() && runs.isEmpty() && repoGroups.isEmpty()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -227,9 +215,73 @@ class ReviewsViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
+    private val repositoriesApi: RepositoriesApi,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    /** Bumped by [onScreenEntered] (a later screen entry) — refetches `openPulls`. */
+    private val pullsRefresh = MutableStateFlow(0)
+
+    /** EXP-1244: unlinked pulls merged here — no Electric echo, so they drop locally. */
+    private val mergedPulls = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * EXP-1244: `repositories.openPulls` once per member team, refetched when
+     * the team SET changes (or on [onScreenEntered]); a team whose fetch fails
+     * lists nothing, the synced queue renders regardless.
+     */
+    private val fetchedPulls: Flow<List<PullRepo>> =
+        combine(
+            auth.activeAccountId,
+            dbFlow.flatMapLatest { db ->
+                db?.teamDao()?.observeAll()?.map { teams -> teams.map { it.id }.sorted() }
+                    ?: flowOf(emptyList())
+            }.distinctUntilChanged(),
+            pullsRefresh,
+        ) { accountId, teamIds, _ -> accountId to teamIds }
+            .transformLatest { (accountId, teamIds) ->
+                if (accountId == null || teamIds.isEmpty()) {
+                    emit(emptyList())
+                    return@transformLatest
+                }
+                val perTeam = coroutineScope {
+                    teamIds.map { teamId ->
+                        async {
+                            try {
+                                repositoriesApi.openPulls(accountId, teamId).map { repo ->
+                                    PullRepo(teamId, repo.repositoryId, repo.fullName, repo.pulls)
+                                }
+                            } catch (t: CancellationException) {
+                                throw t
+                            } catch (_: Throwable) {
+                                emptyList()
+                            }
+                        }
+                    }.awaitAll()
+                }
+                emit(perTeam.flatten())
+            }
+            .onStart { emit(emptyList()) }
+
+    private val pulls: Flow<List<PullRepo>> =
+        combine(fetchedPulls, mergedPulls) { repos, merged ->
+            if (merged.isEmpty()) repos
+            else repos.map { repo ->
+                repo.copy(pulls = repo.pulls.filter { externalPullKey(repo.repositoryId, it.number) !in merged })
+            }
+        }
+
+    private var entered = false
+
+    /**
+     * EXP-1244: the screen calls it on every entry — the first one rides the
+     * initial fetch, every later one refetches the unlinked pull requests.
+     */
+    fun onScreenEntered() {
+        if (entered) pullsRefresh.value += 1
+        entered = true
+    }
 
     // EXP-1186: cross-team like the Inbox — never the selected team.
     val state: StateFlow<ReviewsState> =
@@ -238,13 +290,16 @@ class ReviewsViewModel @Inject constructor(
                 if (db == null) {
                     flowOf(ReviewsState(loaded = true))
                 } else {
+                    // EXP-1244: every PR-carrying issue and run, ANY state —
+                    // the queue's linked set must be complete.
                     combine(
-                        db.issueDao().observeOpenPrs(),
+                        db.issueDao().observeReviewQueueIssues(),
                         db.boardDao().observeAll(),
-                        db.codingSessionDao().observeOpenPrRuns(),
+                        db.codingSessionDao().observeWithPrUrl(),
                         db.teamDao().observeAll(),
-                    ) { issues, boards, runs, teams ->
-                        buildReviewsState(issues, boards, runs, teams)
+                        pulls,
+                    ) { issues, boards, runs, teams, pulls ->
+                        buildReviewsState(issues, boards, runs, teams, pulls)
                     }
                 }
             }
@@ -264,6 +319,32 @@ class ReviewsViewModel @Inject constructor(
             _mergeErrors.value = _mergeErrors.value - key
             _merging.value = _merging.value + key
             runCatching { codingSessionsApi.mergePr(accountId, entry.session.id) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _mergeErrors.value = _mergeErrors.value +
+                        (key to MergeFailure.from(t, "The pull request could not be merged"))
+                }
+            _merging.value = _merging.value - key
+        }
+    }
+
+    /**
+     * EXP-1244: squash-merge an open pull request NO issue or run links
+     * (`repositories.mergePull`). Nothing syncs back, so a landed merge drops
+     * the row locally; a queued one (GitHub's merge queue) keeps it until the
+     * pull request actually closes. Shares the merging / mergeErrors maps,
+     * keyed by [externalPullKey].
+     */
+    fun mergeExternalPull(repositoryId: String, pull: OpenPull) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            val key = externalPullKey(repositoryId, pull.number)
+            _mergeErrors.value = _mergeErrors.value - key
+            _merging.value = _merging.value + key
+            runCatching { repositoriesApi.mergePull(accountId, repositoryId, pull.number) }
+                .onSuccess { result ->
+                    if (result.merged) mergedPulls.value = mergedPulls.value + key
+                }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     _mergeErrors.value = _mergeErrors.value +

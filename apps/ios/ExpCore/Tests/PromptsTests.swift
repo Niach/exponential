@@ -138,6 +138,9 @@ final class PromptsTests: XCTestCase {
         )
         XCTAssertEqual(Prompts.MergeRunPr.copy(number: 7).title, "Merge PR #7?")
         XCTAssertEqual(Prompts.MergeRunPr.copy(number: nil).title, "Merge this pull request?")
+        let external = Prompts.MergeExternalPr.copy(repository: "acme/web", number: 9, base: "master")
+        XCTAssertEqual(external.title, "Merge acme/web#9?")
+        XCTAssertEqual(external.body, "It is squash-merged into master. No issue is linked to it.")
     }
 
     func testDeviceAndServerVariants() {

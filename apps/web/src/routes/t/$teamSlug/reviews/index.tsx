@@ -39,7 +39,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 import { sessionIdentity } from "@/lib/session-identity"
-import { REPO_BAND_CAPTION } from "@/lib/reviews-queue"
+import { REPO_BAND_CAPTION, RUN_BAND_CAPTION } from "@/lib/reviews-queue"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -558,7 +558,7 @@ function ReviewsPage() {
                   trailing={
                     teamCaption(sessionGroup.team?.id) ?? (
                       <span className="text-xs text-foreground/50">
-                        opened by a coding run
+                        {RUN_BAND_CAPTION}
                       </span>
                     )
                   }

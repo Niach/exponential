@@ -617,33 +617,31 @@ impl Render for ReviewsView {
         if let Some(id) = team_id.as_deref() {
             self.ensure_open_pulls(id, cx);
         }
-        let groups = team_id
-            .as_deref()
-            .map(|id| queries::review_groups(cx, id))
-            .unwrap_or_default();
-        // EXP-734: runs holding a PR of their own — no issue links them, and
-        // the server excludes them from `repositories.openPulls`, so this
-        // synced read is the only place they surface.
-        let runs = team_id
-            .as_deref()
-            .map(|id| queries::review_runs(cx, id))
-            .unwrap_or_default();
-        // EXP-1244: every PR a synced issue or run carries is linked (the
-        // server rule, regardless of `pr_state`) — never listed as unlinked,
-        // however old the openPulls fetch.
-        let linked_urls: HashSet<String> = collections
-            .issues
-            .read(cx)
-            .iter()
-            .filter_map(|issue| issue.pr_url.clone())
-            .chain(runs.iter().filter_map(|run| run.pr_url.clone()))
-            .collect();
-        let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
+        // EXP-1244: ONE shared queue ×4 (`domain::reviews_queue`): the board
+        // groups, the runs holding a PR of their own (EXP-734 — the server
+        // excludes them from `repositories.openPulls`, so this synced read is
+        // the only place they surface) and the fetched pulls no synced issue
+        // or run links, however old the fetch.
+        let fetched: &[api::repositories::OpenPullsRepo] = self
             .open_pulls
             .as_ref()
             .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| queries::visible_pull_repos(repos, &linked_urls))
-            .unwrap_or_default();
+            .map(|(_, repos)| repos.as_slice())
+            .unwrap_or(&[]);
+        let queries::ReviewsQueue {
+            groups,
+            runs,
+            pull_repos,
+            count,
+        } = team_id
+            .as_deref()
+            .map(|id| queries::reviews_queue(cx, id, fetched))
+            .unwrap_or(queries::ReviewsQueue {
+                groups: Vec::new(),
+                runs: Vec::new(),
+                pull_repos: Vec::new(),
+                count: 0,
+            });
 
         // Unlinked pulls have no Electric echo — a pull merged elsewhere drops
         // its transient merge state here against the fetched list. (Issue rows
@@ -670,10 +668,7 @@ impl Render for ReviewsView {
                 .child(crate::controls::skeleton().h_3p5().w_40())
                 .child(crate::controls::skeleton().h_3p5().w_48())
                 .child(crate::controls::skeleton().h_3p5().w_32())
-        } else if groups.is_empty()
-            && runs.is_empty()
-            && pull_repos.is_empty()
-        {
+        } else if count == 0 {
             // EXP-525: the web `EmptyState` (icon disc + title + description).
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(ExpIcon::GitPullRequest),
@@ -773,7 +768,7 @@ impl Render for ReviewsView {
                                 .flex_shrink_0()
                                 .text_xs()
                                 .text_color(muted.opacity(0.8))
-                                .child("not linked to an issue"),
+                                .child(domain::reviews_queue::RUN_BAND_CAPTION),
                         ),
                 );
                 for run in &runs {
@@ -821,7 +816,7 @@ impl Render for ReviewsView {
                                 .flex_shrink_0()
                                 .text_xs()
                                 .text_color(muted.opacity(0.8))
-                                .child("not linked to an issue"),
+                                .child(domain::reviews_queue::REPO_BAND_CAPTION),
                         ),
                 );
                 for pull in &repo.pulls {

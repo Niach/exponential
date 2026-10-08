@@ -1,6 +1,8 @@
 package com.exponential.app.ui.reviews
 
+import com.exponential.app.data.api.OpenPull
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.domain.PullRepo
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.TeamEntity
@@ -78,6 +80,7 @@ class ReviewRowsTest {
             ),
             boards = listOf(board("board-1", 1.0)),
             runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
         )
         val entries = state.groups.single().entries
         assertEquals(2, entries.size)
@@ -99,6 +102,7 @@ class ReviewRowsTest {
             ),
             boards = listOf(board("board-2", 2.0), board("board-1", 1.0)),
             runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
         )
         assertEquals(listOf("board-1", "board-2"), state.groups.map { it.board.id })
         assertEquals(listOf("new", "old"), state.groups[1].entries.map { it.representative.id })
@@ -118,6 +122,7 @@ class ReviewRowsTest {
                 // A resume continues the same PR: one entry, the newest row.
                 run("chore-resume", chorePr, startedAt = "2026-09-10T12:00:00Z"),
             ),
+            teams = listOf(team("team-1", "Team")),
         )
         assertEquals(listOf("chore-resume"), state.runs.map { it.session.id })
         assertEquals(1, state.groups.single().entries.size)
@@ -166,5 +171,44 @@ class ReviewRowsTest {
         )
         assertEquals(listOf<String?>(null), single.groups.map { it.teamName })
         assertEquals(listOf<String?>(null), single.runGroups.map { it.team?.id })
+    }
+
+    // EXP-1244: the unlinked pulls band per repository after the runs; a
+    // pull an issue links never lists, and the empty state counts the bands.
+    @Test
+    fun repoBandsListOnlyUnlinkedPullsAndCountTowardsTheQueue() {
+        val linked = "https://github.com/acme/app/pull/a"
+        val state = buildReviewsState(
+            issues = listOf(issue("a", prUrl = linked)),
+            boards = listOf(board("board-1", 1.0)),
+            runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
+            pulls = listOf(
+                PullRepo(
+                    teamId = "team-1",
+                    repositoryId = "repo-1",
+                    fullName = "acme/app",
+                    pulls = listOf(
+                        OpenPull(number = 3, url = "https://github.com/acme/app/pull/3", title = "Bump deps"),
+                        OpenPull(number = 4, url = linked),
+                    ),
+                ),
+            ),
+        )
+        val band = state.repoGroups.single()
+        assertEquals(null, band.teamName)
+        assertEquals(listOf(3), band.repo.pulls.map { it.number })
+        assertEquals(2, state.count)
+
+        val onlyPulls = buildReviewsState(
+            issues = emptyList(),
+            boards = emptyList(),
+            runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
+            pulls = listOf(
+                PullRepo("team-1", "repo-1", "acme/app", listOf(OpenPull(3, "https://github.com/acme/app/pull/3"))),
+            ),
+        )
+        assertTrue(!onlyPulls.isEmpty)
     }
 }

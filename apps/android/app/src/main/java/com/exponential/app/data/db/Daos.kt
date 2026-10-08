@@ -100,6 +100,15 @@ interface IssueDao {
     )
     fun observeOpenPrs(): Flow<List<IssueEntity>>
 
+    // EXP-1244: every PR-carrying issue, ANY pr_state — the Reviews queue's
+    // input, so a linked PR never lists as unlinked (`ReviewsQueue` rule 5).
+    @Query(
+        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
+            "WHERE (i.pr_state = 'open' OR (i.pr_url IS NOT NULL AND i.pr_url != '')) " +
+            "AND p.deleted_at IS NULL"
+    )
+    fun observeReviewQueueIssues(): Flow<List<IssueEntity>>
+
     // App-link resolution (EXP-92): team SLUG + identifier → issue id.
     // Deliberately no board-slug predicate (identifiers are
     // team-unique; the board slug in an old link goes stale when an
@@ -351,6 +360,11 @@ interface CodingSessionDao {
             "AND pr_state = 'open' ORDER BY started_at DESC"
     )
     fun observeOpenPrRuns(): Flow<List<CodingSessionEntity>>
+
+    // EXP-1244: every run carrying a PR, ANY state — the Reviews queue's
+    // run input (its own PRs + the linked set).
+    @Query("SELECT * FROM coding_sessions WHERE pr_url IS NOT NULL AND pr_url != ''")
+    fun observeWithPrUrl(): Flow<List<CodingSessionEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CodingSessionEntity)

@@ -37,6 +37,8 @@ struct ReviewsListContent: View {
     /// EXP-734: the agent run whose OWN pull request a merge confirm is
     /// pending for — its own alert, because the copy names no issues.
     @State private var runMergeTarget: RunReviewEntry?
+    /// EXP-1244: the unlinked pull request whose merge confirm is pending.
+    @State private var pullMergeTarget: PullMergeTarget?
     /// Merge failures keyed by `ReviewEntry.id` — rendered INLINE under the
     /// failing row (EXP-323). An alert made the reason modal. EXP-1233: a REAL
     /// content conflict (EXP-533) never lands here — it opens the recovery
@@ -50,21 +52,29 @@ struct ReviewsListContent: View {
     // opens it at once (no "Fix conflicts" swap in the row's slot, no
     // caption); the context menu keeps it as a manual entry.
     @State private var steerEnabled = false
+    /// EXP-1244: bumped on every appear so the openPulls fetch re-runs.
+    @State private var appearTick = 0
 
     var body: some View {
-        let groups = viewModel?.groups(teams: teamState.teams) ?? []
         // EXP-734: agent runs parking their OWN pull request belong to no
         // board, so they get their own section after the board groups —
-        // one per team (EXP-1186).
-        let runs = viewModel?.runEntries(teams: teamState.teams) ?? []
+        // one per team (EXP-1186); EXP-1244: the pull requests nothing links
+        // follow as repository bands. `ReviewsQueue.build` decides it all.
+        let snapshot = viewModel?.snapshot(teams: teamState.teams) ?? ReviewsSnapshot()
         Group {
             if viewModel == nil {
                 Color.clear
-            } else if groups.isEmpty && runs.isEmpty {
+            } else if snapshot.isEmpty {
                 emptyState
             } else {
-                reviewList(groups, runs: runs)
+                reviewList(snapshot)
             }
+        }
+        // EXP-1244: one openPulls fetch per team, again whenever the team
+        // set changes (and on every appear: the id includes the appear tick).
+        .task(id: PullsFetchKey(teamIds: teamState.teams.map(\.id).sorted(), tick: appearTick)) {
+            guard let viewModel else { return }
+            await viewModel.refreshPulls(teamIds: teamState.teams.map(\.id))
         }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
@@ -72,8 +82,11 @@ struct ReviewsListContent: View {
         }
         .onAppear {
             if viewModel == nil {
-                viewModel = ReviewsViewModel(accountId: accountId, db: deps.db)
+                viewModel = ReviewsViewModel(
+                    accountId: accountId, db: deps.db, repositoriesApi: deps.repositoriesApi
+                )
             }
+            appearTick += 1
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it.
             viewModel?.startObserving()
@@ -138,6 +151,23 @@ struct ReviewsListContent: View {
                     )
                 }
         }
+        // EXP-1244: a pull request nothing links merges straight through the
+        // repository (`repositories.mergePull`).
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $pullMergeTarget) { target in
+                    GlassAlert(
+                        prompt: Prompts.MergeExternalPr.copy(
+                            repository: target.fullName,
+                            number: target.pull.number,
+                            base: target.pull.baseBranch
+                        ),
+                        handlers: ["merge": { merge(pull: target) }]
+                    )
+                }
+        }
         // EXP-897 Part 4: a batch row's issues are the overlay's content.
         .sheet(item: $batchTarget) { entry in
             CoveredIssuesSheet(
@@ -164,10 +194,9 @@ struct ReviewsListContent: View {
     }
 
     @ViewBuilder
-    private func reviewList(
-        _ groups: [ReviewGroup],
-        runs: [TeamGroups.Group<RunReviewEntry>]
-    ) -> some View {
+    private func reviewList(_ snapshot: ReviewsSnapshot) -> some View {
+        let groups = snapshot.groups
+        let runs = snapshot.runs
         // EXP-1186: the team name rides the headers only when there is more
         // than one team to tell apart.
         let multiTeam = TeamGroups.isMultiTeam(teamState.teams)
@@ -206,6 +235,27 @@ struct ReviewsListContent: View {
                     runsHeader(
                         teamName: multiTeam ? group.team.name : nil,
                         count: group.items.count
+                    )
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                        .listRowBackground(Color.clear)
+                }
+            }
+
+            // EXP-1244: the open pull requests nothing links, one band per
+            // team repository, after the runs.
+            ForEach(snapshot.repos) { repo in
+                Section {
+                    ForEach(repo.pulls) { pull in
+                        pullRow(pull, repo: repo)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
+                    }
+                } header: {
+                    repoHeader(
+                        fullName: repo.fullName,
+                        caption: multiTeam ? repo.team.name : ReviewsQueue.repoBandCaption,
+                        count: repo.pulls.count
                     )
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
                         .listRowBackground(Color.clear)
@@ -261,7 +311,34 @@ struct ReviewsListContent: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-            teamCaption(teamName)
+            teamCaption(teamName ?? ReviewsQueue.runBandCaption)
+
+            Text("\(count)")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+
+            Spacer()
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .textCase(nil)
+    }
+
+    /// EXP-1244: a repository band's header — the board header's shape with
+    /// the PR-open glyph (web parity); the caption names the team on a multi-team
+    /// list, else says the pull requests are not linked.
+    @ViewBuilder
+    private func repoHeader(fullName: String, caption: String, count: Int) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.prOpen, size: 13)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+            Text(fullName)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+
+            teamCaption(caption)
 
             Text("\(count)")
                 .font(.caption)
@@ -379,6 +456,125 @@ struct ReviewsListContent: View {
                     .padding(.vertical, 8)
                     .glassCard()
             }
+        }
+    }
+
+    /// EXP-1244: one open pull request nothing links — the run row's shape;
+    /// a tap opens it on GitHub (there is no issue or run to open), Merge
+    /// confirms and lands it through `repositories.mergePull`. A draft cannot
+    /// merge.
+    @ViewBuilder
+    private func pullRow(_ pull: OpenPull, repo: RepoReviewGroup) -> some View {
+        let key = pullKey(repositoryId: repo.repositoryId, number: pull.number)
+        let target = PullMergeTarget(
+            repositoryId: repo.repositoryId, fullName: repo.fullName, pull: pull
+        )
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                AppIcon(AppIcons.prOpen, size: AppIcon.Size.small)
+                    .foregroundStyle(IssueStatus.inReview.color)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("#\(pull.number)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        Text(pull.title)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if pull.draft {
+                            GlassPill("Draft")
+                        }
+                    }
+
+                    if !pull.branch.isEmpty {
+                        Text(pull.branch)
+                            .font(.caption.monospaced())
+                            .lineLimit(1)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                GlassPill("Merge", enabled: !pull.draft && !merging.contains(key)) {
+                    if merging.contains(key) {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        AppIcon(AppIcons.prMerged, size: GlassPillTokens.glyphSm)
+                    }
+                }
+                .contentShape(Capsule())
+                .onTapGesture {
+                    guard !pull.draft, !merging.contains(key) else { return }
+                    pullMergeTarget = target
+                }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Merge pull request")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if let url = URL(string: pull.url) { openURL(url) }
+            }
+            .accessibilityAddTraits(.isButton)
+            .contextMenu {
+                if !pull.draft {
+                    Button {
+                        pullMergeTarget = target
+                    } label: {
+                        Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
+                    }
+                }
+                if let url = URL(string: pull.url) {
+                    Button {
+                        openURL(url)
+                    } label: {
+                        Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
+                    }
+                }
+            }
+
+            if let failure = mergeErrors[key] {
+                Text(failure.message)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassCard()
+            }
+        }
+    }
+
+    private func pullKey(repositoryId: String, number: Int) -> String {
+        "pull:\(repositoryId):\(number)"
+    }
+
+    /// EXP-1244: merging an unlinked pull request. Nothing syncs it away, so
+    /// a success drops the row locally; a refusal captions it.
+    private func merge(pull target: PullMergeTarget) {
+        pullMergeTarget = nil
+        let key = pullKey(repositoryId: target.repositoryId, number: target.pull.number)
+        mergeErrors[key] = nil
+        merging.insert(key)
+        Task {
+            do {
+                try await deps.repositoriesApi.mergePull(
+                    accountId: accountId,
+                    repositoryId: target.repositoryId,
+                    prNumber: target.pull.number
+                )
+                viewModel?.dropPull(repositoryId: target.repositoryId, number: target.pull.number)
+            } catch {
+                mergeErrors[key] = MergeFailure(error: error)
+            }
+            merging.remove(key)
         }
     }
 
@@ -630,6 +826,21 @@ struct ReviewsListContent: View {
             )
         ))
     }
+}
+
+/// EXP-1244: the unlinked pull request a merge confirm is pending for.
+private struct PullMergeTarget: Identifiable {
+    let repositoryId: String
+    let fullName: String
+    let pull: OpenPull
+    var id: String { "\(repositoryId):\(pull.number)" }
+}
+
+/// EXP-1244: re-runs the openPulls fetch when the team set changes or the
+/// list re-appears.
+private struct PullsFetchKey: Equatable {
+    let teamIds: [String]
+    let tick: Int
 }
 
 /// EXP-1145: a Reviews row whose merge asks the stack question.

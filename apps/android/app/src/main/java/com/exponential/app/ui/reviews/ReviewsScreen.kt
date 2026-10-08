@@ -68,6 +68,10 @@ import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.PullRepo
+import com.exponential.app.domain.ReviewsQueue
+import com.exponential.app.data.api.OpenPull
+import com.exponential.app.ui.components.PillSize
 
 /**
  * "Reviews" (EXP-131): the open pull requests across every member team
@@ -129,6 +133,10 @@ private fun ReviewsListContent(
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
     var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
+    // EXP-1244: an unlinked pull request — merged by repository + number.
+    var mergePullTarget by remember { mutableStateOf<Pair<PullRepo, OpenPull>?>(null) }
+    // EXP-1244: every entry refetches the unlinked pull requests (no sync).
+    LaunchedEffect(viewModel) { viewModel.onScreenEntered() }
     // EXP-1233: a merge refused by a REAL conflict opens the Fix merge
     // conflicts composer at once, the pull request picked and the refusal
     // flagged — no row caption, no button swap. One event per refusal.
@@ -206,6 +214,23 @@ private fun ReviewsListContent(
                     )
                 }
             }
+            // EXP-1244: the open pull requests NO issue or run links, one band
+            // per repository after the run bands (`ReviewsQueue` rule 7).
+            state.repoGroups.forEach { group ->
+                val repo = group.repo
+                item(key = "header-repo-${repo.teamId}-${repo.repositoryId}") {
+                    RepoHeader(fullName = repo.fullName, teamName = group.teamName)
+                }
+                items(repo.pulls, key = { externalPullKey(repo.repositoryId, it.number) }) { pull ->
+                    val key = externalPullKey(repo.repositoryId, pull.number)
+                    ExternalPullRow(
+                        pull = pull,
+                        failure = mergeErrors[key],
+                        merging = key in merging,
+                        onMerge = { mergePullTarget = repo to pull },
+                    )
+                }
+            }
         }
     }
 
@@ -236,6 +261,20 @@ private fun ReviewsListContent(
                 mergeTarget = null
             },
             onDismiss = { mergeTarget = null },
+        )
+    }
+
+    mergePullTarget?.let { (repo, pull) ->
+        // EXP-1244: no issue is linked, so nothing is completed — say so.
+        PromptAlert(
+            prompt = Prompts.MergeExternalPr.prompt(repo.fullName, pull.number, pull.baseBranch),
+            onDismiss = { mergePullTarget = null },
+            handlers = mapOf(
+                "merge" to {
+                    viewModel.mergeExternalPull(repo.repositoryId, pull)
+                    mergePullTarget = null
+                },
+            ),
         )
     }
 
@@ -290,7 +329,7 @@ private fun BandTeamName(name: String) {
 private fun RunsHeader(teamName: String?) {
     SectionHeader(
         "Agent runs",
-        trailing = teamName?.let { name -> @Composable { BandTeamName(name) } },
+        trailing = { BandTeamName(teamName ?: ReviewsQueue.RUN_BAND_CAPTION) },
         leading = {
             Icon(
                 ExpIcons.navActions,
@@ -298,6 +337,97 @@ private fun RunsHeader(teamName: String?) {
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
+        },
+    )
+}
+
+/**
+ * EXP-1244: the band over a repository's unlinked pull requests — the PR-open
+ * glyph, the repo's full name, and as its quiet trailing text the team (a
+ * multi-team list) or [ReviewsQueue.REPO_BAND_CAPTION].
+ */
+@Composable
+private fun RepoHeader(fullName: String, teamName: String?) {
+    SectionHeader(
+        fullName,
+        trailing = { BandTeamName(teamName ?: ReviewsQueue.REPO_BAND_CAPTION) },
+        leading = {
+            Icon(
+                ExpIcons.prOpen,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            )
+        },
+    )
+}
+
+/**
+ * EXP-1244: one open pull request no issue or run links — the shared
+ * [ReviewPrRow] (`#n` + title + a Draft pill, the branch under it). A tap
+ * opens it on GitHub (there is no review of ours to open); Merge confirms
+ * first and is off for a draft.
+ */
+@Composable
+private fun ExternalPullRow(
+    pull: OpenPull,
+    failure: MergeFailure?,
+    merging: Boolean,
+    onMerge: () -> Unit,
+) {
+    val context = LocalContext.current
+    ReviewPrRow(
+        isBatch = false,
+        label = "#${pull.number}",
+        title = pull.title,
+        onClick = {
+            CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(pull.url))
+        },
+        modifier = Modifier.testTag("review-pull-row"),
+        titleTrailing = if (pull.draft) {
+            { GlassPill("Draft", size = PillSize.Sm) }
+        } else {
+            null
+        },
+        details = {
+            if (pull.branch.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    pull.branch,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        trailing = {
+            GlassPill(
+                "Merge",
+                onClick = onMerge,
+                icon = ExpIcons.prMerged,
+                enabled = !merging && !pull.draft,
+                loading = merging,
+            )
+        },
+        footer = {
+            // A refused merge captions THIS row, like the run rows.
+            if (failure != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 3.dp)
+                        .glassCard()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        failure.message,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         },
     )
 }

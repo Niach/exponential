@@ -12,6 +12,8 @@ import { byCreatedAtDesc } from "@/lib/ordering"
 
 /** A repository band's trailing caption on a single-team list ×4. */
 export const REPO_BAND_CAPTION = fixture.labels.repoBandCaption
+/** The "Agent runs" band's trailing caption on a single-team list ×4. */
+export const RUN_BAND_CAPTION = fixture.labels.runBandCaption
 
 export interface QueueTeam {
   id: string

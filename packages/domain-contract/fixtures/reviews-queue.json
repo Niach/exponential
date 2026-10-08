@@ -1,7 +1,8 @@
 {
   "_doc": "EXP-1244: the Reviews queue, ONE pure function x4 (web lib/reviews-queue.ts reviewsQueue; desktop domain::reviews_queue::reviews_queue; iOS ReviewsQueue.build; Android ReviewsQueue.build). Input: `teams` in DISPLAY order (md+ = the active team, phones = every member team), the synced `boards`, every synced issue that carries a pr_url OR pr_state (`issues`), the synced `sessions`, and the `repositories.openPulls` results per team (`pulls`, [] until fetched). Rules: (1) scope = boards of `teams`; an issue counts only when its board is in scope, a session only when its team is. (2) An ENTRY = the in-scope issues with pr_state 'open' sharing one pr_url (key = pr_url, an empty/null pr_url keys 'issue:<id>'); its issues ordered created_at DESC then id ASC, issues[0] = the representative (merge target, row click). (3) Entries list under the REPRESENTATIVE's board, created_at DESC then the representative id ASC. (4) Board bands: team order, then board sort_order ASC (null last), then name case-insensitive, then id; a board without entries has no band. (5) LINKED urls = every non-empty pr_url on an in-scope issue (ANY pr_state) plus every in-scope session's pr_url (ANY state). (6) RUN entries = in-scope sessions with issue_id null, pr_state 'open', a non-empty pr_url that no in-scope issue carries; one per pr_url (the newest created_at wins, id ASC on a tie), created_at DESC then id ASC; one band per team in team order, a team without runs has none. (7) REPO bands = each `pulls` repo of an in-scope team, team order then input order; a pull whose url is LINKED never lists (however old the fetch); pull order kept; a repo left empty has no band. (8) count = entries + runs + repo pulls. Timestamps compare as instants (the fixture writes ISO-8601 Z).",
   "labels": {
-    "repoBandCaption": "not linked to an issue"
+    "repoBandCaption": "not linked to an issue",
+    "runBandCaption": "opened by a coding run"
   },
   "cases": [
     {
