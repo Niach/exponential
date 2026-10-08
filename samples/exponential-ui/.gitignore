@@ -7,3 +7,4 @@ android/app/build/
 android/local.properties
 gpui/target/
 ios/build/
+web/package-lock.json
