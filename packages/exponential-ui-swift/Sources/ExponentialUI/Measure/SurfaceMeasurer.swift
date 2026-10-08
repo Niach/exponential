@@ -252,8 +252,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let count = props["count"].map(\.displayText) ?? ""
             let countW = count.isEmpty ? 0 : line(count, ts)
             let chrome = Self.textChrome(Self.textOwner(part, props), part, props, gap: c.gap, countWidth: countW)
-            // The core's text (a numeric `text` prop reads as its digits).
-            let raw = leaf.text
+            // A bound NUMBER reads as its digits, as the web prints it (the
+            // core's `FfiLeaf.text` is strings only).
+            let raw = props.text("text")
             if chrome != (0, 0) {
                 content = row(raw, ts, lead: chrome.0, trail: chrome.1, wrap: inner)
             } else if part == "cell", props.str("cellType") == "boolean" {
@@ -276,7 +277,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             content = MeasuredContent(line(label, ts), ts.lineHeight, Self.baseline(ts))
         case ("Icon", _): content = MeasuredContent(16, 16)
         case ("Avatar", _): content = MeasuredContent(32, 32)
-        case ("Image", _), ("Video", _): content = MeasuredContent(media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180)))
+        case ("Image", _): content = MeasuredContent(media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180)))
+        case ("Video", _):
+            // Without an aspect ratio or a height the web's `<video>` keeps
+            // its default 150 px box height at any width.
+            var s = media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180))
+            if props.num("aspectRatio") == nil, props.px("height") == nil { s.height = Self.videoDefaultHeight }
+            content = MeasuredContent(s)
         case ("AudioPlayer", _):
             let track: CGFloat = props.str("title").isEmpty ? 0 : ts.lineHeight + spacing("xs")
             let w: CGFloat
@@ -285,7 +292,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             case .some(let x) where x <= 0: w = 160
             case .some(let x): w = x
             }
-            content = MeasuredContent(w, track + 40)
+            content = MeasuredContent(w, track + Self.audioControlsHeight)
         case ("Spinner", _): content = MeasuredContent(20, 20)
         case ("Ring", _): content = MeasuredContent(32, 32)
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
@@ -441,7 +448,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0
-        let w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
+        var w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
+        if Self.hasMenuChevron(leaf.component, leaf.part) { w += leaf.control.gap + 16 }
         let h = max(ts.lineHeight, hasIcon ? icon : 0)
         return MeasuredContent(w, h, labelW > 0 ? (h - ts.lineHeight) / 2 + Self.baseline(ts) : nil)
     }
@@ -573,13 +581,23 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker
-    /// `trigger`): the core's `text` + its glyph, at least 160 wide like the
-    /// web (the recipe's padding and border come from the control box).
+    /// `trigger`): the core's `text` + its glyph, `gap: sm` between (the web's
+    /// `.xui-<C>-trigger`; the recipe's padding and border come from the
+    /// control box).
     private func trigger(_ leaf: LeafRequest) -> MeasuredContent {
         let ts = leaf.textStyle
         let text = leaf.props.str("text").isEmpty ? leaf.props.str("placeholder") : leaf.props.str("text")
         let gap = max(leaf.control.gap, spacing("sm"))
-        let w = line(text, ts) + gap + 16
-        return MeasuredContent(max(w, 160 - leaf.control.insets.0), ts.lineHeight, Self.baseline(ts))
+        return MeasuredContent(line(text, ts) + gap + 16, ts.lineHeight, Self.baseline(ts))
     }
+
+    /// The web's `<audio controls>` bar height (Chromium).
+    static let audioControlsHeight: CGFloat = 54
+    /// The web's `<video>` box height without a ratio (Chromium's default
+    /// object size).
+    static let videoDefaultHeight: CGFloat = 150
+
+    /// A DropdownMenu's built-in trigger (a `Button` `trigger` part) ends in
+    /// the `Select.trigger` glyph, like the web's.
+    static func hasMenuChevron(_ component: String, _ part: String?) -> Bool { component == "Button" && part == "trigger" }
 }

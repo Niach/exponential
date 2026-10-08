@@ -231,6 +231,9 @@ struct ButtonLeaf: View {
             if !iconOnly, !label.isEmpty {
                 Text(label).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
             }
+            if SurfaceMeasurer.hasMenuChevron(cx.node.component, cx.node.part) {
+                ConceptIcon(name: BuiltinIcons.name("Select.trigger"), size: 16, color: cx.ink, model: cx.model).opacity(0.6)
+            }
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)

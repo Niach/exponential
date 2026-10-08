@@ -167,10 +167,16 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(text.baseline!, 3 + SurfaceMeasurer.baseline(ts), accuracy: 0.01, "a text's first baseline sits under its top inset")
         XCTAssertGreaterThan(SurfaceMeasurer.baseline(ts), 10)
         XCTAssertLessThan(SurfaceMeasurer.baseline(ts), 20)
-        // A picker trigger is at least 160 wide (border box) and centres its line.
+        // A picker trigger is its text + `gap: sm` + the glyph inside the box
+        // (no floor: the web's trigger is as wide as that) and centres its line.
         let box = ControlBox(paddingHorizontal: 12, borderWidth: 1, height: 36)
         let trigger = measurer.measureLeaf(LeafRequest(component: "Select", part: "trigger", props: ["text": .string("A")], control: box), wrap: nil)
-        XCTAssertEqual(trigger.width, 160)
+        XCTAssertEqual(trigger.width, TextShaper.width("A", ts) + GeometrySpacing.value("sm") + 16 + 26, accuracy: 0.01)
+        // A DropdownMenu's own trigger ends in the selector glyph (+ gap + 16).
+        let menuBox = ControlBox(paddingHorizontal: 12, borderWidth: 1, gap: 4, height: 32)
+        let menu = measurer.measureLeaf(LeafRequest(component: "Button", part: "trigger", props: ["label": .string("More")], control: menuBox), wrap: nil)
+        let button = measurer.measureLeaf(LeafRequest(component: "Button", props: ["label": .string("More")], control: menuBox), wrap: nil)
+        XCTAssertEqual(menu.width, button.width + 20, accuracy: 0.01)
         XCTAssertEqual(trigger.height, 36)
         XCTAssertEqual(trigger.baseline!, 8 + SurfaceMeasurer.baseline(ts), accuracy: 0.01)
         // Inline fields: text or placeholder + caret, the search glyph.

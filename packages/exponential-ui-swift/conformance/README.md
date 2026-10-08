@@ -93,29 +93,25 @@ With these, every text node whose box is the text's own matches Chromium
 within 1 px across the matrix; the remaining text-component divergences are
 cascades (a sibling's width in a flex row: badges, list metas).
 
-## Today (the budget as recorded on the VAPP-100 L4 branch)
+## Today (the budget after the VAPP-100 integration)
 
-48 cases: size 1436 · position 6436 · wrap 0 · origins 958 · only web 96 ·
-only swift 2640. `responsive/*` = size 1 (≤ 900 px) / size 3, position 1
-(≥ 900 px), the same as gpui's budget. `kitchen-sink/*` ≈ 49–66 size,
-240–310 position (gpui: 55–71 / 239–274), most of them the natives the
-round-1 painter work (L3) has not landed yet. Origins to fix, grouped:
+48 cases: size 1196 · position 6728 · wrap 0 · only web 24 · only swift 2640
+(gpui's `fixtures/conformance-known.json`: size 1564 · position 6402 · only
+web 24). `responsive/*` equals gpui case for case. `kitchen-sink/*`: size
+38–57 per case (gpui 55–71); position 253–327 (gpui 242–309): the vertical
+cascade of the core-side origins below runs further down the page now that
+more nodes match. The origins left, grouped:
 
-| origin | cases | diagnosis | owner |
-|---|---|---|---|
-| `resp-drawer` (Drawer) width = its trigger (99 px), web stretches it to the column | 48 | the Drawer's host box is not stretched (gpui has it too) | core |
-| `audio` (AudioPlayer) 64 vs 78 tall | 24 | measurer height rule (title row + controls) | L3 `SurfaceMeasurer` |
-| `chart`, `chart-line`, `chart-donut` 160/200/180 vs 208/224/224 | 24 each | round-1 chart chrome (axis/legend rows) not in the measure | L3 |
-| `code` (CodeBlock) | 24 | new native, not measured yet | L3 |
-| `form-due` (DatePicker) 55 vs 134 wide | 24 | the `trigger` part is not measured/painted (control-geometry fails the same) | L3 |
-| `form-plan` (Radio) 44 vs 48, `form-volume` (Slider) 30 vs 40 | 24 each | control rules (row gap / thumb + label row) | L3 |
-| `hdr-badge`, `nav-inbox.count`, `resp-nav-inbox.count` (Box) 32 vs 23.5 wide | 24 each | the count badge gets a 32 px minimum the web does not apply (its text, 7.53 px, matches exactly; gpui has it too) | core / recipe |
-| `list-item.meta.*` (Text) 0 wide / not placed | 24 | the `text` prop is a NUMBER (`412`): the measurer reads `props.str("text")` (empty) instead of the core's `FfiLeaf.text` | L3 |
-| `menu` (DropdownMenu) 81 vs 101 wide | 24 | the trigger's chevron chrome (+20) is missing | L3 |
-| `toggles` (ToggleGroup) full width vs 132 | 24 | the group is not sized to its items | L3 / core |
-| `tree-guides` 32×20 vs 2×16, `sparkline` 96 vs 57 wide, `table` rows, `nf-files`, `page-1`, `video` | 24 each | measurer defaults for round-1 natives | L3 |
-| `main-md` (Markdown) 88 vs 68 tall at ≥ 900 | 12 | at its final width the shaper gives 68; the frame keeps a height measured at a narrower width | core / L3 |
-| `dialog`/`drawer`/`sheet`/`popover`/`tooltip`/`alert-dialog` 32 vs 78 tall | 12–14 | the row's tallest trigger (web 78) wraps; cascade of the trigger measure | L3 |
+| origin | diagnosis | owner |
+|---|---|---|
+| `chart`, `chart-line`, `chart-donut` 160/200/180 vs 208/224/204 | the core pins the Chart's `height` style to the PLOT height (`layout_tree/misc.rs`); the web adds the title + legend rows | core |
+| `form-volume` (Slider) 30 vs 40 | the `track` gets the recipe's bar `height: 6` as its frame; the web's slider root is the thumb's 16 | core |
+| `form-plan` (Radio) 44 vs 48 | the items row gap | core / recipe |
+| `page-1` (Image) 180 vs 182.25 | Image/Video never get a height-for-width question (`measure.rs` lists them as fixed) | core |
+| `main-md` (Markdown) 88 vs 68 at ≥ 900 | the measurer answers 68 at the final width; the frame keeps a height asked at a narrower width | core |
+| `toggles` (ToggleGroup) full width vs 132, `sparkline` 96 vs 57, `tree-guides`, `resp-drawer` | stretch / shrink of a leaf in its row | core |
+| `hdr-badge`, `nav-inbox.count`, `pill-1` | the badge / pill 32–36 px minimum the web does not apply | core / recipe |
+| `table` rows, `nf-files`, `code` | part heights of the core-built natives | core / recipe |
 
 `only swift` (110 per kitchen-sink case) = parts the DOM paints without
 `data-xui-id`, as for gpui.

@@ -169,7 +169,7 @@ struct AudioLeaf: View {
                 Text("0:00 / \(duration)").font(.system(size: 12)).foregroundStyle(mutedFg)
             }
             .padding(.horizontal, 8)
-            .frame(height: 40)
+            .frame(height: SurfaceMeasurer.audioControlsHeight)
             .background(muted, in: Capsule())
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)

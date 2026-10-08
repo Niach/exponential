@@ -3,171 +3,171 @@
   "renderer": "swiftui-coretext",
   "cases": {
     "kitchen-sink/exponential/dark/390/ltr": {
-      "size": 49,
-      "position": 252,
+      "size": 38,
+      "position": 264,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/390/rtl": {
-      "size": 49,
-      "position": 252,
+      "size": 38,
+      "position": 264,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/600/ltr": {
-      "size": 50,
-      "position": 251,
+      "size": 39,
+      "position": 263,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/600/rtl": {
-      "size": 50,
-      "position": 251,
+      "size": 39,
+      "position": 263,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/900/ltr": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/900/rtl": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/1280/ltr": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/exponential/dark/1280/rtl": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/390/ltr": {
-      "size": 49,
-      "position": 252,
+      "size": 38,
+      "position": 264,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/390/rtl": {
-      "size": 49,
-      "position": 252,
+      "size": 38,
+      "position": 264,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/600/ltr": {
-      "size": 50,
-      "position": 251,
+      "size": 39,
+      "position": 263,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/600/rtl": {
-      "size": 50,
-      "position": 251,
+      "size": 39,
+      "position": 263,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/900/ltr": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/900/rtl": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/1280/ltr": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/neutral/dark/1280/rtl": {
-      "size": 66,
-      "position": 275,
+      "size": 57,
+      "position": 287,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/390/ltr": {
-      "size": 51,
-      "position": 313,
+      "size": 40,
+      "position": 327,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/390/rtl": {
-      "size": 51,
-      "position": 313,
+      "size": 40,
+      "position": 327,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/600/ltr": {
-      "size": 51,
-      "position": 241,
+      "size": 40,
+      "position": 253,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/600/rtl": {
-      "size": 51,
-      "position": 241,
+      "size": 40,
+      "position": 253,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/900/ltr": {
-      "size": 65,
-      "position": 276,
+      "size": 56,
+      "position": 288,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/900/rtl": {
-      "size": 65,
-      "position": 276,
+      "size": 56,
+      "position": 288,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/1280/ltr": {
-      "size": 65,
-      "position": 276,
+      "size": 56,
+      "position": 288,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "kitchen-sink/playful/dark/1280/rtl": {
-      "size": 65,
-      "position": 276,
+      "size": 56,
+      "position": 288,
       "wrap": 0,
-      "onlyRef": 4,
+      "onlyRef": 1,
       "onlyCand": 110
     },
     "responsive/exponential/dark/390/ltr": {
