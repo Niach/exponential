@@ -507,27 +507,26 @@ pub(crate) fn apply_origin(window: &Window, cx: &mut App, origin: &crate::naviga
     }
 }
 
-/// EXP-1105: whether the ACTIVE team runs in yolo mode — Reviews, Files and
-/// Source Control leave the rail for every member (git FAILURES still bring
-/// Reviews / Source Control back). Pre-column rows hydrate `None` → off.
-fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> bool {
-    active_team_id(nav, cx)
-        .and_then(|id| {
-            Store::global(cx)
-                .collections()
-                .teams
-                .read(cx)
-                .get(&id)
-                .map(|team| team.yolo_mode())
-        })
-        .unwrap_or(false)
+/// EXP-1105: whether the ACTIVE team runs in yolo mode — Files and Source
+/// Control leave the rail for every member (Reviews follows
+/// `domain::reviews_queue::reviews_nav`). `None` = no active team;
+/// pre-column rows hydrate `None` → off.
+fn yolo_mode(nav: &Entity<Navigation>, cx: &App) -> Option<bool> {
+    active_team_id(nav, cx).map(|id| {
+        Store::global(cx)
+            .collections()
+            .teams
+            .read(cx)
+            .get(&id)
+            .is_some_and(|team| team.yolo_mode())
+    })
 }
 
 /// EXP-1105: which of the three yolo-hideable rail entries render. Off =
-/// all three (today's rail). On = Files never; Reviews only while open PRs
-/// exist (in yolo mode every agent PR auto-merges, so an open one means that
-/// merge FAILED); Source Control only while the trunk needs attention or its
-/// sync failed.
+/// all three (today's rail). On = Files never; Source Control only while
+/// the trunk needs attention or its sync failed. Reviews = EXP-1244's
+/// `reviews_nav(..).shows` (yolo mode keeps it only while the queue holds a
+/// PR — an open one there means its auto-merge FAILED), identical ×4.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct YoloRail {
     reviews: bool,
@@ -535,18 +534,11 @@ struct YoloRail {
     source_control: bool,
 }
 
-fn yolo_rail(yolo: bool, has_reviews: bool, sc_failing: bool) -> YoloRail {
-    if !yolo {
-        return YoloRail {
-            reviews: true,
-            files: true,
-            source_control: true,
-        };
-    }
+fn yolo_rail(yolo: bool, reviews_shows: bool, sc_failing: bool) -> YoloRail {
     YoloRail {
-        reviews: has_reviews,
-        files: false,
-        source_control: sc_failing,
+        reviews: reviews_shows,
+        files: !yolo,
+        source_control: !yolo || sc_failing,
     }
 }
 
@@ -784,6 +776,12 @@ pub struct RailView {
     /// `last_seen_at` and produces no collection delta — the session lists'
     /// 5s re-derive, here.
     _tick: gpui::Task<()>,
+    /// EXP-1244: the Reviews dot's queue count, memoized on its inputs (the
+    /// rail renders every frame, EXP-915).
+    reviews_count: queries::Memo<queries::ReviewsCountKey, usize>,
+    /// The team the rail last asked the openPulls store about — a team
+    /// change refreshes a stale entry (the web nav's mount).
+    reviews_team: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -805,12 +803,24 @@ impl RailView {
         let getting_started = crate::getting_started::GettingStartedProgress::global(cx);
         let coding_hub = coding_flow::CodingHub::global(cx);
         let local_sessions = coding_flow::LocalSessions::global(cx);
+        let open_pulls = crate::open_pulls::OpenPulls::global(cx);
         let subscriptions = vec![
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&nav, |_, _, cx| cx.notify()),
+            // EXP-1244: the Reviews dot reads the app-wide openPulls store;
+            // bringing the window forward refreshes a stale active team (the
+            // web nav's focus refetch).
+            cx.observe(&open_pulls, |_, _, cx| cx.notify()),
+            cx.observe_window_activation(window, |this: &mut Self, window, cx| {
+                if window.is_window_active() {
+                    if let Some(id) = active_team_id(&this.nav, cx) {
+                        crate::open_pulls::OpenPulls::refresh(&id, false, cx);
+                    }
+                }
+            }),
             // Sync/conflict badge follows the trunk engine's state.
             cx.observe(&git_bar, |_, _, cx| cx.notify()),
-            // The Reviews dot is a live read over issues ⨝ boards.
+            // The Reviews dot is a live read over issues ⨝ boards (+ runs).
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             // Board icons + the Reviews dot follow the boards collection.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
@@ -855,6 +865,8 @@ impl RailView {
             rail_scroll: ScrollHandle::new(),
             collapsed_runs: HashSet::new(),
             _tick: crate::sessions_section::tick(cx, |_: &mut Self, cx| cx.notify()),
+            reviews_count: queries::Memo::default(),
+            reviews_team: None,
             _subscriptions: subscriptions,
         }
     }
@@ -2069,15 +2081,32 @@ impl Render for RailView {
             }
         }
 
-        // Reviews badge: any open issue-linked PR in the active team — plus
-        // (EXP-734) any agent run holding a chore PR of its OWN, which no
-        // issue row can account for.
-        let has_reviews = active_team_id(&self.nav, cx)
-            .map(|id| {
-                queries::has_review_issues(cx, &id)
-                    || !queries::review_runs(cx, &id).is_empty()
-            })
-            .unwrap_or(false);
+        // EXP-1244: the Reviews entry reads the page's OWN queue
+        // (`domain::reviews_queue`) over the active team — open issue PRs,
+        // runs' own PRs (EXP-734) and the unlinked pulls of the app-wide
+        // openPulls store — then `reviews_nav` decides dot + visibility ×4.
+        let reviews_team = active_team_id(&self.nav, cx);
+        if reviews_team != self.reviews_team {
+            if let Some(id) = reviews_team.as_deref() {
+                crate::open_pulls::OpenPulls::refresh(id, false, cx);
+            }
+            self.reviews_team = reviews_team.clone();
+        }
+        let reviews_count = reviews_team.as_deref().map_or(0, |id| {
+            let open_pulls = crate::open_pulls::OpenPulls::global(cx);
+            let app: &App = cx;
+            let store = open_pulls.read(app);
+            *self.reviews_count.get_or_insert_with(
+                queries::reviews_count_key(app, id, store.revision()),
+                || queries::reviews_count(app, id, store.repos(id)),
+            )
+        });
+        let team_yolo = yolo_mode(&self.nav, cx);
+        let reviews_nav = domain::reviews_queue::reviews_nav(
+            team_yolo.as_slice(),
+            reviews_count,
+        );
+        let has_reviews = reviews_nav.dot;
         // Inbox badge (EXP-699): any unread renderable notification — the
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
@@ -2221,7 +2250,7 @@ impl Render for RailView {
             }));
         // EXP-1105: yolo mode hides Reviews / Files / Source Control unless
         // a git failure needs a person (see `yolo_rail`).
-        let rail_gate = yolo_rail(yolo_mode(&self.nav, cx), has_reviews, sc_failing);
+        let rail_gate = yolo_rail(team_yolo.unwrap_or(false), reviews_nav.shows, sc_failing);
         let reviews_entry = rail_gate.reviews.then(|| {
             self.rail_screen_entry(
                 "rail-reviews",
@@ -2354,7 +2383,8 @@ impl Render for RailView {
                     ))
                     // EXP-706: Reviews is a full-page screen like the three
                     // above it, not a tool window with a docked list.
-                    // EXP-1105: absent in yolo mode unless a merge failed.
+                    // EXP-1105/EXP-1244: `reviews_nav(..).shows` — absent in
+                    // yolo mode unless the queue holds a (failed-merge) PR.
                     .children(reviews_entry)
                     // Actions and Drafts (while any) close the nav entries.
                     .child(actions_entry)
@@ -4071,18 +4101,21 @@ mod tests {
     };
     use crate::navigation::{Screen, SecondSidebar, TabOrigin};
 
-    /// EXP-1105: yolo mode hides Reviews / Files / Source Control, but a git
-    /// failure (an open PR = a failed auto-merge; trunk attention or a sync
-    /// error) brings its entry back. Off = today's rail, whatever the inputs.
+    /// EXP-1105: yolo mode hides Files / Source Control, but a git failure
+    /// (trunk attention or a sync error) brings Source Control back; Reviews
+    /// passes `reviews_nav(..).shows` through (EXP-1244, fixture-locked in
+    /// `domain::reviews_queue`). Off = today's rail.
     #[test]
     fn yolo_rail_hides_entries_until_a_failure_surfaces() {
-        let all = YoloRail {
-            reviews: true,
-            files: true,
-            source_control: true,
-        };
         for (reviews, sc) in [(false, false), (true, false), (false, true), (true, true)] {
-            assert_eq!(yolo_rail(false, reviews, sc), all);
+            assert_eq!(
+                yolo_rail(false, reviews, sc),
+                YoloRail {
+                    reviews,
+                    files: true,
+                    source_control: true,
+                }
+            );
         }
         assert_eq!(
             yolo_rail(true, false, false),
@@ -4100,6 +4133,18 @@ mod tests {
                 source_control: true,
             }
         );
+    }
+
+    /// EXP-1244: the rail's Reviews entry = `reviews_nav` over the active
+    /// team (none = shown): yolo hides it only while the queue is empty.
+    #[test]
+    fn reviews_entry_follows_reviews_nav() {
+        use domain::reviews_queue::reviews_nav;
+        assert!(reviews_nav(None::<bool>.as_slice(), 0).shows);
+        assert!(reviews_nav(Some(false).as_slice(), 0).shows);
+        assert!(!reviews_nav(Some(true).as_slice(), 0).shows);
+        let failed = reviews_nav(Some(true).as_slice(), 1);
+        assert!(failed.shows && failed.dot);
     }
 
     /// EXP-851: every list in the origin vocabulary maps onto exactly the

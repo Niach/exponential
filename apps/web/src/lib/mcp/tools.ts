@@ -165,6 +165,7 @@ import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import {
+  invalidateOpenPulls,
   loadRepositoryByFullName,
   loadRepositoryForTeam,
 } from "@/lib/trpc/repositories"
@@ -2881,6 +2882,10 @@ export function registerExponentialTools(
             }
           }
         })
+
+        // EXP-1244: the PR is linked now; a Reviews fetch cached in between
+        // would list it as "not linked to an issue".
+        invalidateOpenPulls(teamIdByIssue.get(ids[0]!)!)
 
         // EXP-1154: a reused PR kept its old body: bring it to the report.
         // Only the PR the row actually got (a team mismatch skips the stamp).

@@ -2,6 +2,7 @@ package com.exponential.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.OpenPullsStore
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UpdateGate
@@ -19,6 +20,8 @@ import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.defaultTeamId
+import com.exponential.app.domain.ReviewsNav
+import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.liveRunsByTeam
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -60,6 +64,7 @@ class AppViewModel @Inject constructor(
     private val authApi: AuthApi,
     private val steerConnectionStore: SteerConnectionStore,
     private val syncHealthTracker: SyncHealthTracker,
+    private val openPullsStore: OpenPullsStore,
 ) : ViewModel() {
 
     init {
@@ -150,6 +155,22 @@ class AppViewModel @Inject constructor(
                     delay(2_000)
                     teamSelection.clearSelection()
                 }
+        }
+        // EXP-1244: the Reviews dot's unlinked pulls — refetch every member
+        // team older than 60 s whenever the team set changes (the app
+        // foreground refetch rides ExponentialApp's ON_START).
+        @OptIn(ExperimentalCoroutinesApi::class)
+        viewModelScope.launch {
+            combine(
+                accountDatabaseFlow(auth, databaseHolder),
+                auth.activeAccountId,
+            ) { db, accountId -> db to accountId }
+                .flatMapLatest { (db, accountId) ->
+                    if (db == null || accountId == null) flowOf(null to emptyList())
+                    else db.teamDao().observeAll().map { teams -> accountId to teams.map { it.id } }
+                }
+                .distinctUntilChanged()
+                .collect { (accountId, teamIds) -> openPullsStore.watch(accountId, teamIds) }
         }
         // REV2-18: a server that 426s rejects every request from this build, so
         // keep its 16 shape loops from polling forever — for the active account
@@ -304,38 +325,39 @@ class AppViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    // True while ANY member team has an open pull request — the Reviews
-    // tab's green "stuff to do" dot (EXP-214). Same queries the Reviews screen
-    // lists (cross-team since EXP-1186, open PRs only, trashed filtered) —
-    // including, since EXP-734, the issueless RUNS whose own PR is open.
+    // EXP-1244: the Reviews tab's ONE nav state, read off the SAME queue the
+    // Reviews screen lists (`ReviewsQueue.build` over every member team, the
+    // PR-carrying issues + runs of ANY state, the boards and the app-wide
+    // [OpenPullsStore]'s unlinked pulls): dot = the queue is non-empty
+    // (EXP-214 green), shows = no team, some team not in yolo mode
+    // (EXP-1105), or the dot is lit — an open PR in yolo mode is a failed
+    // auto-merge, which must surface. No yolo toggle on Android.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val reviewsOpen: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
-        .flatMapLatest { db ->
+    val reviewsNav: StateFlow<ReviewsNav> = combine(
+        accountDatabaseFlow(auth, databaseHolder),
+        auth.activeAccountId,
+    ) { db, accountId -> db to accountId }
+        .flatMapLatest { (db, accountId) ->
             if (db == null) {
-                flowOf(false)
+                flowOf(ReviewsQueue.nav(emptyList(), 0))
             } else {
-                combine(
-                    db.issueDao().observeOpenPrs(),
-                    db.codingSessionDao().observeOpenPrRuns(),
-                ) { issues, runs -> issues.isNotEmpty() || runs.isNotEmpty() }
+                db.teamDao().observeAll().flatMapLatest { teams ->
+                    combine(
+                        db.boardDao().observeAll(),
+                        db.issueDao().observeReviewQueueIssues(),
+                        db.codingSessionDao().observeWithPrUrl(),
+                        openPullsStore.pulls(accountId, teams.map { it.id }),
+                    ) { boards, issues, sessions, pulls ->
+                        ReviewsQueue.nav(
+                            yolo = teams.map { it.yoloMode == true },
+                            count = ReviewsQueue.build(teams, boards, issues, sessions, pulls).count,
+                        )
+                    }
+                }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-
-    // EXP-1105/EXP-1186: true while EVERY member team runs in yolo mode (the
-    // synced `yolo_mode` flag) — hides the bottom bar's Reviews tab unless
-    // `reviewsOpen` (an open PR in yolo mode = a failed auto-merge, which
-    // must still surface). One non-yolo team keeps the tab. No teams = false.
-    // No toggle on Android.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val yoloMode: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
-        .flatMapLatest { db ->
-            if (db == null) flowOf(false)
-            else db.teamDao().observeAll().map { teams ->
-                teams.isNotEmpty() && teams.all { it.yoloMode == true }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, ReviewsQueue.nav(emptyList(), 0))
 
     // The Issues tab root's current board: last-used on the active account
     // (validated against the live Room table, so deleted boards fall

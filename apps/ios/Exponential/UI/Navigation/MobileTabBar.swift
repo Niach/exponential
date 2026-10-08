@@ -31,10 +31,10 @@ struct MobileTabBar: View {
     let unreadCount: Int
     let agentsRunning: Bool
     let agentsNeedInput: Bool
+    /// EXP-1244: `ReviewsQueue.nav(...).dot` — the Reviews queue is non-empty.
     let reviewsOpen: Bool
-    /// EXP-1105: false while the active team runs in yolo mode (PRs
-    /// auto-merge) and no PR is open. An open PR there means an auto-merge
-    /// failed, so the navigator keeps the tab while one exists.
+    /// EXP-1244: `ReviewsQueue.nav(...).shows` — false only while every team
+    /// runs in yolo mode (EXP-1105: PRs auto-merge) and nothing is queued.
     var showsReviews: Bool = true
     /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
     /// itself rides EVERY bar-visible route now; only a team with no board at

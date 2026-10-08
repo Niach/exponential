@@ -116,6 +116,8 @@ pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
 pub mod reporter_reply;
+// EXP-1244: the Reviews queue (board / run / repo bands), fixture-locked ×4.
+pub mod reviews_queue;
 pub mod rows;
 pub mod session_results;
 pub mod session_tree;

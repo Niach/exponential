@@ -878,8 +878,8 @@ fn build_inbox_entries(
 }
 
 /// Open pull requests: synced issues in this team with an open PR — a
-/// query over `issues`, independent of notifications. Feeds the Reviews rail
-/// badge and, grouped, the Reviews page.
+/// query over `issues`, independent of notifications (the stack merge's
+/// lookup).
 pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
     let collections = Store::global(cx).collections();
     let boards = collections.boards.read(cx);
@@ -897,19 +897,6 @@ pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
         .collect()
 }
 
-/// [`review_issues`]`.is_empty()` without the clones — the rail's Reviews
-/// badge asks this once per frame (EXP-915).
-pub fn has_review_issues(cx: &App, team_id: &str) -> bool {
-    let collections = Store::global(cx).collections();
-    let boards = collections.boards.read(cx);
-    collections.issues.read(cx).iter().any(|issue| {
-        is_reviewable(issue)
-            && boards
-                .get(&issue.board_id)
-                .is_some_and(|board| board.team_id == team_id)
-    })
-}
-
 /// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
 /// groups every issue that shares the `pr_url` (mobile parity).
 pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
@@ -919,38 +906,16 @@ pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
 /// One Reviews entry: the issue(s) behind a single open PR. A plain
 /// single-issue PR has one issue; a batch run (EXP-131) lands N issues on ONE
 /// branch under ONE `pr_url`, so they collapse into a single entry. Issues are
-/// newest first; [`representative`](Self::representative) (the first) carries
+/// in `domain::reviews_queue::representative_order` (newest first, id
+/// ascending); [`representative`](Self::representative) (the first) carries
 /// the shared `pr_number`/`branch` and is the merge/dismiss target.
 pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
 }
 
-/// EXP-917 — which issue REPRESENTS one pull request when several share it (a
-/// batch run lands N issues on ONE branch under ONE `pr_url`): the NEWEST by
-/// `created_at`, id ascending as the tiebreak so the answer never depends on
-/// collection iteration order — the Reviews row's merge target
-/// ([`ReviewEntry::representative`]).
-pub(crate) fn representative_order(
-    a: &domain::rows::Issue,
-    b: &domain::rows::Issue,
-) -> std::cmp::Ordering {
-    // ISO strings from one source compare lexicographically; `None` sorts
-    // last under the descending compare.
-    b.created_at
-        .cmp(&a.created_at)
-        .then_with(|| a.id.cmp(&b.id))
-}
-
-/// Order the issues of ONE pull request so `issues[0]` is its
-/// [`representative_order`] representative.
-pub(crate) fn sort_pr_issues(issues: &mut [domain::rows::Issue]) {
-    issues.sort_by(representative_order);
-}
-
 impl ReviewEntry {
     /// The representative issue — the one whose id drives row-click, merge and
-    /// dismiss (the server acts on the ONE linked PR either way). The list is
-    /// kept in [`representative_order`].
+    /// dismiss (the server acts on the ONE linked PR either way).
     pub fn representative(&self) -> &domain::rows::Issue {
         &self.issues[0]
     }
@@ -968,149 +933,156 @@ pub struct ReviewGroup {
     pub entries: Vec<ReviewEntry>,
 }
 
-/// The Reviews page read: [`review_issues`] collapsed to ONE entry per
-/// PR (issues sharing a `pr_url` — a batch run — group together; issues with
-/// no `pr_url` key on their own id), then grouped by board. Groups follow
-/// board `sort_order` (name tiebreak, like the sidebars); entries are newest
-/// first within a group — web parity.
-pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
-    let open = review_issues(cx, team_id);
-    let collections = Store::global(cx).collections();
-    let boards = collections.boards.read(cx);
-
-    // Collapse issues sharing a PR into one entry (fallback key = issue id when
-    // `pr_url` is absent — a lone issue). Preserve first-seen order so the
-    // in-entry newest-first sort below is deterministic.
-    let mut by_pr: HashMap<String, Vec<domain::rows::Issue>> = HashMap::new();
-    let mut pr_order: Vec<String> = Vec::new();
-    for issue in open {
-        let key = issue
-            .pr_url
-            .clone()
-            .unwrap_or_else(|| issue.id.clone());
-        let bucket = by_pr.entry(key.clone()).or_default();
-        if bucket.is_empty() {
-            pr_order.push(key);
-        }
-        bucket.push(issue);
-    }
-
-    // One entry per PR; issues in the SHARED representative order (EXP-917),
-    // so `issues[0]` is the same issue the run header merges through.
-    let mut entries: Vec<ReviewEntry> = Vec::with_capacity(pr_order.len());
-    for key in pr_order {
-        let mut issues = by_pr.remove(&key).unwrap_or_default();
-        sort_pr_issues(&mut issues);
-        entries.push(ReviewEntry { issues });
-    }
-    // Newest entry first — by the representative's created_at.
-    entries.sort_by(|a, b| {
-        b.representative()
-            .created_at
-            .cmp(&a.representative().created_at)
-    });
-    // Bucketed by the representative's board: a pull request linking issues
-    // on two boards lists under its representative's board.
-    let mut by_board: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
-    let mut board_order: Vec<String> = Vec::new();
-    for entry in entries {
-        let board_id = entry.representative().board_id.clone();
-        let bucket = by_board.entry(board_id.clone()).or_default();
-        if bucket.is_empty() {
-            board_order.push(board_id);
-        }
-        bucket.push(entry);
-    }
-
-    let mut groups: Vec<ReviewGroup> = board_order
-        .into_iter()
-        .filter_map(|board_id| {
-            // The team filter in `review_issues` already proved the
-            // board exists; the lookup only resolves the row.
-            let board = boards.get(&board_id)?.clone();
-            let entries = by_board.remove(&board_id).unwrap_or_default();
-            Some(ReviewGroup { board, entries })
-        })
-        .collect();
-    groups.sort_by(|a, b| {
-        a.board
-            .sort_order
-            .unwrap_or(f64::MAX)
-            .total_cmp(&b.board.sort_order.unwrap_or(f64::MAX))
-            .then_with(|| {
-                a.board
-                    .name
-                    .to_lowercase()
-                    .cmp(&b.board.name.to_lowercase())
-            })
-    });
-    groups
+/// EXP-1244: the Reviews page read, the shared `domain::reviews_queue` (×4,
+/// fixture-locked) over the active team: board groups, the "Agent runs"
+/// block (EXP-734) and the repo bands of pulls no synced row links.
+pub struct ReviewsQueue {
+    pub groups: Vec<ReviewGroup>,
+    pub runs: Vec<domain::rows::CodingSession>,
+    pub pull_repos: Vec<api::repositories::OpenPullsRepo>,
+    pub count: usize,
 }
 
-/// EXP-734: the Reviews page's "Agent runs" block — issue-less runs (a batch,
-/// chat or action run) with an open PR of their OWN, read off the run's synced
-/// row. A row whose `pr_url` some issue also carries (a batch run's combined
-/// PR) already lists in the board groups above, so it is left out here.
-pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
-    let collections = Store::global(cx).collections();
-    let issue_pr_urls: HashSet<String> = collections
-        .issues
-        .read(cx)
+/// Pure core of [`reviews_queue`]: the desktop scope is ONE team, and
+/// `pulls` = that team's `repositories.openPulls` result (`[]` until fetched).
+pub(crate) fn reviews_queue_from<'a>(
+    team_id: &'a str,
+    boards: impl IntoIterator<Item = &'a domain::rows::Board>,
+    issues: impl IntoIterator<Item = &'a domain::rows::Issue>,
+    sessions: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
+    pulls: &'a [api::repositories::OpenPullsRepo],
+) -> ReviewsQueue {
+    use domain::reviews_queue::{reviews_queue, PullRepo};
+    let inputs: Vec<PullRepo<'_, api::repositories::OpenPull>> = pulls
         .iter()
-        .filter_map(|issue| issue.pr_url.clone())
+        .map(|repo| PullRepo {
+            team_id,
+            repository_id: &repo.repository_id,
+            pulls: &repo.pulls,
+        })
         .collect();
-    review_runs_from(
-        collections.coding_sessions.read(cx).iter(),
+    let queue = reviews_queue(&[team_id], boards, issues, sessions, &inputs, |pull| {
+        pull.url.as_str()
+    });
+    ReviewsQueue {
+        groups: queue
+            .board_groups
+            .into_iter()
+            .map(|group| ReviewGroup {
+                board: group.board.clone(),
+                entries: group
+                    .entries
+                    .into_iter()
+                    .map(|entry| ReviewEntry {
+                        issues: entry.issues.into_iter().cloned().collect(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        runs: queue
+            .run_groups
+            .into_iter()
+            .flat_map(|group| group.sessions.into_iter().cloned())
+            .collect(),
+        pull_repos: queue
+            .repo_groups
+            .into_iter()
+            .map(|group| api::repositories::OpenPullsRepo {
+                repository_id: group.repository_id,
+                full_name: pulls[group.index].full_name.clone(),
+                pulls: group.pulls.into_iter().cloned().collect(),
+            })
+            .collect(),
+        count: queue.count,
+    }
+}
+
+/// The Reviews queue of `team_id` over the synced boards, issues and runs
+/// plus `pulls` (the team's fetched `repositories.openPulls`).
+pub fn reviews_queue(
+    cx: &App,
+    team_id: &str,
+    pulls: &[api::repositories::OpenPullsRepo],
+) -> ReviewsQueue {
+    let collections = Store::global(cx).collections();
+    reviews_queue_from(
         team_id,
-        &issue_pr_urls,
+        collections.boards.read(cx).iter(),
+        collections.issues.read(cx).iter(),
+        collections.coding_sessions.read(cx).iter(),
+        pulls,
     )
 }
 
-/// Pure core of [`review_runs`]: this team's issue-less runs with an OPEN PR
-/// of their own that no issue links (`issue_pr_urls`), deduped by `pr_url` (a
-/// resumed run can leave two rows on one PR — the NEWEST wins, like
-/// `review_groups`' representative), newest first.
-pub(crate) fn review_runs_from<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
+/// The queue's `count` alone — the rail's Reviews dot (EXP-1244: the SAME
+/// shared function as the page, minus the row clones; memoized on
+/// [`reviews_count_key`]).
+pub fn reviews_count(
+    cx: &App,
     team_id: &str,
-    issue_pr_urls: &HashSet<String>,
-) -> Vec<domain::rows::CodingSession> {
-    let mut rows: Vec<domain::rows::CodingSession> = sessions
-        .filter(|session| {
-            session.team_id.as_deref() == Some(team_id)
-                // Issue-linked runs merge through their issue and already
-                // render in the board groups above.
-                && session.issue_id.is_none()
-                && session.has_open_pr()
-                && !session
-                    .pr_url
-                    .as_deref()
-                    .is_some_and(|url| issue_pr_urls.contains(url))
+    pulls: &[api::repositories::OpenPullsRepo],
+) -> usize {
+    use domain::reviews_queue::{reviews_queue, PullRepo};
+    let collections = Store::global(cx).collections();
+    let inputs: Vec<PullRepo<'_, api::repositories::OpenPull>> = pulls
+        .iter()
+        .map(|repo| PullRepo {
+            team_id,
+            repository_id: &repo.repository_id,
+            pulls: &repo.pulls,
         })
-        .cloned()
         .collect();
-    // Newest first (ISO strings from one source compare lexicographically,
-    // None last) — the dedupe below then keeps the newest row per PR.
-    rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    let mut seen: HashSet<String> = HashSet::new();
-    rows.retain(|row| match row.pr_url.as_deref() {
-        Some(url) => seen.insert(url.to_string()),
-        None => true,
-    });
-    rows
+    reviews_queue(
+        &[team_id],
+        collections.boards.read(cx).iter(),
+        collections.issues.read(cx).iter(),
+        collections.coding_sessions.read(cx).iter(),
+        &inputs,
+        |pull| pull.url.as_str(),
+    )
+    .count
 }
 
-/// The Reviews page's unlinked-PR sections: keep only repos that have
-/// open pulls (the server returns every team repo, unreachable ones with
-/// an empty list — an empty section is noise, web parity).
-pub fn visible_pull_repos(
-    repos: &[api::repositories::OpenPullsRepo],
-) -> Vec<api::repositories::OpenPullsRepo> {
-    repos
-        .iter()
-        .filter(|repo| !repo.pulls.is_empty())
-        .cloned()
-        .collect()
+/// Every input [`reviews_count`] reads: the team, the three synced
+/// collections and the openPulls store's revision.
+#[derive(PartialEq, Eq)]
+pub(crate) struct ReviewsCountKey {
+    team_id: String,
+    issues: u64,
+    boards: u64,
+    sessions: u64,
+    pulls: u64,
+}
+
+pub(crate) fn reviews_count_key(cx: &App, team_id: &str, pulls_revision: u64) -> ReviewsCountKey {
+    let collections = Store::global(cx).collections();
+    ReviewsCountKey {
+        team_id: team_id.to_string(),
+        issues: collections.issues.read(cx).revision(),
+        boards: collections.boards.read(cx).revision(),
+        sessions: collections.coding_sessions.read(cx).revision(),
+        pulls: pulls_revision,
+    }
+}
+
+/// The board groups alone (the Reviews second sidebar, the `pr` pick). Reads
+/// only boards + issues, so [`review_groups_key`] stays its whole memo key.
+pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
+    let collections = Store::global(cx).collections();
+    reviews_queue_from(
+        team_id,
+        collections.boards.read(cx).iter(),
+        collections.issues.read(cx).iter(),
+        std::iter::empty(),
+        &[],
+    )
+    .groups
+}
+
+/// EXP-734: the "Agent runs" block alone — issue-less runs with an open PR of
+/// their OWN that no issue carries, newest per PR (the shared queue's runs).
+pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
+    reviews_queue(cx, team_id, &[]).runs
 }
 
 /// Drop a pull from the fetched `repositories.openPulls` state after a
@@ -2963,14 +2935,6 @@ mod tests {
     }
 
     #[test]
-    fn visible_pull_repos_hides_empty_repos() {
-        let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
-        let visible = visible_pull_repos(&repos);
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].repository_id, "repo-1");
-    }
-
-    #[test]
     fn remove_merged_pull_drops_only_the_matching_row() {
         let mut repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[1])];
         remove_merged_pull(&mut repos, "repo-1", 1);
@@ -2987,49 +2951,103 @@ mod tests {
         assert_eq!(repos[1].pulls.len(), 1);
     }
 
-    /// EXP-734: the "Agent runs" block lists this team's ISSUE-LESS runs with
-    /// an open PR of their own, newest first and one row per PR.
-    #[test]
-    fn review_runs_from_lists_only_this_teams_issueless_open_prs() {
-        let run = |id: &str,
-                   team: &str,
-                   issue_id: Option<&str>,
-                   pr_url: Option<&str>,
-                   pr_state: Option<&str>,
-                   created_at: &str|
-         -> domain::rows::CodingSession {
-            serde_json::from_value(json!({
-                "id": id, "team_id": team, "issue_id": issue_id,
-                "status": "in_review", "action_id": "act-1",
-                "pr_url": pr_url, "pr_number": "12", "pr_state": pr_state,
-                "created_at": created_at,
-            }))
-            .unwrap()
-        };
-        let newest = run("cs-new", "t-1", None, Some("pr/1"), Some("open"), "2026-09-04T10:00:00Z");
-        // Same PR, older row (a resumed run) — deduped away.
-        let older = run("cs-old", "t-1", None, Some("pr/1"), Some("open"), "2026-09-01T10:00:00Z");
-        let second = run("cs-2", "t-1", None, Some("pr/2"), Some("open"), "2026-09-02T10:00:00Z");
-        // Excluded: another team, an issue-linked run, a merged PR, no PR.
-        let other_team = run("cs-x", "t-2", None, Some("pr/9"), Some("open"), "2026-09-03T10:00:00Z");
-        let issue_run = run("cs-i", "t-1", Some("i-1"), Some("pr/3"), Some("open"), "2026-09-03T10:00:00Z");
-        let merged = run("cs-m", "t-1", None, Some("pr/4"), Some("merged"), "2026-09-03T10:00:00Z");
-        let prless = run("cs-p", "t-1", None, None, None, "2026-09-03T10:00:00Z");
-        // A batch run's combined PR: an issue links it, so the board groups
-        // list it instead.
-        let batch = run("cs-b", "t-1", None, Some("pr/5"), Some("open"), "2026-09-05T10:00:00Z");
-        let issue_pr_urls: HashSet<String> = ["pr/5".to_string()].into_iter().collect();
+    fn queue_board(id: &str, team: &str) -> domain::rows::Board {
+        serde_json::from_value(json!({
+            "id": id, "team_id": team, "name": id, "sort_order": 1,
+        }))
+        .unwrap()
+    }
 
-        let rows = review_runs_from(
-            [&older, &second, &newest, &other_team, &issue_run, &merged, &prless, &batch]
-                .into_iter(),
-            "t-1",
-            &issue_pr_urls,
-        );
+    fn queue_issue(
+        id: &str,
+        board: &str,
+        pr_url: Option<&str>,
+        pr_state: Option<&str>,
+        created_at: &str,
+    ) -> domain::rows::Issue {
+        serde_json::from_value(json!({
+            "id": id, "board_id": board, "number": 1, "identifier": id,
+            "title": id, "status": "in_review", "pr_url": pr_url,
+            "pr_state": pr_state, "created_at": created_at,
+        }))
+        .unwrap()
+    }
+
+    fn queue_run(
+        id: &str,
+        team: &str,
+        issue_id: Option<&str>,
+        pr_url: Option<&str>,
+        pr_state: Option<&str>,
+        created_at: &str,
+    ) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id, "team_id": team, "issue_id": issue_id,
+            "status": "in_review", "action_id": "act-1",
+            "pr_url": pr_url, "pr_number": "12", "pr_state": pr_state,
+            "created_at": created_at,
+        }))
+        .unwrap()
+    }
+
+    /// EXP-1244: the desktop adapter over the shared queue (the fixture test
+    /// in `domain::reviews_queue` locks the rules): the board groups own their
+    /// rows, runs flatten to the one team, repo bands keep `full_name`, linked
+    /// and empty repos drop, and `count` adds the three up.
+    #[test]
+    fn reviews_queue_from_adapts_the_shared_queue_to_one_team() {
+        let boards = vec![queue_board("b-1", "t-1"), queue_board("b-x", "t-2")];
+        let pr = |n: u64| format!("https://github.com/acme/web/pull/{n}");
+        let issues = vec![
+            // A batch PR: newest first, id ascending on a tie.
+            queue_issue("i-2", "b-1", Some(&pr(1)), Some("open"), "2026-09-02T10:00:00Z"),
+            queue_issue("i-1", "b-1", Some(&pr(1)), Some("open"), "2026-09-02T10:00:00Z"),
+            queue_issue("i-0", "b-1", Some(&pr(1)), Some("open"), "2026-09-01T10:00:00Z"),
+            // A closed issue PR is no entry, but still LINKS its pull.
+            queue_issue("i-3", "b-1", Some(&pr(2)), Some("closed"), "2026-09-03T10:00:00Z"),
+            // Another team's board is out of scope.
+            queue_issue("i-x", "b-x", Some(&pr(9)), Some("open"), "2026-09-03T10:00:00Z"),
+        ];
+        let runs = vec![
+            queue_run("cs-new", "t-1", None, Some("pr/5"), Some("open"), "2026-09-04T10:00:00Z"),
+            // Same PR, older row (a resumed run): deduped away.
+            queue_run("cs-old", "t-1", None, Some("pr/5"), Some("open"), "2026-09-01T10:00:00Z"),
+            // Excluded: another team, an issue run, a merged PR, an issue's PR.
+            queue_run("cs-x", "t-2", None, Some("pr/6"), Some("open"), "2026-09-03T10:00:00Z"),
+            queue_run("cs-i", "t-1", Some("i-1"), Some("pr/7"), Some("open"), "2026-09-03T10:00:00Z"),
+            queue_run("cs-m", "t-1", None, Some(&pr(3)), Some("merged"), "2026-09-03T10:00:00Z"),
+            queue_run("cs-b", "t-1", None, Some(&pr(1)), Some("open"), "2026-09-05T10:00:00Z"),
+        ];
+        let pulls = vec![
+            pull_repo("repo-1", &[1, 2, 3, 4]),
+            pull_repo("repo-2", &[]),
+            pull_repo("repo-3", &[2]),
+        ];
+        let queue = reviews_queue_from("t-1", &boards, &issues, &runs, &pulls);
+
+        assert_eq!(queue.groups.len(), 1);
+        assert_eq!(queue.groups[0].board.id, "b-1");
+        let entry = &queue.groups[0].entries[0];
         assert_eq!(
-            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
-            ["cs-new", "cs-2"]
+            entry.issues.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            ["i-1", "i-2", "i-0"]
         );
+        assert_eq!(entry.representative().id, "i-1");
+        assert!(entry.is_batch());
+        assert_eq!(
+            queue.runs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["cs-new"]
+        );
+        // #1 = the batch PR, #2 = the closed issue's, #3 = the merged run's:
+        // all linked. repo-2 is empty, repo-3 left empty.
+        assert_eq!(queue.pull_repos.len(), 1);
+        assert_eq!(queue.pull_repos[0].repository_id, "repo-1");
+        assert_eq!(queue.pull_repos[0].full_name, "acme/repo-1");
+        assert_eq!(
+            queue.pull_repos[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
+            [4]
+        );
+        assert_eq!(queue.count, 3);
     }
 
     fn issue(pr_state: Option<&str>) -> domain::rows::Issue {

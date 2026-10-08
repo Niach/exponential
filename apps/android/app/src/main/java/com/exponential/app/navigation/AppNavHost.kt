@@ -78,6 +78,7 @@ import com.exponential.app.ui.issue.IssueDraftScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
 import com.exponential.app.ui.reviews.ReviewsScreen
+import com.exponential.app.domain.ReviewsNav
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.actions.ActionDetailScreen
@@ -285,8 +286,7 @@ fun AppNavHost() {
             val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
             // EXP-1075: the board switcher sheet's per-team live-run dots.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
-            val reviewsOpen by viewModel.reviewsOpen.collectAsStateWithLifecycle()
-            val yoloMode by viewModel.yoloMode.collectAsStateWithLifecycle()
+            val reviewsNav by viewModel.reviewsNav.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
             val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
@@ -304,8 +304,7 @@ fun AppNavHost() {
                 agentsRunning = agentsRunning,
                 agentsNeedInput = agentsNeedInput,
                 liveRunsByTeam = liveRunsByTeam,
-                reviewsOpen = reviewsOpen,
-                yoloMode = yoloMode,
+                reviewsNav = reviewsNav,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 onRetrySync = { viewModel.retrySync() },
@@ -362,8 +361,7 @@ private fun AuthenticatedNav(
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
     liveRunsByTeam: Map<String, TeamLiveRuns>,
-    reviewsOpen: Boolean,
-    yoloMode: Boolean,
+    reviewsNav: ReviewsNav,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
     onRetrySync: () -> Unit,
@@ -401,16 +399,16 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // EXP-1105: yolo mode hides the Reviews tab unless a PR is open (in yolo
-    // mode an open PR = a failed auto-merge, which must still surface).
-    // EXP-1186: both flags span every member team (`yoloMode` = ALL yolo). If it
+    // EXP-1105/EXP-1244: yolo mode hides the Reviews tab unless the Reviews
+    // queue is non-empty (in yolo mode an open PR = a failed auto-merge, which
+    // must still surface) — `ReviewsQueue.nav` over every member team. If it
     // flips off while the Reviews tab is up, switch to Issues instead of
     // stranding a tab-less screen, and drop its saved stack — ONLY on a
     // true→false TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
     // the flag recomputes through a fresh Room flow that can never emit
     // synchronously, so a guard re-run on the route change alone would read
     // the PREVIOUS team's stale value and bounce a tap straight back to Issues.
-    val showsReviews = !yoloMode || reviewsOpen
+    val showsReviews = reviewsNav.shows
     var hadReviews by remember { mutableStateOf(showsReviews) }
     LaunchedEffect(showsReviews) {
         val flippedOff = hadReviews && !showsReviews
@@ -887,7 +885,7 @@ private fun AuthenticatedNav(
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
-            reviewsOpen = reviewsOpen,
+            reviewsOpen = reviewsNav.dot,
             showsReviews = showsReviews,
             // The Chat arm (the Agent page, with its sessions list and live
             // dot) rides every top-level surface, with New issue beside it in
