@@ -61,8 +61,11 @@ public let inputDebounce: Duration = .milliseconds(150)
 
 extension SurfaceModel {
     /// The value the core shows in a field: the field node's echo prop,
-    /// else (Input / Textarea parts) the owner's `value`.
+    /// else (Input / Textarea parts) the owner's `value`. A NumberField
+    /// shows its value in the SURFACE locale (contract §4; the core's `text`
+    /// is the `en` form).
     private func external(of n: NodeInfo, kind: FieldKind) -> JSONValue {
+        if kind == .number { return .string(numberFieldText(owner: ownerProps(n.index))) }
         if let v = n.props[kind.echoProp] { return v }
         if kind == .input || kind == .textarea, let o = owner(of: n.index), o.index != n.index { return o.props["value"] ?? .null }
         return .null
@@ -157,16 +160,25 @@ extension SurfaceModel {
             // as the new external value so the echo of our own edit never
             // applies.
             f.external = .string(f.text)
-            if let events = try? surface.event(index: UInt32(index), name: "change", payloadJson: JSONValue.object(["value": .string(f.text)]).json) {
+            if let events = try? surface.event(index: UInt32(index), name: "change", payloadJson: JSONValue.object(["value": payloadValue(f)]).json) {
                 dispatch(events, inputRevision: rev)
             }
             // A comma ends a chip: the core added it, the field empties.
             if f.kind == .chips && f.text.hasSuffix(",") { clearField(f) }
         }
-        if let event, let i = byId[f.id], let events = try? surface.event(index: UInt32(i), name: event, payloadJson: JSONValue.object(["value": .string(f.text)]).json) {
+        if let event, let i = byId[f.id], let events = try? surface.event(index: UInt32(i), name: event, payloadJson: JSONValue.object(["value": payloadValue(f)]).json) {
             f.external = .string(f.text)
             dispatch(events, inputRevision: rev)
         }
+    }
+
+    /// The `value` a field's events carry: its text; a NumberField's is a
+    /// NUMBER parsed in the surface locale (`1.234,5` in `de`; null when
+    /// empty), so the core never parses a localized string.
+    private func payloadValue(_ f: FieldState) -> JSONValue {
+        guard f.kind == .number else { return .string(f.text) }
+        if f.text.trimmingCharacters(in: .whitespaces).isEmpty { return .null }
+        return parseNumber(f.text).map(JSONValue.number) ?? .string(f.text)
     }
 
     /// Empty a field without an echo (a ChipInput after a chip was added).

@@ -129,7 +129,7 @@ public struct NodeInfo: Identifiable, Sendable {
     /// The accessible name: `accessibility.label`, else text/label/alt.
     public var accessibilityLabel: String? {
         if let l = accessibility?["label"]?.string, !l.isEmpty { return l }
-        func s(_ k: String) -> String? { let v = props.str(k); return v.isEmpty ? nil : v }
+        func s(_ k: String) -> String? { let v = props.text(k); return v.isEmpty ? nil : v }
         switch component {
         case "Image", "Video": return s("alt") ?? s("title")
         case "Avatar": return s("name")

@@ -49,6 +49,10 @@ private struct SurfaceBody: View {
                 PaintedLayers(model: model)
             }
         }
+        // The surface direction (text, mirrored glyphs) and reduced motion
+        // every painter under the tree and the layers reads.
+        .environment(\.xuiRTL, model.isRTL)
+        .environment(\.xuiReducedMotion, model.reducedMotion)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .frame(height: size.height > 0 ? size.height : nil, alignment: .topLeading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
@@ -57,8 +61,6 @@ private struct SurfaceBody: View {
         .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
             safeArea = insets
         }
-        .modifier(NativeOverlays(model: model))
-        .modifier(DatePopup(model: model))
         .modifier(KeyboardRouting(model: model, rootFocused: $rootFocused))
         .modifier(FilePicking(model: model))
         #if os(iOS)

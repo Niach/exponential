@@ -24,7 +24,6 @@ public enum ExponentialUIFonts {
         return false
     }
 
-    nonisolated(unsafe) private static var cache: [String: PlatformFont] = [:]
     nonisolated(unsafe) private static var families: Set<String> = []
     private static let lock = NSLock()
 
@@ -70,51 +69,21 @@ public enum ExponentialUIFonts {
     }
 
     /// The platform font for a family NAME (nil/missing = system), a CSS
-    /// weight and a size. Memoized.
+    /// weight and a size: the SAME face the measurer shapes with (CSS font
+    /// matching, `TextFonts`), so painted text matches measured text.
     public static func font(family: String?, weight: Int, size: CGFloat, italic: Bool = false) -> PlatformFont {
-        let key = "\(family ?? "")|\(weight)|\(size)|\(italic)"
-        lock.lock()
-        if let hit = cache[key] {
-            lock.unlock()
-            return hit
-        }
-        lock.unlock()
-        var font: PlatformFont?
-        if let family, !family.isEmpty, family != "system-ui", family != "ui-sans-serif", family != "ui-monospace", isAvailable(family) {
-            #if canImport(UIKit)
-            var traits: [UIFontDescriptor.TraitKey: Any] = [.weight: platformWeight(weight)]
-            if italic { traits[.symbolic] = UIFontDescriptor.SymbolicTraits.traitItalic.rawValue }
-            let d = UIFontDescriptor(fontAttributes: [.family: family, .traits: traits])
-            font = UIFont(descriptor: d, size: size)
-            #else
-            var traits: [NSFontDescriptor.TraitKey: Any] = [.weight: platformWeight(weight)]
-            if italic { traits[.symbolic] = NSFontDescriptor.SymbolicTraits.italic.rawValue }
-            let d = NSFontDescriptor(fontAttributes: [.family: family, .traits: traits])
-            font = NSFont(descriptor: d, size: size)
-            #endif
-        }
-        if font == nil, family == "ui-monospace" || family == "monospace" {
-            font = PlatformFont.monospacedSystemFont(ofSize: size, weight: platformWeight(weight))
-        }
-        var resolved = font ?? PlatformFont.systemFont(ofSize: size, weight: platformWeight(weight))
-        if italic, font == nil {
-            #if canImport(UIKit)
-            if let d = resolved.fontDescriptor.withSymbolicTraits([.traitItalic]) { resolved = UIFont(descriptor: d, size: size) }
-            #else
-            resolved = NSFontManager.shared.convert(resolved, toHaveTrait: .italicFontMask)
-            #endif
-        }
-        lock.lock()
-        cache[key] = resolved
-        lock.unlock()
-        return resolved
+        TextFonts.platformFont(family: family, weight: weight, size: size, italic: italic)
     }
 
-    static func clearCache() {
-        lock.lock()
-        cache.removeAll()
-        families.removeAll()
-        lock.unlock()
+    /// The system font at a CSS weight (`TextFonts`' fallback).
+    static func systemFont(weight: Int, size: CGFloat, italic: Bool) -> PlatformFont {
+        let font = PlatformFont.systemFont(ofSize: size, weight: platformWeight(weight))
+        guard italic else { return font }
+        #if canImport(UIKit)
+        return font.fontDescriptor.withSymbolicTraits([.traitItalic]).map { UIFont(descriptor: $0, size: size) } ?? font
+        #else
+        return NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        #endif
     }
 }
 

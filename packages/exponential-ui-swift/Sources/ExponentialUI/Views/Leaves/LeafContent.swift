@@ -9,12 +9,8 @@ import ExponentialUIPrimitives
 struct LeafContent: View {
     let context: LeafContext
 
-    var body: some View {
-        content.modifier(NativeLeafHooks(cx: context))
-    }
-
     @ViewBuilder
-    private var content: some View {
+    var body: some View {
         let cx = context
         let n = cx.node
         let owner = n.recipeComponent
@@ -119,14 +115,35 @@ private struct ExtensionLeafView: View {
 
 // MARK: - Text
 
+/// A `Text` leaf: its lines broken EXACTLY as the measurer broke them
+/// (`TextShaper.lines` at the content width), each drawn unwrapped one line
+/// box tall (gpui `paint_text` + `text_lines`), so painted wraps equal
+/// measured wraps. A `lines` clamp keeps the first lines, the last one
+/// carrying the rest truncated.
 struct TextLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let align = cx.style.textAlign ?? cx.props["align"]?.string
-        TextLabel(cx.props.str("text"), cx.textStyle, color: cx.ink, align: align, lines: cx.node.lines)
-            .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
-            .offset(x: cx.inner.minX, y: cx.inner.minY)
+        let lh = cx.textStyle.lineHeight
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(Self.shown(cx.props.text("text"), cx.textStyle, width: cx.inner.width, clamp: cx.node.lines).enumerated()), id: \.offset) { _, line in
+                TextLabel(line, cx.textStyle, color: cx.ink, align: align, lines: 1)
+                    .frame(width: cx.inner.width, height: lh)
+            }
+        }
+        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+        .clipped()
+        .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+
+    /// The lines a text leaf draws (gpui `text_lines`).
+    static func shown(_ text: String, _ ts: TextStyle, width: CGFloat, clamp: Int?) -> [String] {
+        let clamp = clamp.flatMap { $0 > 0 ? $0 : nil }
+        if clamp == 1 { return [text.replacingOccurrences(of: "\n", with: " ")] }
+        let lines = TextShaper.lines(text, ts, wrap: max(width, 1))
+        guard let n = clamp, lines.count > n else { return lines }
+        return Array(lines[..<(n - 1)]) + [lines[(n - 1)...].joined(separator: " ")]
     }
 }
 
@@ -143,7 +160,7 @@ struct TabLeaf: View {
                 if let icon = cx.props["icon"]?.string {
                     ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
                 }
-                Text(cx.props.str("text")).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                Text(cx.props.text("text")).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
                 if let count = cx.props["count"] {
                     Text(count.displayText).font(.system(size: 12)).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).padding(.horizontal, 6)
                 }
@@ -163,7 +180,7 @@ struct AccordionTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        var title = cx.props.str("text")
+        var title = cx.props.text("text")
         if let count = cx.props["count"] { title += " · \(count.displayText)" }
         return HStack(spacing: max(cx.style.gap, 8)) {
             Text(title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
@@ -179,7 +196,7 @@ struct MarkdownLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        let text = cx.props.str("text")
+        let text = cx.props.text("text")
         if let view = cx.model.host.markdown(text, width: cx.inner.width) {
             view.frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading).offset(x: cx.inner.minX, y: cx.inner.minY)
         } else {
@@ -192,9 +209,8 @@ struct MarkdownLeaf: View {
     }
 }
 
-/// Button / Toggle content: spinner or icon, then the label, centred. A
-/// CodeBlock `copy` part showing `copied` asks the core to reset it after
-/// 2 s (gpui `COPIED_RESET`).
+/// Button / Toggle content: spinner or icon, then the label, centred (a
+/// CodeBlock `copy` part's `copied` resets through the model's timer).
 struct ButtonLeaf: View {
     let cx: LeafContext
 
@@ -204,7 +220,6 @@ struct ButtonLeaf: View {
         let loading = cx.props.flag("loading")
         let iconOnly = cx.props.str("size") == "icon"
         let iconSize = cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16)
-        let copied = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" && cx.props.flag("copied")
         HStack(spacing: cx.style.gap) {
             if loading {
                 SpinnerView(size: iconSize, color: cx.ink)
@@ -219,12 +234,6 @@ struct ButtonLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
-        .task(id: copied) {
-            guard copied else { return }
-            try? await Task.sleep(for: .milliseconds(2000))
-            guard !Task.isCancelled, let i = cx.model.index(of: cx.node.id) else { return }
-            cx.model.fire(i, "reset")
-        }
     }
 }
 

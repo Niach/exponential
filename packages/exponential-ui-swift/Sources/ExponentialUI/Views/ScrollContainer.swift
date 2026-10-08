@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// A scrolling container (`overflow: scroll` on either axis, or a `List` /
-/// `Table` the core windowed): the children at their content offsets inside
-/// a NATIVE scroll view (momentum, indicators) whose content is as large as
-/// the core says. The frames are unscrolled: the scroll view moves them and
-/// reports its offset back (`scrollReported`), so the core's offsets stay
-/// true (scrollIntoView, keyboard scrolling, windowing — a windowed list
-/// moves its window in constant work). When the CORE moves an offset (a
-/// command, the keyboard, a clamp) the view follows through
+/// A scroll container (contract §2 `overflowX/Y: scroll | auto`, the core's
+/// `FfiScroll`, or a `List` / `Table` the core windowed): the children at
+/// their UNSCROLLED frames inside a native `ScrollView` on the scrolling
+/// axes (momentum, indicators, wheel and trackpad on macOS), the content as
+/// large as the core says. The view reports its offset back
+/// (`scrollReported`): the core owns every offset (anchored layers,
+/// `scrollIntoView`; a windowed list re-windows in constant work). When the
+/// CORE moves an offset (a command, the keyboard, a clamp) the view follows
 /// `model.scrollJumps`. Nothing here guesses row heights.
 struct ScrollContainer: View {
     let index: Int
@@ -16,6 +16,8 @@ struct ScrollContainer: View {
     let size: CGSize
     let kids: [Int]
     let origin: CGPoint
+    /// The last offset reported (a reference: scrolling never re-renders).
+    @State private var tracker = ScrollTracker()
 
     var body: some View {
         let info = model.scroll(index)
@@ -33,13 +35,13 @@ struct ScrollContainer: View {
             ScrollView(axes, showsIndicators: true) {
                 ZStack(alignment: .topLeading) {
                     ChildrenLayout(size: content, kids: kids, origin: origin, model: model)
-                    // The target of a programmatic jump: a point at the
-                    // core's offset (iOS 17 scrolls to views, not offsets).
+                    // The target of a programmatic jump: a point PADDED to
+                    // the core's offset (iOS 17 scrolls to views, not offsets).
                     Color.clear
                         .frame(width: 1, height: 1)
-                        .id(anchor)
                         .padding(.leading, min(jump?.offset.x ?? 0, max(0, content.width - 1)))
                         .padding(.top, min(jump?.offset.y ?? 0, max(0, content.height - 1)))
+                        .id(anchor)
                         .accessibilityHidden(true)
                         .allowsHitTesting(false)
                 }
@@ -47,13 +49,20 @@ struct ScrollContainer: View {
                 .background {
                     GeometryReader { proxy in
                         let f = proxy.frame(in: .named(space))
-                        Color.clear.preference(key: ScrollOffsetKey.self, value: CGPoint(x: max(0, -f.minX), y: max(0, -f.minY)))
+                        Color.clear.preference(key: ScrollOffsetKey.self, value: CGPoint(x: -f.minX, y: -f.minY))
                     }
                 }
             }
             .coordinateSpace(name: space)
             .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                model.scrollReported(index, offset: offset)
+                // Rubber-banding past an edge reports the clamped offset.
+                let clamped = CGPoint(
+                    x: min(max(0, content.width - size.width), max(0, offset.x)),
+                    y: min(max(0, content.height - size.height), max(0, offset.y))
+                )
+                if clamped == tracker.reported { return }
+                tracker.reported = clamped
+                model.scrollReported(index, offset: clamped)
             }
             .onChange(of: jump) { _, j in
                 guard j != nil else { return }
@@ -62,6 +71,10 @@ struct ScrollContainer: View {
         }
         .frame(width: size.width, height: size.height)
     }
+}
+
+private final class ScrollTracker {
+    var reported: CGPoint = .zero
 }
 
 private struct ScrollOffsetKey: PreferenceKey {

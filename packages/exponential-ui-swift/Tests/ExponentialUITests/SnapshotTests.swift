@@ -25,7 +25,7 @@ final class SnapshotTests: XCTestCase {
             var rows: [JSONValue] = []
             for n in m.nodes {
                 let f = m.frame(n.index)
-                let s = m.boxStyle(n.index)
+                let s = m.style(n.index)
                 var row: [String: JSONValue] = [
                     "id": .string(n.id),
                     "component": .string(n.component),

@@ -8,13 +8,13 @@ import ExponentialUIPrimitives
 /// the ticks, category labels, optional value labels, the axis titles, a
 /// legend (2+ series or slices, never on a sparkline) and a tooltip for the
 /// category or slice under the pointer (hover on macOS / iPadOS, a tap on
-/// touch). The plot fills the leaf (whose height the core fixed) minus the
+/// touch, the arrows: `SurfaceModel.chartHover`). The plot fills the leaf (whose height the core fixed) minus the
 /// title and legend rows. Geometry is gpui `paint/chart.rs`.
 struct ChartLeaf: View {
     let cx: LeafContext
-    @State private var hovered: Int?
 
     var body: some View {
+        let hovered = cx.model.chartHover[cx.index]
         let chart = ChartModel(cx.props)
         let gap = cx.spacing("xs")
         let legendProps = cx.part("Chart", "legend")
@@ -47,13 +47,13 @@ struct ChartLeaf: View {
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
-                case .active(let p): hovered = geo.hit(p)
-                case .ended: hovered = nil
+                case .active(let p): cx.model.setChartHover(cx.index, geo.hit(p))
+                case .ended: cx.model.setChartHover(cx.index, nil)
                 }
             }
             .onTapGesture(coordinateSpace: .local) { p in
                 let hit = geo.hit(p)
-                hovered = hit == hovered ? nil : hit
+                cx.model.setChartHover(cx.index, hit == hovered ? nil : hit)
             }
             if !names.isEmpty {
                 HStack(spacing: cx.spacing("sm")) {

@@ -16,7 +16,7 @@ struct LeafContext {
     var ownerProps: Props { model.ownerProps(node.index) }
     var states: [String] { model.states(of: node.id) }
     var dark: Bool { model.mode == .dark }
-    var rtl: Bool { model.paintsRTL }
+    var rtl: Bool { model.isRTL }
 
     /// The content box inside padding + border (per side).
     var inner: CGRect {
@@ -36,14 +36,9 @@ struct LeafContext {
     func spacing(_ name: String) -> CGFloat { model.spacing(name) }
     func control(_ name: String, _ fallback: CGFloat) -> CGFloat { model.control(name, fallback) }
 
+    /// The leaf's font: the face the measurer shaped with.
     var font: Font {
-        let base: Font
-        if let family = textStyle.fontFamily, ExponentialUIFonts.isAvailable(family) {
-            base = .custom(family, size: textStyle.fontSize).weight(ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
-        } else {
-            base = .system(size: textStyle.fontSize, weight: ExponentialUIFonts.swiftUIWeight(textStyle.fontWeight))
-        }
-        return style.italic ? base.italic() : base
+        Font(ExponentialUIFonts.font(family: textStyle.fontFamily, weight: textStyle.fontWeight, size: textStyle.fontSize, italic: style.italic) as CTFont)
     }
 
     /// The semantic tone colour of a `tone` prop.
@@ -66,7 +61,7 @@ extension SurfaceModel {
     public func combinedLabel(_ index: Int) -> String {
         var parts: [String] = []
         func walk(_ i: Int) {
-            guard let n = node(i), !n.hidden, !style(i).invisible, n.accessibility?["hidden"]?.bool != true else { return }
+            guard let n = node(i), !n.hidden, !style(i).invisible, !n.a11y.hidden else { return }
             if n.isLeaf {
                 if let l = n.accessibilityLabel, !l.isEmpty, n.component != "Icon" || n.props["label"] != nil { parts.append(l) }
             } else {
@@ -77,54 +72,15 @@ extension SurfaceModel {
         return parts.joined(separator: ", ")
     }
 
-    /// The box style a node paints with; mirrored controls (unbound
-    /// checkboxes, switches, radios, toggles, open triggers) re-resolve theirs.
-    func boxStyle(_ index: Int) -> PaintStyle {
-        _ = mirrorGeneration
-        let base = style(index)
-        guard let n = node(index), theme != nil else { return base }
-        let states = self.states(of: n.id)
-        switch (n.recipeComponent, n.part) {
-        case ("Checkbox", "box"), ("Switch", "track"):
-            let checked = self.checked(index)
-            let external = (owner(of: index)?.props["checked"] ?? .bool(false)).bool ?? false
-            if checked == external { return base }
-            var props = ownerProps(index)
-            props["checked"] = .bool(checked)
-            var st = states
-            if checked { st.append("checked") }
-            return part(n.recipeComponent, n.part ?? "box", props: props, states: st).style
-        case ("Radio", "dot"):
-            var st = states
-            if radioChecked(index) { st.append("checked") }
-            return part("Radio", "item", props: ownerProps(index), states: st).style
-        case ("Toggle", nil):
-            let pressed = togglePressed(index)
-            if pressed == (n.props["pressed"]?.bool ?? false) { return base }
-            var props = n.props
-            props["pressed"] = .bool(pressed)
-            return part("Toggle", "root", props: props, states: states).style
-        case ("Select", "field"), ("DatePicker", "field"):
-            var st = states
-            if popup == n.id { st.append("open") }
-            return part(n.recipeComponent, "trigger", props: ownerProps(index), states: st).style
-        default:
-            return base
-        }
-    }
-
-    /// Is node `id` keyboard-focused (`:focus-visible`, contract §2): the
-    /// ring paints for keyboard focus only, never for a press.
-    func focusVisible(_ id: String) -> Bool {
-        states(of: id).contains("focus-visible")
-    }
 }
 
-/// Which pressables handle their own gestures (no Button wrapper).
+/// Which pressables handle their own gestures (no Button wrapper): every
+/// host text field (incl. a NumberField / ChipInput `input`, a Select
+/// `search`), the slider track, a ToggleGroup, the carousel dots.
 private func selfHandling(_ n: NodeInfo) -> Bool {
     if n.isTextField { return true }
     switch (n.component, n.part) {
-    case ("Select", "field"), ("Slider", "track"), ("ToggleGroup", _), ("Box", "indicator"): return true
+    case ("Slider", "track"), ("ToggleGroup", _), ("Box", "indicator"): return true
     default: return false
     }
 }
@@ -149,21 +105,20 @@ private struct NodeBody: View {
     let index: Int
     let node: NodeInfo
     let model: SurfaceModel
-    @Environment(\.accessibilityReduceMotion) private var platformReduced
 
     var body: some View {
         let frame = model.frame(index)
-        let style = model.boxStyle(index)
+        let style = model.style(index)
         let size = frame.size
         let interactive = !style.pointerNone && !style.invisible
         let pressable = node.pressable && !selfHandling(node) && interactive
-        let rtl = model.paintsRTL
-        let reduced = platformReduced || model.paintReducedMotion
-        let animation = style.transition?.animation(reduceMotion: reduced)
+        let animation = style.transition?.animation(reduceMotion: model.reducedMotion)
         // An Icon NODE mirrors at its box, outside its own transform
         // (contract §4); its content then never flips again.
-        let mirrorIcon = node.component == "Icon" && RTLGlyphs.mirrors(node.props.str("name"), rtl: rtl)
-        let isRoot = node.parent == nil || index == 0
+        let mirrorIcon = node.component == "Icon" && RTLGlyphs.mirrors(node.props.str("name"), rtl: model.isRTL)
+        // The pointer (gpui `interactive`): pressables, focusables, fields,
+        // hover triggers and boxes with a transition report `hover`.
+        let hovers = interactive && (node.pressable || node.isFocusable || node.triggerFor != nil || style.transition != nil)
         Group {
             if pressable {
                 Button {
@@ -178,14 +133,14 @@ private struct NodeBody: View {
                 painted(style: style, size: size, animation: animation)
             }
         }
-        .modifier(TriggerModifier(index: index, node: node, model: model))
-        .modifier(HoverReporting(id: node.id, model: model, on: interactive && (node.isFocusable || node.pressable)))
+        .modifier(TooltipLongPress(node: node, model: model))
+        .modifier(NativeHooks(node: node, model: model))
+        .modifier(HoverReporting(id: node.id, model: model, on: hovers))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
-        .modifier(NodeAccessibility(node: node, model: model, style: style))
+        .modifier(AccessibilityModifier(node: node, model: model, style: style))
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
         .environment(\.xuiGlyphMirrored, mirrorIcon)
         .transformEnvironment(\.xuiTextPaint) { $0 = $0.merged(style) }
-        .modifier(SurfaceEnvironment(on: isRoot, rtl: rtl, reduced: model.paintReducedMotion))
     }
 
     private func painted(style: PaintStyle, size: CGSize, animation: Animation?) -> some View {
@@ -223,22 +178,6 @@ private struct NodeBody: View {
     }
 }
 
-/// The surface-level environment, set at the tree's root and each layer
-/// root: the direction text and glyphs read, the surface's reduced motion.
-struct SurfaceEnvironment: ViewModifier {
-    let on: Bool
-    let rtl: Bool
-    let reduced: Bool
-
-    func body(content: Content) -> some View {
-        if on {
-            content.environment(\.xuiRTL, rtl).environment(\.xuiReducedMotion, reduced)
-        } else {
-            content
-        }
-    }
-}
-
 /// Reports press-down / up to the model (the `pressed` state → the
 /// `:pressed` style through the core).
 struct PressReportingStyle: ButtonStyle {
@@ -270,8 +209,8 @@ struct ContainerContent: View {
             return c.layer == node.layer
         }
         let origin = model.frame(index).origin
-        if let scroll = model.paintScroll(index) {
-            ScrollBox(index: index, model: model, size: size, kids: kids, origin: origin, scroll: scroll)
+        if model.scroll(index) != nil || model.lists[node.id]?.windowed == true {
+            ScrollContainer(index: index, node: node, model: model, size: size, kids: kids, origin: origin)
         } else {
             ChildrenLayout(size: size, kids: kids, origin: origin, model: model)
         }
@@ -287,12 +226,12 @@ struct ChildrenLayout: View {
     var body: some View {
         var rel: [Int: CGRect] = [:]
         for k in kids { rel[k] = model.frame(k).offsetBy(dx: -origin.x, dy: -origin.y) }
-        let total = model.nodes.count
         return FrameLayout(size: size, frames: rel) {
             ForEach(kids, id: \.self) { k in
                 NodeView(index: k)
                     .layoutValue(key: NodeIndexKey.self, value: k)
-                    .accessibilitySortPriority(Double(total - k))
+                    // VoiceOver reads in PAINT order (slots are not pre-order).
+                    .accessibilitySortPriority(model.accessibilityPriority(k))
             }
         }
     }

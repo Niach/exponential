@@ -7,7 +7,6 @@ struct LaunchOptions {
     var mode = "dark"
     var rtl = false
     var width: CGFloat? = nil
-    var painted = false
     var shot: String? = nil
     /// `-a11yDump <path>`: write the UIAccessibility walk (one label per line).
     var a11yDump: String? = nil
@@ -24,7 +23,6 @@ struct LaunchOptions {
             case "-mode": o.mode = value() ?? o.mode; i += 1
             case "-rtl": o.rtl = true
             case "-width": o.width = value().flatMap { Double($0) }.map { CGFloat($0) }; i += 1
-            case "-overlays": o.painted = value() == "painted"; i += 1
             case "-shot": o.shot = value(); i += 1
             case "-a11yDump": o.a11yDump = value(); i += 1
             case "-dump": o.dump = value(); i += 1
@@ -70,7 +68,6 @@ final class SinkState: ObservableObject {
         var surfaceOptions = SurfaceOptions()
         surfaceOptions.theme = SinkState.theme(options.theme)
         surfaceOptions.mode = mode
-        surfaceOptions.overlays = options.painted ? .painted : .native
         model = try! SurfaceModel(id: "kitchen-sink", options: surfaceOptions)
         let host = ClosureHost(
             icons: { name, size in

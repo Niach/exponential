@@ -40,8 +40,10 @@ final class RecordingHost: HostPlugin {
     var inputs: [SurfaceInputEvent] = []
     var urls: [String] = []
     var unknowns: [String] = []
+    var uploads: [SurfaceUploadEvent] = []
     func onAction(_ event: SurfaceActionEvent) { actions.append(event) }
     func onInput(_ event: SurfaceInputEvent) { inputs.append(event) }
     func openUrl(_ url: String) { urls.append(url) }
     func onUnknown(component: String, catalogId: String?, id: String) { unknowns.append(component) }
+    func onUpload(_ event: SurfaceUploadEvent) { uploads.append(event) }
 }

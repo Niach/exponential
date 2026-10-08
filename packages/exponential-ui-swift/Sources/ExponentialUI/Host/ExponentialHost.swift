@@ -19,7 +19,6 @@ public struct HostOptions {
     /// The theme and mode every surface the host creates starts with.
     public var theme: ThemeHandle?
     public var mode: Mode
-    public var overlays: OverlayPresentation
     /// Locale, strings, `system` mode, density, contrast, font scale… for
     /// every surface (nil = the defaults with `mode`).
     public var settings: SurfaceSettings?
@@ -40,7 +39,6 @@ public struct HostOptions {
         policy: HostPolicy = HostPolicy(),
         theme: ThemeHandle? = ThemeHandle.builtin(defaultThemeId()),
         mode: Mode = .light,
-        overlays: OverlayPresentation = .native,
         settings: SurfaceSettings? = nil,
         plugin: HostPlugin? = nil,
         onSend: ((String) -> Void)? = nil,
@@ -54,7 +52,6 @@ public struct HostOptions {
         self.policy = policy
         self.theme = theme
         self.mode = mode
-        self.overlays = overlays
         self.settings = settings
         self.plugin = plugin
         self.onSend = onSend
@@ -206,7 +203,7 @@ public final class ExponentialHost {
         switch op["op"]?.string {
         case "create":
             unbind(surfaceId)
-            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, overlays: options.overlays, settings: settings)
+            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, settings: settings)
             o.rounding = false
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }

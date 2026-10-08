@@ -15,11 +15,10 @@ final class Round1NativesTests: XCTestCase {
         try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
     }
 
-    func model(_ id: String = "r1", theme: String? = "exponential", mode: Mode = .light, overlays: OverlayPresentation = .native) throws -> SurfaceModel {
+    func model(_ id: String = "r1", theme: String? = "exponential", mode: Mode = .light) throws -> SurfaceModel {
         var o = SurfaceOptions()
         o.theme = theme.flatMap { ThemeHandle.builtin($0) }
         o.mode = mode
-        o.overlays = overlays
         return try SurfaceModel(id: id, options: o, host: NoHost())
     }
 
@@ -45,8 +44,8 @@ final class Round1NativesTests: XCTestCase {
         return painted
     }
 
-    func surface(_ node: JSONValue, theme: String? = "exponential", overlays: OverlayPresentation = .native, width: CGFloat = 390) throws -> SurfaceModel {
-        let m = try model(theme: theme, overlays: overlays)
+    func surface(_ node: JSONValue, theme: String? = "exponential", width: CGFloat = 390) throws -> SurfaceModel {
+        let m = try model(theme: theme)
         try m.setNested(json: node.json)
         m.setViewport(width: width, height: 900)
         return m
@@ -60,7 +59,7 @@ final class Round1NativesTests: XCTestCase {
 
     /// Every specimen (one surface per visible component, `specimens.json`)
     /// lays out and paints hosted with no Unknown and every visible
-    /// main-tree node painted, in both overlay presentations.
+    /// main-tree node painted.
     func testEverySpecimenPaintsWithoutUnknown() throws {
         let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
         XCTAssertGreaterThan(specimens.count, 80)
@@ -68,8 +67,8 @@ final class Round1NativesTests: XCTestCase {
         for spec in specimens {
             let id = spec["id"]?.string ?? "?"
             guard let tree = spec["node"] else { continue }
-            for overlays in [OverlayPresentation.native, .painted] {
-                let m = try model(id, overlays: overlays)
+            do {
+                let m = try model(id)
                 try m.setNested(json: tree.json)
                 let painted = paint(m)
                 if let u = m.nodes.first(where: { $0.component == "Unknown" }), spec["component"]?.string != "Unknown" {
@@ -80,7 +79,7 @@ final class Round1NativesTests: XCTestCase {
                     visible[n.index] = (n.parent.map { visible[$0] } ?? true) && !n.hidden && n.layer == 0
                 }
                 let missing = m.nodes.filter { visible[$0.index] && !painted.contains($0.index) }
-                if !missing.isEmpty { failures.append("\(id) \(overlays): not painted \(missing.prefix(4).map(\.id))") }
+                if !missing.isEmpty { failures.append("\(id): not painted \(missing.prefix(4).map(\.id))") }
             }
         }
         XCTAssertEqual(failures, [])
@@ -134,7 +133,7 @@ final class Round1NativesTests: XCTestCase {
                         continue
                     }
                     let frame = m.frame(n.index)
-                    let style = m.boxStyle(n.index)
+                    let style = m.style(n.index)
                     let recipe = m.part(component, part, props: props)
                     let padH = n.isLeaf ? style.paddingHorizontal : (recipe.px("paddingHorizontal") ?? recipe.px("padding") ?? 0)
                     let padV = n.isLeaf ? style.paddingVertical : (recipe.px("paddingVertical") ?? recipe.px("padding") ?? 0)
@@ -303,28 +302,36 @@ final class Round1NativesTests: XCTestCase {
         let m = try surface(node("nf", "NumberField", ["label": .string("Seats"), "value": .number(3), "min": .number(1), "max": .number(5)]))
         paint(m)
         guard let input = m.index(of: "nf.input") else { return XCTFail("no input") }
-        XCTAssertEqual(m.inlineFieldText(input), "3")
-        m.inlineFieldEdited(input, text: "4")
-        m.inlineFlush(input, commit: "commit")
+        XCTAssertEqual(m.fieldText(input), "3")
+        m.fieldEdited(input, text: "4")
+        m.fieldFocused(input, false)
         XCTAssertEqual(m.node(m.index(of: "nf.input")!)?.props["value"]?.number, 4)
-        XCTAssertTrue(m.inlineFieldArrow(m.index(of: "nf.input")!, up: true, page: false))
+        XCTAssertTrue(m.fieldKey(m.index(of: "nf.input")!, key: "up"))
         XCTAssertEqual(m.node(m.index(of: "nf.input")!)?.props["value"]?.number, 5)
-        m.numberFieldStep(ownerId: "nf", up: true, times: 3)
+        XCTAssertTrue(m.fieldKey(m.index(of: "nf.input")!, key: "up", shift: true))
         XCTAssertEqual(m.node(m.index(of: "nf.input")!)?.props["value"]?.number, 5, "clamped at max")
         // A typed value beyond max clamps on commit.
         let i2 = m.index(of: "nf.input")!
-        m.inlineFieldEdited(i2, text: "42")
-        m.inlineFlush(i2, commit: "commit")
+        m.fieldEdited(i2, text: "42")
+        m.fieldFocused(i2, false)
         XCTAssertEqual(m.node(m.index(of: "nf.input")!)?.props["value"]?.number, 5)
         XCTAssertEqual(SurfaceModel.numberPrecision(["step": .number(0.25)]), 2)
         XCTAssertEqual(SurfaceModel.numberPrecision(["step": .number(1), "precision": .number(3)]), 3)
         // The surface locale: German grouping and decimals.
         let de = try model("de")
-        de.surface.setLocale(locale: "de-DE")
+        de.setLocale("de-DE")
         XCTAssertEqual(de.formatNumber(1234.5, precision: 1), "1.234,5")
         XCTAssertEqual(de.parseNumber("1.234,5"), 1234.5)
         XCTAssertEqual(de.surfaceWeekStart, 1)
-        de.surface.setLocale(locale: "en-US")
+        // A German field shows and sends the locale's notation.
+        try de.setNested(json: node("nf", "NumberField", ["value": .number(1234.5), "precision": .number(1)]).json)
+        de.setViewport(width: 390, height: 800)
+        let dInput = try XCTUnwrap(de.index(of: "nf.input"))
+        XCTAssertEqual(de.fieldText(dInput), "1.234,5")
+        de.fieldEdited(dInput, text: "2.000,5")
+        de.fieldFocused(dInput, false)
+        XCTAssertEqual(de.node(de.index(of: "nf.input")!)?.props["value"]?.number, 2000.5)
+        de.setLocale("en-US")
         XCTAssertEqual(de.surfaceWeekStart, 0, "week start from the core's CLDR table")
     }
 
@@ -332,16 +339,16 @@ final class Round1NativesTests: XCTestCase {
         let m = try surface(node("ci", "ChipInput", ["label": .string("Labels"), "values": .array([.string("bug")])]))
         paint(m)
         var input = m.index(of: "ci.input")!
-        m.inlineFieldEdited(input, text: "ios,")
-        m.inlineFlush(input, commit: nil)
+        m.fieldEdited(input, text: "ios,")
+        m.flushPending(input)
         XCTAssertEqual(m.liveParts("ci", "chipLabel").map { $0.props.str("text") }, ["bug", "ios"])
         input = m.index(of: "ci.input")!
-        XCTAssertEqual(m.inlineFieldText(input), "", "the field empties after a chip")
-        m.inlineFieldEdited(input, text: "ux")
-        m.inlineFieldReturn(input)
+        XCTAssertEqual(m.fieldText(input), "", "the field empties after a chip")
+        m.fieldEdited(input, text: "ux")
+        m.fieldCommitted(input)
         XCTAssertEqual(m.liveParts("ci", "chipLabel").count, 3)
         input = m.index(of: "ci.input")!
-        XCTAssertTrue(m.inlineFieldBackspace(input), "Backspace in an empty field removes the last chip")
+        XCTAssertTrue(m.fieldKey(input, key: "backspace"), "Backspace in an empty field removes the last chip")
         XCTAssertEqual(m.liveParts("ci", "chipLabel").map { $0.props.str("text") }, ["bug", "ios"])
     }
 
@@ -352,8 +359,8 @@ final class Round1NativesTests: XCTestCase {
         paint(m)
         guard let search = m.index(of: "sel.search") else { return XCTFail("no search field") }
         XCTAssertEqual(m.liveParts("sel", "item").count, 3)
-        m.inlineFieldEdited(search, text: "spr")
-        m.inlineFlush(search, commit: nil)
+        m.fieldEdited(search, text: "spr")
+        m.flushPending(search)
         XCTAssertEqual(m.liveParts("sel", "item").map { $0.props.str("text") }, ["Sprint"])
         paint(m)
     }
@@ -375,14 +382,20 @@ final class Round1NativesTests: XCTestCase {
     }
 
     func testFileUploadTakesPlatformFiles() throws {
+        let host = RecordingHost()
         let m = try surface(node("fu", "FileUpload", ["label": .string("Files"), "multiple": .bool(true)]))
+        m.host = host
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("r1-upload.txt")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
-        m.fileUploadReceived(ownerId: "fu", urls: [url])
-        XCTAssertEqual(m.nodes.first { $0.owner == "fu" && $0.part == "fileName" }?.props.str("text"), "r1-upload.txt")
-        XCTAssertEqual(m.fileUploadURLs("fu"), [url])
-        XCTAssertEqual(SurfaceModel.fileDescriptor(url)["size"]?.number, 5)
-        XCTAssertEqual(SurfaceModel.fileDescriptor(url)["type"]?.string, "text/plain")
+        m.setDragover(id: "fu.dropzone", true)
+        XCTAssertTrue(m.states(of: "fu.dropzone").contains("dragover"))
+        m.filesDropped(on: "fu.dropzone", urls: [url])
+        XCTAssertFalse(m.states(of: "fu.dropzone").contains("dragover"))
+        XCTAssertEqual(m.liveParts("fu", "fileName").map { $0.props.str("text") }, ["r1-upload.txt"])
+        let upload = try XCTUnwrap(host.uploads.last, "the host gets the files (onUpload)")
+        XCTAssertEqual(upload.files.map(\.url), [url])
+        XCTAssertEqual(upload.files.first?.size, 5)
+        XCTAssertEqual(upload.files.first?.type, "text/plain")
         paint(m)
     }
 
@@ -400,17 +413,13 @@ final class Round1NativesTests: XCTestCase {
         tree["children"] = .array([node("cm-child", "Text", ["text": .string("Child")])])
         let m = try surface(.object(tree))
         paint(m)
-        XCTAssertEqual(m.contextMenuAncestor(of: m.index(of: "cm-child")!), m.index(of: "cm"))
-        m.openContextMenu(m.index(of: "cm-child")!, at: CGPoint(x: 40, y: 10))
+        m.contextMenu(m.index(of: "cm")!, at: CGPoint(x: 40, y: 10))
         XCTAssertTrue(m.layers.contains { $0.owner == "cm" })
         let painted = paint(m)
         let labels = m.liveParts("cm", "itemLabel")
         XCTAssertEqual(labels.map { $0.props.str("text") }, ["Copy", "Pinned", "Move"])
         XCTAssertTrue(labels.allSatisfy { m.node($0.index) != nil })
         XCTAssertFalse(painted.isEmpty)
-        XCTAssertEqual(MenuShortcut.parse("⌘C"), KeyboardShortcut("c", modifiers: .command))
-        XCTAssertEqual(MenuShortcut.parse("Ctrl+Shift+P"), KeyboardShortcut("p", modifiers: [.control, .shift]))
-        XCTAssertNil(MenuShortcut.parse("whatever"))
         // A toast's content: the core's icon per type, title, close.
         let t = try surface(node("toast", "Toast", ["title": .string("Saved"), "type": .string("error"), "open": .bool(true)]))
         paint(t)
@@ -438,7 +447,7 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertFalse(slots.isEmpty)
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(slots, names)), BuiltinIcons.slots)
         let locale = JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/locale.json"), encoding: .utf8))
-        XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), BuiltinIcons.rtlMirrored)
+        XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), RTLGlyphs.mirrored)
     }
 
     /// A debugging aid: `R1_SHOTS=<dir>` renders the round-1 specimens
@@ -452,7 +461,7 @@ final class Round1NativesTests: XCTestCase {
             let component = spec["component"]?.string ?? ""
             if let only, !only.contains(component) { continue }
             for mode in [Mode.light, .dark] {
-                let m = try model(component, mode: mode, overlays: .painted)
+                let m = try model(component, mode: mode)
                 try m.setNested(json: spec["node"]!.json)
                 m.setViewport(width: 390, height: 900)
                 let height = max(m.surfaceSize.height, 200)

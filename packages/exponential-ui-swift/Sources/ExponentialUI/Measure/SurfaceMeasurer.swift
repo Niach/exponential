@@ -160,7 +160,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         self.generation = generation
     }
 
-    func measureId() -> UInt64 { measureIdentity &+ generation }
+    /// A new font set (`TextFonts.install`) or a settings change re-keys
+    /// the core's measure memo.
+    func measureId() -> UInt64 { measureIdentity &+ generation &+ (TextFonts.epoch << 32) }
 
     func measureIntrinsics(leaves: [FfiLeaf]) -> [FfiIntrinsics] {
         leaves.map { raw in
@@ -198,14 +200,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         TextShaper.maxContent(text, ts)
     }
 
-    /// Where the first baseline sits inside a line box of the style's line
-    /// height: half-leading + ascent (CSS), what `TextLabel` paints.
-    static func baseline(_ ts: TextStyle) -> CGFloat {
-        let font = ExponentialUIFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize)
-        let ascent = font.ascender
-        let descent = abs(font.descender)
-        return max(0, (ts.lineHeight - (ascent + descent)) / 2 + ascent)
-    }
+    /// Where the first baseline sits in a line box (`TextShaper.baseline`:
+    /// half-leading + ascent, what `TextLabel` paints).
+    static func baseline(_ ts: TextStyle) -> CGFloat { TextShaper.baseline(ts) }
 
     /// A one-line text with fixed chrome beside it (`lead`, `trail`).
     private func row(_ text: String, _ ts: TextStyle, lead: CGFloat, trail: CGFloat, wrap: CGFloat?) -> MeasuredContent {
@@ -255,7 +252,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let count = props["count"].map(\.displayText) ?? ""
             let countW = count.isEmpty ? 0 : line(count, ts)
             let chrome = Self.textChrome(Self.textOwner(part, props), part, props, gap: c.gap, countWidth: countW)
-            let raw = props.str("text")
+            // The core's text (a numeric `text` prop reads as its digits).
+            let raw = leaf.text
             if chrome != (0, 0) {
                 content = row(raw, ts, lead: chrome.0, trail: chrome.1, wrap: inner)
             } else if part == "cell", props.str("cellType") == "boolean" {
@@ -583,27 +581,5 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let gap = max(leaf.control.gap, spacing("sm"))
         let w = line(text, ts) + gap + 16
         return MeasuredContent(max(w, 160 - leaf.control.insets.0), ts.lineHeight, Self.baseline(ts))
-    }
-
-    /// A Select's trigger text: the chosen option labels or the placeholder.
-    static func selectLabel(_ props: Props) -> String {
-        let options = props.list("options")
-        let chosen: [String]
-        switch props["value"] {
-        case .some(.array(let vals)): chosen = vals.map(\.displayText)
-        case .some(.string(let s)) where s.contains(","): chosen = s.split(separator: ",").map(String.init)
-        case .some(let v) where !v.isNull: chosen = [v.displayText]
-        default: chosen = []
-        }
-        let labels = options.filter { chosen.contains($0["value"]?.displayText ?? "") }.map { $0["label"]?.displayText ?? "" }
-        if labels.isEmpty { return props.str("placeholder").isEmpty ? "Choose" : props.str("placeholder") }
-        return labels.joined(separator: ", ")
-    }
-
-    /// `"2026-10-14"` → `"Oct 14, 2026"`.
-    static func dateLabel(_ value: String) -> String? {
-        guard let (y, m, d) = DateModel.parseISO(value) else { return nil }
-        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return "\(months[m - 1]) \(d), \(y)"
     }
 }

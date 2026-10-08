@@ -31,10 +31,6 @@ enum BuiltinIcons {
     /// The icon name of a built-in slot (`Table.sortIcon.asc`).
     static func name(_ slot: String) -> String { slots[slot] ?? "ui-icon-placeholder" }
 
-    /// `catalog/locale.json` `rtlMirroredIcons`: the ONLY glyphs a painter
-    /// mirrors under rtl (semantic and Lucide names).
-    static let rtlMirrored: Set<String> = ["ui-back", "ui-chevron-left", "ui-chevron-right", "ui-arrow-right", "ui-send", "ui-undo", "ui-external-link", "arrow-left", "arrow-right", "chevron-left", "chevron-right", "send", "undo-2", "external-link"]
-
     /// The SF Symbol of a concept name (nil = the placeholder circle).
     static func symbol(_ name: String) -> String? {
         switch name {
@@ -67,6 +63,7 @@ enum BuiltinIcons {
         case "ui-external-link", "external-link": "arrow.up.right"
         case "ui-undo", "undo-2": "arrow.uturn.backward"
         case "ui-menu", "menu": "line.3.horizontal"
+        case "ui-play", "play": "play.fill"
         case "ui-more", "ellipsis": "ellipsis"
         default: nil
         }
@@ -76,15 +73,20 @@ enum BuiltinIcons {
     static func isKnown(_ name: String) -> Bool { symbol(name) != nil }
 }
 
-/// A concept icon `size` square in `color`: the host's registry, else the
-/// built-in SF Symbol, else the placeholder ring. Directional glyphs
-/// (`rtlMirroredIcons`) flip under a right-to-left layout direction.
+/// THE icon view of the painter: a catalog icon NAME `size` square in
+/// `color` through the host's registry, else the built-in SF Symbol, else
+/// the placeholder ring. Directional glyphs (`rtlMirroredIcons`) mirror
+/// under rtl (contract §4); an `Icon` NODE mirrors at its box, outside its
+/// own transform, and tells its content (`xuiGlyphMirrored`) so nothing
+/// flips twice.
 struct ConceptIcon: View {
     let name: String
     let size: CGFloat
     let color: Color
     let model: SurfaceModel
     var weight: Font.Weight = .medium
+    @Environment(\.xuiRTL) private var rtl
+    @Environment(\.xuiGlyphMirrored) private var mirroredOutside
 
     var body: some View {
         Group {
@@ -102,7 +104,7 @@ struct ConceptIcon: View {
                     .frame(width: size, height: size)
             }
         }
-        .flipsForRightToLeftLayoutDirection(BuiltinIcons.rtlMirrored.contains(name))
+        .mirroredForRTL(!mirroredOutside && RTLGlyphs.mirrors(name, rtl: rtl))
         .accessibilityHidden(true)
     }
 }

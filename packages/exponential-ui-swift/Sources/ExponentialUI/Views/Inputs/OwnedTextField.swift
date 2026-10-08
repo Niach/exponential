@@ -5,12 +5,12 @@ import SwiftUI
 /// re-render mid-burst cannot lose or overwrite a keystroke. Every edit is
 /// reported to the model with a client revision; a model write (an echo on
 /// the latest revision, a composer clear) lands through `writeGeneration`.
-///
-/// Two drivers: the surface's text fields (`Input`/`Textarea` `.field`, the
-/// Composer: `Model/Fields.swift`) and, with `inline`, the one-line fields
-/// INSIDE a round-1 native (a NumberField's / ChipInput's `input`, a
-/// searchable Select's `search`: `Model/NativesState.swift`), which also
-/// take Backspace-on-empty (remove the last chip) and Up / Down (step).
+/// Every host field drives it through ONE model path (`Model/Fields.swift`):
+/// `Input`/`Textarea` `.field`, the Composer, and the one-line fields inside
+/// a native (a NumberField's / ChipInput's `input`, a searchable Select's
+/// `search`), whose extra keys (Up / Down step, Backspace on empty removes
+/// the last chip) go to `SurfaceModel.fieldKey`. A `focusRequest` naming the
+/// field makes it first responder.
 struct OwnedTextField {
     let index: Int
     let model: SurfaceModel
@@ -25,48 +25,34 @@ struct OwnedTextField {
     let submitsOnReturn: Bool
     let accessibilityLabel: String
     let secure: Bool
-    /// A native's inline field (see above).
-    var inline: Bool = false
-    /// The platform keyboard for an inline field (numbers, search).
-    var keyboard: InlineKeyboard = .text
-}
-
-/// The keyboard an inline field asks for.
-enum InlineKeyboard {
-    case text
-    case number
-    case search
 }
 
 /// The driver calls, routed to the field's model state.
 @MainActor
 extension OwnedTextField {
     var state: (text: String, generation: Int) {
-        if inline {
-            let f = model.inlineField(index)
-            return (f?.text ?? "", f?.writeGeneration ?? 0)
-        }
         let f = model.field(index)
         return (f?.text ?? "", f?.writeGeneration ?? 0)
     }
 
-    func edited(_ text: String) {
-        if inline { model.inlineFieldEdited(index, text: text) } else { model.fieldEdited(index, text: text) }
+    var kind: FieldKind? { model.node(index).map(FieldKind.init) }
+
+    /// The serial of a focus request naming this field while the model's
+    /// focus is still on it.
+    var focusSerial: Int? {
+        guard let r = model.focusRequest, r.index == index, model.focusedId == r.id else { return nil }
+        return r.serial
     }
 
-    func focused(_ on: Bool) {
-        if inline { model.inlineFieldFocused(index, on) } else { model.fieldFocused(index, on) }
-    }
+    func edited(_ text: String) { model.fieldEdited(index, text: text) }
 
-    func returned() {
-        if inline { model.inlineFieldReturn(index) } else { model.fieldCommitted(index) }
-    }
+    func focused(_ on: Bool) { model.fieldFocused(index, on) }
 
-    /// Backspace with the caret at the start of an empty field.
-    func backspaceOnEmpty() -> Bool { inline && model.inlineFieldBackspace(index) }
+    func returned() { model.fieldCommitted(index) }
 
-    /// Up / Down (Page Up / Down) in a NumberField field.
-    func arrow(up: Bool, page: Bool) -> Bool { inline && model.inlineFieldArrow(index, up: up, page: page) }
+    /// A key the field does not own (`up`, `down`, `pageup`, `pagedown`,
+    /// `backspace` on an empty field): `true` = the model handled it.
+    func key(_ name: String, shift: Bool = false) -> Bool { model.fieldKey(index, key: name, shift: shift) }
 }
 
 #if canImport(UIKit)
@@ -76,6 +62,7 @@ extension OwnedTextField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextFieldDelegate, UITextViewDelegate {
         var parent: OwnedTextField
         var writeGeneration = -1
+        var focusSerial: Int?
 
         init(_ parent: OwnedTextField) { self.parent = parent }
 
@@ -88,7 +75,7 @@ extension OwnedTextField: UIViewRepresentable {
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             parent.returned()
             // A ChipInput keeps the keyboard up for the next chip.
-            if !parent.inline || parent.keyboard != .text { textField.resignFirstResponder() }
+            if parent.kind != .chips { textField.resignFirstResponder() }
             return true
         }
 
@@ -142,18 +129,17 @@ extension OwnedTextField: UIViewRepresentable {
             field.isSecureTextEntry = secure
             field.accessibilityLabel = accessibilityLabel
             field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
-            switch keyboard {
-            case .number:
+            switch kind {
+            case .number?:
                 field.keyboardType = .numbersAndPunctuation
                 field.returnKeyType = .done
-            case .search:
+            case .search?:
                 field.returnKeyType = .search
-            case .text:
+            default:
                 break
             }
             let coordinator = context.coordinator
-            field.onBackspaceEmpty = { coordinator.parent.backspaceOnEmpty() }
-            field.onArrow = { up, page in coordinator.parent.arrow(up: up, page: page) }
+            field.onKey = { name, shift in coordinator.parent.key(name, shift: shift) }
             if wantsWrite, field.text != text { field.text = text }
         } else if let tv = view as? PlaceholderTextView {
             tv.font = font
@@ -168,35 +154,38 @@ extension OwnedTextField: UIViewRepresentable {
             tv.placeholderLabel.isHidden = !(tv.text ?? "").isEmpty
             tv.placeholderLabel.frame = CGRect(x: 0, y: 0, width: tv.bounds.width, height: lineHeight)
         }
+        if let serial = focusSerial, serial != context.coordinator.focusSerial {
+            context.coordinator.focusSerial = serial
+            DispatchQueue.main.async { if !view.isFirstResponder { view.becomeFirstResponder() } }
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 200, height: proposal.height ?? lineHeight)
     }
 
-    /// A UITextField that reports Backspace in an empty field and the
-    /// hardware arrow keys (a NumberField steps on Up / Down).
+    /// A UITextField that hands the model Backspace in an empty field and
+    /// the hardware Up / Down / Page keys (a NumberField steps).
     final class KeyedTextField: UITextField {
-        var onBackspaceEmpty: (() -> Bool)?
-        var onArrow: ((Bool, Bool) -> Bool)?
+        var onKey: ((String, Bool) -> Bool)?
 
         override func deleteBackward() {
-            if (text ?? "").isEmpty, onBackspaceEmpty?() == true { return }
+            if (text ?? "").isEmpty, onKey?("backspace", false) == true { return }
             super.deleteBackward()
         }
 
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
             for press in presses {
                 guard let key = press.key else { continue }
-                let handled: Bool
-                switch key.keyCode {
-                case .keyboardUpArrow: handled = onArrow?(true, key.modifierFlags.contains(.shift)) ?? false
-                case .keyboardDownArrow: handled = onArrow?(false, key.modifierFlags.contains(.shift)) ?? false
-                case .keyboardPageUp: handled = onArrow?(true, true) ?? false
-                case .keyboardPageDown: handled = onArrow?(false, true) ?? false
-                default: handled = false
+                let shift = key.modifierFlags.contains(.shift)
+                let name: String? = switch key.keyCode {
+                case .keyboardUpArrow: "up"
+                case .keyboardDownArrow: "down"
+                case .keyboardPageUp: "pageup"
+                case .keyboardPageDown: "pagedown"
+                default: nil
                 }
-                if handled { return }
+                if let name, onKey?(name, shift) == true { return }
             }
             super.pressesBegan(presses, with: event)
         }
@@ -233,6 +222,7 @@ extension OwnedTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate, NSTextViewDelegate {
         var parent: OwnedTextField
         var writeGeneration = -1
+        var focusSerial: Int?
 
         init(_ parent: OwnedTextField) { self.parent = parent }
 
@@ -248,17 +238,21 @@ extension OwnedTextField: NSViewRepresentable {
             switch selector {
             case #selector(NSResponder.insertNewline(_:)):
                 parent.returned()
-                return parent.inline
+                return true
             case #selector(NSResponder.deleteBackward(_:)) where textView.string.isEmpty:
-                return parent.backspaceOnEmpty()
+                return parent.key("backspace")
             case #selector(NSResponder.moveUp(_:)):
-                return parent.arrow(up: true, page: false)
+                return parent.key("up")
             case #selector(NSResponder.moveDown(_:)):
-                return parent.arrow(up: false, page: false)
+                return parent.key("down")
+            case #selector(NSResponder.moveUpAndModifySelection(_:)):
+                return parent.key("up", shift: true)
+            case #selector(NSResponder.moveDownAndModifySelection(_:)):
+                return parent.key("down", shift: true)
             case #selector(NSResponder.pageUp(_:)), #selector(NSResponder.scrollPageUp(_:)):
-                return parent.arrow(up: true, page: true)
+                return parent.key("pageup")
             case #selector(NSResponder.pageDown(_:)), #selector(NSResponder.scrollPageDown(_:)):
-                return parent.arrow(up: false, page: true)
+                return parent.key("pagedown")
             default:
                 return false
             }
@@ -323,6 +317,15 @@ extension OwnedTextField: NSViewRepresentable {
             tv.textColor = color
             tv.isEditable = !disabled
             if wantsWrite, tv.string != text { tv.string = text }
+        }
+        if let serial = focusSerial, serial != context.coordinator.focusSerial {
+            context.coordinator.focusSerial = serial
+            let target: NSView = (view as? NSScrollView)?.documentView ?? view
+            DispatchQueue.main.async {
+                if let window = target.window, window.firstResponder !== target, (window.firstResponder as? NSText)?.delegate as? NSView !== target {
+                    window.makeFirstResponder(target)
+                }
+            }
         }
     }
 

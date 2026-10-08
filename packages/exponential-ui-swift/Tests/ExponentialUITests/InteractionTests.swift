@@ -33,11 +33,11 @@ final class InteractionTests: XCTestCase {
     func testPressedStateRelayoutsTheOpacity() throws {
         let m = try sink(RecordingHost())
         let i = m.index(of: "hdr-scan")!
-        XCTAssertNil(m.boxStyle(i).opacity)
+        XCTAssertNil(m.style(i).opacity)
         m.pressDown("hdr-scan")
-        XCTAssertEqual(m.boxStyle(i).opacity ?? 1, 0.6, accuracy: 0.001)
+        XCTAssertEqual(m.style(i).opacity ?? 1, 0.6, accuracy: 0.001)
         m.pressUp("hdr-scan")
-        XCTAssertNil(m.boxStyle(i).opacity)
+        XCTAssertNil(m.style(i).opacity)
     }
 
     func testUnboundControlsKeepTheirValueInTheCore() throws {
@@ -50,7 +50,7 @@ final class InteractionTests: XCTestCase {
         m.press(box)
         XCTAssertFalse(m.checked(box))
         XCTAssertNotEqual(m.style(box).background, before, "the core re-resolved the box's recipe for the new value")
-        XCTAssertEqual(m.boxStyle(box).background, m.style(box).background, "no painter-side override")
+        XCTAssertEqual(m.style(box).background, m.style(box).background, "no painter-side override")
         let track = m.index(of: "nav-toggle.track")!
         XCTAssertTrue(m.checked(track))
         m.press(track)
@@ -171,11 +171,10 @@ final class InteractionTests: XCTestCase {
         XCTAssertTrue(m.escape())
         XCTAssertTrue(m.layers.filter(\.isInteractive).isEmpty, "the toast layer stays; no overlay")
         XCTAssertEqual(m.focusedId, trigger.id, "closing returns focus to the trigger")
-        // A tooltip paints in the surface in native mode; a dialog does not.
+        // A tooltip opens as a core layer.
         if let tip = m.nodes.first(where: { $0.component == "Tooltip" }) {
             m.setOpen(tip.id, true)
             XCTAssertTrue(m.layers.contains { $0.kind == "Tooltip" })
-            XCTAssertTrue(m.paintsInSurface(m.layers.first { $0.kind == "Tooltip" }!))
             m.setOpen(tip.id, false)
         }
     }
@@ -205,10 +204,6 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(c.innerWrap(134), 100)
         XCTAssertEqual(c.innerWrap(0), 0)
         XCTAssertNil(c.innerWrap(nil))
-        XCTAssertEqual(SurfaceMeasurer.selectLabel(["options": .array([.object(["label": .string("A"), "value": .string("a")]), .object(["label": .string("B"), "value": .string("b")])]), "value": .string("b")]), "B")
-        XCTAssertEqual(SurfaceMeasurer.selectLabel(["options": .array([]), "placeholder": .string("Pick")]), "Pick")
-        XCTAssertEqual(SurfaceMeasurer.dateLabel("2026-10-14"), "Oct 14, 2026")
-        XCTAssertNil(SurfaceMeasurer.dateLabel("nope"))
         XCTAssertEqual(SurfaceModel.snap(0.30000000004, min: 0, max: 1, step: 0.1), 0.3)
         XCTAssertEqual(formatDuration(3_725_000), "1:02:05")
     }

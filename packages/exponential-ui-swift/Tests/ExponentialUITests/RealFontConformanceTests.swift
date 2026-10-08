@@ -278,7 +278,6 @@ final class RealFontConformanceTests: XCTestCase {
         var options = SurfaceOptions()
         options.theme = theme
         options.mode = mode
-        options.overlays = .painted
         let m = try SurfaceModel(id: "conformance", options: options, host: NoHost())
         var settings = m.surface.settings()
         settings.locale = locale

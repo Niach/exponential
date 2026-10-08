@@ -225,6 +225,10 @@ extension SurfaceModel {
     /// unless the author set `direction` on the root).
     public var isRTL: Bool { direction == "rtl" }
 
+    /// Reduced motion in force (the host's setting, else the platform's
+    /// Reduce Motion): no transitions, no layer motion.
+    public var reducedMotion: Bool { settings.reducedMotion ?? platform.reduceMotion }
+
     /// The SwiftUI layout direction of the surface's CONTENT (frames are
     /// physical; painters use this for text alignment and mirrored glyphs).
     public var layoutDirection: LayoutDirection { isRTL ? .rightToLeft : .leftToRight }

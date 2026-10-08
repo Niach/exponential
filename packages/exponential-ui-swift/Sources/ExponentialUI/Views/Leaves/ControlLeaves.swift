@@ -194,22 +194,24 @@ struct SliderTrackLeaf: View {
             let t = thumb.sliderThumbBox.width ?? 16
             let f = max > min ? CGFloat((value - min) / (max - min)) : 0
             let w = cx.size.width
+            // The minimum sits at the right edge in rtl (gpui `slider_geometry`).
+            let (fillX, fillW, thumbX) = cx.rtl ? (w * (1 - f), w * f, (w - t) * (1 - f)) : (0, w * f, (w - t) * f)
+            let originX = cx.model.frame(cx.index).minX
             ZStack(alignment: .leading) {
                 Capsule().fill(track.style.background ?? cx.themeColor("muted") ?? cx.ink.opacity(0.15)).frame(width: w, height: barH)
-                Capsule().fill(range.style.background ?? cx.themeColor("primary") ?? cx.ink).frame(width: w * f, height: barH)
+                Capsule().fill(range.style.background ?? cx.themeColor("primary") ?? cx.ink).frame(width: fillW, height: barH).offset(x: fillX)
                 Circle()
                     .fill(thumb.style.background ?? .white)
                     .overlay(Circle().strokeBorder(thumb.style.borderColor ?? .clear, lineWidth: thumb.style.borderWidth))
                     .frame(width: t, height: t)
-                    .offset(x: (w - t) * f)
+                    .offset(x: thumbX)
             }
             .frame(width: w, height: cx.size.height)
             .contentShape(Rectangle().inset(by: -8))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
-                        let frac = w > 0 ? Swift.min(1, Swift.max(0, g.location.x / w)) : 0
-                        cx.model.sliderDrag(cx.index, value: SurfaceModel.snap(min + Double(frac) * (max - min), min: min, max: max, step: step))
+                        cx.model.sliderDrag(cx.index, value: cx.model.sliderValue(at: originX + g.location.x, trackIndex: cx.index))
                     }
                     .onEnded { _ in cx.model.sliderRelease(cx.index) }
             )
@@ -227,7 +229,8 @@ struct SliderTrackLeaf: View {
 }
 
 /// A ToggleGroup: a row of items, the chosen ones selected (single or
-/// multiple); `segmented` draws the row on a track.
+/// multiple); `segmented` draws the row on a track. Keyboard focus rings
+/// the ROVING item (`toggleGroupFocusIndex`, gpui `paint_toggle_group`).
 struct ToggleGroupLeaf: View {
     let cx: LeafContext
 
@@ -243,18 +246,20 @@ struct ToggleGroupLeaf: View {
         let weight = ExponentialUIFonts.swiftUIWeight(Int(item.props.num("fontWeight") ?? 500))
         let fill = props.flag("fill")
         let disabledAll = cx.model.isDisabled(cx.index)
+        let roving = cx.model.focusVisible(cx.node.id) ? cx.model.toggleGroupFocusIndex(cx.index) : nil
         HStack(spacing: cx.style.gap) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+            ForEach(Array(items.enumerated()), id: \.offset) { k, it in
                 let value = it["value"] ?? .string(it["label"]?.displayText ?? "")
                 let selected = values.contains(value.displayText)
                 let disabled = disabledAll || it["disabled"]?.bool == true
-                let st = cx.part("ToggleGroup", "item", states: (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []))
+                let ring = roving == k
+                let st = cx.part("ToggleGroup", "item", states: (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : []))
                 Button {
                     cx.model.toggleGroupSelect(cx.index, value: value)
                 } label: {
                     HStack(spacing: 6) {
                         if let icon = it["icon"]?.string {
-                            IconView(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
+                            ConceptIcon(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
                         }
                         if let label = it["label"]?.displayText, !label.isEmpty {
                             Text(label).font(.system(size: fs, weight: weight)).foregroundStyle(st.color ?? cx.ink).lineLimit(1)
@@ -264,6 +269,11 @@ struct ToggleGroupLeaf: View {
                     .frame(maxWidth: fill ? .infinity : nil)
                     .frame(height: h)
                     .paintedBox(st.style, size: CGSize(width: 0, height: h))
+                    .overlay {
+                        if ring, st.style.shadows.isEmpty {
+                            RoundedRectangle(cornerRadius: st.style.radius).strokeBorder(cx.themeColor("ring") ?? cx.ink.opacity(0.5), lineWidth: 2)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

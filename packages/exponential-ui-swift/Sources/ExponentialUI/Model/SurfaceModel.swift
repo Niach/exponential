@@ -3,16 +3,6 @@ import Observation
 import ExponentialUICore
 import ExponentialUIPrimitives
 
-/// How overlays present.
-public enum OverlayPresentation: Sendable {
-    /// Dialog / Drawer as sheets, Popover as a popover, DropdownMenu as a
-    /// menu, Tooltip painted (iOS default).
-    case native
-    /// Everything painted inside the surface at the core's frames with a
-    /// scrim (snapshots, macOS embedders that own their windows).
-    case painted
-}
-
 /// Options of a surface model.
 public struct SurfaceOptions: Sendable {
     public var catalogId: String
@@ -20,18 +10,16 @@ public struct SurfaceOptions: Sendable {
     public var theme: ThemeHandle?
     /// The colour mode when `settings` is nil (a fixed light / dark).
     public var mode: Mode
-    public var overlays: OverlayPresentation
     /// Round frames to whole points (off: fractional, like the web).
     public var rounding: Bool
     /// Locale, strings, `system` mode, density, contrast, font scale,
     /// insets, pointer, motion, today. nil = the defaults with `mode` above.
     public var settings: SurfaceSettings?
 
-    public init(catalogId: String = coreCatalogId(), theme: ThemeHandle? = ThemeHandle.builtin(defaultThemeId()), mode: Mode = .dark, overlays: OverlayPresentation = .native, rounding: Bool = false, settings: SurfaceSettings? = nil) {
+    public init(catalogId: String = coreCatalogId(), theme: ThemeHandle? = ThemeHandle.builtin(defaultThemeId()), mode: Mode = .dark, rounding: Bool = false, settings: SurfaceSettings? = nil) {
         self.catalogId = catalogId
         self.theme = theme
         self.mode = mode
-        self.overlays = overlays
         self.rounding = rounding
         self.settings = settings
     }
@@ -156,20 +144,21 @@ public final class SurfaceModel {
     @ObservationIgnored var unknownReported: Set<String> = []
     @ObservationIgnored var rank: [Int] = []
     @ObservationIgnored var lastKinds: [String: String] = [:]
+    /// The built-in string table (with the overrides it was built from) and
+    /// the surface-locale formatters (`Model/Locale.swift`).
+    @ObservationIgnored var stringTable: [String: String] = [:]
+    @ObservationIgnored var stringsKey: String?
+    @ObservationIgnored var numberFormatters: [String: NumberFormatter] = [:]
+    @ObservationIgnored var dateFormatters: [String: DateFormatter] = [:]
     /// Tests and geometry suites: lay out with the core's fixed fake
     /// measure (8 px per character, 20 px lines) instead of TextKit.
     @ObservationIgnored public var fixedMeasure = false
     /// Conformance: called with every node index a `NodeView` paints.
     @ObservationIgnored var paintProbe: ((Int) -> Void)?
-    /// The open Select / DatePicker native popup (the field node id).
-    var popup: String?
     /// The text field that has focus.
     var focusedField: String?
     /// Slider drags in flight (track id → value).
     var drags: [String: Double] = [:]
-    /// Bumped when a control's local look changes outside a pass (kept for
-    /// painters that key on it; values now come from the core).
-    var mirrorGeneration = 0
 
     public init(id: String, options: SurfaceOptions = SurfaceOptions(), host: HostPlugin? = nil) throws {
         self.id = id
@@ -575,7 +564,8 @@ public final class SurfaceModel {
     /// `pressed`, `focus`, `focus-visible`, `dragover`).
     public func states(of id: String) -> [String] { interaction[id]?.states ?? [] }
 
-    /// Does this node show the keyboard focus ring (`focus-visible`)?
+    /// Does this node show the keyboard focus ring (`focus-visible`,
+    /// contract §2: keyboard focus only, never a press)?
     public func focusVisible(_ id: String) -> Bool { interaction[id]?.focusVisible ?? false }
 
     /// Is a node (or its owner, label parts aside) disabled?

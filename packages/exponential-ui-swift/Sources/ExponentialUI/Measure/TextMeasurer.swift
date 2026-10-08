@@ -178,7 +178,7 @@ public enum TextFonts {
         } else if mono {
             font = PlatformFont.monospacedSystemFont(ofSize: size, weight: ExponentialUIFonts.platformWeight(weight)) as CTFont
         } else {
-            font = ExponentialUIFonts.font(family: nil, weight: weight, size: size, italic: italic) as CTFont
+            font = ExponentialUIFonts.systemFont(weight: weight, size: size, italic: italic) as CTFont
         }
         lock.lock()
         fontCache[key] = font

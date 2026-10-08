@@ -41,20 +41,19 @@ extension LeafContext {
 /// (locale number text, Up / Down step, adjustable for VoiceOver), a
 /// ChipInput's `input` (Enter / comma add a chip, Backspace in an empty
 /// field removes the last one), a searchable Select's `search` (its glyph
-/// first; `search {query}` after the 150 ms debounce).
+/// first; `search {query}` after the 150 ms debounce). Same field path as
+/// an Input (`Model/Fields.swift`).
 struct InlineFieldLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let model = cx.model
-        let field = model.inlineField(cx.index)
-        let kind = field?.kind ?? .search
+        let kind = FieldKind(cx.node)
         let owner = cx.ownerProps
         let ph = cx.part(cx.node.recipeComponent, "placeholder")
         let font = ExponentialUIFonts.font(family: cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: cx.textStyle.fontSize)
         let icon: String? = kind == .search ? (cx.props["icon"]?.string ?? BuiltinIcons.name("Select.search")) : nil
         let label = owner.str("label").isEmpty ? cx.props.str("placeholder") : owner.str("label")
-        let disabled = model.isDisabled(cx.index) || cx.props.flag("disabled")
         HStack(spacing: icon == nil ? 0 : 8) {
             if let icon {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: model).opacity(0.6)
@@ -68,38 +67,14 @@ struct InlineFieldLeaf: View {
                 color: platformColor(cx.ink),
                 placeholderColor: platformColor(ph.color ?? cx.muted),
                 lineHeight: cx.textStyle.lineHeight,
-                disabled: disabled,
+                disabled: model.isDisabled(cx.index) || cx.props.flag("disabled"),
                 submitsOnReturn: false,
                 accessibilityLabel: label,
-                secure: false,
-                inline: true,
-                keyboard: kind == .number ? .number : (kind == .search ? .search : .text)
+                secure: false
             )
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
-        .modifier(NumberAdjustable(on: kind == .number && !disabled, ownerId: cx.node.owner ?? "", model: model))
-    }
-}
-
-/// VoiceOver's increment / decrement on a NumberField (contract §9 SwiftUI 6).
-private struct NumberAdjustable: ViewModifier {
-    let on: Bool
-    let ownerId: String
-    let model: SurfaceModel
-
-    func body(content: Content) -> some View {
-        if on {
-            content.accessibilityAdjustableAction { direction in
-                switch direction {
-                case .increment: model.numberFieldStep(ownerId: ownerId, up: true)
-                case .decrement: model.numberFieldStep(ownerId: ownerId, up: false)
-                @unknown default: break
-                }
-            }
-        } else {
-            content
-        }
     }
 }
 
@@ -113,7 +88,7 @@ struct PickerTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.str("text").isEmpty
+        let isPlaceholder = cx.props["placeholder"]?.bool ?? cx.props.text("text").isEmpty
         let ph = cx.part(cx.node.recipeComponent, "placeholder")
         let icon = cx.props.str("icon").isEmpty ? "ui-chevron-down" : cx.props.str("icon")
         HStack(spacing: cx.spacing("sm")) {
@@ -127,7 +102,7 @@ struct PickerTriggerLeaf: View {
     }
 
     private func text(_ isPlaceholder: Bool) -> String {
-        let text = cx.props.str("text")
+        let text = cx.props.text("text")
         if isPlaceholder { return text }
         switch cx.node.recipeComponent {
         case "DatePicker":
@@ -153,7 +128,7 @@ struct SelectItemLeaf: View {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
             }
-            TextLabel(cx.props.str("text"), cx.textStyle, color: cx.ink, lines: 1)
+            TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
             ZStack {
@@ -176,7 +151,7 @@ struct MenuItemLabelLeaf: View {
             if let icon = cx.props["icon"]?.string, !icon.isEmpty {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
             }
-            TextLabel(cx.props.str("text"), cx.textStyle, color: cx.ink, lines: 1)
+            TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, lines: 1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: cx.textStyle.lineHeight)
         }
@@ -204,9 +179,9 @@ struct TableCellLeaf: View {
                 } else {
                     Text("–").font(cx.font).foregroundStyle(cx.muted)
                 }
-            case "badge" where !cx.props.str("text").isEmpty:
+            case "badge" where !cx.props.text("text").isEmpty:
                 let badge = SurfaceMeasurer.badgeStyle(cx.textStyle)
-                TextLabel(cx.props.str("text"), badge, color: cx.themeColor("secondaryForeground") ?? cx.ink, lines: 1)
+                TextLabel(cx.props.text("text"), badge, color: cx.themeColor("secondaryForeground") ?? cx.ink, lines: 1)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(height: badge.lineHeight)
                     .padding(.horizontal, 8)
@@ -221,7 +196,7 @@ struct TableCellLeaf: View {
     }
 
     private func text(_ value: JSONValue) -> String {
-        let fallback = cx.props.str("text")
+        let fallback = cx.props.text("text")
         switch cx.props.str("cellType") {
         case "number":
             guard let n = value.number ?? Double(value.displayText), !value.isNull, value.displayText != "" else { return fallback }
@@ -244,7 +219,7 @@ struct TableHeaderCellLeaf: View {
         let sortIcon = cx.props.str("sortIcon")
         let slot = !sortIcon.isEmpty || cx.props.flag("sortable")
         HStack(spacing: 4) {
-            TextLabel(cx.props.str("text"), cx.textStyle, color: cx.ink, align: textAlign, lines: 1)
+            TextLabel(cx.props.text("text"), cx.textStyle, color: cx.ink, align: textAlign, lines: 1)
                 .frame(maxWidth: .infinity, alignment: frameAlign)
                 .frame(height: cx.textStyle.lineHeight)
             if slot {
@@ -294,223 +269,78 @@ struct CodeLineLeaf: View {
     }
 }
 
-// MARK: - platform hooks on native leaves
+// MARK: - platform hooks
 
-/// The platform input a native's leaves take beyond a press (until the
-/// container itself carries `NativeContainerHooks`): files dropped on a
-/// FileUpload, a context menu inside a ContextMenu.
-struct NativeLeafHooks: ViewModifier {
-    let cx: LeafContext
+/// The platform input a native takes beyond a press (gpui `interactive`):
+/// files dropped on a FileUpload `dropzone` (`dragover` meanwhile), a
+/// secondary click (macOS) or a long press (touch) on a ContextMenu, which
+/// opens the core's menu LAYER at that point.
+struct NativeHooks: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        let model = cx.model
-        if cx.node.recipeComponent == "FileUpload", let owner = cx.node.owner, !model.isDisabled(cx.index) {
-            content.modifier(FileDropTarget(ownerId: owner, model: model))
-        } else if cx.node.layer == 0, let menu = model.contextMenuAncestor(of: cx.index) {
-            content.modifier(ContextMenuTarget(menuIndex: menu, model: model))
+        if node.recipeComponent == "FileUpload", node.part == "dropzone", !model.isDisabled(node.index) {
+            content.dropDestination(for: URL.self) { urls, _ in
+                model.filesDropped(on: node.id, urls: urls)
+                return !urls.isEmpty
+            } isTargeted: { on in
+                model.setDragover(id: node.id, on)
+            }
+        } else if node.component == "ContextMenu", node.part == nil, node.layer == 0 {
+            content.modifier(ContextMenuGesture(index: node.index, model: model))
         } else {
             content
         }
     }
 }
 
-/// The hooks for a native's CONTAINER node (the FileUpload `dropzone`, the
-/// ContextMenu region): `NodeView` applies it to every container so the
-/// whole box takes the drop / the secondary click.
-public struct NativeContainerHooks: ViewModifier {
+/// Open a ContextMenu at the pointer: a secondary click on macOS, a long
+/// press on touch (at the region, like Shift+F10).
+private struct ContextMenuGesture: ViewModifier {
     let index: Int
     let model: SurfaceModel
 
-    public init(index: Int, model: SurfaceModel) {
-        self.index = index
-        self.model = model
-    }
-
-    @ViewBuilder
-    public func body(content: Content) -> some View {
-        if let n = model.node(index), n.recipeComponent == "FileUpload", n.part == "dropzone", let owner = n.owner, !model.isDisabled(index) {
-            content.modifier(FileDropTarget(ownerId: owner, model: model))
-        } else if let n = model.node(index), n.component == "ContextMenu", n.part == nil, n.layer == 0 {
-            content.modifier(ContextMenuTarget(menuIndex: index, model: model))
-        } else {
-            content
-        }
-    }
-}
-
-/// A FileUpload drop target: URLs dropped (Finder, Files, another app) go
-/// to the core as `upload {files}`; the zone wears `dragover` meanwhile.
-private struct FileDropTarget: ViewModifier {
-    let ownerId: String
-    let model: SurfaceModel
-
     func body(content: Content) -> some View {
-        content.dropDestination(for: URL.self) { urls, _ in
-            model.setDragOver(ownerId, false)
-            model.fileUploadReceived(ownerId: ownerId, urls: urls)
-            return !urls.isEmpty
-        } isTargeted: { on in
-            model.setDragOver(ownerId, on)
-        }
+        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+        content.overlay(SecondaryClick { point in
+            let origin = model.frame(index).origin
+            model.contextMenu(index, at: CGPoint(x: origin.x + point.x, y: origin.y + point.y))
+        })
+        #else
+        content.simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+            model.contextMenu(index)
+        })
+        #endif
     }
 }
 
-/// A ContextMenu region: with native overlays the platform `.contextMenu`
-/// (right click / long press) lists the menu's items; painted, a long
-/// press opens the core's menu layer.
-private struct ContextMenuTarget: ViewModifier {
-    let menuIndex: Int
-    let model: SurfaceModel
+#if canImport(AppKit) && !targetEnvironment(macCatalyst)
+import AppKit
 
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if model.options.overlays == .native, let owner = model.node(menuIndex) {
-            content.contextMenu {
-                NativeMenuContent(items: owner.props.list("items"), ownerIndex: menuIndex, model: model)
-            }
-        } else {
-            content.simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                model.openContextMenu(menuIndex, at: nil)
-            })
+/// A transparent AppKit view that takes ONLY secondary clicks (every other
+/// event passes through to the SwiftUI content beneath) and reports the
+/// point in its own coordinates (top-left origin).
+private struct SecondaryClick: NSViewRepresentable {
+    let action: (CGPoint) -> Void
+
+    final class Catcher: NSView {
+        var action: ((CGPoint) -> Void)?
+        override var isFlipped: Bool { true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard let e = NSApp.currentEvent, e.type == .rightMouseDown || (e.type == .leftMouseDown && e.modifierFlags.contains(.control)) else { return nil }
+            return super.hitTest(point)
         }
+
+        override func rightMouseDown(with event: NSEvent) { action?(convert(event.locationInWindow, from: nil)) }
+
+        override func mouseDown(with event: NSEvent) { action?(convert(event.locationInWindow, from: nil)) }
     }
+
+    func makeNSView(context: Context) -> Catcher { Catcher() }
+
+    func updateNSView(_ view: Catcher, context: Context) { view.action = action }
 }
-
-extension SurfaceModel {
-    /// The nearest ContextMenu at or above node `index` (main tree).
-    func contextMenuAncestor(of index: Int) -> Int? {
-        var cur = node(index)?.parent
-        var hops = 0
-        while let c = cur, hops < 64 {
-            guard let n = node(c) else { return nil }
-            if n.component == "ContextMenu", n.part == nil { return c }
-            cur = n.parent
-            hops += 1
-        }
-        return nil
-    }
-
-    /// The FileUpload `dropzone` of `ownerId` wears `dragover` while files
-    /// hover it (a recipe state, resolved by the core).
-    func setDragOver(_ ownerId: String, _ on: Bool) {
-        let zone = "\(ownerId).dropzone"
-        var states = self.states(of: zone)
-        if on { states.append("dragover") }
-        if surface.setStates(id: zone, states: states) { invalidate(structure: false) }
-    }
-}
-
-/// A menu's entries as PLATFORM menu content (`.contextMenu`, `Menu`):
-/// `menuItem.kind` item | checkbox (a toggle) | separator | label |
-/// submenu (one level), shortcuts shown, destructive and disabled entries.
-/// A choice fires `select {value}` (+ `{checked}`) on the owner.
-public struct NativeMenuContent: View {
-    let items: [JSONValue]
-    let ownerIndex: Int
-    let model: SurfaceModel
-
-    public init(items: [JSONValue], ownerIndex: Int, model: SurfaceModel) {
-        self.items = items
-        self.ownerIndex = ownerIndex
-        self.model = model
-    }
-
-    public var body: some View {
-        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-            entry(item)
-        }
-    }
-
-    @ViewBuilder
-    private func entry(_ item: JSONValue) -> some View {
-        let kind = item["kind"]?.string ?? (item["separator"]?.bool == true || item["type"]?.string == "separator" ? "separator" : "item")
-        let label = item["label"]?.displayText ?? ""
-        let disabled = item["disabled"]?.bool == true
-        switch kind {
-        case "separator":
-            Divider()
-        case "label":
-            Text(label)
-        case "submenu":
-            Menu {
-                AnyView(NativeMenuContent(items: item["items"]?.array ?? [], ownerIndex: ownerIndex, model: model))
-            } label: {
-                entryLabel(item, label)
-            }
-            .disabled(disabled)
-        case "checkbox":
-            Toggle(isOn: Binding(get: { item["checked"]?.bool == true }, set: { _ in model.nativeMenuSelect(ownerIndex: ownerIndex, item: item) })) {
-                entryLabel(item, label)
-            }
-            .disabled(disabled)
-            .modifier(MenuShortcut(text: item["shortcut"]?.displayText))
-        default:
-            Button(role: item["destructive"]?.bool == true ? .destructive : nil) {
-                model.nativeMenuSelect(ownerIndex: ownerIndex, item: item)
-            } label: {
-                entryLabel(item, label)
-            }
-            .disabled(disabled)
-            .modifier(MenuShortcut(text: item["shortcut"]?.displayText))
-        }
-    }
-
-    @ViewBuilder
-    private func entryLabel(_ item: JSONValue, _ label: String) -> some View {
-        if let icon = item["icon"]?.string, let view = model.host.icon(icon, size: 16) {
-            Label { Text(label) } icon: { view }
-        } else if let icon = item["icon"]?.string, let symbol = BuiltinIcons.symbol(icon) {
-            Label(label, systemImage: symbol)
-        } else {
-            Text(label)
-        }
-    }
-}
-
-/// A menu entry's `shortcut` (`⌘K`, `Cmd+Shift+P`, `Ctrl+S`) as the
-/// platform shortcut the menu displays; unparsable text shows nothing.
-struct MenuShortcut: ViewModifier {
-    let text: String?
-
-    func body(content: Content) -> some View {
-        if let s = text.flatMap(Self.parse) {
-            content.keyboardShortcut(s)
-        } else {
-            content
-        }
-    }
-
-    static func parse(_ text: String) -> KeyboardShortcut? {
-        var mods: EventModifiers = []
-        var rest = text.trimmingCharacters(in: .whitespaces)
-        let symbols: [(Character, EventModifiers)] = [("⌘", .command), ("⇧", .shift), ("⌥", .option), ("⌃", .control)]
-        while let first = rest.first, let m = symbols.first(where: { $0.0 == first }) {
-            mods.insert(m.1)
-            rest.removeFirst()
-        }
-        let parts = rest.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
-        guard let last = parts.last, !last.isEmpty else { return nil }
-        for p in parts.dropLast() {
-            switch p.lowercased() {
-            case "cmd", "command", "meta", "mod": mods.insert(.command)
-            case "shift": mods.insert(.shift)
-            case "alt", "option", "opt": mods.insert(.option)
-            case "ctrl", "control": mods.insert(.control)
-            default: return nil
-            }
-        }
-        let key: KeyEquivalent
-        switch last.lowercased() {
-        case "enter", "return": key = .return
-        case "esc", "escape": key = .escape
-        case "delete", "backspace": key = .delete
-        case "tab": key = .tab
-        case "space": key = .space
-        default:
-            guard last.count == 1, let c = last.lowercased().first else { return nil }
-            key = KeyEquivalent(c)
-        }
-        return mods.isEmpty ? nil : KeyboardShortcut(key, modifiers: mods)
-    }
-}
+#endif

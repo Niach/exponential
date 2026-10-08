@@ -102,11 +102,7 @@ extension SurfaceModel {
             layerReturn[target] = n.id
         }
         switch (n.component, n.part) {
-        case ("DatePicker", "field"):
-            // The native date popover (a painter without the core's popup).
-            popup = popup == n.id ? nil : n.id
-            return
-        case ("Select", "field"), ("Slider", "track"), ("ToggleGroup", _):
+        case ("Slider", "track"), ("ToggleGroup", _):
             return
         default:
             if n.isTextField { return }
@@ -177,9 +173,6 @@ extension SurfaceModel {
         setInteraction(id) { $0.hover = hovered }
     }
 
-    /// `setHover(id:_:)` (the pre-round-1 name).
-    public func hover(_ id: String, _ hovered: Bool) { setHover(id: id, hovered) }
-
     /// A drag with files over a FileUpload drop zone (`dragover`).
     public func setDragover(id: String, _ over: Bool) {
         setInteraction(id) { $0.dragover = over }
@@ -206,21 +199,19 @@ extension SurfaceModel {
         }
     }
 
-    /// Hover on a Tooltip anchor (the pre-round-1 entry point, by OWNER id):
-    /// the owner's trigger takes the hover.
-    public func tooltipHover(_ owner: String, _ hovered: Bool) {
-        if let trigger = nodes.first(where: { !$0.removed && $0.triggerFor == owner }) {
-            setHover(id: trigger.id, hovered)
-        } else if hovered {
+    /// The pointer over a hover-opened layer (a Tooltip, a hover Popover):
+    /// the layer holds itself open (`<owner>.layer` hover) and keeps its
+    /// trigger hovered; leaving it closes through the trigger's delay
+    /// (gpui `hover_card`).
+    public func layerHover(owner: String, _ hovered: Bool) {
+        if hovered { pointerSeen() }
+        setInteraction("\(owner).layer") { $0.hover = hovered }
+        guard let trigger = trigger(of: owner) else { return }
+        if hovered {
             hoverDelay?.cancel()
-            hoverDelay = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: tooltipDelay)
-                guard !Task.isCancelled, let self else { return }
-                self.dispatch(self.surface.setOpen(id: owner, open: true))
-            }
+            setInteraction(trigger.id) { $0.hover = true }
         } else {
-            hoverDelay?.cancel()
-            if layers.contains(where: { $0.owner == owner }) { dispatch(surface.setOpen(id: owner, open: false)) }
+            hoverTrigger(trigger.id, target: owner, false)
         }
     }
 
@@ -260,16 +251,11 @@ extension SurfaceModel {
         }
     }
 
-    /// Escape (gpui `escape`): the native date popup, else the TOP
-    /// interactive overlay (dismissible → `dismiss`; an AlertDialog presses
+    /// Escape (gpui `escape`): the TOP interactive overlay (dismissible → `dismiss`; an AlertDialog presses
     /// its cancel), else a tooltip, else a focused toast. Returns whether
     /// something handled it.
     @discardableResult
     public func escape() -> Bool {
-        if popup != nil {
-            popup = nil
-            return true
-        }
         if let top = layers.last(where: \.isInteractive) {
             if top.dismissible {
                 justDismissed = nil
@@ -440,17 +426,6 @@ extension SurfaceModel {
         fire(fieldIndex, "change", payload: .object(["value": next]))
     }
 
-    /// A DatePicker's ISO value.
-    public func dateValue(_ index: Int) -> String {
-        (owner(of: index)?.props["value"] ?? .null).displayText
-    }
-
-    /// A DatePicker day pick (the native popup).
-    public func pickDate(_ fieldIndex: Int, iso: String) {
-        popup = nil
-        fire(fieldIndex, "change", payload: .object(["value": .string(iso)]))
-    }
-
     /// The value a slider track shows (an in-flight drag, else the prop, else min).
     public func sliderValue(_ index: Int) -> Double {
         guard let n = node(index) else { return 0 }
@@ -460,10 +435,7 @@ extension SurfaceModel {
 
     public func sliderDrag(_ index: Int, value: Double) {
         guard let n = node(index), !isDisabled(index) else { return }
-        if drags[n.id] != value {
-            drags[n.id] = value
-            mirrorGeneration += 1
-        }
+        if drags[n.id] != value { drags[n.id] = value }
     }
 
     public func sliderRelease(_ index: Int) {
@@ -543,6 +515,8 @@ extension SurfaceModel {
         }
         if surface.scrollTo(id: n.id, x: Float(offset.x), y: Float(offset.y)) {
             layoutNeeded = true
+            // An anchored layer inside the container follows it now.
+            if !layers.isEmpty { pass() }
         }
     }
 

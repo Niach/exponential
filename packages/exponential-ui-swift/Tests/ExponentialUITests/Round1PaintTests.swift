@@ -96,8 +96,8 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertEqual(m.frame(m.index(of: "ghost")!).height, 20, "hidden keeps its box")
         let c = m.style(m.index(of: "clipped")!)
         XCTAssertTrue(c.clipX && c.clipY && c.scrollY && !c.scrollX)
-        XCTAssertNotNil(m.paintScroll(m.index(of: "clipped")!))
-        XCTAssertEqual(m.paintScroll(m.index(of: "clipped")!)?.axes, .vertical)
+        let scroll = try XCTUnwrap(m.scroll(m.index(of: "clipped")!), "the core reports the scroll container")
+        XCTAssertTrue(scroll.scrollsY && !scroll.scrollsX)
     }
 
     func testTransformsFoldInSourceOrder() {
@@ -155,10 +155,9 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertNil(a.animation(reduceMotion: true), "reduced motion = 0 ms")
         XCTAssertNil(m.style(m.index(of: "still")!).transition, "nothing animates without `transition`")
         // The surface's reduced-motion setting: the core resolves 0 ms.
-        m.surface.setPointer(hover: false, reducedMotion: true)
-        m.invalidate(structure: true)
+        m.setReducedMotion(true)
         XCTAssertNil(m.style(m.index(of: "anim")!).transition)
-        XCTAssertTrue(m.paintReducedMotion)
+        XCTAssertTrue(m.reducedMotion)
         XCTAssertNil(PaintTransition(durationMs: 0, easing: []).animation())
     }
 
@@ -180,17 +179,13 @@ final class Round1PaintTests: XCTestCase {
         XCTAssertFalse(RTLGlyphs.mirrors("ui-chevron-right", rtl: false))
         XCTAssertFalse(RTLGlyphs.mirrors("ui-chevron-down", rtl: true), "up/down never flip")
         XCTAssertFalse(RTLGlyphs.mirrors("ui-play", rtl: true), "media transport never flips")
-        XCTAssertEqual(Glyph.chevronRight.mirroredConcept, "ui-chevron-right")
-        XCTAssertNil(Glyph.chevronDown.mirroredConcept)
-        XCTAssertNil(Glyph.play.mirroredConcept)
     }
 
     func testAnRTLLocaleFlipsTheSurfaceDirection() throws {
         let m = try surface(root([node("a", "Text", props: .object(["text": .string("مرحبا")]))]))
-        XCTAssertFalse(m.paintsRTL)
-        m.surface.setLocale(locale: "ar-EG")
-        m.invalidate(structure: true)
-        XCTAssertTrue(m.paintsRTL)
+        XCTAssertFalse(m.isRTL)
+        m.setLocale("ar-EG")
+        XCTAssertTrue(m.isRTL)
     }
 
     // MARK: - §5 layers
@@ -201,19 +196,18 @@ final class Round1PaintTests: XCTestCase {
             node("toast", "Toast", props: .object(["title": .string("Saved"), "open": .bool(true)])),
         ]), width: 390)
         let dialog = try XCTUnwrap(m.layers.first { $0.kind == "Dialog" })
-        XCTAssertTrue(dialog.paintModal)
-        XCTAssertFalse(dialog.paintDismissible(m))
+        XCTAssertTrue(dialog.modal)
+        XCTAssertFalse(dialog.dismissible)
         XCTAssertGreaterThan(dialog.frame.width, 0)
         if let toast = m.layers.first(where: { $0.kind == "Toast" }) {
-            XCTAssertEqual(toast.paintClass, "toast")
-            XCTAssertFalse(toast.paintModal)
+            XCTAssertTrue(toast.isToast)
+            XCTAssertFalse(toast.modal)
             XCTAssertFalse(PaintedLayers.dismissesOnOutsidePress(toast), "a toast never closes on an outside press")
             XCTAssertEqual(PaintedLayers.stacked(m.layers).last?.kind, "Toast", "toasts stack above overlays")
         }
         // A scrim press on a non-dismissible dialog does nothing.
-        m.paintDismiss(dialog)
+        m.dismissLayer(dialog.owner)
         XCTAssertTrue(m.layers.contains { $0.kind == "Dialog" })
-        XCTAssertTrue(m.paintsInSurface(dialog), "overlays are core layers painted in the surface")
     }
 
     func testADismissibleLayerClosesThroughTheCore() throws {
@@ -223,10 +217,10 @@ final class Round1PaintTests: XCTestCase {
         ]))
         m.host = host
         let pop = try XCTUnwrap(m.layers.first { $0.owner == "pop" })
-        XCTAssertFalse(pop.paintModal)
+        XCTAssertFalse(pop.modal)
         XCTAssertTrue(PaintedLayers.dismissesOnOutsidePress(pop))
-        XCTAssertTrue(pop.paintDismissible(m))
-        m.paintDismiss(pop)
+        XCTAssertTrue(pop.dismissible)
+        m.dismissLayer(pop.owner)
         XCTAssertFalse(m.layers.contains { $0.owner == "pop" })
         XCTAssertEqual(m.justDismissed, "pop", "the trigger's own press does not reopen it")
     }

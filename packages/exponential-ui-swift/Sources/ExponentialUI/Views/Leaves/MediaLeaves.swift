@@ -134,7 +134,7 @@ struct VideoLeaf: View {
                     Color.clear
                 }
             }
-            Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay(GlyphView(glyph: .play, size: 20, color: .white))
+            Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay(ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model))
             if let ms = cx.props.num("durationMs") {
                 Text(formatDuration(ms))
                     .font(.system(size: 12)).foregroundStyle(.white)
@@ -164,7 +164,7 @@ struct AudioLeaf: View {
                 Text(title).font(cx.font).foregroundStyle(track.color ?? cx.ink).lineLimit(1)
             }
             HStack(spacing: 8) {
-                Circle().fill(cx.ink).frame(width: 28, height: 28).overlay(GlyphView(glyph: .play, size: 14, color: cx.themeColor("background") ?? .white))
+                Circle().fill(cx.ink).frame(width: 28, height: 28).overlay(ConceptIcon(name: "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model))
                 Capsule().fill(mutedFg.opacity(0.35)).frame(height: 4)
                 Text("0:00 / \(duration)").font(.system(size: 12)).foregroundStyle(mutedFg)
             }

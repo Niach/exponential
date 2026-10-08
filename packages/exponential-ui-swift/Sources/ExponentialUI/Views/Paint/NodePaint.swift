@@ -85,7 +85,7 @@ struct HoverReporting: ViewModifier {
 
     func body(content: Content) -> some View {
         if on {
-            content.onHover { model.hover(id, $0) }
+            content.onHover { model.setHover(id: id, $0) }
         } else {
             content
         }

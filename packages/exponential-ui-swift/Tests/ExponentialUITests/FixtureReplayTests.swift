@@ -68,7 +68,7 @@ final class FixtureReplayTests: XCTestCase {
             if m.frames.count != m.nodes.count { failures.append("\(name): frames") }
             // Every node resolves a box style and an ink; leaves a text style.
             for n in m.nodes {
-                _ = m.boxStyle(n.index)
+                _ = m.style(n.index)
                 _ = m.ink(n.index)
                 if n.isLeaf { _ = m.textStyle(n.index) }
             }

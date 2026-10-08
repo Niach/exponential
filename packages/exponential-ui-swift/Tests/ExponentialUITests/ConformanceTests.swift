@@ -33,11 +33,10 @@ final class ConformanceTests: XCTestCase {
         get throws { JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/core.catalog.json"), encoding: .utf8)) }
     }
 
-    func model(_ id: String, theme: String? = defaultThemeId(), mode: Mode = .light, catalogId: String = coreCatalogId(), overlays: OverlayPresentation = .native) throws -> SurfaceModel {
+    func model(_ id: String, theme: String? = defaultThemeId(), mode: Mode = .light, catalogId: String = coreCatalogId()) throws -> SurfaceModel {
         var o = SurfaceOptions(catalogId: catalogId)
         o.theme = theme.flatMap { ThemeHandle.builtin($0) }
         o.mode = mode
-        o.overlays = overlays
         return try SurfaceModel(id: id, options: o, host: NoHost())
     }
 
@@ -213,8 +212,15 @@ final class ConformanceTests: XCTestCase {
     /// it draws a sub-part with (Slider thumb, ToggleGroup item).
     func measuredBox(_ m: SurfaceModel, component: String, part: String) -> [String: Double]? {
         func box(_ i: Int) -> [String: Double] {
-            let f = m.frame(i), s = m.boxStyle(i)
-            return ["width": f.width, "height": f.height, "paddingHorizontal": s.paddingHorizontal, "paddingVertical": s.paddingVertical, "gap": s.gap, "borderWidth": s.borderWidth, "borderRadius": min(s.radius, 9999)].mapValues { Double($0) }
+            let f = m.frame(i), s = m.style(i)
+            // A CONTAINER part (a NumberField / ChipInput `field`) keeps its
+            // padding in the layout, not the visual: the recipe's, which the
+            // core lays its children out with (gpui `control_geometry_suite`).
+            let n = m.node(i)
+            let recipe = n.flatMap { n in n.isLeaf ? nil : m.part(n.recipeComponent, n.part ?? "root", props: m.ownerProps(i)).style }
+            let ph = s.paddingHorizontal > 0 ? s.paddingHorizontal : recipe?.paddingHorizontal ?? 0
+            let pv = s.paddingVertical > 0 ? s.paddingVertical : recipe?.paddingVertical ?? 0
+            return ["width": f.width, "height": f.height, "paddingHorizontal": ph, "paddingVertical": pv, "gap": s.gap, "borderWidth": s.borderWidth, "borderRadius": min(s.radius, 9999)].mapValues { Double($0) }
         }
         func drawn(_ d: DrawnBox) -> [String: Double] {
             var out: [String: Double] = ["height": d.height, "paddingHorizontal": d.paddingHorizontal, "paddingVertical": d.paddingVertical, "gap": d.gap, "borderWidth": d.borderWidth, "borderRadius": min(d.borderRadius, 9999)].mapValues { Double($0) }
@@ -229,12 +235,10 @@ final class ConformanceTests: XCTestCase {
             guard let g = m.nodes.first(where: { $0.component == "ToggleGroup" }) else { return nil }
             var d = m.part("ToggleGroup", "item", props: g.props).toggleItemBox
             // The leaf's frame holds the items at their drawn height.
-            d.height = min(d.height, m.frame(g.index).height - 2 * m.boxStyle(g.index).paddingVertical)
+            d.height = min(d.height, m.frame(g.index).height - 2 * m.style(g.index).paddingVertical)
             return drawn(d)
         case (_, "root"):
             return m.nodes.first.map { box($0.index) }
-        case ("Select", "trigger"), ("DatePicker", "trigger"):
-            return m.nodes.first(where: { $0.component == component && $0.part == "field" }).map { box($0.index) }
         case ("Radio", "item"):
             return m.nodes.first(where: { $0.component == "Radio" && $0.part == "dot" }).map { box($0.index) }
         default:
@@ -330,7 +334,7 @@ final class ConformanceTests: XCTestCase {
                         "children": .array([.object(["id": .string("content"), "component": .string("Box"), "style": .object(["width": s["width"]!, "height": s["height"]!])])]),
                     ])]),
                 ])
-                let m = try model("ov", theme: "neutral", overlays: .painted)
+                let m = try model("ov", theme: "neutral")
                 try m.setNested(json: tree.json)
                 m.setViewport(width: CGFloat(vw), height: CGFloat(vh))
                 _ = paint(m, width: CGFloat(vw), height: CGFloat(vh))

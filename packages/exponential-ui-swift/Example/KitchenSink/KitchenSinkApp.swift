@@ -6,7 +6,7 @@ import SwiftUI
 /// ios.webp` is captured from (`-shot exponential-ui-kitchen-sink`).
 ///
 /// Launch arguments: `-theme <exponential|neutral|playful|brand>`,
-/// `-mode <light|dark>`, `-rtl`, `-width <N>`, `-overlays painted`,
+/// `-mode <light|dark>`, `-rtl`, `-width <N>`,
 /// `-shot <view>` (hides the chrome), `-a11yDump` (prints the UIAccessibility
 /// walk VoiceOver would read, two seconds after launch).
 @main
