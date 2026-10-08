@@ -58,14 +58,14 @@ struct ComposerLeaf: View {
                 index: cx.index,
                 model: cx.model,
                 multiline: true,
-                placeholder: cx.props.str("placeholder").isEmpty ? "Message" : cx.props.str("placeholder"),
+                placeholder: cx.props.str("placeholder"),
                 font: font,
                 color: platformColor(field.color ?? cx.ink),
                 placeholderColor: platformColor(placeholder.color ?? cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.5)),
                 lineHeight: lh,
                 disabled: cx.model.isDisabled(cx.index),
                 submitsOnReturn: true,
-                accessibilityLabel: cx.props.str("placeholder").isEmpty ? "Message" : cx.props.str("placeholder"),
+                accessibilityLabel: cx.props.str("placeholder").isEmpty ? cx.model.builtinString("send") : cx.props.str("placeholder"),
                 secure: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -73,7 +73,7 @@ struct ComposerLeaf: View {
                 ForEach(Array(attachments.enumerated()), id: \.offset) { _, a in
                     let chip = cx.part("Composer", "attachment")
                     HStack(spacing: 4) {
-                        GlyphView(glyph: .attach, size: 12, color: chip.color ?? cx.ink)
+                        ConceptIcon(name: BuiltinIcons.name("Composer.attachment"), size: 12, color: chip.color ?? cx.ink, model: cx.model)
                         Text(a["name"]?.displayText ?? a.displayText).font(.system(size: 12)).foregroundStyle(chip.color ?? cx.ink).lineLimit(1)
                     }
                     .padding(.horizontal, 8)
@@ -84,12 +84,12 @@ struct ComposerLeaf: View {
                 Button {
                     cx.model.composerSubmit(cx.index)
                 } label: {
-                    GlyphView(glyph: busy ? .stop : .send, size: 18, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, weight: .semibold)
+                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 18, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
                         .frame(width: send.width ?? sendSize, height: sendSize)
                         .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(busy ? "Stop" : (cx.props.str("submitLabel").isEmpty ? "Send" : cx.props.str("submitLabel")))
+                .accessibilityLabel(busy ? cx.model.builtinString("stop") : (cx.props.str("submitLabel").isEmpty ? cx.model.builtinString("send") : cx.props.str("submitLabel")))
             }
             .frame(height: sendSize)
         }
@@ -98,110 +98,17 @@ struct ComposerLeaf: View {
     }
 }
 
-/// A Select / DatePicker trigger's content: the value (or placeholder) and
-/// the chevron / calendar glyph.
-struct TriggerContent: View {
-    let cx: LeafContext
-    let label: String
-    let isPlaceholder: Bool
-    let glyph: Glyph
-
-    var body: some View {
-        let trigger = cx.part(cx.node.recipeComponent, "trigger")
-        let ph = cx.part(cx.node.recipeComponent, "placeholder")
-        let muted = ph.color ?? cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.6)
-        let ts = TextStyle(fontSize: trigger.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: 400, lineHeight: trigger.px("lineHeight") ?? cx.textStyle.lineHeight, fontFamily: trigger.fontFamily ?? cx.textStyle.fontFamily)
-        let pad = trigger.px("paddingHorizontal") ?? trigger.px("padding") ?? 12
-        let border = trigger.px("borderWidth") ?? 0
-        HStack(spacing: cx.spacing("sm")) {
-            TextLabel(label, ts, color: isPlaceholder ? muted : cx.ink, lines: 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: ts.lineHeight)
-            GlyphView(glyph: glyph, size: 16, color: cx.ink.opacity(0.6))
-        }
-        .padding(.horizontal, pad + border)
-        .frame(width: cx.size.width, height: cx.size.height)
-    }
-}
-
-/// A Select `.field`: the trigger chrome; a native `Menu` opens the
-/// options (the painted popup when the `content` recipe is `native: false`).
-struct SelectFieldLeaf: View {
-    let cx: LeafContext
-
-    var body: some View {
-        let owner = cx.ownerProps
-        let props: Props = { var p = owner; p["value"] = cx.model.selectValue(cx.index); return p }()
-        let label = SurfaceMeasurer.selectLabel(props)
-        let isPlaceholder = (props["value"]?.isNull ?? true) || (props["value"]?.array?.isEmpty ?? false)
-        let values = cx.model.toggleValuesOf(cx.model.selectValue(cx.index))
-        let disabled = cx.model.isDisabled(cx.index)
-        Menu {
-            ForEach(Array(owner.list("options").enumerated()), id: \.offset) { _, option in
-                let v = option["value"] ?? .null
-                Button {
-                    cx.model.selectPick(cx.index, value: v)
-                } label: {
-                    if values.contains(v.displayText) {
-                        Label(option["label"]?.displayText ?? v.displayText, systemImage: "checkmark")
-                    } else {
-                        Text(option["label"]?.displayText ?? v.displayText)
-                    }
-                }
-                .disabled(option["disabled"]?.bool == true)
-            }
-        } label: {
-            TriggerContent(cx: cx, label: label, isPlaceholder: isPlaceholder, glyph: .chevronsUpDown)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .accessibilityLabel(owner.str("label"))
-        .accessibilityValue(label)
-    }
-}
-
-extension SurfaceModel {
-    func toggleValuesOf(_ v: JSONValue) -> [String] {
-        switch v {
-        case let .array(a): a.map(\.displayText)
-        case .null: []
-        default: [v.displayText]
-        }
-    }
-}
-
-/// A DatePicker `.field`: the trigger chrome; a tap opens the native
-/// graphical date picker (`DatePopup` on the surface root).
-struct DateFieldLeaf: View {
-    let cx: LeafContext
-
-    var body: some View {
-        let owner = cx.ownerProps
-        let value = cx.model.dateValue(cx.index)
-        let label = SurfaceMeasurer.dateLabel(value) ?? (owner.str("placeholder").isEmpty ? "Pick a date" : owner.str("placeholder"))
-        Button {
-            cx.model.press(cx.index)
-        } label: {
-            TriggerContent(cx: cx, label: label, isPlaceholder: SurfaceMeasurer.dateLabel(value) == nil, glyph: .calendar)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(cx.model.isDisabled(cx.index))
-        .accessibilityLabel(owner.str("label"))
-        .accessibilityValue(label)
-    }
-}
-
-/// A Checkbox `box`: the check glyph when checked.
+/// A Checkbox `box` (or a Table's selection `checkbox` part, whose state
+/// is its own): the check glyph when checked.
 struct CheckBoxLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        if cx.model.checked(cx.index) {
+        let own = cx.node.part == "checkbox" || cx.node.recipeComponent == "Table"
+        let checked = own ? (cx.node.checked || cx.props.flag("checked")) : cx.model.checked(cx.index)
+        if checked {
             let check = cx.part("Checkbox", "check")
-            GlyphView(glyph: .check, size: check.width ?? 12, color: check.color ?? cx.ink, weight: .bold)
+            ConceptIcon(name: BuiltinIcons.name("Checkbox.check"), size: check.width ?? 12, color: check.color ?? cx.style.color ?? cx.ink, model: cx.model, weight: .bold)
                 .frame(width: cx.size.width, height: cx.size.height)
         } else {
             Color.clear
