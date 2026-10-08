@@ -998,10 +998,30 @@ fn matches(rule: &RecipeRule, props: &Props, states: &[String]) -> bool {
 }
 
 /// The matching rules' styles merged in order (token refs kept).
+/// How specific a rule is: one point per `when` condition (a `state` list
+/// counts each state). VAPP-90: rules merge in SPECIFICITY order, like the
+/// CSS the web renderer compiles them to — a base rule (no `when`) never
+/// shadows a `checked`/`focus`/`variant` rule that sits before it, which is
+/// what a child theme's appended base override used to do under plain
+/// source order. Ties keep source order (later wins). Mirrors
+/// `ruleSpecificity` in `packages/exponential-ui/src/theme.ts`.
+pub fn rule_specificity(rule: &RecipeRule) -> usize {
+    let Some(when) = &rule.when else { return 0 };
+    when.iter()
+        .map(|(key, want)| match (key.as_str(), want) {
+            ("state", Value::Array(list)) => list.len(),
+            _ => 1,
+        })
+        .sum()
+}
+
 pub fn recipe_style(theme: &ResolvedTheme, query: &RecipeQuery) -> Props {
     let mut out = Props::new();
     let Some(rules) = theme.recipes.get(&query.component).and_then(|p| p.get(&query.part)) else { return out };
-    for rule in rules {
+    let mut ordered: Vec<(usize, &RecipeRule)> = rules.iter().enumerate().collect();
+    // A stable sort: ties keep source order.
+    ordered.sort_by_key(|(_, r)| rule_specificity(r));
+    for (_, rule) in ordered {
         if matches(rule, &query.props, &query.states) {
             for (k, v) in &rule.style {
                 out.insert(k.clone(), v.clone());
@@ -1056,6 +1076,25 @@ pub fn shadow_css(layers: &[Shadow]) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// VAPP-90: a conditioned rule wins over a LATER base rule (a child
+    /// theme's appended override used to shadow every `checked`/`focus`
+    /// rule under plain source order); ties keep source order.
+    #[test]
+    fn recipe_rules_merge_by_specificity() {
+        use serde_json::json;
+        let theme = crate::themes::builtin_theme("exponential").unwrap();
+        let props = |checked: bool| crate::types::Props::from_iter([("checked".to_string(), json!(checked)), ("disabled".to_string(), json!(false))]);
+        let on = super::resolve_recipe(&theme, &super::RecipeQuery::new("Switch", "track", props(true), vec!["checked".into()]), super::Mode::Dark);
+        let off = super::resolve_recipe(&theme, &super::RecipeQuery::new("Switch", "track", props(false), vec![]), super::Mode::Dark);
+        let color = |name: &str| theme.modes.dark.color.get(name).cloned().map(serde_json::Value::String);
+        assert_eq!(on.get("backgroundColor").cloned(), color("primary"));
+        assert_eq!(off.get("backgroundColor").cloned(), color("input"));
+        let playful = crate::themes::builtin_theme("playful").unwrap();
+        let track = super::resolve_recipe(&playful, &super::RecipeQuery::new("Switch", "track", props(true), vec!["checked".into()]), super::Mode::Dark);
+        assert_eq!(track.get("width").and_then(serde_json::Value::as_f64), Some(44.0));
+        assert_eq!(super::rule_specificity(&super::RecipeRule { when: Some(serde_json::Map::from_iter([("state".to_string(), json!(["hover", "focus"])), ("variant".to_string(), json!("ghost"))])), style: Default::default() }), 3);
+    }
+
     use super::*;
     use crate::themes::{builtin_refs, builtin_theme, builtin_themes, BUILTIN_THEME_IDS};
     use serde_json::json;

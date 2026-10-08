@@ -1,0 +1,812 @@
+//! The built-in `Markdown` painter: a small GFM subset (paragraphs, headings,
+//! bullet / numbered / task lists, block quotes, fenced code, tables, rules;
+//! bold / italic / strike / code / links inline) laid out as absolutely
+//! placed blocks. The SAME block layout answers the measurer and places the
+//! painted blocks, so the height taffy reserves is the height painted
+//! (the spike's markdown estimate was 7 px short until it counted a gap per
+//! block). No HTML passthrough: tags are text.
+
+use std::rc::Rc;
+
+use exponential_ui::theme::{Mode, ResolvedTheme};
+use gpui::{
+    div, prelude::*, px, AnyElement, App, Font, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window,
+};
+use serde_json::Map;
+
+use super::color::color_of;
+use super::parts::{mono_family, part_props, part_visual, px_prop, spacing, theme_color};
+
+/// One inline span.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Inline {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub code: bool,
+    pub strike: bool,
+    pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BlockKind {
+    Paragraph,
+    Heading(u8),
+    /// `marker` = "•" or "3."; `task` = a GFM task box state.
+    ListItem { marker: String, task: Option<bool> },
+    Quote,
+    CodeBlock,
+    Table { header: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
+    Rule,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub kind: BlockKind,
+    pub inlines: Vec<Inline>,
+    /// Consecutive list items share a group (no paragraph gap inside it).
+    pub list_group: Option<usize>,
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Default)]
+struct Flags {
+    bold: bool,
+    italic: bool,
+    strike: bool,
+}
+
+fn push_text(out: &mut Vec<Inline>, text: &str, f: Flags, link: Option<&str>) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = out.last_mut() {
+        if !last.code && last.bold == f.bold && last.italic == f.italic && last.strike == f.strike && last.link.as_deref() == link {
+            last.text.push_str(text);
+            return;
+        }
+    }
+    out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string) });
+}
+
+/// `[label](href)` at the start of `s` → (label, href, consumed bytes).
+fn link_at(s: &str) -> Option<(&str, &str, usize)> {
+    let rest = s.strip_prefix('[')?;
+    let close = rest.find("](")?;
+    let label = &rest[..close];
+    let after = &rest[close + 2..];
+    let end = after.find(')')?;
+    let href = &after[..end];
+    if href.contains(char::is_whitespace) || label.is_empty() {
+        return None;
+    }
+    Some((label, href, 1 + close + 2 + end + 1))
+}
+
+/// A delimited run `ddTEXTdd` at the start of `s` → (TEXT, consumed).
+fn delimited<'a>(s: &'a str, delim: &str) -> Option<(&'a str, usize)> {
+    let rest = s.strip_prefix(delim)?;
+    let end = rest.find(delim)?;
+    let inner = &rest[..end];
+    if inner.is_empty() || inner.starts_with(char::is_whitespace) {
+        return None;
+    }
+    // GFM: `_` never delimits inside a word (`snake_case_name`).
+    if delim.starts_with('_') && rest[end + delim.len()..].chars().next().is_some_and(char::is_alphanumeric) {
+        return None;
+    }
+    Some((inner, delim.len() * 2 + end))
+}
+
+fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline>) {
+    let mut plain_start = 0;
+    let mut i = 0;
+    let bytes = s.as_bytes();
+    while i < s.len() {
+        if !s.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
+        let rest = &s[i..];
+        let c = bytes[i];
+        let mut handled: Option<usize> = None;
+        if c == b'`' {
+            if let Some(end) = rest[1..].find('`') {
+                push_text(out, &s[plain_start..i], f, link);
+                out.push(Inline { text: rest[1..1 + end].to_string(), code: true, link: link.map(str::to_string), ..Inline::default() });
+                handled = Some(end + 2);
+            }
+        } else if c == b'!' && rest[1..].starts_with('[') {
+            if let Some((alt, _src, n)) = link_at(&rest[1..]) {
+                push_text(out, &s[plain_start..i], f, link);
+                push_text(out, alt, f, link);
+                handled = Some(n + 1);
+            }
+        } else if c == b'[' {
+            if let Some((label, href, n)) = link_at(rest) {
+                push_text(out, &s[plain_start..i], f, link);
+                parse_inline_into(label, f, Some(href), out);
+                handled = Some(n);
+            }
+        } else if (c == b'*' || c == b'_' || c == b'~') && !(c == b'_' && s[..i].chars().next_back().is_some_and(char::is_alphanumeric)) {
+            let double = match c {
+                b'*' => "**",
+                b'_' => "__",
+                _ => "~~",
+            };
+            if let Some((inner, n)) = delimited(rest, double) {
+                push_text(out, &s[plain_start..i], f, link);
+                let nf = if c == b'~' { Flags { strike: true, ..f } } else { Flags { bold: true, ..f } };
+                parse_inline_into(inner, nf, link, out);
+                handled = Some(n);
+            } else if c != b'~' {
+                let single = if c == b'*' { "*" } else { "_" };
+                if let Some((inner, n)) = delimited(rest, single) {
+                    push_text(out, &s[plain_start..i], f, link);
+                    parse_inline_into(inner, Flags { italic: true, ..f }, link, out);
+                    handled = Some(n);
+                }
+            }
+        }
+        match handled {
+            Some(n) => {
+                i += n;
+                plain_start = i;
+            }
+            None => i += 1,
+        }
+    }
+    push_text(out, &s[plain_start..], f, link);
+}
+
+/// The inline spans of one line of markdown.
+pub fn parse_inline(s: &str) -> Vec<Inline> {
+    let mut out = Vec::new();
+    parse_inline_into(s, Flags::default(), None, &mut out);
+    out
+}
+
+fn is_table_row(line: &str) -> bool {
+    let t = line.trim();
+    t.len() >= 2 && t.starts_with('|') && t.ends_with('|')
+}
+
+fn is_table_rule(line: &str) -> bool {
+    is_table_row(line) && cells(line).iter().all(|c| !c.is_empty() && c.trim_matches(':').chars().all(|ch| ch == '-') && c.contains('-'))
+}
+
+fn cells(line: &str) -> Vec<String> {
+    let t = line.trim();
+    let t = t.strip_prefix('|').unwrap_or(t);
+    let t = t.strip_suffix('|').unwrap_or(t);
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut prev_backslash = false;
+    for ch in t.chars() {
+        if ch == '|' && !prev_backslash {
+            out.push(cur.trim().to_string());
+            cur.clear();
+        } else if ch == '|' {
+            cur.pop();
+            cur.push('|');
+        } else {
+            cur.push(ch);
+        }
+        prev_backslash = ch == '\\';
+    }
+    out.push(cur.trim().to_string());
+    out
+}
+
+fn list_marker(line: &str) -> Option<(String, &str)> {
+    let t = line.trim_start();
+    for bullet in ["- ", "* ", "+ "] {
+        if let Some(rest) = t.strip_prefix(bullet) {
+            return Some(("•".to_string(), rest));
+        }
+    }
+    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+    if digits > 0 && digits < 10 {
+        let after = &t[digits..];
+        if let Some(rest) = after.strip_prefix(". ").or_else(|| after.strip_prefix(") ")) {
+            return Some((format!("{}.", &t[..digits]), rest));
+        }
+    }
+    None
+}
+
+fn is_rule(line: &str) -> bool {
+    let t: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+    t.len() >= 3 && (t.chars().all(|c| c == '-') || t.chars().all(|c| c == '*') || t.chars().all(|c| c == '_'))
+}
+
+/// Parse the block structure of a markdown document.
+pub fn parse(text: &str) -> Vec<Block> {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let lines: Vec<&str> = normalized.split('\n').collect();
+    let mut blocks = Vec::new();
+    let mut para: Vec<&str> = Vec::new();
+    let mut group = 0usize;
+    let flush = |para: &mut Vec<&str>, blocks: &mut Vec<Block>| {
+        if !para.is_empty() {
+            blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&para.join(" ")), list_group: None });
+            para.clear();
+        }
+    };
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            flush(&mut para, &mut blocks);
+            let mut body = Vec::new();
+            i += 1;
+            while i < lines.len() && !lines[i].trim().starts_with("```") {
+                body.push(lines[i]);
+                i += 1;
+            }
+            i += 1;
+            blocks.push(Block { kind: BlockKind::CodeBlock, inlines: vec![Inline { text: body.join("\n"), code: true, ..Inline::default() }], list_group: None });
+            continue;
+        }
+        let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+        if (1..=6).contains(&hashes) && trimmed[hashes..].starts_with(' ') {
+            flush(&mut para, &mut blocks);
+            blocks.push(Block { kind: BlockKind::Heading(hashes as u8), inlines: parse_inline(trimmed[hashes..].trim()), list_group: None });
+            i += 1;
+            continue;
+        }
+        if trimmed.starts_with('>') {
+            flush(&mut para, &mut blocks);
+            let mut body = Vec::new();
+            while i < lines.len() && lines[i].trim_start().starts_with('>') {
+                let l = lines[i].trim_start().trim_start_matches('>');
+                body.push(l.strip_prefix(' ').unwrap_or(l).trim());
+                i += 1;
+            }
+            let joined: Vec<&str> = body.into_iter().filter(|l| !l.is_empty()).collect();
+            blocks.push(Block { kind: BlockKind::Quote, inlines: parse_inline(&joined.join(" ")), list_group: None });
+            continue;
+        }
+        if is_rule(trimmed) && para.is_empty() {
+            blocks.push(Block { kind: BlockKind::Rule, inlines: Vec::new(), list_group: None });
+            i += 1;
+            continue;
+        }
+        if let Some((_, _)) = list_marker(line) {
+            flush(&mut para, &mut blocks);
+            group += 1;
+            while i < lines.len() {
+                let Some((marker, rest)) = list_marker(lines[i]) else { break };
+                let (task, body) = match rest.strip_prefix("[ ] ") {
+                    Some(b) => (Some(false), b),
+                    None => match rest.strip_prefix("[x] ").or_else(|| rest.strip_prefix("[X] ")) {
+                        Some(b) => (Some(true), b),
+                        None => (None, rest),
+                    },
+                };
+                blocks.push(Block { kind: BlockKind::ListItem { marker, task }, inlines: parse_inline(body.trim()), list_group: Some(group) });
+                i += 1;
+            }
+            continue;
+        }
+        if is_table_row(line) && i + 1 < lines.len() && is_table_rule(lines[i + 1]) {
+            flush(&mut para, &mut blocks);
+            let header: Vec<Vec<Inline>> = cells(line).iter().map(|c| parse_inline(c)).collect();
+            i += 2;
+            let mut rows = Vec::new();
+            while i < lines.len() && is_table_row(lines[i]) {
+                rows.push(cells(lines[i]).iter().map(|c| parse_inline(c)).collect());
+                i += 1;
+            }
+            blocks.push(Block { kind: BlockKind::Table { header, rows }, inlines: Vec::new(), list_group: None });
+            continue;
+        }
+        if trimmed.is_empty() {
+            flush(&mut para, &mut blocks);
+        } else {
+            para.push(trimmed);
+        }
+        i += 1;
+    }
+    flush(&mut para, &mut blocks);
+    blocks
+}
+
+/// The plain text of some spans.
+pub fn plain(inlines: &[Inline]) -> String {
+    inlines.iter().map(|i| i.text.as_str()).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Layout (shared by the measurer and the painter)
+// ---------------------------------------------------------------------------
+
+/// Typography of one block kind.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextSpec {
+    pub size: f32,
+    pub line_height: f32,
+    pub weight: u16,
+    pub family: Option<String>,
+}
+
+/// Resolved metrics of the `Markdown` recipe parts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MdStyles {
+    pub body: TextSpec,
+    pub heading: TextSpec,
+    pub code: TextSpec,
+    pub code_pad: f32,
+    pub quote_border: f32,
+    pub quote_pad: f32,
+    /// The paragraph rhythm (CSS: `margin-bottom: sm`).
+    pub block_gap: f32,
+    /// Above a heading (`margin-top: md`) and below it (`xs`).
+    pub heading_top: f32,
+    pub heading_bottom: f32,
+    pub list_indent: f32,
+    pub cell_pad_h: f32,
+    pub cell_pad_v: f32,
+}
+
+impl MdStyles {
+    /// Plain metrics for a body text style (geometry mode, tests).
+    pub fn plain(body: TextSpec) -> MdStyles {
+        MdStyles {
+            heading: TextSpec { size: body.size + 4.0, line_height: body.line_height + 8.0, weight: 600, family: body.family.clone() },
+            code: TextSpec { size: (body.size - 2.0).max(10.0), line_height: body.line_height, weight: 400, family: None },
+            list_indent: (body.size * 1.4).round(),
+            body,
+            code_pad: 12.0,
+            quote_border: 2.0,
+            quote_pad: 12.0,
+            block_gap: 8.0,
+            heading_top: 12.0,
+            heading_bottom: 4.0,
+            cell_pad_h: 8.0,
+            cell_pad_v: 4.0,
+        }
+    }
+
+    /// From the theme's `Markdown/*` recipes (the root's own text style is
+    /// the body; `owner_props` = the node props).
+    pub fn resolve(theme: Option<&ResolvedTheme>, mode: Mode, body: TextSpec, owner_props: &Map<String, serde_json::Value>) -> MdStyles {
+        let mut s = MdStyles::plain(body);
+        if theme.is_none() {
+            return s;
+        }
+        let part = |name: &str| part_props(theme, mode, "Markdown", name, owner_props, &[]);
+        let spec = |p: &Map<String, serde_json::Value>, base: &TextSpec| TextSpec {
+            size: px_prop(p, "fontSize").unwrap_or(base.size),
+            line_height: px_prop(p, "lineHeight").unwrap_or(base.line_height),
+            weight: p.get("fontWeight").and_then(|v| v.as_u64()).map(|w| w as u16).unwrap_or(base.weight),
+            family: p.get("fontFamily").and_then(|v| v.as_str()).map(str::to_string).or_else(|| base.family.clone()),
+        };
+        let heading = part("heading");
+        s.heading = spec(&heading, &TextSpec { weight: 600, ..s.body.clone() });
+        let code = part("codeBlock");
+        s.code = spec(&code, &TextSpec { family: mono_family(theme), ..s.code.clone() });
+        s.code_pad = px_prop(&code, "padding").or_else(|| px_prop(&code, "paddingHorizontal")).unwrap_or(s.code_pad);
+        let quote = part("quote");
+        s.quote_border = px_prop(&quote, "borderWidth").unwrap_or(s.quote_border);
+        s.quote_pad = px_prop(&quote, "paddingHorizontal").unwrap_or(s.quote_pad);
+        s.block_gap = spacing(theme, "sm");
+        s.heading_top = spacing(theme, "md");
+        s.heading_bottom = spacing(theme, "xs");
+        s.cell_pad_h = spacing(theme, "sm");
+        s.cell_pad_v = spacing(theme, "xs");
+        s
+    }
+
+    fn spec_of(&self, kind: &BlockKind) -> &TextSpec {
+        match kind {
+            BlockKind::Heading(_) => &self.heading,
+            BlockKind::CodeBlock => &self.code,
+            _ => &self.body,
+        }
+    }
+}
+
+/// Where one block sits (relative to the content box).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BlockBox {
+    pub y: f32,
+    pub height: f32,
+    /// Tables: each row's height (header first).
+    pub rows: Vec<f32>,
+}
+
+/// The whole document laid out at one width.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MdLayout {
+    pub blocks: Vec<BlockBox>,
+    pub height: f32,
+}
+
+/// What the layout asks the text system: the height of `inlines` wrapped at
+/// `width` (`None` = one line per paragraph) and the width they take.
+pub trait MdText {
+    fn height(&mut self, inlines: &[Inline], spec: &TextSpec, width: Option<f32>) -> f32;
+    fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32;
+    fn widest_word(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32;
+}
+
+fn margins(kind: &BlockKind, s: &MdStyles) -> (f32, f32) {
+    match kind {
+        BlockKind::Heading(_) => (s.heading_top, s.heading_bottom),
+        _ => (0.0, s.block_gap),
+    }
+}
+
+/// The gap above block `i` (CSS margins collapse; first/last margins drop).
+fn gap_before(blocks: &[Block], i: usize, s: &MdStyles) -> f32 {
+    if i == 0 {
+        return 0.0;
+    }
+    let (prev, cur) = (&blocks[i - 1], &blocks[i]);
+    if prev.list_group.is_some() && prev.list_group == cur.list_group {
+        return 0.0;
+    }
+    margins(&prev.kind, s).1.max(margins(&cur.kind, s).0)
+}
+
+/// Lay the blocks out `width` wide.
+pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText) -> MdLayout {
+    let mut y = 0.0;
+    let mut out = Vec::with_capacity(blocks.len());
+    for (i, b) in blocks.iter().enumerate() {
+        y += gap_before(blocks, i, s);
+        let spec = s.spec_of(&b.kind);
+        let (height, rows) = match &b.kind {
+            BlockKind::Paragraph | BlockKind::Heading(_) => (text.height(&b.inlines, spec, Some(width.max(1.0))), Vec::new()),
+            BlockKind::ListItem { .. } => (text.height(&b.inlines, spec, Some((width - s.list_indent).max(1.0))), Vec::new()),
+            BlockKind::Quote => (text.height(&b.inlines, spec, Some((width - s.quote_border - s.quote_pad).max(1.0))), Vec::new()),
+            BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * s.code_pad, Vec::new()),
+            BlockKind::Rule => (1.0, Vec::new()),
+            BlockKind::Table { header, rows } => {
+                let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
+                let cell_w = (width / cols as f32 - 2.0 * s.cell_pad_h).max(1.0);
+                let mut heights = Vec::new();
+                for row in std::iter::once(header).chain(rows.iter()) {
+                    let h = row.iter().map(|c| text.height(c, &s.body, Some(cell_w))).fold(s.body.line_height, f32::max);
+                    heights.push(h + 2.0 * s.cell_pad_v + 1.0);
+                }
+                (heights.iter().sum::<f32>() + 1.0, heights)
+            }
+        };
+        out.push(BlockBox { y, height, rows });
+        y += height;
+    }
+    MdLayout { blocks: out, height: y }
+}
+
+/// Max-content width: the widest block on one line.
+pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) -> f32 {
+    blocks
+        .iter()
+        .map(|b| {
+            let spec = s.spec_of(&b.kind);
+            match &b.kind {
+                BlockKind::Paragraph | BlockKind::Heading(_) => text.width(&b.inlines, spec),
+                BlockKind::ListItem { .. } => text.width(&b.inlines, spec) + s.list_indent,
+                BlockKind::Quote => text.width(&b.inlines, spec) + s.quote_border + s.quote_pad,
+                BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * s.code_pad,
+                BlockKind::Rule => 0.0,
+                BlockKind::Table { header, rows } => {
+                    let cols = header.len().max(1) as f32;
+                    let widest = std::iter::once(header).chain(rows.iter()).flat_map(|r| r.iter()).map(|c| text.width(c, &s.body)).fold(0.0, f32::max);
+                    cols * (widest + 2.0 * s.cell_pad_h)
+                }
+            }
+        })
+        .fold(0.0, f32::max)
+        .ceil()
+}
+
+/// Min-content width: the widest word (code blocks never wrap).
+pub fn min_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) -> f32 {
+    blocks
+        .iter()
+        .map(|b| {
+            let spec = s.spec_of(&b.kind);
+            match &b.kind {
+                BlockKind::CodeBlock => max_content_width(std::slice::from_ref(b), s, text),
+                BlockKind::Table { header, .. } => header.len().max(1) as f32 * (2.0 * s.cell_pad_h + 16.0),
+                BlockKind::ListItem { .. } => text.widest_word(&b.inlines, spec) + s.list_indent,
+                BlockKind::Quote => text.widest_word(&b.inlines, spec) + s.quote_border + s.quote_pad,
+                _ => text.widest_word(&b.inlines, spec),
+            }
+        })
+        .fold(0.0, f32::max)
+        .ceil()
+}
+
+// ---------------------------------------------------------------------------
+// Text runs (one builder for the measurer and the painter)
+// ---------------------------------------------------------------------------
+
+/// Colours the runs paint with.
+#[derive(Debug, Clone, Copy)]
+pub struct RunColors {
+    pub ink: Hsla,
+    pub link: Hsla,
+    pub code_bg: Option<Hsla>,
+}
+
+/// The string and runs of some spans in one base font.
+pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weight: u16, colors: RunColors) -> (SharedString, Vec<TextRun>) {
+    let mut text = String::new();
+    let mut out = Vec::with_capacity(inlines.len());
+    for span in inlines {
+        if span.text.is_empty() {
+            continue;
+        }
+        text.push_str(&span.text);
+        let font = Font {
+            family: if span.code { mono.clone() } else { family.clone() },
+            features: Default::default(),
+            fallbacks: None,
+            weight: FontWeight(if span.bold { weight.max(600) } else { weight } as f32),
+            style: if span.italic { FontStyle::Italic } else { FontStyle::Normal },
+        };
+        let color = if span.link.is_some() { colors.link } else { colors.ink };
+        out.push(TextRun {
+            len: span.text.len(),
+            font,
+            color,
+            background_color: if span.code { colors.code_bg } else { None },
+            underline: span.link.as_ref().map(|_| UnderlineStyle { thickness: px(1.0), color: Some(colors.link), wavy: false }),
+            strikethrough: span.strike.then_some(StrikethroughStyle { thickness: px(1.0), color: Some(colors.ink) }),
+        });
+    }
+    (text.into(), out)
+}
+
+// ---------------------------------------------------------------------------
+// Painting
+// ---------------------------------------------------------------------------
+
+/// Everything the block painter needs besides the blocks.
+pub struct MdPaint {
+    pub styles: MdStyles,
+    pub family: SharedString,
+    pub mono: SharedString,
+    pub heading_family: SharedString,
+    pub colors: RunColors,
+    pub muted: Hsla,
+    pub border: Hsla,
+    pub code_block_bg: Option<Hsla>,
+    pub on_link: LinkHandler,
+}
+
+/// What a markdown link press calls (the href).
+pub type LinkHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
+impl MdPaint {
+    /// Colours from the theme (`Markdown/link`, `code`, `codeBlock`, `quote`).
+    pub fn colors(theme: Option<&ResolvedTheme>, mode: Mode, ink: Hsla, owner_props: &Map<String, serde_json::Value>) -> (RunColors, Hsla, Hsla, Option<Hsla>) {
+        let link = color_of(part_visual(theme, mode, "Markdown", "link", owner_props, &[]).color.as_deref()).or_else(|| theme_color(theme, mode, "primary")).unwrap_or(ink);
+        let code_bg = color_of(part_visual(theme, mode, "Markdown", "code", owner_props, &[]).background_color.as_deref()).or_else(|| theme_color(theme, mode, "muted"));
+        let block_bg = color_of(part_visual(theme, mode, "Markdown", "codeBlock", owner_props, &[]).background_color.as_deref()).or(code_bg);
+        let quote = part_visual(theme, mode, "Markdown", "quote", owner_props, &[]);
+        let muted = color_of(quote.color.as_deref()).or_else(|| theme_color(theme, mode, "mutedForeground")).unwrap_or(ink.opacity(0.7));
+        let border = color_of(quote.border_color.as_deref()).or_else(|| theme_color(theme, mode, "border")).unwrap_or(ink.opacity(0.2));
+        (RunColors { ink, link, code_bg }, muted, border, block_bg)
+    }
+}
+
+fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors) -> AnyElement {
+    let (text, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
+    let links: Vec<(std::ops::Range<usize>, String)> = {
+        let mut at = 0;
+        let mut out = Vec::new();
+        for span in inlines {
+            if let Some(href) = &span.link {
+                out.push((at..at + span.text.len(), href.clone()));
+            }
+            at += span.text.len();
+        }
+        out
+    };
+    let styled = StyledText::new(text).with_runs(runs);
+    let body: AnyElement = if links.is_empty() {
+        styled.into_any_element()
+    } else {
+        let on_link = p.on_link.clone();
+        let hrefs: Vec<String> = links.iter().map(|(_, h)| h.clone()).collect();
+        InteractiveText::new(id, styled)
+            .on_click(links.into_iter().map(|(r, _)| r).collect(), move |ix, window, cx| {
+                if let Some(h) = hrefs.get(ix) {
+                    on_link(h, window, cx)
+                }
+            })
+            .into_any_element()
+    };
+    div().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body).into_any_element()
+}
+
+/// Paint `blocks` laid out at `width` (`lay` from [`layout`] at that width).
+pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint) -> AnyElement {
+    let s = &p.styles;
+    let mut root = div().relative().w(px(width)).h(px(lay.height));
+    for (i, (b, bx)) in blocks.iter().zip(&lay.blocks).enumerate() {
+        let bid: SharedString = format!("{id}.md{i}").into();
+        let placed = div().absolute().left_0().top(px(bx.y)).w(px(width)).h(px(bx.height));
+        let el: AnyElement = match &b.kind {
+            BlockKind::Paragraph => placed.child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
+            BlockKind::Heading(_) => placed.child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
+            BlockKind::ListItem { marker, task } => {
+                let marker = match task {
+                    Some(true) => "☑".to_string(),
+                    Some(false) => "☐".to_string(),
+                    None => marker.clone(),
+                };
+                placed
+                    .child(div().absolute().left_0().top_0().w(px(s.list_indent)).text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).child(SharedString::from(marker)))
+                    .child(div().absolute().left(px(s.list_indent)).top_0().w(px((width - s.list_indent).max(1.0))).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
+                    .into_any_element()
+            }
+            BlockKind::Quote => placed
+                .child(div().absolute().left_0().top_0().h_full().w(px(s.quote_border)).bg(p.border))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(s.quote_border + s.quote_pad))
+                        .top_0()
+                        .w(px((width - s.quote_border - s.quote_pad).max(1.0)))
+                        .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors })),
+                )
+                .into_any_element(),
+            BlockKind::CodeBlock => {
+                let text = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default();
+                placed
+                    .rounded(px(6.0))
+                    .when_some(p.code_block_bg, |d, bg| d.bg(bg))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(s.code_pad))
+                            .top(px(s.code_pad))
+                            .font_family(p.mono.clone())
+                            .text_size(px(s.code.size))
+                            .line_height(px(s.code.line_height))
+                            .text_color(p.colors.ink)
+                            .whitespace_nowrap()
+                            .children(text.split('\n').map(|l| div().h(px(s.code.line_height)).child(SharedString::from(l.to_string())))),
+                    )
+                    .into_any_element()
+            }
+            BlockKind::Rule => placed.bg(p.border).into_any_element(),
+            BlockKind::Table { header, rows } => {
+                let cols = header.len().max(rows.iter().map(Vec::len).max().unwrap_or(0)).max(1);
+                let col_w = width / cols as f32;
+                let mut table = placed.border_1().border_color(p.border).rounded(px(6.0)).overflow_hidden();
+                let mut y = 0.0;
+                for (r, row) in std::iter::once(header).chain(rows.iter()).enumerate() {
+                    let h = bx.rows.get(r).copied().unwrap_or(s.body.line_height);
+                    for c in 0..cols {
+                        let cell = row.get(c).cloned().unwrap_or_default();
+                        let weight = if r == 0 { s.body.weight.max(600) } else { s.body.weight };
+                        let spec = TextSpec { weight, ..s.body.clone() };
+                        table = table.child(
+                            div()
+                                .absolute()
+                                .left(px(c as f32 * col_w))
+                                .top(px(y))
+                                .w(px(col_w))
+                                .h(px(h))
+                                .when(r > 0, |d| d.border_t_1().border_color(p.border))
+                                .when(c > 0, |d| d.border_l_1().border_color(p.border))
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .left(px(s.cell_pad_h))
+                                        .top(px(s.cell_pad_v))
+                                        .w(px((col_w - 2.0 * s.cell_pad_h).max(1.0)))
+                                        .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors)),
+                                ),
+                        );
+                    }
+                    y += h;
+                }
+                table.into_any_element()
+            }
+        };
+        root = root.child(el);
+    }
+    root.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 8 px per character, the core's fixed measure, wrapping greedily.
+    struct Fixed;
+    impl MdText for Fixed {
+        fn height(&mut self, inlines: &[Inline], spec: &TextSpec, width: Option<f32>) -> f32 {
+            let text = plain(inlines);
+            let lines: f32 = text
+                .split('\n')
+                .map(|l| match width {
+                    None => 1.0,
+                    Some(w) => ((l.chars().count() as f32 * 8.0) / w).ceil().max(1.0),
+                })
+                .sum();
+            lines * spec.line_height
+        }
+        fn width(&mut self, inlines: &[Inline], _: &TextSpec) -> f32 {
+            plain(inlines).chars().count() as f32 * 8.0
+        }
+        fn widest_word(&mut self, inlines: &[Inline], _: &TextSpec) -> f32 {
+            plain(inlines).split_whitespace().map(|w| w.chars().count()).max().unwrap_or(0) as f32 * 8.0
+        }
+    }
+
+    fn body() -> TextSpec {
+        TextSpec { size: 14.0, line_height: 20.0, weight: 400, family: None }
+    }
+
+    #[test]
+    fn inline_spans_parse() {
+        let spans = parse_inline("**Bold** and *it* with `code` and [a link](https://x.y) ~~gone~~");
+        assert_eq!(plain(&spans), "Bold and it with code and a link gone");
+        assert!(spans[0].bold);
+        assert!(spans.iter().any(|s| s.italic && s.text == "it"));
+        assert!(spans.iter().any(|s| s.code && s.text == "code"));
+        assert!(spans.iter().any(|s| s.link.as_deref() == Some("https://x.y") && s.text == "a link"));
+        assert!(spans.iter().any(|s| s.strike && s.text == "gone"));
+        assert_eq!(plain(&parse_inline("snake_case_name stays")), "snake_case_name stays");
+    }
+
+    #[test]
+    fn blocks_parse() {
+        let doc = "# Title\n\nPara one\ncontinues.\n\n- a\n- [x] b\n1. first\n\n> quoted\n\n```\nlet x = 1;\n```\n\n| a | b |\n| --- | :-: |\n| 1 | 2 \\| 3 |\n\n---";
+        let blocks = parse(doc);
+        let kinds: Vec<&str> = blocks
+            .iter()
+            .map(|b| match &b.kind {
+                BlockKind::Paragraph => "p",
+                BlockKind::Heading(_) => "h",
+                BlockKind::ListItem { .. } => "li",
+                BlockKind::Quote => "q",
+                BlockKind::CodeBlock => "code",
+                BlockKind::Table { .. } => "table",
+                BlockKind::Rule => "hr",
+            })
+            .collect();
+        assert_eq!(kinds, ["h", "p", "li", "li", "li", "q", "code", "table", "hr"]);
+        assert_eq!(plain(&blocks[1].inlines), "Para one continues.");
+        assert_eq!(blocks[3].kind, BlockKind::ListItem { marker: "•".into(), task: Some(true) });
+        assert_eq!(blocks[2].list_group, blocks[4].list_group);
+        if let BlockKind::Table { rows, .. } = &blocks[7].kind {
+            assert_eq!(plain(&rows[0][1]), "2 | 3");
+        } else {
+            panic!("table");
+        }
+    }
+
+    #[test]
+    fn the_height_estimate_counts_a_gap_per_block_and_none_inside_a_list() {
+        let s = MdStyles::plain(body());
+        // "Looking…" (20 chars = 160 px) at 100 px wraps to 2 lines.
+        let blocks = parse("Looking for an alter\n\n- one\n- two\n\nEnd");
+        let lay = layout(&blocks, &s, 100.0, &mut Fixed);
+        // p: 40, gap 8, li 20, li 20 (no gap), gap 8, p 20.
+        assert_eq!(lay.height, 40.0 + 8.0 + 20.0 + 20.0 + 8.0 + 20.0);
+        assert_eq!(lay.blocks[2].y, 68.0);
+        // A heading collapses its top margin with the paragraph's bottom.
+        let h = layout(&parse("para\n\n## Head"), &s, 400.0, &mut Fixed);
+        assert_eq!(h.blocks[1].y, 20.0 + 12.0);
+        // Code blocks are padded and never wrap.
+        let c = layout(&parse("```\na\nb\n```"), &s, 10.0, &mut Fixed);
+        assert_eq!(c.height, 2.0 * s.code.line_height + 2.0 * s.code_pad);
+        assert_eq!(min_content_width(&parse("short loooooong"), &s, &mut Fixed), 72.0);
+        assert_eq!(max_content_width(&parse("- ab"), &s, &mut Fixed), 16.0 + s.list_indent);
+    }
+}

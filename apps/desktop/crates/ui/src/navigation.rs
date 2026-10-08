@@ -136,6 +136,13 @@ pub enum Screen {
     /// Actions lightbulb can navigate straight into it (and so
     /// go-back / tab restore keep the tab the user was on).
     GettingStarted { tab: GettingStartedTab },
+    /// VAPP-90 (DEV-ONLY): the Exponential UI kitchen sink — the core
+    /// catalog's fixture painted by the SDK's gpui painter
+    /// ([`crate::exponential_ui_screen`]), the desktop twin of the web route
+    /// `/exponential-ui-kitchen-sink` (view `exponential-ui-kitchen-sink`).
+    /// Tab-less full-page mode like Devices; reachable only through
+    /// `EXP_DEV_SCREEN=exponential-ui-kitchen-sink`, never from the rail.
+    ExponentialUiKitchenSink,
 }
 
 /// Which tab of the Getting-started page is up (EXP-686): the checklist, or
@@ -402,6 +409,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
+        Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
     }
 }
 
@@ -928,6 +936,9 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         }),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
+        // VAPP-90: the Exponential UI kitchen sink (view
+        // `exponential-ui-kitchen-sink`), the painter's dev screen.
+        "exponential-ui-kitchen-sink" | "exponential-ui" => Some(Screen::ExponentialUiKitchenSink),
         "getting-started" => Some(Screen::GettingStarted {
             tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
                 .ok()
@@ -2288,6 +2299,12 @@ mod tests {
     #[test]
     fn dev_screen_values_cover_the_full_page_screens() {
         assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
+        // VAPP-90: the Exponential UI kitchen sink (the view-catalog's
+        // desktop drive for `exponential-ui-kitchen-sink`).
+        assert_eq!(
+            parse_dev_screen("exponential-ui-kitchen-sink"),
+            Some(Screen::ExponentialUiKitchenSink)
+        );
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         // EXP-1170: a fresh New issue page — a minted id, the active board.
@@ -2526,6 +2543,7 @@ mod tests {
             Screen::GettingStarted {
                 tab: GettingStartedTab::FirstSteps,
             },
+            Screen::ExponentialUiKitchenSink,
             Screen::IssueDetail {
                 issue_id: "i1".into(),
             },
@@ -2813,6 +2831,7 @@ mod tests {
             Screen::GettingStarted {
                 tab: GettingStartedTab::FirstSteps,
             },
+            Screen::ExponentialUiKitchenSink,
         ] {
             assert_eq!(derive_origin(Some(&previous), None, &issue), None, "{previous:?}");
             assert_eq!(derive_origin(Some(&previous), None, &session), None);

@@ -66,6 +66,8 @@ mod description_editor;
 mod emoji;
 mod entity_chip;
 mod entity_preview;
+// VAPP-90: the Exponential UI kitchen-sink dev screen.
+mod exponential_ui_screen;
 mod emoji_picker;
 pub mod diff;
 mod diff_pane;
@@ -209,6 +211,8 @@ use gpui_component::dock::register_panel;
 /// navigation action handlers (§4.2). Must run once at bootstrap, after
 /// `gpui_component::init(cx)` and before any window opens.
 pub fn init(cx: &mut App) {
+    // VAPP-90: the SDK's generic controls read the IDE's token values.
+    exponential_ui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
     // EXP-105: quit-time sweep ending every coding_sessions row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on

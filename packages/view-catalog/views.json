@@ -2051,8 +2051,14 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-kitchen-sink"
+        },
+        "anchorDelayMs": 800
+      },
       "notes": {
-        "desktop": "The gpui painter is VAPP-90 (run 5 of the VAPP-84 line); no desktop surface yet.",
         "ios": "The SwiftUI painter is VAPP-88 (run 6 of the VAPP-84 line); no iOS surface yet.",
         "android": "The Compose painter is VAPP-89 (run 7 of the VAPP-84 line); no Android surface yet."
       }

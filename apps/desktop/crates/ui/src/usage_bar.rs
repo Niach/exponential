@@ -411,21 +411,12 @@ const MINI_TRACK_H: f32 = 4.;
 /// (the windows, the context block, the mini line), so a tone or a radius
 /// changes in one place; `height` is the only thing a caller varies. The web
 /// twin is the `@exp/ui` `Meter`, iOS `AgentUsageTrack`, Android `UsageTrack`.
+///
+/// VAPP-90: the body is the SDK's `exponential_ui_gpui::controls::meter`,
+/// which takes the fill colour; the severity → tone mapping stays here
+/// ([`severity_color`]).
 pub(crate) fn meter(percent: u8, severity: Severity, height: f32, cx: &App) -> gpui::Div {
-    div()
-        .w_full()
-        .h(px(height))
-        .rounded_full()
-        // EXP-698: the track is the glass strong stroke, not a dimmed chrome
-        // border.
-        .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
-        .child(
-            div()
-                .h_full()
-                .rounded_full()
-                .w(gpui::relative(percent as f32 / 100.))
-                .bg(severity_color(severity, cx)),
-        )
+    exponential_ui_gpui::controls::meter(percent, severity_color(severity, cx), height, cx)
 }
 
 /// EXP-909 — the FULL window form: every window the machine reported, TWO

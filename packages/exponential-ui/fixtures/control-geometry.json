@@ -2134,7 +2134,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 12,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "type=single": {
@@ -2147,7 +2147,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 12,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "type=multiple": {
@@ -2160,7 +2160,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 12,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "variant=default": {
@@ -2200,7 +2200,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 12,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "size=sm": {
@@ -2213,7 +2213,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 8,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "size=default": {
@@ -2226,7 +2226,7 @@
             "geometry": {
               "height": 32,
               "paddingHorizontal": 12,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           },
           "size=lg": {
@@ -2239,7 +2239,7 @@
             "geometry": {
               "height": 48,
               "paddingHorizontal": 16,
-              "borderRadius": 9999
+              "borderRadius": 10
             }
           }
         }

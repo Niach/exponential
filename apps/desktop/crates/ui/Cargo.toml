@@ -74,6 +74,12 @@ reqwest.workspace = true
 # provenance) — the issue-description editing surface; the block editor above
 # stays for the comment composer.
 gpui-markdown-editor = { path = "../gpui-markdown-editor" }
+# VAPP-90: the Exponential UI SDK — the core (reducer, themes, taffy frames)
+# and its gpui painter. The IDE links them like a third party: the generic
+# glass controls live in the painter crate now (`controls`, `chrome`), the
+# kitchen-sink dev screen paints the core catalog through `SurfaceView`.
+exponential-ui = { path = "../exponential-ui" }
+exponential-ui-gpui = { path = "../exponential-ui-gpui" }
 
 [dev-dependencies]
 # markdown/image_paste.rs one-shot HTTP fixture server.

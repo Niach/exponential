@@ -12,13 +12,12 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
+    button::Button,
     h_flex,
-    progress::ProgressCircle,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 
-use crate::controls::{WebControl as _, WebText as _};
+use crate::controls::WebText as _;
 use crate::icons::registry;
 
 /// EXP-863/EXP-909/EXP-1051 — the usage sheet, the SAME layout on all four
@@ -193,6 +192,10 @@ pub(crate) fn render_usage_sheet(
 ///
 /// A run with no window to report renders NO ring at all — that is the
 /// caller's check ([`crate::usage_bar::context_percent`] is `None`).
+///
+/// VAPP-90: the ring itself is the SDK's
+/// `exponential_ui_gpui::controls::context_ring` (tone + tooltip in); the
+/// severity tone and the tooltip's `steer::SessionUsage` wording stay here.
 pub(crate) fn context_ring(
     id: impl Into<gpui::ElementId>,
     percent: u8,
@@ -200,20 +203,13 @@ pub(crate) fn context_ring(
     cx: &App,
 ) -> Button {
     let tone = crate::usage_bar::severity_color(crate::usage_bar::severity(percent), cx);
-    Button::new(id)
-        .ghost()
-        .web_icon_xs()
-        .icon(
-            // `Size::Size(s)` renders at `s * 0.75`, so the ring is asked for
-            // the size that lands ON 16px.
-            gpui_component::Sizable::with_size(
-                ProgressCircle::new("session-context-ring")
-                    .value(f32::from(percent))
-                    .color(tone),
-                px(16. / 0.75),
-            ),
-        )
-        .tooltip(crate::usage_bar::format_context_usage(usage))
+    exponential_ui_gpui::controls::context_ring(
+        id,
+        percent,
+        tone,
+        crate::usage_bar::format_context_usage(usage),
+        cx,
+    )
 }
 
 /// EXP-909 — the windows of ONE login on a machine, off that machine's
