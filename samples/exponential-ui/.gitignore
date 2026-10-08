@@ -1,0 +1,9 @@
+.packs/
+web/node_modules/
+web/dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+gpui/target/
+ios/build/

@@ -1,0 +1,207 @@
+name: release-ui
+
+# VAPP-91: publishes the Exponential UI SDK on `ui-v<semver>` tags, in the
+# repo's tag-triggered pattern (cli-v*, desktop-v*…). One tag = one version on
+# every registry:
+#   npm          @exponential-at/ui, @exponential-at/ui-react     (NPM_TOKEN)
+#   crates.io    exponential-ui                                   (CARGO_REGISTRY_TOKEN)
+#   SwiftPM      ExponentialUI: the xcframework zip on this release + the
+#                tagged distribution repo Niach/exponential-ui-swift (SWIFT_DIST_TOKEN)
+#   Maven        at.exponential:ui-compose, :ui-compose-primitives via the
+#                Central Portal (MAVEN_CENTRAL_USERNAME/PASSWORD + SIGNING_KEY/PASSWORD)
+# Every registry step is GATED on its secret: without it the job still
+# builds, verifies and uploads what it would have published as a workflow
+# artifact, and says which secret is missing. The runbook is
+# packages/exponential-ui/release/README.md. `exponential-ui-gpui` stays
+# `publish = false` until gpui + gpui-component have matching crates.io
+# releases (crates.io refuses git dependencies).
+
+on:
+  push:
+    tags: ["ui-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (dry run: nothing is published without the secrets)"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  VERSION: ${{ github.event.inputs.version || '' }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          v="${VERSION:-${GITHUB_REF_NAME#ui-v}}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "not a semver version: $v"; exit 1; }
+          crate=$(grep -m1 '^version' apps/desktop/crates/exponential-ui/Cargo.toml | cut -d'"' -f2)
+          [ "$crate" = "$v" ] || { echo "apps/desktop/crates/exponential-ui/Cargo.toml is $crate, the tag says $v: bump it first"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  npm:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - run: bun install --frozen-lockfile
+      - name: Stage the npm packages
+        run: bun packages/exponential-ui/release/prepare-npm.ts ${{ needs.version.outputs.version }} dist-npm
+      - name: Publish (or pack)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for p in ui ui-react; do
+            if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist-npm/$p && npm publish --access public --provenance); \
+            else (cd dist-npm/$p && npm pack --pack-destination ../); fi
+          done
+          [ -n "$NODE_AUTH_TOKEN" ] || echo "::warning::NPM_TOKEN is not set (the @exponential-at org must exist first): packed, not published"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm
+          path: dist-npm/*.tgz
+          if-no-files-found: ignore
+
+  crates:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish exponential-ui (or dry-run)
+        working-directory: apps/desktop
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then cargo publish --locked -p exponential-ui; \
+          else cargo publish --locked -p exponential-ui --dry-run; echo "::warning::CARGO_REGISTRY_TOKEN is not set: dry run only"; fi
+
+  swift:
+    needs: version
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
+      - name: Build the xcframework
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - name: Zip + checksum
+        id: zip
+        run: |
+          bash packages/exponential-ui-swift/release/zip-xcframework.sh dist-swift | tee zip.log
+          echo "checksum=$(tail -1 zip.log)" >> "$GITHUB_OUTPUT"
+      - name: The distribution package
+        env:
+          URL: https://github.com/${{ github.repository }}/releases/download/ui-v${{ needs.version.outputs.version }}/ExponentialUIFFI.xcframework.zip
+        run: bash packages/exponential-ui-swift/release/make-release-package.sh ${{ needs.version.outputs.version }} "$URL" ${{ steps.zip.outputs.checksum }} dist-swift/package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swift
+          path: dist-swift/
+
+  maven:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
+      - run: cargo install cargo-ndk --locked
+      - name: Build the Android libraries
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
+      - name: The Central Portal bundle
+        working-directory: packages/exponential-ui-compose
+        env:
+          ORG_GRADLE_PROJECT_uiVersion: ${{ needs.version.outputs.version }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          bash release/central-bundle.sh
+      - name: Upload to Maven Central (or keep the bundle)
+        env:
+          USER: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          PASS: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNED: ${{ secrets.SIGNING_KEY != '' }}
+        run: |
+          if [ -z "$USER" ] || [ "$SIGNED" != "true" ]; then echo "::warning::Maven Central credentials or the signing key are not set: the bundle is an artifact, not uploaded"; exit 0; fi
+          curl --fail -X POST "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=exponential-ui-${{ needs.version.outputs.version }}" \
+            -H "Authorization: Bearer $(printf '%s:%s' "$USER" "$PASS" | base64 -w0)" \
+            -F bundle=@packages/exponential-ui-compose/build/central-bundle.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maven
+          path: packages/exponential-ui-compose/build/central-bundle.zip
+
+  release:
+    needs: [version, npm, crates, swift, maven]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect the release files + checksums
+        run: |
+          mkdir out
+          cp artifacts/swift/ExponentialUIFFI.xcframework.zip out/
+          cp artifacts/maven/central-bundle.zip out/exponential-ui-compose-${{ needs.version.outputs.version }}-bundle.zip
+          cp artifacts/npm/*.tgz out/ 2>/dev/null || true
+          cp LICENSE NOTICE out/
+          (cd out && sha256sum * > SHA256SUMS)
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ui-v${{ needs.version.outputs.version }}
+          name: Exponential UI ${{ needs.version.outputs.version }}
+          make_latest: false
+          files: out/*
+
+  swift-dist:
+    # After the release: the distribution package's binaryTarget url points
+    # at the zip this release just uploaded.
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: swift
+          path: dist-swift
+      - name: Push the tagged SwiftPM repo
+        env:
+          SWIFT_DIST_TOKEN: ${{ secrets.SWIFT_DIST_TOKEN }}
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          if [ -z "$SWIFT_DIST_TOKEN" ]; then echo "::warning::SWIFT_DIST_TOKEN is not set: the package is an artifact, not pushed"; exit 0; fi
+          git clone "https://x-access-token:${SWIFT_DIST_TOKEN}@github.com/Niach/exponential-ui-swift.git" dist-repo
+          rsync -a --delete --exclude .git dist-swift/package/ dist-repo/
+          cd dist-repo
+          git config user.name "exponential-release" && git config user.email "release@exponential.at"
+          git add -A && git commit -m "ExponentialUI $V" && git tag "$V" && git push origin HEAD "$V"

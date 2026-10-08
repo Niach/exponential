@@ -504,6 +504,22 @@
         "sha256": "2daae25d0d70f58350568f0f9c6b86ffafe5b4919f9161dbe6b8a49e218960dd"
       }
     },
+    "exponential-ui-devices": {
+      "web": {
+        "file": "shots/exponential-ui-devices/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 8960,
+        "sha256": "3c280d5855bf81e2ff5276b84358559bd1d5cc387afe7f67896a1001c87744a3"
+      },
+      "web-mobile": {
+        "file": "shots/exponential-ui-devices/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 11862,
+        "sha256": "3a39fd6cd01bacc3bfce16157ec2828ce9844e72e653d34d4f21c0acf9725b0d"
+      }
+    },
     "exponential-ui-kitchen-sink": {
       "android": {
         "file": "shots/exponential-ui-kitchen-sink/android.webp",

@@ -9,8 +9,12 @@ themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
 and Rust, and the fixtures every renderer suite locks against. No renderer
 lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
 
-`"private": true` until VAPP-91 publishes it. Depends on nothing from the
-Exponential app.
+It also defines the **host API** every renderer shares (VAPP-91: transport,
+functions, bindings, negotiation, policy, declarative packages, the
+Exponential connector) and packages the **conformance suite**. The workspace
+package.json stays `"private": true` with `main` on the sources; the npm
+package is staged and published by `release/` on `ui-v*` tags. Depends on
+nothing from the Exponential app.
 
 ## Layout
 
@@ -22,6 +26,7 @@ Exponential app.
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
 | `catalog/tokens.json` | the token NAMES (`$color.primary`, `$spacing.md`, …); values come from a theme |
 | `catalog/recipes.json` | the recipe contract: interaction states, the recipe key whitelist, every native's parts + `when` props (macro parts come from macros.json) |
+| `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
 | `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
 | `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
@@ -31,6 +36,10 @@ Exponential app.
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
+| `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
+| `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
+| `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide |
+| `release/` | the npm build + staging scripts and the release runbook (all registries) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
 
@@ -144,6 +153,72 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
 
+## The host API (VAPP-91)
+
+A surface needs exactly this from its host, the same shape on all four
+platforms (TS here, the Rust core's `host` module, the Swift and Kotlin
+painters through the facade); `catalog/host.json` is the contract and
+`fixtures/host-{transport,policy,router}.json` lock it everywhere.
+
+- **Transport**: messages in = the four A2UI v0.9 messages plus two
+  extensions, `applyTemplate {surfaceId, templateId, packageId?, data?}` and
+  `bindDataModel {surfaceId, path, source}`; client messages out = A2UI's
+  `{version, action: {name, surfaceId, sourceComponentId, timestamp,
+  context, payload?}}` or `{version, error: {code, surfaceId, message,
+  path?}}`. Adapters: `MemoryTransport`, `JsonlStreamTransport`,
+  `SseTransport`, `WebSocketTransport`, `McpTransport` (A2UI resources with
+  `application/json+a2ui` in a tool result; actions back as tools/call
+  `a2ui_event`), all on the shared decoders (`JsonlDecoder`, `SseDecoder`,
+  `messagesFromMcpResult`).
+- **Router**: `HostRouter.route(message)` → ops `create | components | data |
+  bind | delete | send` (pure; errors `UNSUPPORTED_CATALOG`,
+  `SURFACE_NOT_FOUND`, `INVALID_MESSAGE`, `TEMPLATE_NOT_FOUND` go back as
+  `send`).
+- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's key;
+  `function` = the legacy alias) to a non-built-in name runs the host's
+  registered function after the gate: `decideFunction(policy, name,
+  registered)` → `allow | ask | deny | not_found` (deny wins, then allow,
+  then ask, then `default`; `harness.*` prefixes), `ask` = the host's
+  `onFunctionCall` consent hook; a package surface's `functions` list
+  narrows it (`combineDecisions`). The 14 catalog functions are built in.
+- **Bindings**: `source` URIs `<scheme>:<name>?k=v` (`parseSource`); a host
+  registers a resolver per scheme (`subscribe(source, emit) → cancel`), each
+  emit lands at the bound path.
+- **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
+  A2UI basic, then the registered extensions; `clientCapabilities`.
+- **Policy**: `decideUrl` (schemes `https http mailto tel`, optional host
+  allowlist, relative urls against `baseUrl`) for `openUrl`/`Link`;
+  `mediaRequest(url, {baseUrl, rules})` = the image loader's url + headers
+  (auth for `/api/attachments`).
+- **Runtime**: `new ExponentialHost({transport, functions, sources,
+  extensions, packages, policy})`: `connect()`, `receive(message)`,
+  `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
+  `openUrl(url)`, `mediaRequest(src)`, `status` / `hasTransport` /
+  `unsupportedCatalog` (the `host_offline` state and the catalog-update
+  banner). React paints it with `<HostSurface host surfaceId>`.
+- **Declarative vapps** (VAPP-82): a package `{id, name, version, catalogId,
+  templates: {<id>: {components, data?, bindings?}}, functions?, theme?,
+  icon?}` (`validatePackage`); `createVappHost({package, …})` runs one in any
+  host. Against an Exponential instance, `ExponentialConnector` does the MCP
+  OAuth grant (discovery, dynamic registration, PKCE S256, consent) and
+  serves `exp:issues|boards|teams|members` over the instance's MCP tools
+  (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted vapps
+  (the peer-link transport, VAPP-10) embed through the same `Transport`
+  interface.
+
+The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
+(`harness.*` functions, `exp:` over the Electric collections, the consent
+card, the app extension's painters from `@exp/ui`, the Devices package
+`packages/ui/exponential-ui/templates/devices.json` on `/exponential-ui-devices`).
+Samples outside the workspace: `samples/exponential-ui/` (a local A2UI
+server, a third-party theme, one extension component, four hosts).
+
+## Conformance
+
+`conformance/README.md`: 15 suites, 1008 cases; a renderer is conformant
+when `bun run --filter @exponential-at/ui conformance:check <report>` says
+so. All four renderers and the core run it in CI (`exponential-ui.yml`).
+
 ## Fixtures (the contract; the Rust core replays them with these test names)
 
 | file | locks |
@@ -159,6 +234,7 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 | `theme-extends.json` | `extends` cases (the acceptance case: neutral + primary + button radius) → chain + probe styles |
 | `theme-invalid.json` | bad themes → the issues they must raise (paths ×4, never a crash) |
 | `control-geometry.json` | theme × control × props → the box a painter or override must measure to |
+| `host-transport.json` / `host-policy.json` / `host-router.json` | the host API (VAPP-91): decoders, the gate / urls / media / sources / negotiation, router flows → ops |
 
 ## Commands
 

@@ -2070,6 +2070,27 @@
         "ios": "Captured from the SwiftUI painter's example app (packages/exponential-ui-swift/Example, scheme KitchenSink, launched with -shot exponential-ui-kitchen-sink), not the Exponential app, which links the painter only in VAPP-91.",
         "android": "Captured from the Compose painter's example app (packages/exponential-ui-compose/example, app at.exponential.ui.kitchensink, launched with the `shot` extra exponential-ui-kitchen-sink), not the Exponential app, which links the painter only in VAPP-91."
       }
+    },
+    {
+      "id": "exponential-ui-devices",
+      "group": "exponential-ui",
+      "title": "Exponential UI · Devices template",
+      "blurb": "The Devices page as a declarative package (packages/ui/exponential-ui/templates/devices.json) rendered through the public host API (VAPP-91): the app host's `exp:devices` binding over the synced devices, the app extension's IconDisc + LiveDot painters, a row press through the function policy. VAPP-83 puts it beside the native page on every client.",
+      "order": 2,
+      "web": {
+        "route": "/exponential-ui-devices",
+        "anchor": {
+          "text": "Devices",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "The IDE host renders the same package under EXP_DEV_SCREEN=exponential-ui-devices; its committed shot lands with VAPP-83.",
+        "ios": "The iOS app does not link the SwiftUI painter yet (VAPP-83).",
+        "android": "The Android app does not link the Compose painter yet (VAPP-83)."
+      }
     }
   ]
 }

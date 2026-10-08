@@ -104,6 +104,21 @@ data model and yields `OutEvent::DataChanged`. Host-owned inputs stay
 host-owned: the core only forwards `OutEvent::Input` (the host adds its
 revision) and writes the value through when bound.
 
+## Host API (`host`, VAPP-91)
+
+The pure half of the host API, JSON-equal to the TS reference
+(`packages/exponential-ui/src/host`): `HostRouter` (messages → ops),
+`JsonlDecoder` / `SseDecoder` / `messages_from_mcp_result` /
+`mcp_action_call`, `decide_function` / `combine_decisions` /
+`package_policy`, `decide_url`, `media_request`, `parse_source`,
+`supported_catalog_ids` / `client_capabilities`, `validate_package` /
+`template_messages`, `action_message` / `error_message`; `contract.rs`
+mirrors `catalog/host.json` (drift-tested). An `on.<event>`
+`{functionCall: …}` (or the legacy `function`) to a non-built-in name yields
+`OutEvent::FunctionCall { component_id, name, args }` (args resolved); the
+facade exposes all of it as JSON-string functions and a `HostRouter` object.
+`tests/conformance.rs` runs the whole conformance suite against the core.
+
 ## Fixtures (`packages/exponential-ui/fixtures`, replayed in `tests/`)
 
 | file | test |
@@ -112,6 +127,7 @@ revision) and writes the value through when bound.
 | `theme-resolved/recipes/extends/invalid.json`, `control-geometry.json` | `tests/theme_fixtures.rs` (+ the three source theme files load to the same result) |
 | `layout-geometry.json` (900/390, LTR/RTL, EXACT frames), `overlay-geometry.json` | `tests/layout_fixtures.rs` (+ layers flipping at the four edges, a 10,000-row list, the A2UI message flow, extension leaves, a theme switch) |
 | the generated constants | `tests/generated_drift.rs` |
+| `host-transport/policy/router.json` | `tests/host_fixtures.rs` |
 
 `src/generated/{catalog,themes}.rs` are COPIES written by
 `bun run --filter @exponential-at/ui generate` (the package's
