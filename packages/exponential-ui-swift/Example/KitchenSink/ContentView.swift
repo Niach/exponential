@@ -57,9 +57,13 @@ final class SinkState: ObservableObject {
     @Published var mode: Mode
     let model: SurfaceModel
     let options: LaunchOptions
+    /// The specimen's nested node when `-shot` names one.
+    let specimenJSON: String?
+    var isSpecimen: Bool { specimenJSON != nil }
 
     init(options: LaunchOptions) {
         self.options = options
+        specimenJSON = SinkState.specimen(options.shot)
         let mode = Mode(rawValue: options.mode) ?? .dark
         themeId = options.theme
         self.mode = mode
@@ -84,13 +88,30 @@ final class SinkState: ObservableObject {
             }
         )
         model.host = host
-        var json = try! String(contentsOf: Bundle.main.url(forResource: "kitchen-sink", withExtension: "json")!, encoding: .utf8)
+        var json = specimenJSON
+            ?? (try! String(contentsOf: Bundle.main.url(forResource: "kitchen-sink", withExtension: "json")!, encoding: .utf8))
         if options.rtl {
             json = json.replacingOccurrences(of: "\"direction\": \"ltr\"", with: "\"direction\": \"rtl\"")
         }
         try! model.setNested(json: json)
         model.setData(path: "/draft", value: .object(["title": .string("")]))
     }
+
+    /// `-shot <id>` naming a `fixtures/specimens.json` entry (the
+    /// ui.exponential.at component pages): that entry's nested `node`.
+    /// Anything else (incl. `exponential-ui-kitchen-sink`) = nil.
+    static func specimen(_ id: String?) -> String? {
+        guard let id,
+              let url = Bundle.main.url(forResource: "specimens", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let specimens = root["specimens"] as? [[String: Any]],
+              let node = specimens.first(where: { $0["id"] as? String == id })?["node"],
+              let out = try? JSONSerialization.data(withJSONObject: node)
+        else { return nil }
+        return String(data: out, encoding: .utf8)
+    }
+
 
     static func theme(_ id: String) -> ThemeHandle? {
         if id == "brand", let url = Bundle.main.url(forResource: "brand.theme", withExtension: "json"), let json = try? String(contentsOf: url, encoding: .utf8) {
@@ -134,12 +155,14 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ExponentialSurface(model: state.model)
                         .frame(width: options.width)
-                    Text("host: \(state.echo)")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .accessibilityIdentifier("host-echo")
+                    if !state.isSpecimen {
+                        Text("host: \(state.echo)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .accessibilityIdentifier("host-echo")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

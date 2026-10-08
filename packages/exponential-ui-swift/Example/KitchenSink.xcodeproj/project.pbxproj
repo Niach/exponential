@@ -12,6 +12,7 @@
 		1FAE3B57999FD76C6C0F8555 /* AccessibilityWalk.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */; };
 		28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */ = {isa = PBXBuildFile; fileRef = 0BF880DA00B4E4D2AC437015 /* brand.theme.json */; };
 		D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */ = {isa = PBXBuildFile; fileRef = 8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */; };
+		A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */ = {isa = PBXBuildFile; fileRef = A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */; };
 		672E4077B1D764DA5C4187E7 /* ExponentialUI in Frameworks */ = {isa = PBXBuildFile; productRef = B09E15060E6130D7F40CF1F4 /* ExponentialUI */; };
 		BB07D7BCE881322437CA395D /* FullSurfaceDump.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */; };
 		CA1456D61BF864A97B82E840 /* AccessibilityOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070194FBC32E65261D1BFAF2 /* AccessibilityOrderTests.swift */; };
@@ -23,6 +24,7 @@
 		A3247696246199ED1C4DD54A /* AccessibilityWalk.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AccessibilityWalk.swift"; path = "KitchenSink/AccessibilityWalk.swift"; sourceTree = "<group>"; };
 		0BF880DA00B4E4D2AC437015 /* brand.theme.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "brand.theme.json"; path = "KitchenSink/Resources/brand.theme.json"; sourceTree = "<group>"; };
 		8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "kitchen-sink.json"; path = "../../exponential-ui/fixtures/kitchen-sink.json"; sourceTree = "<group>"; };
+		A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "specimens.json"; path = "../../exponential-ui/fixtures/specimens.json"; sourceTree = "<group>"; };
 		FE930DE1182D979D65C54991 /* KitchenSink.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KitchenSink.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "FullSurfaceDump.swift"; path = "KitchenSink/FullSurfaceDump.swift"; sourceTree = "<group>"; };
 		070194FBC32E65261D1BFAF2 /* AccessibilityOrderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "AccessibilityOrderTests.swift"; path = "KitchenSinkUITests/AccessibilityOrderTests.swift"; sourceTree = "<group>"; };
@@ -74,6 +76,7 @@
 				925A3BE473670B4E049D6C4C /* FullSurfaceDump.swift */,
 				0BF880DA00B4E4D2AC437015 /* brand.theme.json */,
 				8E86D2CC91A504331DFDF5A5 /* kitchen-sink.json */,
+				A93E5F0C1B2D4E6F7A8B9C02 /* specimens.json */,
 			);
 			name = KitchenSink;
 			sourceTree = "<group>";
@@ -194,6 +197,7 @@
 			files = (
 				28C67EEF931D2A4C29E1CD82 /* brand.theme.json in Resources */,
 				D740FE05FE1D356237519BAB /* kitchen-sink.json in Resources */,
+				A93E5F0C1B2D4E6F7A8B9C01 /* specimens.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
