@@ -4,9 +4,10 @@
    .btn-ghost: responsive.css hides `.topbar-right .btn-ghost` ≤420px and
    the GitHub mark must survive there). SSR renders no count (hook initial
    state is null), so there is never a hydration mismatch. */
-import { formatStars, useGitHubStars } from "../lib/use-github-stars"
-import { LINKS } from "../lib/links"
-import { IcGithub } from "./icons"
+import { Github } from "lucide-react"
+import { GITHUB_REPO, formatStars, useGitHubStars } from "./use-github-stars"
+
+const IcGithub = ({ size }: { size: number }) => <Github size={size} strokeWidth={1.6} />
 
 const Star = ({ size = 11 }: { size?: number }) => (
   <svg
@@ -33,7 +34,7 @@ export function GitHubStarsButton({
     return (
       <a
         className={`topbar-gh`}
-        href={LINKS.github.repo}
+        href={GITHUB_REPO}
         aria-label={`View Exponential on GitHub`}
       >
         <IcGithub size={15} />
@@ -45,7 +46,7 @@ export function GitHubStarsButton({
   }
 
   return (
-    <a className={`btn btn-ghost`} href={LINKS.github.repo}>
+    <a className={`btn btn-ghost`} href={GITHUB_REPO}>
       <IcGithub size={14} />
       View on GitHub
       <span className={`gh-stars${count ? ` is-on` : ``}`} aria-hidden={!count}>

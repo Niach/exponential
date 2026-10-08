@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react"
 import { LINKS } from "../lib/links"
 import { GlobeLogo, PLATFORMS, type Platform } from "./DownloadSection"
-import { GitHubStarsButton } from "./GitHubStarsButton"
+import { GitHubStarsButton } from "@exp/site-shell"
 import { IcChevDown, IcDownload } from "./icons"
 
 type PlatformId = `macos` | `windows` | `linux` | `ios` | `android`

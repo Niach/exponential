@@ -1,9 +1,11 @@
 /* ─── Exponential marketing styles — import hub ───
-   Order matters: files concatenate in the original cascade order. */
-@import "./styles/fonts.css";
-@import "./styles/tokens.css";
-@import "./styles/site.css";
-@import "./styles/site-footer.css";
+   Order matters: files concatenate in the original cascade order. The base
+   (fonts, tokens, site, footer, docs) is shared with ui.exponential.at
+   through @exp/site-shell. */
+@import "@exp/site-shell/styles/fonts.css";
+@import "@exp/site-shell/styles/tokens.css";
+@import "@exp/site-shell/styles/site.css";
+@import "@exp/site-shell/styles/site-footer.css";
 @import "./styles/ide.css";
 @import "./styles/webui.css";
 @import "./styles/mobile.css";
@@ -14,5 +16,5 @@
 @import "./styles/pricing.css";
 @import "./styles/contact.css";
 @import "./styles/download.css";
-@import "./styles/docs.css";
+@import "@exp/site-shell/styles/docs.css";
 @import "./styles/responsive.css";

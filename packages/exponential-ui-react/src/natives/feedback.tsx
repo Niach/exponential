@@ -1,5 +1,6 @@
 // VAPP-87: Ring, Spinner, Skeleton, Chart, TreeGuides.
 
+import { useLayoutEffect, useRef, useState } from "react"
 import { resolveRecipe, nativeRecipeProps } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
@@ -72,7 +73,23 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const categories = arr<string>(props.categories).map(String)
   const series = arr<Series>(props.series)
   const height = num(props.height, 200)
-  const width = 320
+  // The plot is drawn at the svg's REAL width (VAPP-93: a fixed 320 viewBox
+  // stretched by preserveAspectRatio=none squashed pies and labels); 320 until
+  // measured (and in environments without ResizeObserver).
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [width, setWidth] = useState(320)
+  useLayoutEffect(() => {
+    const el = svgRef.current
+    if (!el || typeof ResizeObserver === `undefined`) return
+    const measure = () => {
+      const w = Math.round(el.getBoundingClientRect().width)
+      if (w > 0) setWidth(w)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const pad = { l: 8, r: 8, t: 8, b: 20 }
   const max = Math.max(1, ...series.flatMap((s) => arr<number>(s.values).map((v) => num(v))))
   const color = (s: Series, i: number) => (s.tone && TONE_VAR[s.tone]) || `var(--xui-color-chart${(i % 5) + 1})`
@@ -122,7 +139,7 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   return (
     <div {...(rootProps as Record<string, unknown>)} role="img" aria-label={title || `${kind} chart`}>
       {title ? <span {...(part(`root`) as Record<string, string>)} className="xui-Chart-title">{title}</span> : null}
-      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ height }}>
+      <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ height }}>
         {kind !== `pie` ? (
           <g {...(part(`grid`) as Record<string, string>)} stroke="var(--xui-color-border)" strokeWidth={1}>
             {[0, 0.25, 0.5, 0.75, 1].map((t) => (

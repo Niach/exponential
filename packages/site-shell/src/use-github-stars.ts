@@ -5,7 +5,9 @@
    1h TTL) and deduped across mounts via a module-level promise. Any failure
    just leaves the badge count-less. */
 import { useEffect, useState } from "react"
-import { LINKS } from "./links"
+
+/** The repository every public site links and counts the stars of. */
+export const GITHUB_REPO = `https://github.com/Niach/exponential`
 
 const CACHE_KEY = `exp:gh-stars`
 const TTL_MS = 60 * 60 * 1000
@@ -30,7 +32,7 @@ const fetchStars = (): Promise<number | null> => {
     const cached = readCache()
     if (cached !== null) return cached
     try {
-      const repoPath = new URL(LINKS.github.repo).pathname.replace(/^\//, ``)
+      const repoPath = new URL(GITHUB_REPO).pathname.replace(/^\//, ``)
       const res = await fetch(`https://api.github.com/repos/${repoPath}`)
       if (!res.ok) return null
       const data = (await res.json()) as { stargazers_count?: number }

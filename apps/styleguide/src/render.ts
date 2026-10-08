@@ -56,6 +56,26 @@ const COMPONENT_PLATFORM_LABEL: Record<ComponentPlatform, string> = {
   android: `Android`,
 }
 
+/**
+ * VAPP-93: the view-catalog group the Exponential UI site owns — one specimen
+ * per core catalog component plus the kitchen sink. Its shots live in the same
+ * store and `--check` gates them like any other (`build.ts` reads the WHOLE
+ * gallery), but this page does not list them: the generic components are
+ * documented on ui.exponential.at, rendered through the SDK, and the Views nav
+ * carries one link there in their place.
+ */
+export const SITE_GROUP_ID = `exponential-ui-catalog`
+export const SITE_COMPONENTS_URL = `https://ui.exponential.at/components/`
+
+/** The gallery minus the site-owned group: what this page lists. */
+export function listedGallery(data: GalleryData): GalleryData {
+  return {
+    ...data,
+    groups: data.groups.filter((section) => section.group.id !== SITE_GROUP_ID),
+    views: data.views.filter((entry) => entry.view.group !== SITE_GROUP_ID),
+  }
+}
+
 /** How tall a fitted shot renders; placeholders match it so the rail stays level. */
 const RAIL_HEIGHT = 520
 
@@ -399,7 +419,7 @@ function renderSectionBar(page: PageSection[]): string {
 const OPENING_SECTION = `views`
 
 export function renderHtml(
-  data: GalleryData,
+  gallery: GalleryData,
   components: readonly ComponentSpec[] = COMPONENTS,
   uiCss = ``,
   entries: readonly StyleguideEntry[] = ENTRIES
@@ -413,6 +433,13 @@ export function renderHtml(
   // (`sectionOfSpec`) and every registered entry sits where the contract puts
   // it.
   const page = buildPage(components, entries)
+  const data = listedGallery(gallery)
+  const siteViews = gallery.views.length - data.views.length
+
+  const siteLink =
+    siteViews === 0
+      ? ``
+      : `<p class="section-blurb">The core catalog's ${siteViews} specimens live on <a href="${SITE_COMPONENTS_URL}">ui.exponential.at/components</a>, rendered through the Exponential UI SDK.</p>`
 
   const viewNav = data.groups
     .map((section) =>
@@ -433,7 +460,7 @@ export function renderHtml(
       [
         `<div class="mode-section" data-mode="${escapeHtml(section.section.id)}">`,
         `<p class="section-blurb">${escapeHtml(section.section.blurb)}</p>`,
-        section.section.id === `views` ? viewNav : ``,
+        section.section.id === `views` ? `${viewNav}${siteLink}` : ``,
         renderSectionBands(section),
         `</div>`,
       ].join(``)

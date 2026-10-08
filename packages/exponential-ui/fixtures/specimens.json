@@ -47,10 +47,19 @@
                 },
                 "children": [
                   {
-                    "id": "c0-box-child",
+                    "id": "c0-t1",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "A Box lays its children out by style.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-t2",
+                    "component": "Text",
+                    "props": {
+                      "text": "Flex, grid, spacing and colours come from the whitelist.",
+                      "variant": "muted"
                     }
                   }
                 ]
@@ -102,10 +111,27 @@
                 },
                 "children": [
                   {
-                    "id": "c0-stack-child",
+                    "id": "c0-a",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "size": "sm"
+                    }
+                  },
+                  {
+                    "id": "c0-t",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Ada Lovelace",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-b",
+                    "component": "Badge",
+                    "props": {
+                      "text": "Owner",
+                      "variant": "outline"
                     }
                   }
                 ]
@@ -139,10 +165,27 @@
                 },
                 "children": [
                   {
-                    "id": "c1-stack-child",
+                    "id": "c1-a",
+                    "component": "Avatar",
+                    "props": {
+                      "name": "Ada Lovelace",
+                      "size": "sm"
+                    }
+                  },
+                  {
+                    "id": "c1-t",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Ada Lovelace",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-b",
+                    "component": "Badge",
+                    "props": {
+                      "text": "Owner",
+                      "variant": "outline"
                     }
                   }
                 ]
@@ -193,10 +236,51 @@
                 },
                 "children": [
                   {
-                    "id": "c0-grid-child",
-                    "component": "Text",
+                    "id": "c0-g1",
+                    "component": "Card",
                     "props": {
-                      "text": "Child"
+                      "title": "Cell 1",
+                      "description": "Grid item"
+                    }
+                  },
+                  {
+                    "id": "c0-g2",
+                    "component": "Card",
+                    "props": {
+                      "title": "Cell 2",
+                      "description": "Grid item"
+                    }
+                  },
+                  {
+                    "id": "c0-g3",
+                    "component": "Card",
+                    "props": {
+                      "title": "Cell 3",
+                      "description": "Grid item"
+                    }
+                  },
+                  {
+                    "id": "c0-g4",
+                    "component": "Card",
+                    "props": {
+                      "title": "Cell 4",
+                      "description": "Grid item"
+                    }
+                  },
+                  {
+                    "id": "c0-g5",
+                    "component": "Card",
+                    "props": {
+                      "title": "Cell 5",
+                      "description": "Grid item"
+                    }
+                  },
+                  {
+                    "id": "c0-g6",
+                    "component": "Card",
+                    "props": {
+                      "title": "Cell 6",
+                      "description": "Grid item"
                     }
                   }
                 ]
@@ -247,10 +331,19 @@
                 },
                 "children": [
                   {
-                    "id": "c0-card-child",
+                    "id": "c0-t",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "3 open issues · 2 in review",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Open board",
+                      "variant": "outline"
                     }
                   }
                 ]
@@ -284,10 +377,19 @@
                 },
                 "children": [
                   {
-                    "id": "c1-card-child",
+                    "id": "c1-t",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "3 open issues · 2 in review",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-b",
+                    "component": "Button",
+                    "props": {
+                      "label": "Open board",
+                      "variant": "outline"
                     }
                   }
                 ]
@@ -408,10 +510,27 @@
                 },
                 "children": [
                   {
-                    "id": "c0-list-child",
+                    "id": "c0-l1",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Inbox",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-l2",
+                    "component": "Text",
+                    "props": {
+                      "text": "Drafts",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-l3",
+                    "component": "Text",
+                    "props": {
+                      "text": "Archive",
+                      "variant": "body"
                     }
                   }
                 ]
@@ -444,10 +563,27 @@
                 },
                 "children": [
                   {
-                    "id": "c1-list-child",
+                    "id": "c1-l1",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Inbox",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-l2",
+                    "component": "Text",
+                    "props": {
+                      "text": "Drafts",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-l3",
+                    "component": "Text",
+                    "props": {
+                      "text": "Archive",
+                      "variant": "body"
                     }
                   }
                 ]
@@ -571,10 +707,27 @@
                 },
                 "children": [
                   {
-                    "id": "c0-row-list-child",
-                    "component": "Text",
+                    "id": "c0-r1",
+                    "component": "ListRow",
                     "props": {
-                      "text": "Child"
+                      "title": "r/selfhosted",
+                      "meta": "312 posts"
+                    }
+                  },
+                  {
+                    "id": "c0-r2",
+                    "component": "ListRow",
+                    "props": {
+                      "title": "r/rust",
+                      "meta": "128 posts"
+                    }
+                  },
+                  {
+                    "id": "c0-r3",
+                    "component": "ListRow",
+                    "props": {
+                      "title": "r/swift",
+                      "meta": "64 posts"
                     }
                   }
                 ]
@@ -606,10 +759,27 @@
                 },
                 "children": [
                   {
-                    "id": "c1-row-list-child",
-                    "component": "Text",
+                    "id": "c1-r1",
+                    "component": "ListRow",
                     "props": {
-                      "text": "Child"
+                      "title": "r/selfhosted",
+                      "meta": "312 posts"
+                    }
+                  },
+                  {
+                    "id": "c1-r2",
+                    "component": "ListRow",
+                    "props": {
+                      "title": "r/rust",
+                      "meta": "128 posts"
+                    }
+                  },
+                  {
+                    "id": "c1-r3",
+                    "component": "ListRow",
+                    "props": {
+                      "title": "r/swift",
+                      "meta": "64 posts"
                     }
                   }
                 ]
@@ -659,10 +829,19 @@
                 },
                 "children": [
                   {
-                    "id": "c0-group-child",
-                    "component": "Text",
+                    "id": "c0-r1",
+                    "component": "ListRow",
                     "props": {
-                      "text": "Child"
+                      "title": "Mentions",
+                      "meta": "Push + email"
+                    }
+                  },
+                  {
+                    "id": "c0-r2",
+                    "component": "ListRow",
+                    "props": {
+                      "title": "Assigned to me",
+                      "meta": "Push"
                     }
                   }
                 ]
@@ -1709,10 +1888,27 @@
                 },
                 "children": [
                   {
-                    "id": "c0-carousel-child",
-                    "component": "Text",
+                    "id": "c0-p1",
+                    "component": "Card",
                     "props": {
-                      "text": "Child"
+                      "title": "Page one",
+                      "description": "Swipe for more"
+                    }
+                  },
+                  {
+                    "id": "c0-p2",
+                    "component": "Card",
+                    "props": {
+                      "title": "Page two",
+                      "description": ""
+                    }
+                  },
+                  {
+                    "id": "c0-p3",
+                    "component": "Card",
+                    "props": {
+                      "title": "Page three",
+                      "description": ""
                     }
                   }
                 ]
@@ -1772,10 +1968,19 @@
                 },
                 "children": [
                   {
-                    "id": "c0-tabs-child",
+                    "id": "c0-p1",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "The issue panel.",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c0-p2",
+                    "component": "Text",
+                    "props": {
+                      "text": "The run panel.",
+                      "variant": "body"
                     }
                   }
                 ]
@@ -2037,10 +2242,11 @@
                 },
                 "children": [
                   {
-                    "id": "c0-accordion-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Created 2 days ago by Ada; 3 comments.",
+                      "variant": "body"
                     }
                   }
                 ]
@@ -2079,10 +2285,11 @@
                 },
                 "children": [
                   {
-                    "id": "c1-accordion-child",
+                    "id": "c1-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Created 2 days ago by Ada; 3 comments.",
+                      "variant": "body"
                     }
                   }
                 ]
@@ -2133,10 +2340,11 @@
                 },
                 "children": [
                   {
-                    "id": "c0-collapsible-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Retries, timeouts and the proxy live here.",
+                      "variant": "muted"
                     }
                   }
                 ]
@@ -2398,13 +2606,51 @@
                 },
                 "children": [
                   {
-                    "id": "c0-dialog-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "The board and its 42 issues move to the trash for 48 hours.",
+                      "variant": "body"
                     }
                   }
-                ]
+                ],
+                "slots": {
+                  "trigger": {
+                    "id": "c0-trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "Delete board",
+                      "variant": "destructive"
+                    }
+                  },
+                  "footer": {
+                    "id": "c0-footer",
+                    "component": "Stack",
+                    "props": {
+                      "direction": "horizontal",
+                      "gap": "sm",
+                      "justify": "end"
+                    },
+                    "children": [
+                      {
+                        "id": "c0-cancel",
+                        "component": "Button",
+                        "props": {
+                          "label": "Cancel",
+                          "variant": "outline"
+                        }
+                      },
+                      {
+                        "id": "c0-ok",
+                        "component": "Button",
+                        "props": {
+                          "label": "Delete",
+                          "variant": "destructive"
+                        }
+                      }
+                    ]
+                  }
+                }
               }
             ]
           }
@@ -2453,13 +2699,32 @@
                 },
                 "children": [
                   {
-                    "id": "c0-drawer-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Status, assignee and labels.",
+                      "variant": "body"
                     }
                   }
-                ]
+                ],
+                "slots": {
+                  "trigger": {
+                    "id": "c0-trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "Filters",
+                      "variant": "outline"
+                    }
+                  },
+                  "footer": {
+                    "id": "c0-apply",
+                    "component": "Button",
+                    "props": {
+                      "label": "Apply",
+                      "variant": "default"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -2507,13 +2772,32 @@
                 },
                 "children": [
                   {
-                    "id": "c0-sheet-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Everything about the selected item.",
+                      "variant": "body"
                     }
                   }
-                ]
+                ],
+                "slots": {
+                  "trigger": {
+                    "id": "c0-trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "Details",
+                      "variant": "outline"
+                    }
+                  },
+                  "footer": {
+                    "id": "c0-close",
+                    "component": "Button",
+                    "props": {
+                      "label": "Done",
+                      "variant": "default"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -2561,13 +2845,24 @@
                 },
                 "children": [
                   {
-                    "id": "c0-popover-child",
+                    "id": "c0-p",
                     "component": "Text",
                     "props": {
-                      "text": "Child"
+                      "text": "Popover content.",
+                      "variant": "body"
                     }
                   }
-                ]
+                ],
+                "slots": {
+                  "trigger": {
+                    "id": "c0-trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "Open popover",
+                      "variant": "outline"
+                    }
+                  }
+                }
               }
             ]
           }
@@ -2614,10 +2909,11 @@
                 },
                 "children": [
                   {
-                    "id": "c0-tooltip-child",
-                    "component": "Text",
+                    "id": "c0-b",
+                    "component": "Button",
                     "props": {
-                      "text": "Child"
+                      "label": "Hover me",
+                      "variant": "outline"
                     }
                   }
                 ]
@@ -2675,6 +2971,16 @@
                       "destructive": true
                     }
                   ]
+                },
+                "slots": {
+                  "trigger": {
+                    "id": "c0-trigger",
+                    "component": "Button",
+                    "props": {
+                      "label": "More",
+                      "variant": "outline"
+                    }
+                  }
                 }
               }
             ]
@@ -4202,16 +4508,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "default"
-                },
-                "children": [
-                  {
-                    "id": "c0-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4238,16 +4535,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "secondary"
-                },
-                "children": [
-                  {
-                    "id": "c1-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4274,16 +4562,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "outline"
-                },
-                "children": [
-                  {
-                    "id": "c2-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4310,16 +4589,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "ghost"
-                },
-                "children": [
-                  {
-                    "id": "c3-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4346,16 +4616,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "destructive"
-                },
-                "children": [
-                  {
-                    "id": "c4-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4382,16 +4643,7 @@
                 "props": {
                   "label": "Submit",
                   "variant": "link"
-                },
-                "children": [
-                  {
-                    "id": "c5-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4419,16 +4671,7 @@
                   "label": "Submit",
                   "variant": "default",
                   "size": "sm"
-                },
-                "children": [
-                  {
-                    "id": "c6-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           },
@@ -4456,16 +4699,7 @@
                   "label": "Submit",
                   "variant": "default",
                   "size": "default"
-                },
-                "children": [
-                  {
-                    "id": "c7-button-child",
-                    "component": "Text",
-                    "props": {
-                      "text": "Child"
-                    }
-                  }
-                ]
+                }
               }
             ]
           }

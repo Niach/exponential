@@ -7,6 +7,7 @@
 //   ?view=overlay&case=<n>                              (overlay-geometry.json)
 //   ?view=catalog                                        (every fixture case)
 //   ?view=controls&theme=<id>                            (control-geometry.json, VAPP-91 conformance)
+//   ?view=specimen&id=<id>&theme=<id>&mode=&width=&rtl=1 (one specimens.json entry, VAPP-93)
 // No app code: the SDK, its fixtures and a stub host with a 150 ms echo.
 
 import { StrictMode, useMemo, useState } from "react"
@@ -18,6 +19,7 @@ import geometry from "@exponential-at/ui/fixtures/layout-geometry.json"
 import overlays from "@exponential-at/ui/fixtures/overlay-geometry.json"
 import components from "@exponential-at/ui/fixtures/catalog-components.json"
 import controlGeometry from "@exponential-at/ui/fixtures/control-geometry.json"
+import specimens from "@exponential-at/ui/fixtures/specimens.json"
 import { ExponentialSurface, useSurface } from "../src/index"
 import type { HostPlugin, SurfaceInputEvent } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -187,12 +189,45 @@ function Controls() {
   )
 }
 
+/** VAPP-93: one specimens.json entry alone (the per-component docs shot). */
+function Specimen() {
+  const id = params.get(`id`) ?? ``
+  const entry = (specimens as unknown as { specimens: { id: string; node: NestedNode }[] }).specimens.find((s) => s.id === id)
+  const surface = useSurface({ surfaceId: id || `specimen`, catalogId: CORE_CATALOG_ID, initial: entry?.node ?? { id: `root`, component: `Box` } })
+  const plugin = useMemo<HostPlugin>(
+    () => ({
+      icons: harnessIcons,
+      onAction: (e) => {
+        window.__xuiLog.push({ action: e.name, event: e.event, componentId: e.componentId, context: e.context, payload: e.payload })
+        return new Promise((r) => setTimeout(r, echoMs))
+      },
+      onInput: (e: SurfaceInputEvent) => {
+        window.__xuiLog.push({ input: e.name, value: e.value, revision: e.revision, kind: e.kind })
+        return new Promise<void>((resolve) =>
+          setTimeout(() => {
+            if (e.path) surface.setData(e.path, e.value)
+            resolve()
+          }, echoMs)
+        )
+      },
+    }),
+    [surface]
+  )
+  if (!entry) return <div>unknown specimen {id}</div>
+  return (
+    <div data-testid="exponential-ui-specimen" data-specimen={id}>
+      <ExponentialSurface id="specimen" surface={surface} host={plugin} theme={themeId} mode={mode} direction={rtl ? `rtl` : `ltr`} width={width ?? `100%`} />
+    </div>
+  )
+}
+
 function App() {
   if (view === `controls`) return <Controls />
   if (view === `geometry`) return <Geometry />
   if (view === `overlay`) return <Overlay />
   if (view === `catalog`) return <Catalog />
   if (!BUILTIN_THEME_IDS.includes(themeId)) return <div>unknown theme {themeId}</div>
+  if (view === `specimen`) return <Specimen />
   return <KitchenSink />
 }
 

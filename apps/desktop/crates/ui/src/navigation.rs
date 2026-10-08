@@ -148,6 +148,12 @@ pub enum Screen {
     /// web route `/exponential-ui-devices`. Reachable only through
     /// `EXP_DEV_SCREEN=exponential-ui-devices`.
     ExponentialUiDevices,
+    /// VAPP-93 (DEV-ONLY): one entry of the site's specimens fixture
+    /// (`packages/exponential-ui/fixtures/specimens.json`) painted alone
+    /// ([`crate::exponential_ui_screen::ExponentialUiSpecimen`]). `id` = the
+    /// specimen id = its view-catalog id; reachable only through
+    /// `EXP_DEV_SCREEN=<id>`.
+    ExponentialUiSpecimen { id: String },
 }
 
 /// Which tab of the Getting-started page is up (EXP-686): the checklist, or
@@ -416,6 +422,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::GettingStarted { .. } => "Getting started".into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::ExponentialUiDevices => "Devices · Exponential UI".into(),
+        Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
     }
 }
 
@@ -947,6 +954,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "exponential-ui-kitchen-sink" | "exponential-ui" => Some(Screen::ExponentialUiKitchenSink),
         // VAPP-91: the Devices template through the IDE host.
         "exponential-ui-devices" => Some(Screen::ExponentialUiDevices),
+        // VAPP-93: any id of the site's specimens fixture.
+        id if crate::exponential_ui_screen::is_specimen_id(id) => {
+            Some(Screen::ExponentialUiSpecimen { id: id.to_string() })
+        }
         "getting-started" => Some(Screen::GettingStarted {
             tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
                 .ok()
@@ -2318,6 +2329,16 @@ mod tests {
             parse_dev_screen("exponential-ui-devices"),
             Some(Screen::ExponentialUiDevices)
         );
+        // VAPP-93: every specimen id of the site (view `exponential-ui-<x>`).
+        assert_eq!(
+            parse_dev_screen("exponential-ui-button"),
+            Some(Screen::ExponentialUiSpecimen { id: "exponential-ui-button".into() })
+        );
+        assert_eq!(
+            parse_dev_screen("exponential-ui-demo"),
+            Some(Screen::ExponentialUiSpecimen { id: "exponential-ui-demo".into() })
+        );
+        assert_eq!(parse_dev_screen("exponential-ui-nope"), None);
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         // EXP-1170: a fresh New issue page — a minted id, the active board.

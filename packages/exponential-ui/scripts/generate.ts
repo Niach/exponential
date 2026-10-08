@@ -370,6 +370,62 @@ const SPECIMEN_ENUMS = [`variant`, `type`, `kind`, `level`, `size`, `tone`, `den
 const SPECIMEN_BOOLEANS = [`checked`, `pressed`, `selected`, `disabled`, `loading`, `busy`, `removable`, `attachments`, `chevron`, `padded`, `divided`, `guides`, `tee`, `rounded`]
 const SPECIMEN_MAX_CASES = 8
 
+const text = (id: string, value: string, variant = `body`): NestedNode => ({ id, component: `Text`, props: { text: value, variant } })
+const button = (id: string, label: string, variant = `default`): NestedNode => ({ id, component: `Button`, props: { label, variant } })
+const row = (id: string, title: string, meta: string): NestedNode => ({ id, component: `ListRow`, props: { title, meta } })
+const card = (id: string, title: string, description: string): NestedNode => ({ id, component: `Card`, props: { title, description } })
+
+/** What a specimen puts inside a container instead of the cases' generic
+ *  `Child` (a component missing here keeps the case's children as they are). */
+const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
+  Box: [text(`t1`, `A Box lays its children out by style.`), text(`t2`, `Flex, grid, spacing and colours come from the whitelist.`, `muted`)],
+  Stack: [
+    { id: `a`, component: `Avatar`, props: { name: `Ada Lovelace`, size: `sm` } },
+    text(`t`, `Ada Lovelace`),
+    { id: `b`, component: `Badge`, props: { text: `Owner`, variant: `outline` } },
+  ],
+  Grid: [1, 2, 3, 4, 5, 6].map((n) => card(`g${n}`, `Cell ${n}`, `Grid item`)),
+  Card: [text(`t`, `3 open issues · 2 in review`), button(`b`, `Open board`, `outline`)],
+  List: [text(`l1`, `Inbox`), text(`l2`, `Drafts`), text(`l3`, `Archive`)],
+  RowList: [row(`r1`, `r/selfhosted`, `312 posts`), row(`r2`, `r/rust`, `128 posts`), row(`r3`, `r/swift`, `64 posts`)],
+  Group: [row(`r1`, `Mentions`, `Push + email`), row(`r2`, `Assigned to me`, `Push`)],
+  Carousel: [card(`p1`, `Page one`, `Swipe for more`), card(`p2`, `Page two`, ``), card(`p3`, `Page three`, ``)],
+  Tabs: [text(`p1`, `The issue panel.`), text(`p2`, `The run panel.`)],
+  Accordion: [text(`p`, `Created 2 days ago by Ada; 3 comments.`)],
+  Collapsible: [text(`p`, `Retries, timeouts and the proxy live here.`, `muted`)],
+  Dialog: [text(`p`, `The board and its 42 issues move to the trash for 48 hours.`)],
+  Drawer: [text(`p`, `Status, assignee and labels.`)],
+  Sheet: [text(`p`, `Everything about the selected item.`)],
+  Popover: [text(`p`, `Popover content.`)],
+  Tooltip: [button(`b`, `Hover me`, `outline`)],
+  Button: [],
+}
+
+/** Slots a specimen fills (triggers and footers of the overlays). */
+const SPECIMEN_SLOTS: Record<string, Record<string, NestedNode>> = {
+  Dialog: {
+    trigger: button(`trigger`, `Delete board`, `destructive`),
+    footer: { id: `footer`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, justify: `end` }, children: [button(`cancel`, `Cancel`, `outline`), button(`ok`, `Delete`, `destructive`)] },
+  },
+  Drawer: { trigger: button(`trigger`, `Filters`, `outline`), footer: button(`apply`, `Apply`) },
+  Sheet: { trigger: button(`trigger`, `Details`, `outline`), footer: button(`close`, `Done`) },
+  Popover: { trigger: button(`trigger`, `Open popover`, `outline`) },
+  DropdownMenu: { trigger: button(`trigger`, `More`, `outline`) },
+}
+
+/** A case node with the specimen's children + slots in place of `Child`. */
+function specimenContent(node: NestedNode): NestedNode {
+  const children = SPECIMEN_CHILDREN[node.component]
+  const slots = SPECIMEN_SLOTS[node.component]
+  const out: NestedNode = { ...node }
+  if (children) {
+    if (children.length > 0) out.children = children
+    else delete out.children
+  }
+  if (slots) out.slots = slots
+  return out
+}
+
 /** Re-ids a nested tree so several cases of one component share a surface. */
 function prefixIds(node: NestedNode, prefix: string): NestedNode {
   const out: NestedNode = { ...node, id: `${prefix}${node.id}` }
@@ -421,7 +477,7 @@ function specimenNode(name: string, all: ComponentCase[]): NestedNode {
       props: { direction: `vertical`, gap: `xs`, align: inline ? `start` : `stretch` },
       children: [
         { id: `${root}-case-${i}-label`, component: `Text`, props: { text: c.label, variant: `caption` } },
-        prefixIds(c.node, `c${i}-`),
+        prefixIds(specimenContent(c.node), `c${i}-`),
       ],
     })),
   }

@@ -358,7 +358,9 @@ pub(crate) fn build_screen_content(
             .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
-        Screen::ExponentialUiKitchenSink | Screen::ExponentialUiDevices => {
+        Screen::ExponentialUiKitchenSink
+        | Screen::ExponentialUiDevices
+        | Screen::ExponentialUiSpecimen { .. } => {
             cx.new(|_| NeverUndocked).into()
         }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -1151,6 +1153,8 @@ pub struct ScreensPanel {
     exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
     /// VAPP-91: the Devices template through the IDE host, built on first use.
     exponential_ui_devices: Option<Entity<crate::exponential_ui_devices::ExponentialUiDevices>>,
+    /// VAPP-93: the open specimen (rebuilt when another id opens).
+    exponential_ui_specimen: Option<Entity<crate::exponential_ui_screen::ExponentialUiSpecimen>>,
     /// EXP-746: one session screen per OPEN session tab, keyed by the
     /// `coding_sessions` row id. Not a shared single instance like the views
     /// above: each one owns a feed (a relay socket, or the local engine's
@@ -1374,6 +1378,7 @@ impl ScreensPanel {
             getting_started,
             exponential_ui: None,
             exponential_ui_devices: None,
+            exponential_ui_specimen: None,
             sessions: HashMap::new(),
             list,
             side_list,
@@ -1691,6 +1696,7 @@ impl ScreensPanel {
             | Screen::GettingStarted { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiDevices
+            | Screen::ExponentialUiSpecimen { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -3857,6 +3863,20 @@ impl Render for ScreensPanel {
                 })
                 .clone()
                 .into_any_element(),
+            // VAPP-93: one specimen of the site (dev-only).
+            Some(Screen::ExponentialUiSpecimen { id }) => {
+                let stale = self
+                    .exponential_ui_specimen
+                    .as_ref()
+                    .is_none_or(|view| view.read(cx).id() != id.as_str());
+                if stale {
+                    let id = id.clone();
+                    self.exponential_ui_specimen = Some(cx.new(|cx| {
+                        crate::exponential_ui_screen::ExponentialUiSpecimen::new(&id, window, cx)
+                    }));
+                }
+                self.exponential_ui_specimen.clone().expect("built above").into_any_element()
+            }
             // EXP-851: nothing open at all (a fresh window, the last tab
             // closed, a team switch). There is no tool default left to fall
             // back on — the empty state points at the rail.
