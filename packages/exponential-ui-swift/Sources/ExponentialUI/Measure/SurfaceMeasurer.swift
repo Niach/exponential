@@ -354,9 +354,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let props = leaf.props
         let items = props.list("items")
         let item = part("ToggleGroup", "item", props)
-        let pad = item.px("paddingHorizontal") ?? item.px("padding") ?? 12
+        let box = item.toggleItemBox
+        let pad = box.paddingHorizontal
         let border = item.px("borderWidth") ?? 0
-        let h = item.height ?? 36
+        let h = box.height
         let ts = TextStyle(fontSize: item.px("fontSize") ?? leaf.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: leaf.textStyle.lineHeight, fontFamily: item.fontFamily)
         var w: CGFloat = 0
         for (i, it) in items.enumerated() {

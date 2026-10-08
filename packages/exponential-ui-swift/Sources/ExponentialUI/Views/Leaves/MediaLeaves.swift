@@ -23,16 +23,14 @@ struct AvatarLeaf: View {
         let size = min(cx.size.width, cx.size.height)
         let fs = fallback.px("fontSize")
         let src = cx.props.str("src")
-        let url = src.isEmpty ? nil : URL(string: cx.model.host.resolveUrl(src))
+        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
         Group {
-            if let url, url.scheme != nil {
+            if let request {
                 AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFill()
-                        } else {
-                            AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
-                        }
+                    MediaImage(request: request) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
                     }
                 }
             } else {
@@ -65,22 +63,20 @@ struct ImageLeaf: View {
         let src = cx.props.str("src")
         let alt = cx.props.str("alt").isEmpty ? "image" : cx.props.str("alt")
         let muted = cx.themeColor("mutedForeground") ?? cx.ink
-        let url = src.isEmpty ? nil : URL(string: cx.model.host.resolveUrl(src))
+        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
+        let fit = cx.props.str("fit")
         Group {
-            if let url, url.scheme != nil {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        let fit = cx.props.str("fit")
-                        if fit == "contain" || fit == "scaleDown" {
-                            image.resizable().scaledToFit()
-                        } else if fit == "fill" {
-                            image.resizable()
-                        } else {
-                            image.resizable().scaledToFill()
-                        }
+            if let request {
+                MediaImage(request: request) { image in
+                    if fit == "contain" || fit == "scaleDown" {
+                        image.resizable().scaledToFit()
+                    } else if fit == "fill" {
+                        image.resizable()
                     } else {
-                        ImagePlaceholder(ink: muted, label: alt)
+                        image.resizable().scaledToFill()
                     }
+                } placeholder: {
+                    ImagePlaceholder(ink: muted, label: alt)
                 }
             } else {
                 ImagePlaceholder(ink: muted, label: alt)
@@ -104,12 +100,14 @@ struct VideoLeaf: View {
 
     var body: some View {
         let poster = cx.props.str("poster")
-        let url = poster.isEmpty ? nil : URL(string: cx.model.host.resolveUrl(poster))
+        let request = poster.isEmpty ? nil : cx.model.host.mediaRequest(poster)
         ZStack {
             Color.black.opacity(0.85)
-            if let url, url.scheme != nil {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image { image.resizable().scaledToFill() } else { Color.clear }
+            if let request {
+                MediaImage(request: request) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.clear
                 }
             }
             Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay(GlyphView(glyph: .play, size: 20, color: .white))

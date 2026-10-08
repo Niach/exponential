@@ -29,6 +29,24 @@ public struct SurfaceInputEvent: Sendable, Equatable {
     public let kind: Kind
 }
 
+/// An `on.<event> = {functionCall: {call, args}}` to a host function (a
+/// name outside the catalog's built-ins; `openUrl` goes to `openUrl`).
+public struct SurfaceFunctionCall: Sendable, Equatable {
+    public let surfaceId: String
+    public let componentId: String
+    /// The function name (`call`).
+    public let name: String
+    /// The resolved `args` (bindings read from the data model).
+    public let args: Props
+
+    public init(surfaceId: String, componentId: String, name: String, args: Props) {
+        self.surfaceId = surfaceId
+        self.componentId = componentId
+        self.name = name
+        self.args = args
+    }
+}
+
 /// What an EMBEDDING APP provides. The SDK knows no transport: actions and
 /// input edits are plain values the host forwards wherever it likes. Every
 /// requirement has a default (the `NoHost` behaviour), so a host implements
@@ -47,6 +65,12 @@ public protocol HostPlugin: AnyObject {
     func openUrl(_ url: String)
     /// Rewrites media URLs (relative attachment paths, signed URLs).
     func resolveUrl(_ src: String) -> String
+    /// A host function call (VAPP-91). `ExponentialHost` gates and runs it;
+    /// a bare plugin ignores it.
+    func onFunctionCall(_ call: SurfaceFunctionCall)
+    /// The request an image / avatar / video poster loads with (auth
+    /// headers). Default: `resolveUrl(src)` when it is absolute, no headers.
+    func mediaRequest(_ src: String) -> URLRequest?
     /// Called once per structure version for each `Unknown` placeholder.
     func onUnknown(component: String, catalogId: String?, id: String)
     /// A font family NAME a theme asks for → the platform font family to
@@ -69,6 +93,11 @@ public extension HostPlugin {
         #endif
     }
     func resolveUrl(_ src: String) -> String { src }
+    func onFunctionCall(_ call: SurfaceFunctionCall) {}
+    func mediaRequest(_ src: String) -> URLRequest? {
+        guard !src.isEmpty, let url = URL(string: resolveUrl(src)), url.scheme != nil else { return nil }
+        return URLRequest(url: url)
+    }
     func onUnknown(component: String, catalogId: String?, id: String) {}
     func fontFamily(_ name: String) -> String? { nil }
     func markdown(_ text: String, width: CGFloat) -> AnyView? { nil }

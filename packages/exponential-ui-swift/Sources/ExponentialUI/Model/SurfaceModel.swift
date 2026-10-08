@@ -86,6 +86,8 @@ public final class SurfaceModel {
     /// Tests and geometry suites: lay out with the core's fixed fake
     /// measure (8 px per character, 20 px lines) instead of TextKit.
     @ObservationIgnored public var fixedMeasure = false
+    /// Conformance: called with every node index a `NodeView` paints.
+    @ObservationIgnored var paintProbe: ((Int) -> Void)?
     /// The open Select / DatePicker popup (the field node id).
     var popup: String?
     /// The field ids in the order they got focus (the focused one last).

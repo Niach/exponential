@@ -284,7 +284,7 @@ struct SliderTrackLeaf: View {
             let range = cx.part("Slider", "range")
             let thumb = cx.part("Slider", "thumb", states: cx.states.filter { $0 == "focus" || $0 == "hover" })
             let barH = Swift.min(track.height ?? 6, Swift.max(cx.size.height, 1))
-            let t = thumb.width ?? 16
+            let t = thumb.sliderThumbBox.width ?? 16
             let f = max > min ? CGFloat((value - min) / (max - min)) : 0
             let w = cx.size.width
             ZStack(alignment: .leading) {
@@ -329,8 +329,9 @@ struct ToggleGroupLeaf: View {
         let items = props.list("items")
         let values = cx.model.toggleGroupValues(cx.index)
         let item = cx.part("ToggleGroup", "item")
-        let pad = item.px("paddingHorizontal") ?? item.px("padding") ?? 12
-        let h = item.height ?? 36
+        let box = item.toggleItemBox
+        let pad = box.paddingHorizontal
+        let h = box.height
         let fs = item.px("fontSize") ?? cx.textStyle.fontSize
         let weight = ExponentialUIFonts.swiftUIWeight(Int(item.props.num("fontWeight") ?? 500))
         let fill = props.flag("fill")
@@ -366,5 +367,30 @@ struct ToggleGroupLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .leading)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+    }
+}
+
+/// The border box of a sub-part the painter DRAWS inside a leaf (no node of
+/// its own): what the control-geometry conformance suite probes (VAPP-91).
+struct DrawnBox: Equatable {
+    var width: CGFloat?
+    var height: CGFloat
+    var paddingHorizontal: CGFloat = 0
+    var paddingVertical: CGFloat = 0
+    var gap: CGFloat = 0
+    var borderWidth: CGFloat = 0
+    var borderRadius: CGFloat = 0
+}
+
+extension PartStyle {
+    /// A ToggleGroup `item` as `ToggleGroupLeaf` draws it.
+    var toggleItemBox: DrawnBox {
+        DrawnBox(width: nil, height: height ?? 36, paddingHorizontal: px("paddingHorizontal") ?? px("padding") ?? 12, gap: style.gap, borderWidth: style.borderWidth, borderRadius: style.radius)
+    }
+
+    /// The drawn Slider `thumb` (a circle `width` across).
+    var sliderThumbBox: DrawnBox {
+        let t = width ?? 16
+        return DrawnBox(width: t, height: height ?? t, borderWidth: style.borderWidth, borderRadius: style.radius)
     }
 }

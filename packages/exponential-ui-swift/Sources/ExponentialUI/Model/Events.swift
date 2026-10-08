@@ -16,6 +16,8 @@ extension SurfaceModel {
                 host.onAction(SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["component_id"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"]))
             case "openUrl":
                 host.openUrl(v["url"]?.string ?? "")
+            case "functionCall":
+                host.onFunctionCall(SurfaceFunctionCall(surfaceId: id, componentId: v["componentId"]?.string ?? v["component_id"]?.string ?? "", name: v["name"]?.string ?? "", args: v["args"]?.object ?? [:]))
             case "input":
                 let component = v["component_id"]?.string ?? ""
                 let revision: Int

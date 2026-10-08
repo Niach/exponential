@@ -19,14 +19,14 @@ The Exponential app's `ExpUI` builds its specialised views on
 
 ```bash
 bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh   # → Binaries/ExponentialUIFFI.xcframework (gitignored)
-swift test                                                 # macOS: 23 painter tests + the primitives
+swift test                                                 # macOS: the painter, host + conformance tests + the primitives
 ```
 
 `Package.swift` declares the binary target, the painter and its tests only
 when the xcframework is present (or `EXPONENTIAL_UI_FFI` names one); a
 checkout that only needs the primitives (the app's Tuist graph, CI) resolves
-without a Rust toolchain. Publishing (VAPP-91) switches the binary target
-to `url:` + `checksum`. The generated binding
+without a Rust toolchain. Publishing (VAPP-91, below) switches the binary
+target to `url:` + `checksum`. The generated binding
 `Sources/ExponentialUICore/ExponentialUIFFI.swift` is a committed copy of
 `exponential-ui-ffi/bindings/swift` (the script writes both).
 
@@ -61,6 +61,67 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
 - **Viewport.** The width comes from the view's geometry;
   `model.setViewport(width:height:maxHeight:)` sets the visible height
   (dialog centring, windowed lists) and a card bound.
+
+## The host API (VAPP-91)
+
+`catalog/host.json` on Swift. `ExponentialHost` (`@Observable`, main actor)
+owns the transport, the core's `HostRouter` (messages in, ops out), one
+`SurfaceModel` per surface, the source subscriptions, the functions and the
+policy; `HostSurface(host:surfaceId:)` paints one. The rules (routing,
+decoders, the function / URL gates, media requests, source parsing,
+packages) are the Rust core's, reached through the bindings.
+
+```swift
+let host = ExponentialHost(HostOptions(
+    transport: JSONLStreamTransport(url: stream, postUrl: actionURL),
+    functions: ["harness.toast": { args, call in /* … */ nil }],
+    sources: ["exp": { source, emit in /* subscribe */ return { /* cancel */ } }],
+    extensions: [HostExtension(json: catalogJSON, painters: ["Sparkline": SparklinePainter()])],
+    packages: [packageJSON],
+    policy: HostPolicy(functions: FunctionPolicy(ask: ["app.*"]), onFunctionCall: { call in await askUser(call) },
+                       urls: UrlPolicy(hosts: ["*.example.com"]), media: MediaOptions(baseUrl: "https://app.example.com", rules: [.init(prefix: "https://app.example.com/api/", headers: ["authorization": "Bearer …"])])),
+    theme: try ThemeHandle.load(json: themeJSON), mode: .light, plugin: myIcons))
+host.connect()
+ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
+```
+
+- **Ops.** `create` = a new empty model (the host's theme, mode,
+  extensions), `components`, `data` (no `value` = remove, `""` = the whole
+  model), `bind` (the scheme's `SourceResolver`; none = a
+  `VALIDATION_FAILED` back), `delete` (+ its subscriptions), `send`
+  (`UNSUPPORTED_CATALOG` also sets `unsupportedCatalog`). `receive(json)`
+  feeds a message by hand; `status` / `statusDetail` / `hasTransport`.
+- **Out.** An `action` becomes the A2UI client message on the transport
+  (the plugin's `onAction` still runs); a `functionCall` goes through
+  `callFunction`: `openUrl` → `openURL` (the URL policy, relative urls
+  against `media.baseUrl`), else `decide` (+ a template surface's package
+  `functions`) → `not_found` / `deny` send the error, `ask` asks
+  `onFunctionCall`, `allow` runs the function. Images, avatars and video
+  posters load through `mediaRequest` (a `URLRequest` with the rules'
+  headers), never `AsyncImage`.
+- **Transports.** `MemoryTransport` (`feed`, `feedJsonl`, `sent`),
+  `JSONLStreamTransport` / `SSETransport` (URLSession `bytes(for:)` through
+  the core's `JsonlDecoder` / `SseDecoder`, client messages POSTed to
+  `postUrl`, reconnect), `WebSocketTransport` (one message or JSONL per
+  frame), `MCPTransport` (`initialize`, `tools/call <tool>`, actions back as
+  `a2ui_event` calls). A custom one implements `Transport`.
+- **Negotiation.** `supportedCatalogIds`, `clientCapabilities`.
+
+`samples/exponential-ui/ios` is a blank app on this API. Conformance:
+`ConformanceTests` replays every suite of
+`packages/exponential-ui/conformance/manifest.json` through the painter and
+writes `.conformance/exponential-ui-swift.json` (`bun run --filter
+@exponential-at/ui conformance:check <report>`).
+
+## Publishing (SwiftPM)
+
+`release/zip-xcframework.sh <outdir>` zips the xcframework and prints the
+checksum; `release/make-release-package.sh <version> <zip-url> <checksum>
+<outdir>` writes the tagged distribution repo (`Package.swift` with the
+`url:` binary target, the products `ExponentialUI` +
+`ExponentialUIPrimitives`, `Sources/`, LICENSE, NOTICE, README). `--local
+<xcframework>` swaps in `path:` for a local `swift build` (SwiftPM refuses
+file URLs for binary targets).
 
 ## The painting model
 
@@ -170,7 +231,7 @@ links, the measurer rules, the accessibility order, a windowed list scroll).
 ## Known divergences from the React renderer
 
 - Line breaks follow TextKit; the `lines` clamp truncates with an ellipsis.
-- Skeleton is static. Images load through `AsyncImage`; Video and
+- Skeleton is static. Images load through the host's media request; Video and
   AudioPlayer are static placeholders.
 - A Select's `searchable` opens the plain native menu; `multiple` toggles
   per pick (the menu closes between picks).

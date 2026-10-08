@@ -128,6 +128,7 @@ struct NodeView: View {
 
     var body: some View {
         if let node = model.node(index), !node.hidden {
+            let _ = model.paintProbe?(index)
             NodeBody(index: index, node: node, model: model)
         }
     }
@@ -164,7 +165,17 @@ private struct NodeBody: View {
     private func painted(style: PaintStyle, size: CGSize) -> some View {
         Group {
             if node.isLeaf {
-                LeafContent(context: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
+                let leaf = LeafContent(context: LeafContext(model: model, node: node, size: size, style: style, ink: model.ink(index), textStyle: model.textStyle(index)))
+                if (model.children[safe: index] ?? []).isEmpty {
+                    leaf
+                } else {
+                    // A measured leaf that also carries nodes (a DropdownMenu
+                    // owner sized by its trigger): the nodes paint over it.
+                    ZStack(alignment: .topLeading) {
+                        leaf
+                        ContainerContent(index: index, node: node, model: model, style: style, size: size)
+                    }
+                }
             } else {
                 ContainerContent(index: index, node: node, model: model, style: style, size: size)
             }
