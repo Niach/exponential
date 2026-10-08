@@ -70,8 +70,12 @@ struct ActionInputFieldsView: View {
         case "pr":
             // EXP-259: the value is the REPRESENTATIVE issue id of an open
             // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
-            // several identifiers).
-            if model.pullRequests.isEmpty {
+            // several identifiers). EXP-1233: the Fix merge conflicts builtin
+            // draws its own card instead (PR number, branch → base, and the
+            // refusal note when a refused merge opened the composer).
+            if model.isFixConflicts {
+                FixConflictsCard(model: model, def: def)
+            } else if model.pullRequests.isEmpty {
                 HStack(spacing: 8) {
                     Text(inputLabel(def))
                         .foregroundStyle(.white.opacity(TextOpacity.primary))

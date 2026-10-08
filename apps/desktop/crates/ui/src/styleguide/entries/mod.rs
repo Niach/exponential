@@ -16,11 +16,12 @@ pub(crate) mod picker_priority;
 pub(crate) mod picker_label;
 pub(crate) mod picker_mcp;
 pub(crate) mod picker_repository;
-pub(crate) mod sub_shell;
+pub(crate) mod scope_picker;
 pub(crate) mod menu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
+pub(crate) mod composer_fix_conflicts;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_tree;
 pub(crate) mod pr_graph_badge;
@@ -70,11 +71,12 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_label::ID, owner: picker_label::OWNER, render: picker_label::render },
     Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
     Entry { id: picker_repository::ID, owner: picker_repository::OWNER, render: picker_repository::render },
-    Entry { id: sub_shell::ID, owner: sub_shell::OWNER, render: sub_shell::render },
+    Entry { id: scope_picker::ID, owner: scope_picker::OWNER, render: scope_picker::render },
     Entry { id: menu::ID, owner: menu::OWNER, render: menu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
+    Entry { id: composer_fix_conflicts::ID, owner: composer_fix_conflicts::OWNER, render: composer_fix_conflicts::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },

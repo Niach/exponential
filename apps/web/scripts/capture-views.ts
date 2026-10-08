@@ -47,6 +47,7 @@ import {
   DEMO_INVITE_TOKEN,
   DEMO_PASSWORD,
   DEMO_ACTION_ID,
+  DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
@@ -137,6 +138,9 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     .replaceAll(`$boardSlug`, ctx.demo.boardSlug)
     // EXP-740: a session is its own route, and the seed pins the id.
     .replaceAll(`$sessionId`, DEMO_STEERED_SESSION_ID)
+    // EXP-1204: the run-changes view's row — a teammate's chat run with an
+    // open PR of its own, pinned the same way.
+    .replaceAll(`$runChangesSessionId`, DEMO_SESSION_IDS.runChanges)
     // SLOP-2: an action is a page too, and the seed pins its id the same way.
     .replaceAll(`$actionId`, DEMO_ACTION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)

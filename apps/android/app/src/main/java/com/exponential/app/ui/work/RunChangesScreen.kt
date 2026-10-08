@@ -59,12 +59,10 @@ fun RunChangesScreen(
         ChangesMergeControl(
             label = DomainContract.diffUiMergePr,
             // No recovery run here: Fix conflicts takes an issue-linked PR.
-            fixConflicts = false,
             loading = merging,
             error = actionError,
             confirmPrompt = Prompts.MergeRunPr.prompt(run.prNumber),
             onConfirm = { viewModel.mergePr() },
-            onFixConflicts = {},
         )
     }
 

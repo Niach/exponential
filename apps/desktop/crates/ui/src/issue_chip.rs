@@ -101,6 +101,9 @@ pub(crate) struct IssueChip {
     small: bool,
     on_click: Option<ChipHandler>,
     on_remove: Option<(ElementId, ChipHandler)>,
+    /// The ✕'s tooltip; `None` = "Remove". EXP-1233: the fix-conflicts
+    /// headline's chips CLEAR THE PICK, and say so.
+    remove_tooltip: Option<SharedString>,
 }
 
 /// The ONE issue badge (EXP-885). `title` may be empty — the identifier alone
@@ -120,6 +123,7 @@ pub(crate) fn issue_chip(
         small: false,
         on_click: None,
         on_remove: None,
+        remove_tooltip: None,
     }
 }
 
@@ -170,6 +174,12 @@ impl IssueChip {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_remove = Some((id.into(), Box::new(handler)));
+        self
+    }
+
+    /// The ✕'s tooltip in place of "Remove" (EXP-1233).
+    pub(crate) fn remove_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+        self.remove_tooltip = Some(tooltip.into());
         self
     }
 }
@@ -259,7 +269,7 @@ impl RenderOnce for IssueChip {
                     px(ISSUE_CHIP_REMOVE_SIZE),
                 )
                 .flex_shrink_0()
-                .tooltip("Remove")
+                .tooltip(self.remove_tooltip.unwrap_or_else(|| "Remove".into()))
                     .on_click(move |event, window, cx| handler(event, window, cx)),
             );
         }

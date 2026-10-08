@@ -12,16 +12,22 @@ import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
 
-// What an /api/mcp request may touch. Session-cookie and personal `expu_`
-// api-key requests are the user's own credentials and get `full` access; an
-// OAuth access token (a human MCP client like Claude) is confined to the
-// teams/boards its consent grant selected. A token whose (user,
-// client) pair has no grant row gets NOTHING — the holder must re-run the
-// consent flow. The scope is enforced in the MCP tool layer; OAuth tokens are
-// not accepted anywhere else (see resolveSession), so the tool layer is the
-// complete surface.
+// What an /api/mcp request may touch. Session-cookie and UNSCOPED personal
+// `expu_` api-key requests are the user's own credentials and get `full`
+// access; an OAuth access token (a human MCP client like Claude) is confined
+// to the teams/boards its consent grant selected, and so is a SCOPED personal
+// key (FEED-76: the same selection, stored at mint in `apikeys.metadata`). A
+// token whose (user, client) pair has no grant row gets NOTHING — the holder
+// must re-run the consent flow. The scope is enforced in the MCP tool layer;
+// neither OAuth tokens nor scoped keys are accepted anywhere else (see
+// resolveSession), so the tool layer is the complete surface.
+export type McpAccessOrigin = `oauth` | `apiKey`
+
 export interface McpAccess {
   full: boolean
+  /** Which credential confined this access — picks the denial wording.
+   *  Absent on full access and on test literals (= the OAuth wording). */
+  origin?: McpAccessOrigin
   /** Whole-team grants — includes boards created later. */
   fullTeamIds: ReadonlySet<string>
   /** Individually granted boards. */
@@ -58,7 +64,8 @@ interface GrantShape {
 // to its team id (resolved by the caller).
 export function buildMcpAccess(
   grant: GrantShape,
-  boardTeamIds: ReadonlyMap<string, string>
+  boardTeamIds: ReadonlyMap<string, string>,
+  origin: McpAccessOrigin = `oauth`
 ): McpAccess {
   if (grant.allTeams) return FULL_ACCESS
   const fullTeamIds = new Set(grant.teamIds)
@@ -68,13 +75,14 @@ export function buildMcpAccess(
     const teamId = boardTeamIds.get(boardId)
     if (teamId) visibleTeamIds.add(teamId)
   }
-  return { full: false, fullTeamIds, grantedBoardIds, visibleTeamIds }
+  return { full: false, origin, fullTeamIds, grantedBoardIds, visibleTeamIds }
 }
 
 export async function resolveMcpAccessForGrant(
-  grant: GrantShape | null | undefined
+  grant: GrantShape | null | undefined,
+  origin: McpAccessOrigin = `oauth`
 ): Promise<McpAccess> {
-  if (!grant) return NO_ACCESS
+  if (!grant) return origin === `oauth` ? NO_ACCESS : { ...NO_ACCESS, origin }
   if (grant.allTeams) return FULL_ACCESS
   const map = new Map<string, string>()
   if (grant.boardIds.length > 0) {
@@ -88,7 +96,7 @@ export async function resolveMcpAccessForGrant(
       )
     for (const row of rows) map.set(row.id, row.teamId)
   }
-  return buildMcpAccess(grant, map)
+  return buildMcpAccess(grant, map, origin)
 }
 
 // Resolve an OAuth access token (already stripped of "Bearer ") to its user +
@@ -136,8 +144,11 @@ export async function resolveMcpTokenAccess(
   }
 }
 
-const deniedMessage = (target: string) =>
-  `This MCP connection was not granted access to ${target}. Re-authenticate the MCP server and adjust the team/board selection on the consent screen.`
+// Both wordings keep "not granted access": clients and tests key on it.
+const deniedMessage = (target: string, access: McpAccess) =>
+  access.origin === `apiKey`
+    ? `This API key was not granted access to ${target}. Create a new key under Settings → Security with a wider team/board selection (a key's scope cannot be changed).`
+    : `This MCP connection was not granted access to ${target}. Re-authenticate the MCP server and adjust the team/board selection on the consent screen.`
 
 export function isTeamVisible(access: McpAccess, teamId: string) {
   return access.full || access.visibleTeamIds.has(teamId)
@@ -165,7 +176,7 @@ export function isBoardGranted(
 /** Team-level reads needed by issue workflows: labels, members, repos. */
 export function assertTeamVisible(access: McpAccess, teamId: string) {
   if (!isTeamVisible(access, teamId)) {
-    throw new Error(deniedMessage(`this team`))
+    throw new Error(deniedMessage(`this team`, access))
   }
 }
 
@@ -176,7 +187,7 @@ export function assertTeamFullyGranted(
 ) {
   if (!isTeamFullyGranted(access, teamId)) {
     throw new Error(
-      deniedMessage(`team-level operations in this team`)
+      deniedMessage(`team-level operations in this team`, access)
     )
   }
 }
@@ -187,7 +198,7 @@ export function assertBoardGranted(
   teamId: string
 ) {
   if (!isBoardGranted(access, boardId, teamId)) {
-    throw new Error(deniedMessage(`this board`))
+    throw new Error(deniedMessage(`this board`, access))
   }
 }
 
@@ -195,7 +206,7 @@ export function assertBoardGranted(
 export function assertFullAccess(access: McpAccess) {
   if (!access.full) {
     throw new Error(
-      deniedMessage(`data outside its granted teams/boards`)
+      deniedMessage(`data outside its granted teams/boards`, access)
     )
   }
 }

@@ -129,7 +129,7 @@ impl MergeTarget {
 /// 2. EXP-1165: a BATCH run whose open combined PR a COVERED issue carries
 ///    (one of the row's `batch_issue_ids`, same `pr_url`, still open) merges
 ///    through THAT issue — exactly the Reviews row's path, so the stack-choice
-///    dialog and the "Fix conflicts" swap reach the run view too (web
+///    dialog and the conflict → fix-conflicts composer reach the run view too (web
 ///    `resolveSessionMergeTarget`);
 /// 3. otherwise an issue-less run (batch, chat, action) merges its OWN PR off
 ///    the `coding_sessions` row — the run owns the PR it opened.

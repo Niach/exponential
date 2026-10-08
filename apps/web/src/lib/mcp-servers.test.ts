@@ -11,11 +11,18 @@ import {
 
 describe(`isTeamMcp`, () => {
   it(`counts a no-sign-in server and a shared one, never an unshared sign-in`, () => {
-    expect(isTeamMcp({ auth: `none`, sharedCount: 0 })).toBe(true)
-    expect(isTeamMcp({ auth: `oauth`, sharedCount: 1 })).toBe(true)
-    expect(isTeamMcp({ auth: `secret`, sharedCount: 2 })).toBe(true)
-    expect(isTeamMcp({ auth: `oauth`, sharedCount: 0 })).toBe(false)
-    expect(isTeamMcp({ auth: `secret`, sharedCount: 0 })).toBe(false)
+    expect(isTeamMcp({ auth: `none`, transport: `http`, sharedCount: 0 })).toBe(true)
+    expect(isTeamMcp({ auth: `oauth`, transport: `http`, sharedCount: 1 })).toBe(true)
+    expect(isTeamMcp({ auth: `secret`, transport: `http`, sharedCount: 2 })).toBe(true)
+    expect(isTeamMcp({ auth: `oauth`, transport: `http`, sharedCount: 0 })).toBe(false)
+    expect(isTeamMcp({ auth: `secret`, transport: `http`, sharedCount: 0 })).toBe(false)
+  })
+
+  it(`ignores shares on a stdio server: its secret stays on the owner's machine`, () => {
+    expect(isTeamMcp({ auth: `secret`, transport: `stdio`, sharedCount: 2 })).toBe(false)
+    expect(isTeamMcp({ auth: `secret`, transport: `stdio`, sharedCount: 0 })).toBe(false)
+    // A stdio server with nothing to sign in to still needs no share.
+    expect(isTeamMcp({ auth: `none`, transport: `stdio`, sharedCount: 0 })).toBe(true)
   })
 })
 

@@ -162,7 +162,8 @@ public extension SteerDevice {
         return DeviceLaunchDefaults(
             defaultAgent: defaultAgent,
             agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
-            computerUse: decoded.computerUse
+            computerUse: decoded.computerUse,
+            computerUseModel: decoded.computerUseModel
         )
     }
 

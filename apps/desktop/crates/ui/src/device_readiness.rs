@@ -363,6 +363,11 @@ pub(crate) struct BlockProps {
     /// Row keys whose action is running (the pill shows its spinner).
     pub busy: HashSet<String>,
     pub extras: HashMap<String, RowExtras>,
+    /// EXP-1236: a host row appended to the Computer use band, under the
+    /// switch and its permission rows (the Computer use model picker). The
+    /// host hands it over only while the switch is on; with no Computer use
+    /// band to hang it on (an older device's doctor) it is dropped.
+    pub computer_use_tail: Option<AnyElement>,
 }
 
 fn tone_color(tone: Tone, cx: &App) -> gpui::Hsla {
@@ -501,11 +506,14 @@ pub(crate) fn render_sections(
                 cx,
             )
         });
-        let rows: Vec<AnyElement> = section
+        let mut rows: Vec<AnyElement> = section
             .rows
             .iter()
             .map(|row| render_row(row, &mut props, cx))
             .collect();
+        if section.group == DoctorGroup::ComputerUse {
+            rows.extend(props.computer_use_tail.take());
+        }
         block = block.child(
             v_flex()
                 .w_full()
@@ -535,7 +543,18 @@ pub(crate) fn render_loading() -> Div {
 /// its action, no band.
 pub(crate) fn render_single(row: &ReadinessRow, props: BlockProps, cx: &App) -> Div {
     let mut props = props;
-    h_flex().w_full().min_w_0().child(render_row(row, &mut props, cx))
+    let tail = props.computer_use_tail.take();
+    let line = render_row(row, &mut props, cx);
+    match tail {
+        // EXP-1236: the bare switch row (no doctor) still carries the model
+        // picker under it while it is on — the same ladder the band draws.
+        Some(tail) => v_flex()
+            .w_full()
+            .min_w_0()
+            .child(surface::list_row(line, 0))
+            .child(surface::list_row(tail, 1)),
+        None => h_flex().w_full().min_w_0().child(line),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -724,6 +743,7 @@ pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
         on_toggle: Some(Rc::new(|on, _window, cx| set_local_computer_use(on, cx))),
         busy: local_busy(cx),
         extras: HashMap::new(),
+        computer_use_tail: None,
     }
 }
 

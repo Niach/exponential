@@ -7,6 +7,7 @@ import {
 } from "@/components/mention-textarea"
 import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
+import { FixConflictsCard } from "@/components/launch-dialog/fix-conflicts-card"
 import { ActionPicker } from "@/components/launch-dialog/action-picker"
 import { IssuePicker } from "@/components/launch-dialog/issue-picker"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
@@ -177,7 +178,21 @@ export function LaunchComposer({
         data-testid="agent-composer"
         strip={
           <>
-            {actionSubject && subject && inputDefs.length > 0 && (
+            {actionSubject && subject && model.fixConflicts ? (
+              /* EXP-1233: the Fix merge conflicts builtin wears its own
+                 card — the PR's branch row (the picker) and, after a refused
+                 merge, the reason. */
+              <div className="px-3 pt-3">
+                <FixConflictsCard
+                  view={model.fixConflicts}
+                  teamId={model.teamId}
+                  value={subject.inputs.pr ?? ``}
+                  seedIssueId={model.seedPrIssueId}
+                  onChange={(issueId) => model.setInput(`pr`, issueId)}
+                  disabled={busy}
+                />
+              </div>
+            ) : actionSubject && subject && inputDefs.length > 0 ? (
               /* The action's typed picks (repo / board / pr / icon) — the
                  free-text kinds are gone (EXP-825): what the requester types
                  IS the run's instructions. */
@@ -191,7 +206,7 @@ export function LaunchComposer({
                   seedPrIssueId={model.seedPrIssueId}
                 />
               </div>
-            )}
+            ) : null}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
                 {images.map((image) => (

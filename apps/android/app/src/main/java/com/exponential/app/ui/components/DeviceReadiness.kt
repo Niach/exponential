@@ -47,11 +47,15 @@ import com.exponential.app.ui.theme.TextEmphasis
 // (the `optional` tag as plain muted text on it), one flat row per item —
 // state glyph, label, the device-written detail, at most ONE trailing pill —
 // and the `computer_use` item as a bare SwitchRow. No subtitles, no captions.
+// EXP-1236: the switch's band may close with the Computer use model picker
+// row, drawn only while the switch is on (the host binds it beside the switch).
 
 /**
  * The whole block. [onAction] runs a row's offered action; [onComputerUseChange]
  * = the switch's write (null disables it). [busyKeys] = rows whose action is in
- * flight (their pill spins).
+ * flight (their pill spins). [computerUseModel] + [onComputerUseModelChange]
+ * (EXP-1236) add the model picker as the switch band's last row while the
+ * switch is on; null = no row.
  */
 @Composable
 fun DeviceReadinessBlock(
@@ -60,6 +64,8 @@ fun DeviceReadinessBlock(
     onComputerUseChange: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
     busyKeys: Set<String> = emptySet(),
+    computerUseModel: String? = null,
+    onComputerUseModelChange: ((String) -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("device-readiness")) {
         groups.forEachIndexed { index, group ->
@@ -94,6 +100,23 @@ fun DeviceReadinessBlock(
                             busy = row.key in busyKeys,
                         )
                     }
+                }
+                // EXP-1236: the band that holds the switch closes with the
+                // model picker while the switch reads on (`groups` already
+                // overrode the row's state with the host's draft).
+                val switchRow = group.rows.firstOrNull { it.isSwitch }
+                if (switchRow?.switchOn == true &&
+                    computerUseModel != null && onComputerUseModelChange != null
+                ) {
+                    GroupDivider()
+                    PickerRow(
+                        label = COMPUTER_USE_MODEL_LABEL,
+                        value = computerUseModelLabel(computerUseModel),
+                        options = computerUseModelOptions(),
+                        selected = computerUseModel,
+                        optionLabel = ::computerUseModelLabel,
+                        onSelect = onComputerUseModelChange,
+                    )
                 }
             }
         }

@@ -663,7 +663,10 @@ impl ActionPromptForm {
 /// use whoever starts it — nothing to sign in to, or at least one member
 /// SHARES their connection. Only these go on an action's MCP list.
 pub(crate) fn is_team_mcp(entry: &api::mcp_servers::McpServerListEntry) -> bool {
-    entry.config.auth == "none" || entry.shared_count > 0
+    // A stdio server's secret never leaves its owner's machine, so a share
+    // on one (a stale row) counts for nothing here, as on web.
+    entry.config.auth == "none"
+        || (entry.config.transport != "stdio" && entry.shared_count > 0)
 }
 
 /// The team MCPs of a `mcpServers.list`, in registry order.
@@ -704,6 +707,16 @@ mod tests {
             shared_count,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_shared_stdio_server_is_not_a_team_mcp() {
+        let mut local = server("local", "secret", 2);
+        local.config.transport = "stdio".into();
+        assert!(!is_team_mcp(&local));
+        let mut remote = server("remote", "oauth", 1);
+        remote.config.transport = "http".into();
+        assert!(is_team_mcp(&remote));
     }
 
     #[test]

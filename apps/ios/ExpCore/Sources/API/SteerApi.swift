@@ -120,19 +120,26 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// screen, click and type). Off by default: nil = the key is absent (or
     /// not a boolean) on the row, which every reader treats as off.
     public let computerUse: Bool?
+    /// EXP-1236: the model alias the run's screen-driving subagents run on
+    /// (contract `computerUseModel`), a top-level key beside the switch.
+    /// nil = the key is absent (or not a string): every reader seeds
+    /// `DomainContract.deviceComputerUseDefaultsModel`.
+    public let computerUseModel: String?
 
     public init(
         defaultAgent: String? = nil,
         agents: [String: AgentLaunchDefaults]? = nil,
-        computerUse: Bool? = nil
+        computerUse: Bool? = nil,
+        computerUseModel: String? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.agents = agents
         self.computerUse = computerUse
+        self.computerUseModel = computerUseModel
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, agents, computerUse
+        case defaultAgent, agents, computerUse, computerUseModel
     }
 
     /// Lenient like the rest of the device payload: a field of a shape this
@@ -143,6 +150,7 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
         defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
         agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
         computerUse = (try? c.decodeIfPresent(Bool.self, forKey: .computerUse)) ?? nil
+        computerUseModel = (try? c.decodeIfPresent(String.self, forKey: .computerUseModel)) ?? nil
     }
 }
 

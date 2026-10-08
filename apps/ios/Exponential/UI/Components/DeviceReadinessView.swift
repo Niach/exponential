@@ -6,7 +6,9 @@ import SwiftUI
 // `device-doctor.json`, row model `DeviceReadiness` in ExpCore). Groups are
 // filled bands over flat hairline-divided rows: state glyph, label, the
 // device-written detail, at most ONE trailing pill. The `computer_use` item
-// IS a plain switch row. No subtitles, no footers.
+// IS a plain switch row. No subtitles, no footers. EXP-1236: the block form
+// may close the switch's band with the Computer use model picker row, drawn
+// only while the switch is on (the host binds it beside the switch).
 //
 // Three forms over the same row view:
 //   block   — every group (Device settings).
@@ -22,21 +24,26 @@ struct DeviceReadinessView: View {
     private let content: Content
     private let showsActions: Bool
     private let computerUse: Binding<Bool>?
+    private let computerUseModel: Binding<String>?
     private let busyActions: Set<String>
     private let onAction: (DeviceReadiness.Row) -> Void
 
     /// The whole block. `computerUse` drives the switch row (nil = read-only
-    /// at the report's state); `busyActions` = row keys whose action is in
-    /// flight (their pill disables).
+    /// at the report's state); `computerUseModel` (EXP-1236) adds the model
+    /// picker as the switch band's last row while the switch is on (nil = no
+    /// row); `busyActions` = row keys whose action is in flight (their pill
+    /// disables).
     init(
         groups: [DeviceReadiness.Group],
         computerUse: Binding<Bool>? = nil,
+        computerUseModel: Binding<String>? = nil,
         busyActions: Set<String> = [],
         onAction: @escaping (DeviceReadiness.Row) -> Void
     ) {
         content = .block(groups)
         showsActions = true
         self.computerUse = computerUse
+        self.computerUseModel = computerUseModel
         self.busyActions = busyActions
         self.onAction = onAction
     }
@@ -50,6 +57,7 @@ struct DeviceReadinessView: View {
         content = .rows([row])
         showsActions = true
         computerUse = nil
+        computerUseModel = nil
         busyActions = busy ? [row.key] : []
         self.onAction = onAction
     }
@@ -59,6 +67,7 @@ struct DeviceReadinessView: View {
         content = .rows(compactRows)
         showsActions = false
         computerUse = nil
+        computerUseModel = nil
         busyActions = []
         onAction = { _ in }
     }
@@ -77,6 +86,10 @@ struct DeviceReadinessView: View {
                             }
                         }
                         rowList(group.rows)
+                        if let computerUseModel, switchIsOn(in: group) {
+                            GlassDivider()
+                            computerUseModelRow(computerUseModel)
+                        }
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("device-readiness-group-\(group.key)")
@@ -112,6 +125,31 @@ struct DeviceReadinessView: View {
         .padding(.vertical, showsActions ? 8 : 2)
         .frame(minHeight: showsActions ? 40 : nil)
         .flatRow()
+    }
+
+    /// EXP-1236: whether `group` holds the Computer use switch and it reads
+    /// on — the host's draft when bound, else the report's state (which
+    /// `DeviceReadiness.groups` already overrode with the draft).
+    private func switchIsOn(in group: DeviceReadiness.Group) -> Bool {
+        guard let row = group.rows.first(where: \.isSwitch) else { return false }
+        return computerUse?.wrappedValue ?? row.switchOn
+    }
+
+    /// EXP-1236: the Computer use model picker, the switch band's last row,
+    /// in the band's own row rhythm (`rowView`).
+    private func computerUseModelRow(_ selection: Binding<String>) -> some View {
+        GlassPickerRow(
+            "Computer use model",
+            selection: selection,
+            options: LaunchVocabulary.computerUseModelValues(),
+            label: { LaunchVocabulary.computerUseModelLabel($0) }
+        )
+        .font(.subheadline)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(minHeight: 40)
+        .flatRow()
+        .accessibilityIdentifier("device-computer-use-model")
     }
 
     private func switchRow(_ row: DeviceReadiness.Row) -> some View {

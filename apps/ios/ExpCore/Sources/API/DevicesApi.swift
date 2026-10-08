@@ -104,13 +104,21 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 /// EXP-1196: `computerUse` = the DEVICE-level switch, a top-level key beside
 /// `agents`. The sheet sends what it shows (seeded from the row, explicit once
 /// toggled); nil writes no key and the server carries the stored value forward.
+/// EXP-1236: `computerUseModel` rides the same way beside it (a contract
+/// `computerUseModel` alias; the server clamps unknown ones).
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let agents: [String: AgentLaunchDefaultsInput]?
     public let computerUse: Bool?
+    public let computerUseModel: String?
 
-    public init(agents: [String: AgentLaunchDefaultsInput]? = nil, computerUse: Bool? = nil) {
+    public init(
+        agents: [String: AgentLaunchDefaultsInput]? = nil,
+        computerUse: Bool? = nil,
+        computerUseModel: String? = nil
+    ) {
         self.agents = agents
         self.computerUse = computerUse
+        self.computerUseModel = computerUseModel
     }
 }
 

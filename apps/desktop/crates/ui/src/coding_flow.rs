@@ -454,18 +454,6 @@ impl LocalSessions {
         self.all().find(|session| holds_branch(&session.branch, branch))
     }
 
-    /// Whether a live fix-conflicts run (EXP-259) is already working
-    /// `branch` — the ONLY case the "Fix conflicts" buttons park as
-    /// "Fixing…". Any other session holding the branch (its own coding
-    /// session, still alive after a plain Merge failed) is ended by the
-    /// fix-run launch itself, so those buttons stay clickable. ANY holder
-    /// being a fix run parks the button: a co-held branch must not unpark it
-    /// just because the issue session happened to be iterated first.
-    pub fn is_branch_fixing(&self, branch: &str) -> bool {
-        self.sessions_on_branch(branch)
-            .any(|session| is_fix_conflicts_run(session.action_id.as_deref()))
-    }
-
     /// The live local session with this `coding_sessions` ROW id — the
     /// reverse of [`Self::session_for_tab`]. EXP-686: the automations run log
     /// resolves a synced live row back to the tab this process is hosting it

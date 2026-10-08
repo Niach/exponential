@@ -106,10 +106,11 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   have satisfies it too. The native `sg_sign-in` shot is unaffected — since
   EXP-642 that name is the cloud CHOOSER, photographed before any instance is
   picked.
-- `GITHUB_TOKEN` for the `review-diff` view. Its diff is fetched live from
-  GitHub, and the anonymous limit is 60 requests an hour for the whole machine —
-  once the web lane has spent it the desktop lane photographs a 403. Any token
-  with public-repo read makes the lane deterministic.
+- `GITHUB_TOKEN` for the `review-diff` and `run-changes` views. Their diffs
+  are fetched live from GitHub, and the anonymous limit is 60 requests an hour
+  for the whole machine — once the web lane has spent it the desktop lane
+  photographs a 403. Any token with public-repo read makes the lane
+  deterministic.
 - The native STYLEGUIDE lanes need the relay stub running too
   (`cd apps/web && bun run screenshots:desktop`, or let `bun run shots` start
   it): `sg_machine-settings` and the `sg_start-coding-*` shots render off the

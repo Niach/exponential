@@ -1,6 +1,5 @@
-- Dialoge: jede Bestätigung und jede Auswahl nutzt dieselbe Karte, und Return wählt nie eine destruktive Antwort
-- Neues Issue: das × fragt, bevor ein Entwurf verworfen wird, und wer einen Entwurf mit Inhalt verlässt, wird nach Create, Keep as draft oder Discard gefragt
-- Runs: das Lauf-Symbol führt jede Listenzeile an, eine laufende Tool-Zeile zeigt nur ihre Überschrift, und ein Lauf zeigt Working, bis der Agent wirklich fertig ist
-- Boards: die Board-Auswahl zeigt den Punkt für andere Teams nicht mehr
-- Konto: trenne eine Anmeldemethode, solange ein anderer Zugang bleibt
-- Geräte: der Bereitschaftsblock sagt, was einem Rechner noch fehlt, und Computer use lässt sich pro Gerät einschalten
+- Runs: ein Lauf öffnet sich als Thread mit einer Statuszeile (Building on your machine, verstrichene Zeit, letzte Tool-Zeile) und seinen Ergebnissen direkt darin; Show work öffnet das vollständige Transkript
+- Entwürfe: ein Issue, das auf einem anderen Gerät aus einem Entwurf erstellt wurde, öffnet sich hier als Issue, und ein verworfener Entwurf schließt sich überall
+- Actions: das Löschen einer Action fragt zuerst nach, auf der gemeinsamen Hinweiskarte
+- Geräte: Codex braucht keine CLI-Installation mehr; die IDE lädt es bei der ersten Anmeldung herunter
+- Fehlerbehebungen: das Mergen eines Pull Requests eines Agenten ohne Issue funktioniert, und Ergebnisbilder werden zuverlässig hochgeladen

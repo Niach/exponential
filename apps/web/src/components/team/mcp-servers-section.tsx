@@ -186,7 +186,7 @@ export function TeamMcpServersSection({
       if (await setShared(server.id, next)) {
         toast.success(
           next
-            ? `Shared ${server.name} with the team`
+            ? `Shared ${server.name} with the team: action runs on teammates' machines use your connection`
             : `Stopped sharing ${server.name}`
         )
       }
@@ -824,10 +824,14 @@ function ConnectionAction({
               Replace key
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onSelect={onToggleShared}>
-            <ShareIcon />
-            {server.connection.shared ? `Stop sharing` : `Share with team`}
-          </DropdownMenuItem>
+          {/* A stdio server's secret stays on this machine (the server
+              refuses the share); only an already-shared row offers undo. */}
+          {(http || server.connection.shared) && (
+            <DropdownMenuItem onSelect={onToggleShared}>
+              <ShareIcon />
+              {server.connection.shared ? `Stop sharing` : `Share with team`}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
             <DisconnectIcon />

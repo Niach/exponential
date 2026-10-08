@@ -43,6 +43,7 @@ public enum DomainContract {
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
     public static let codexModelValues: [String] = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
     public static let codexEffortValues: [String] = ["minimal", "low", "medium", "high", "xhigh"]
+    public static let computerUseModelValues: [String] = ["haiku", "sonnet", "opus", "fable"]
     public static let actionInputTypeValues: [String] = ["repo", "board", "pr", "icon"]
     public static let mcpTransportValues: [String] = ["http", "stdio"]
     public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
@@ -101,6 +102,7 @@ public enum DomainContract {
     public static let builtinTidyUpId: String = "builtin:tidy-up"
     public static let deviceAgentDefaultsModel: String = "fable"
     public static let deviceAgentDefaultsSubagentModel: String = ""
+    public static let deviceComputerUseDefaultsModel: String = "haiku"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
     public static let startPromptMaxLength: Int = 16384
@@ -141,6 +143,10 @@ public enum DomainContract {
     public static let composerUiChatPlaceholder: String = "Ask the agent…"
     public static let composerUiInstructionsPlaceholder: String = "Additional instructions (optional)…"
     public static let composerUiDialogTitle: String = "Start a run"
+    public static let composerUiFixConflictsHeadline: String = "Fix merge conflicts"
+    public static let composerUiFixConflictsSubmit: String = "Fix conflicts"
+    public static let composerUiPrPlaceholder: String = "Select a pull request…"
+    public static let composerUiConflictNote: String = "Merge refused: the branch has conflicts."
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

@@ -310,6 +310,11 @@ class IssueDraftViewModel @Inject constructor(
     // nothing is written until it returns or the grace concludes.
     @Volatile private var holdWrites = false
     private var graceJob: Job? = null
+    // The store's latest verdict. Nothing is concluded while the page's own
+    // Create is in flight, so a FAILED create judges this again (iOS
+    // `judgeFate()` after the create failure): a row gone meanwhile holds
+    // and starts its grace, a grace that ran out meanwhile is re-armed.
+    @Volatile private var lastFate: IssueDraftPage.Fate? = null
 
     init {
         if (!deferUploads) {
@@ -397,7 +402,9 @@ class IssueDraftViewModel @Inject constructor(
                     .onStart { seen = false }
             }.collect { (present, createdIssueId) ->
                 if (present) seen = true
-                onFate(IssueDraftPage.fate(seen, present, createdIssueId))
+                val fate = IssueDraftPage.fate(seen, present, createdIssueId)
+                lastFate = fate
+                onFate(fate)
             }
         }
     }
@@ -916,6 +923,11 @@ class IssueDraftViewModel @Inject constructor(
                 if (id == null) {
                     sealed = false
                     _state.update { it.copy(creating = false) }
+                    // EXP-1231: a verdict the store delivered while the create
+                    // was in flight was dropped by `concluded()`; a grace that
+                    // fired meanwhile bailed and left the hold on. Judge again
+                    // now that `creating` is off (the 3 s grace restarts).
+                    lastFate?.let(::onFate)
                 } else {
                     left = true
                     _createdIssueId.value = id

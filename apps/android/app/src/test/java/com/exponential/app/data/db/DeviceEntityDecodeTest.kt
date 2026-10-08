@@ -84,6 +84,38 @@ class DeviceEntityDecodeTest {
         assertEquals("codex", defaults?.defaultAgent)
     }
 
+    /**
+     * EXP-1236: the device-level `computerUseModel` alias (beside the EXP-1196
+     * switch) survives the jsonb-as-text column and the retired-agent filter
+     * that rebuilds the decoded defaults; absent stays null.
+     */
+    @Test
+    fun `launch_defaults keeps the computer use switch and its model alias`() {
+        val row = """
+            {
+              "id": "row-1",
+              "user_id": "user-1",
+              "device_id": "dev-1",
+              "label": "mac",
+              "launch_defaults": {"defaultAgent": "claude", "computerUse": true, "computerUseModel": "fable", "agents": {"pi": {"model": "x"}}}
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(DeviceEntity.serializer(), row)
+        val defaults = com.exponential.app.domain.parseLaunchDefaults(entity.launchDefaults)
+        assertEquals(true, defaults?.computerUse)
+        assertEquals("fable", defaults?.computerUseModel)
+        // The retired agent is filtered, the top-level keys untouched.
+        assertTrue(defaults!!.agents.isEmpty())
+
+        val bare = json.decodeFromString(
+            DeviceEntity.serializer(),
+            """{"id":"row-2","user_id":"user-1","device_id":"dev-2","launch_defaults":{"computerUse":false}}""",
+        )
+        val bareDefaults = com.exponential.app.domain.parseLaunchDefaults(bare.launchDefaults)
+        assertEquals(false, bareDefaults?.computerUse)
+        assertNull(bareDefaults?.computerUseModel)
+    }
+
     @Test
     fun `camelCase (tRPC-shaped) keys decode via JsonNames`() {
         val row = """

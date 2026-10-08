@@ -1,5 +1,6 @@
 package com.exponential.app.navigation
 
+import com.exponential.app.domain.AGENT_ROUTE_PATTERN
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -86,6 +87,26 @@ class DeepLinkRoutesTest {
             DeepLinkRoutes.concreteRoute(
                 "agent?issues={issues}&action={action}",
                 args("issues" to "a,b"),
+            ),
+        )
+    }
+
+    /** EXP-1233: the full Agent pattern, the conflict flag included. */
+    @Test
+    fun `fills the agent pattern with the conflict flag`() {
+        assertEquals(
+            "agent?issues=&action=builtin:fix-conflicts&device=&pr=p-1&text=&icon=&conflict=1",
+            DeepLinkRoutes.concreteRoute(
+                AGENT_ROUTE_PATTERN,
+                args(
+                    "issues" to "",
+                    "action" to "builtin:fix-conflicts",
+                    "device" to "",
+                    "pr" to "p-1",
+                    "text" to "",
+                    "icon" to "",
+                    "conflict" to "1",
+                ),
             ),
         )
     }

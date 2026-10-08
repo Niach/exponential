@@ -89,6 +89,9 @@ final class StyleguideScreenshots: XCTestCase {
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// One of the four seeded open PRs on the Reviews queue.
     private static let reviewTitle = "Batch-edit labels from the board"
+    /// EXP-1204: the seeded chat run with an open PR of its own — its subject
+    /// is the Reviews "Agent runs" row title and the RunChanges header.
+    private static let runChangesTitle = "Fix the error-type comparison in the resolver"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -394,7 +397,7 @@ final class StyleguideScreenshots: XCTestCase {
         // arm opens the Agent page on the default device: an empty
         // composer is a chat; the `#` tool checks issues (two chips, a
         // batch); the ▶ tool picks an action (the Fix merge conflicts
-        // builtin, with its PR input). Nothing is ever submitted — a run
+        // builtin, its card's PR picked: EXP-1233). Nothing is ever submitted — a run
         // would land on a real machine.
         let chatButton = app.buttons["chat-button"].firstMatch
         XCTAssertTrue(
@@ -441,6 +444,31 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(
             anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
             "No action chip after picking"
+        )
+        // EXP-1233: the builtin draws its own card; picking the seeded open
+        // PR (APP-14) completes it into the Fix merge conflicts look — the
+        // headline's verb + the PR's issue chip, the card's PR row.
+        let fixCard = anyElement(app, identified: "agent-composer-fix-conflicts")
+        XCTAssertTrue(fixCard.waitForExistence(timeout: 15), "No Fix merge conflicts card")
+        // The row is inert until the open-PR pool has synced: a tap that opens
+        // nothing is retried once the sheet's title has had time to appear.
+        let prSheet = app.staticTexts["Select a pull request"].firstMatch
+        anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
+        if !prSheet.waitForExistence(timeout: 10) {
+            anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
+            XCTAssertTrue(prSheet.waitForExistence(timeout: 20), "The PR picker did not open")
+        }
+        // A sheet row is a Button whose label is the option's `#N · IDENT`
+        // (the issue picker above matches its rows the same way, any type).
+        let prRow = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "#", "APP-14")
+        ).firstMatch
+        XCTAssertTrue(prRow.waitForExistence(timeout: 20), "The PR picker never listed APP-14's pull request")
+        prRow.tap()
+        _ = prRow.waitForNonExistence(timeout: 10)
+        XCTAssertTrue(
+            anyElement(app, identified: "agent-composer-chip-issue-APP-14").waitForExistence(timeout: 15),
+            "No APP-14 chip after picking its pull request"
         )
         snapshot("sg_chat-action", settle: 2)
         // The Agent page is a bar root now (the chat arm switches to it) —
@@ -617,6 +645,25 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
+
+        // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
+        // The Reviews "Agent runs" band lists Jonas's finished chat run, whose
+        // own pull request is open; its row pushes `RunChangesView`, fed by
+        // `codingSessions.prFiles` — a real public PR the seed points the run
+        // at (SCREENSHOT_RUN_PR_URL), so there are actual files to show.
+        let runRow = app.staticTexts[Self.runChangesTitle].firstMatch
+        XCTAssertTrue(
+            runRow.waitForExistence(timeout: 60),
+            "Reviews tab never showed the seeded agent run"
+        )
+        runRow.tap()
+        let runFileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
+        XCTAssertTrue(
+            runFileRows.firstMatch.waitForExistence(timeout: 60),
+            "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
+        )
+        snapshot("sg_run-changes", settle: 2)
+        goBack(app)
 
         // ── sg_settings-root: the top-level settings list ────────────────────
         // The gear only lives on the issues tab's nav bar. The root is the

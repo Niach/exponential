@@ -51,6 +51,7 @@ const ENDED_SESSION_IDS = [
   DEMO_SESSION_IDS.pastChat,
   DEMO_SESSION_IDS.nightlyTriageRun,
   DEMO_SESSION_IDS.updateDepsRun,
+  DEMO_SESSION_IDS.runChanges,
 ]
 
 /** Below this the labels cannot have moved; skip the writes (and the sync churn). */

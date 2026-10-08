@@ -46,6 +46,36 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-08-code-mode",
+    date: "2026-10-08",
+    title: "Code mode: scripts that drive many tools at once, and a model for the screen",
+    summary: "Every coding run gets a Code mode server whose scripts call the run's other tools in bulk and in parallel, computer-use tool calls run side by side, and a device setting picks the model the screen-driving subagents use.",
+    body: r#"- **Code mode**: every coding run gets a `codemode` MCP server whose `codemode_exec` tool runs JavaScript that calls the run's other MCP tools in bulk and in parallel (Exponential, team servers, computer use); only the script's output comes back.
+- **Computer use**: a run's tool calls now execute side by side, so a script can drive several windows at once.
+- **Computer use model**: a device setting under Computer use picks the model the run's screen-driving subagents use; Haiku 5.5 by default for speed."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_35: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-07-release-train",
+    date: "2026-10-07",
+    title: "Runs open as a thread, drafts stay in step, and team actions bring their own MCP servers",
+    summary: "A run opens as a status row over its results with Show work for the transcript, a draft created or discarded on another device follows you, an action carries the team MCP servers every run connects to, Agent leads the navigation, and Codex needs no CLI install.",
+    body: r#"- **Runs read as a thread**: on web, desktop, iOS and Android a run opens as a status row (Building on your machine, elapsed time, the last tool line) over its results in publish order, with the agent's open question in place. Show work expands the full transcript and remembers your choice.
+- **Drafts in step**: an issue created from a draft on another tab or device lands on that issue here, and a draft discarded elsewhere closes with a note, on every client.
+- **Team actions with MCP servers**: an action lists the team MCP servers every run of it connects to. A member can share their own connection with the team (Share with team / Stop sharing in Settings, MCP servers), and the server spends it only for that action's runs.
+- **Navigation**: Agent is the first entry on web, matching the desktop rail.
+- **Codex**: the IDE and the CLI fetch a pinned Codex build on the first sign-in (checked against its published checksum); no CLI install and no doctor step.
+- **Desktop**: right-click a run row or the transcript for its menu, and every confirm and choice prompt takes its words and button roles from the shared prompts fixture. Deleting an action asks first on every client.
+- **Fixes**: merging or updating an agent's pull request that has no issue no longer fails with a GitHub error, and results pictures upload reliably when the file store is rate-limiting.
+- **Linux**: the desktop AppImage now needs glibc 2.39 or newer (Ubuntu 24.04 and later); the CLI binaries are unchanged.
+- **Older apps**: apps from before this release keep working."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_34: ChangelogEntry = ChangelogEntry {
     id: "2026-10-06-release-train",
     date: "2026-10-06",
     title: "Computer use, one dialog style, and drafts that ask before they leave",

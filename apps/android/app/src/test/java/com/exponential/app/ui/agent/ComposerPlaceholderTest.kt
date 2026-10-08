@@ -73,5 +73,11 @@ class ComposerPlaceholderTest {
             "Additional instructions (optional)…",
             composerPlaceholder(ComposerSubject.Action(fix.id, emptyMap()), fix),
         )
+        // EXP-1233: a picked pull request changes the verb and the send, not
+        // the field's prompt.
+        assertEquals(
+            "Additional instructions (optional)…",
+            composerPlaceholder(ComposerSubject.Action(fix.id, mapOf("pr" to "i-1")), fix),
+        )
     }
 }

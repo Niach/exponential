@@ -6,6 +6,7 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.seedComputerUseModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -288,6 +289,53 @@ class DeviceSettingsDefaultsTest {
             defaults = buildDefaults(listOf("claude"), emptyMap()),
         ).getValue("launchDefaults").jsonObject
         assertFalse(unset.containsKey("computerUse"))
+    }
+
+    /**
+     * EXP-1236: the Computer use model rides beside the switch as a top-level
+     * alias: decoded leniently (absent = null), sent as itself once the sheet
+     * holds one, ABSENT (never a literal null) while unset; and the sheet's
+     * seed clamps a stored alias to the contract, the default being Haiku.
+     */
+    @Test
+    fun `computerUseModel rides beside the switch and seeds to the contract default`() {
+        val json = Json { ignoreUnknownKeys = true }
+        assertNull(
+            json.decodeFromString(
+                DeviceLaunchDefaults.serializer(),
+                """{"computerUse":true,"agents":{}}""",
+            ).computerUseModel,
+        )
+        val stored = json.decodeFromString(
+            DeviceLaunchDefaults.serializer(),
+            """{"computerUse":true,"computerUseModel":"sonnet","agents":{}}""",
+        )
+        assertEquals("sonnet", stored.computerUseModel)
+
+        val sent = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(listOf("claude"), emptyMap(), computerUse = true, computerUseModel = "opus"),
+        ).getValue("launchDefaults").jsonObject
+        assertEquals(JsonPrimitive(true), sent["computerUse"])
+        assertEquals(JsonPrimitive("opus"), sent["computerUseModel"])
+        assertEquals(
+            "opus",
+            json.decodeFromJsonElement(DeviceLaunchDefaults.serializer(), sent).computerUseModel,
+        )
+        val unset = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = buildDefaults(listOf("claude"), emptyMap()),
+        ).getValue("launchDefaults").jsonObject
+        assertFalse(unset.containsKey("computerUseModel"))
+        assertFalse(unset.containsValue(JsonNull))
+
+        // The seed: a contract alias as itself, anything else the default.
+        assertEquals("haiku", DomainContract.deviceComputerUseDefaultsModel)
+        assertEquals(listOf("haiku", "sonnet", "opus", "fable"), DomainContract.computerUseModelValues)
+        assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel(null))
+        assertEquals("fable", seedComputerUseModel("fable"))
+        assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel("gpt-5.6-sol"))
+        assertEquals(DomainContract.deviceComputerUseDefaultsModel, seedComputerUseModel(""))
     }
 
     /** EXP-773 deleted the "Start in terminal" preference. An older server

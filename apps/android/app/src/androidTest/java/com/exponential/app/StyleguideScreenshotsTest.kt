@@ -110,6 +110,10 @@ class StyleguideScreenshotsTest {
         // APP-15: an open PR in the Reviews queue.
         private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
 
+        // EXP-1204: the seeded chat run with an open PR of its own — its
+        // subject is the "Agent runs" row title and the RunChanges header.
+        private const val RUN_CHANGES_TITLE = "Fix the error-type comparison in the resolver"
+
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
 
@@ -132,6 +136,10 @@ class StyleguideScreenshotsTest {
         private const val CHAT_SECOND_ISSUE_TITLE = "Push notification deep links open the wrong tab"
         // The builtin the sg_chat-action shot picks (EXP-259).
         private const val FIX_CONFLICTS_ACTION_NAME = "Fix merge conflicts"
+
+        // EXP-1233: the seeded open PR the Fix merge conflicts card picks
+        // (APP-14, the realPr review issue).
+        private const val FIX_CONFLICTS_PR_IDENTIFIER = "APP-14"
 
         // The close-out the seed's freshest agent-ended run carries (EXP-637) —
         // only the EXPANDED row shows it, so it is the post-tap gate.
@@ -397,6 +405,15 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
+        // EXP-1233: the builtin draws its own card; picking the seeded open
+        // PR (APP-14) completes it into the Fix merge conflicts look — the
+        // verb + the PR's issue chip, the card's PR row, "Fix conflicts".
+        flow.waitFor(hasTestTag("agent-composer-fix-conflicts"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-fix-conflicts-pr")).performClick()
+        flow.waitFor(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("agent-composer-chip-issue-$FIX_CONFLICTS_PR_IDENTIFIER"), NAV_TIMEOUT)
+        flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-action")
         // A tab now (Back would leave the app): the Devices tab returns.
@@ -509,6 +526,21 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_reviews")
+
+        // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
+        // finished chat run whose own pull request is open; its row opens
+        // RunChangesScreen, fed by codingSessions.prFiles — a real public PR
+        // the seed points the run at (SCREENSHOT_RUN_PR_URL), so there are
+        // actual files to show. Same expanded-card wait as the store review.
+        flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_run-changes")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+        flow.settle()
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case

@@ -103,6 +103,95 @@ pub fn attach_computer(resolved: &mut ResolvedMcp, grant: &computer::Grant) {
     resolved.env.push((var, grant.token.clone()));
 }
 
+/// EXP-1236: the device's code-mode server as one more wired entry, the
+/// twin of [`attach_computer`]: loopback HTTP, the run's token behind
+/// [`codemode::TOKEN_ENV`].
+pub fn attach_codemode(resolved: &mut ResolvedMcp, grant: &codemode::Grant) {
+    let var = codemode::TOKEN_ENV.to_string();
+    resolved.servers.push(McpServerWire {
+        id: codemode::SERVER_NAME.to_string(),
+        name: codemode::SERVER_NAME.to_string(),
+        transport: McpWireTransport::Http { url: grant.url.clone() },
+        headers: vec![("Authorization".to_string(), format!("Bearer ${{{var}}}"))],
+        token_env: Some(var.clone()),
+        env: Vec::new(),
+        actor: None,
+    });
+    resolved.env.push((var, grant.token.clone()));
+}
+
+/// EXP-1236: `value` with every `${NAME}` reference replaced by `env`'s
+/// value for NAME. A reference nothing resolves stays verbatim (the host's
+/// call then fails like the agent's would). The result is a SECRET: the
+/// caller hands it to the code-mode host and nowhere else.
+pub fn substitute_env_refs(value: &str, env: &[(String, String)]) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        match after.find('}') {
+            Some(end) if !after[..end].is_empty() && after[..end].chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+                let name = &after[..end];
+                match env.iter().find(|(key, _)| key == name) {
+                    Some((_, resolved)) => out.push_str(resolved),
+                    None => out.push_str(&rest[start..start + 2 + end + 1]),
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str("${");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// EXP-1236: what a run's scripts may reach, built from the launch's wired
+/// servers: `exponential` first (the `expu_` key and the session header,
+/// exactly what the agent's own entry carries), then every HTTP server of
+/// `resolved` with its `${VAR}` headers substituted from `resolved.env`
+/// (the `computer` entry included once attached). Stdio servers are named
+/// in the second list as direct-call only. `None` for an agent shell
+/// ([`crate::argv::AgentMcp::ClaudeFile`]), which carries no row.
+pub fn codemode_upstreams(
+    agent_mcp: &crate::argv::AgentMcp,
+    personal_key: &str,
+    session_id: &str,
+    resolved: &ResolvedMcp,
+) -> Option<(Vec<codemode::Upstream>, Vec<String>)> {
+    let url = match agent_mcp {
+        crate::argv::AgentMcp::ClaudeInline { url, .. } | crate::argv::AgentMcp::CodexOverrides { url, .. } => url,
+        crate::argv::AgentMcp::ClaudeFile => return None,
+    };
+    let mut upstreams = vec![codemode::Upstream {
+        name: RESERVED_CONFIG_KEY.to_string(),
+        url: url.clone(),
+        headers: vec![
+            ("Authorization".to_string(), format!("Bearer {personal_key}")),
+            ("X-Exp-Session-Id".to_string(), session_id.to_string()),
+        ],
+    }];
+    let mut direct_only = Vec::new();
+    for server in &resolved.servers {
+        match &server.transport {
+            McpWireTransport::Http { url } => upstreams.push(codemode::Upstream {
+                name: server.name.clone(),
+                url: url.clone(),
+                headers: server
+                    .headers
+                    .iter()
+                    .map(|(name, value)| (name.clone(), substitute_env_refs(value, &resolved.env)))
+                    .collect(),
+            }),
+            McpWireTransport::Stdio { .. } => direct_only.push(server.name.clone()),
+        }
+    }
+    Some((upstreams, direct_only))
+}
+
 // ---------------------------------------------------------------------------
 // Env var names
 // ---------------------------------------------------------------------------
@@ -191,7 +280,7 @@ pub fn resolve_with(resolution: &McpLaunchResolution, ids: Option<&[String]>) ->
         // the device's own computer-use server (EXP-1196): a team row may
         // not pose as it.
         let key = McpServerWire::config_key(&server.name);
-        if key == RESERVED_CONFIG_KEY || key == computer::SERVER_NAME {
+        if key == RESERVED_CONFIG_KEY || key == computer::SERVER_NAME || key == codemode::SERVER_NAME {
             resolved.warnings.push(format!(
                 "MCP server {}: the name is reserved; starting without it.",
                 server.name
@@ -439,6 +528,98 @@ mod tests {
         let resolved = resolve_with(&resolution, Some(&["s1".to_string()]));
         assert!(resolved.servers.is_empty());
         assert!(resolved.warnings[0].contains("reserved"));
+    }
+
+    /// EXP-1236: the code-mode entry mirrors the computer one, and a team
+    /// row may not pose as it.
+    #[test]
+    fn the_codemode_server_is_wired_behind_its_token_env_and_its_key_is_reserved() {
+        let mut resolved = ResolvedMcp::default();
+        let grant = codemode::Grant { url: "http://127.0.0.1:4466/mcp".into(), token: "code-token".into() };
+        attach_codemode(&mut resolved, &grant);
+        let wire = &resolved.servers[0];
+        assert_eq!(wire.name, "codemode");
+        assert_eq!(wire.transport, McpWireTransport::Http { url: grant.url.clone() });
+        assert_eq!(wire.headers, vec![("Authorization".to_string(), "Bearer ${EXP_CODEMODE_TOKEN}".to_string())]);
+        assert_eq!(wire.token_env.as_deref(), Some("EXP_CODEMODE_TOKEN"));
+        assert_eq!(resolved.secret_values(), vec!["code-token".to_string()]);
+
+        let resolution = McpLaunchResolution {
+            servers: vec![http("s1", "Codemode", Vec::new())],
+            ..McpLaunchResolution::default()
+        };
+        let resolved = resolve_with(&resolution, Some(&["s1".to_string()]));
+        assert!(resolved.servers.is_empty());
+        assert!(resolved.warnings[0].contains("reserved"));
+    }
+
+    /// EXP-1236: the host's own client gets the VALUES the agents' `${VAR}`
+    /// references stand for; an unknown reference stays as written.
+    #[test]
+    fn env_references_are_substituted_whole_and_unknown_ones_stay_verbatim() {
+        let env = vec![
+            ("EXP_MCP_TOKEN_2".to_string(), "tok-2".to_string()),
+            ("EXP_MCP_ENV_1_X_API_KEY".to_string(), "key-1".to_string()),
+        ];
+        assert_eq!(substitute_env_refs("Bearer ${EXP_MCP_TOKEN_2}", &env), "Bearer tok-2");
+        assert_eq!(substitute_env_refs("${EXP_MCP_ENV_1_X_API_KEY}", &env), "key-1");
+        assert_eq!(substitute_env_refs("${EXP_MCP_TOKEN_2}/${EXP_MCP_ENV_1_X_API_KEY}", &env), "tok-2/key-1");
+        assert_eq!(substitute_env_refs("Bearer ${NOPE}", &env), "Bearer ${NOPE}");
+        assert_eq!(substitute_env_refs("${EXP_MCP_TOKEN_2", &env), "${EXP_MCP_TOKEN_2");
+        assert_eq!(substitute_env_refs("${bad name}", &env), "${bad name}");
+        assert_eq!(substitute_env_refs("plain", &env), "plain");
+    }
+
+    /// EXP-1236: `exponential` first with the run's own key and session
+    /// header, every HTTP server with substituted headers (the computer
+    /// entry included once attached), stdio servers as direct-only names.
+    #[test]
+    fn codemode_upstreams_cover_every_http_server_and_name_the_stdio_ones() {
+        let mut resolved = ResolvedMcp {
+            servers: vec![
+                McpServerWire {
+                    id: "s1".into(),
+                    name: "linear".into(),
+                    transport: McpWireTransport::Http { url: "https://mcp.linear.app/mcp".into() },
+                    headers: vec![("Authorization".into(), "Bearer ${EXP_MCP_TOKEN_1}".into())],
+                    token_env: Some("EXP_MCP_TOKEN_1".into()),
+                    env: Vec::new(),
+                    actor: None,
+                },
+                McpServerWire {
+                    id: "s2".into(),
+                    name: "playwright".into(),
+                    transport: McpWireTransport::Stdio { command: "npx".into(), args: vec!["playwright-mcp".into()] },
+                    headers: Vec::new(),
+                    token_env: None,
+                    env: Vec::new(),
+                    actor: None,
+                },
+            ],
+            env: vec![("EXP_MCP_TOKEN_1".into(), "linear-token".into())],
+            ..ResolvedMcp::default()
+        };
+        attach_computer(&mut resolved, &computer::Grant { url: "http://127.0.0.1:4455/mcp".into(), token: "cu".into() });
+        let agent_mcp = crate::argv::AgentMcp::ClaudeInline {
+            url: "https://app.example.com/api/mcp".into(),
+            session_id: Some("run-1".into()),
+        };
+        let (upstreams, direct_only) = codemode_upstreams(&agent_mcp, "expu_key", "run-1", &resolved).unwrap();
+        let names: Vec<&str> = upstreams.iter().map(|u| u.name.as_str()).collect();
+        assert_eq!(names, vec!["exponential", "linear", "computer"]);
+        assert_eq!(upstreams[0].url, "https://app.example.com/api/mcp");
+        assert_eq!(
+            upstreams[0].headers,
+            vec![
+                ("Authorization".to_string(), "Bearer expu_key".to_string()),
+                ("X-Exp-Session-Id".to_string(), "run-1".to_string())
+            ]
+        );
+        assert_eq!(upstreams[1].headers, vec![("Authorization".to_string(), "Bearer linear-token".to_string())]);
+        assert_eq!(upstreams[2].headers, vec![("Authorization".to_string(), "Bearer cu".to_string())]);
+        assert_eq!(direct_only, vec!["playwright".to_string()]);
+        assert!(!format!("{upstreams:?}").contains("linear-token"), "Debug never prints a value");
+        assert!(codemode_upstreams(&crate::argv::AgentMcp::ClaudeFile, "k", "r", &resolved).is_none());
     }
 
     #[test]

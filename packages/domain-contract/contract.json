@@ -291,7 +291,11 @@
     "chatHeadline": "Ask the agent",
     "chatPlaceholder": "Ask the agent…",
     "instructionsPlaceholder": "Additional instructions (optional)…",
-    "dialogTitle": "Start a run"
+    "dialogTitle": "Start a run",
+    "fixConflictsHeadline": "Fix merge conflicts",
+    "fixConflictsSubmit": "Fix conflicts",
+    "prPlaceholder": "Select a pull request…",
+    "conflictNote": "Merge refused: the branch has conflicts."
   },
   "toolKind": {
     "values": [
@@ -355,6 +359,12 @@
   },
   "codingModel": {
     "values": ["fable", "opus", "sonnet"]
+  },
+  "computerUseModel": {
+    "values": ["haiku", "sonnet", "opus", "fable"]
+  },
+  "deviceComputerUseDefaults": {
+    "model": "haiku"
   },
   "codingEffort": {
     "values": ["low", "medium", "high", "xhigh", "max"]

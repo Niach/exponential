@@ -54,6 +54,7 @@ use gpui_component::{
     button::{ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
+    select::Select,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
@@ -333,6 +334,10 @@ pub struct DeviceSettingsView {
     /// EXP-1196: `Settings.computer_use` — the DEVICE's switch (no agent
     /// tab owns it), saved with the launch defaults it syncs in.
     computer_use: bool,
+    /// EXP-1236: `Settings.computer_use_model` — the alias the run's
+    /// screen-driving subagents run on; the picker row under the switch,
+    /// shown only while it is on, saved through the same defaults write.
+    computer_use_model_select: ChoiceSelect,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -469,6 +474,12 @@ impl DeviceSettingsView {
             window,
             cx,
         );
+        let computer_use_model_select = choice_select(
+            &crate::coding_selects::COMPUTER_USE_MODEL_CHOICES,
+            &seeded.computer_use_model,
+            window,
+            cx,
+        );
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -498,6 +509,7 @@ impl DeviceSettingsView {
             &codex_model_select,
             &codex_effort_select,
             &subagent_model_select,
+            &computer_use_model_select,
         ] {
             // EXP-694 autosave: a picked value IS the save (the guard in
             // `save_defaults` swallows the programmatic rewrites).
@@ -540,6 +552,7 @@ impl DeviceSettingsView {
             claude_plan_mode: seeded.claude_plan_mode,
             claude_auto_rotate: seeded.auto_rotate_accounts,
             computer_use: seeded.computer_use,
+            computer_use_model_select,
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -694,6 +707,10 @@ impl DeviceSettingsView {
                 &self.subagent_model_select,
                 baseline.claude_subagent_model.clone(),
             ),
+            (
+                &self.computer_use_model_select,
+                baseline.computer_use_model.clone(),
+            ),
         ] {
             select.update(cx, |select, cx| {
                 select.set_selected_value(&SharedString::from(value), window, cx)
@@ -725,7 +742,25 @@ impl DeviceSettingsView {
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.auto_rotate_accounts = self.claude_auto_rotate;
         drafted.computer_use = self.computer_use;
+        drafted.computer_use_model = selected(&self.computer_use_model_select, cx);
         drafted
+    }
+
+    /// EXP-1236: the Computer use model picker row — the last row of the
+    /// readiness block's Computer use band (under the switch and its
+    /// permission rows), drawn only while the switch is on. The select's
+    /// observer saves a pick through the launch defaults, like the switch.
+    fn computer_use_model_row(&self, cx: &App) -> Option<gpui::AnyElement> {
+        self.computer_use.then(|| {
+            surface::glass_picker_row(
+                "Computer use model",
+                None,
+                surface::glass_picker_select(Select::new(&self.computer_use_model_select))
+                    .into_any_element(),
+                cx,
+            )
+            .into_any_element()
+        })
     }
 
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>) {
@@ -1707,6 +1742,7 @@ impl DeviceSettingsView {
                                 cx.notify();
                             });
                         })),
+                        computer_use_tail: self.computer_use_model_row(cx),
                         ..device_readiness::BlockProps::default()
                     };
                     let row = device_readiness::bare_switch_row(self.computer_use);
@@ -1760,6 +1796,7 @@ impl DeviceSettingsView {
                 cx.notify();
             });
         }));
+        props.computer_use_tail = self.computer_use_model_row(cx);
         for agent in CodingAgent::ALL {
             let key = format!("update {}", agent.id());
             if let Some(line) = self.error_line(&key, cx).or_else(|| self.note_line(&key, cx)) {

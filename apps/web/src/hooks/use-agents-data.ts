@@ -54,15 +54,15 @@ function sessionPrTarget(
 /** The props both merge paths hand `SessionMergeButton` — one shape so the
  * three call sites (Agents row, steering strip, dock) never re-derive it.
  * EXP-917: NO `teamId` here — a synced issue row has none (the board-scoped
- * `issues` shape drops it), and the "Fix conflicts" swap once gated on it,
- * which made the swap unreachable from every issue-fed surface. */
+ * `issues` shape drops it), and the conflict recovery once gated on it,
+ * which made it unreachable from every issue-fed surface. EXP-1233: no
+ * `updatedAt` either — nothing is parked on the button any more. */
 export interface SessionMergeTargetProps {
   issueId?: string
   sessionId?: string
   prState: string | null
   prNumber: number | null
   branch: string | null
-  updatedAt: string | Date | null
 }
 
 export function mergeTargetProps(
@@ -75,7 +75,6 @@ export function mergeTargetProps(
       prState: issue.prState,
       prNumber: issue.prNumber,
       branch: issue.branch,
-      updatedAt: issue.updatedAt,
     }
   }
   const { session } = target
@@ -84,7 +83,6 @@ export function mergeTargetProps(
     prState: session.prState,
     prNumber: session.prNumber,
     branch: session.branch,
-    updatedAt: session.updatedAt,
   }
 }
 

@@ -27,6 +27,7 @@ import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
+  Combobox,
   DeviceReadiness,
   Dialog,
   DialogContent,
@@ -66,6 +67,7 @@ import {
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
+  modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
 import { agentLabel } from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
@@ -119,6 +121,14 @@ function draftSeed(
 interface TrackedCommand {
   id: string
   key: string
+}
+
+/** EXP-1236: a stored or picked computer-use model, clamped to the contract
+ * vocabulary; anything else (absent, null, version skew) = the default. */
+function clampComputerUseModel(value: string | null | undefined): string {
+  return value && contract.computerUseModel.values.includes(value)
+    ? value
+    : contract.deviceComputerUseDefaults.model
 }
 
 export function DeviceSettingsDialog({
@@ -181,6 +191,11 @@ export function DeviceSettingsDialog({
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
   // EXP-1196: the device-level switch; absent on the row = off.
   const [computerUse, setComputerUse] = useState(false)
+  // EXP-1236: the model the run's screen-driving subagents run on; absent or
+  // unknown on the row = the contract default (haiku).
+  const [computerUseModel, setComputerUseModel] = useState<string>(
+    contract.deviceComputerUseDefaults.model
+  )
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
   // `*Pending` = edited but not yet written; `saving*` = a write is in flight.
@@ -230,6 +245,9 @@ export function DeviceSettingsDialog({
     }
     setDrafts(seeded)
     setComputerUse(source.launchDefaults?.computerUse ?? false)
+    setComputerUseModel(
+      clampComputerUseModel(source.launchDefaults?.computerUseModel)
+    )
     const stored = source.launchDefaults?.defaultAgent
     const agent =
       stored && agents.includes(stored)
@@ -370,6 +388,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     computerUse,
+    computerUseModel,
     namePending,
     defaultsPending,
   })
@@ -379,6 +398,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     computerUse,
+    computerUseModel,
     namePending,
     defaultsPending,
   }
@@ -459,7 +479,13 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         // EXP-1158: no `defaultAgent` — the device writes the last used
         // agent and the server carries it forward past this save.
-        launchDefaults: { computerUse: snapshot.computerUse, agents },
+        // EXP-1236: the model rides beside the switch and is sent even while
+        // the switch is off, so the pick survives toggling.
+        launchDefaults: {
+          computerUse: snapshot.computerUse,
+          computerUseModel: snapshot.computerUseModel,
+          agents,
+        },
       })
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
@@ -629,6 +655,11 @@ export function DeviceSettingsDialog({
 
   const toggleComputerUse = (checked: boolean) => {
     setComputerUse(checked)
+    scheduleDefaults()
+  }
+  // EXP-1236: same debounced launch-defaults save as the switch.
+  const pickComputerUseModel = (value: string) => {
+    setComputerUseModel(clampComputerUseModel(value))
     scheduleDefaults()
   }
 
@@ -852,6 +883,26 @@ export function DeviceSettingsDialog({
                   label="Computer use"
                   checked={computerUse}
                   onCheckedChange={toggleComputerUse}
+                />
+              </GlassGroup>
+            )}
+            {/* EXP-1236: the model the run's screen-driving subagents run on,
+                directly under the readiness block and only while computer use
+                is on (off = the setting has nothing to drive). */}
+            {computerUse && (
+              <GlassGroup>
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle="Computer use model"
+                  value={computerUseModel}
+                  onChange={(value) => {
+                    if (value !== null) pickComputerUseModel(value)
+                  }}
+                  options={contract.computerUseModel.values.map((value) => ({
+                    value,
+                    label: modelLabel(value),
+                  }))}
                 />
               </GlassGroup>
             )}

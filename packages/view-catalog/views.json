@@ -953,12 +953,12 @@
       "id": "chat-action",
       "group": "coding",
       "title": "Agent · Action",
-      "blurb": "The composer running a saved action: the action chip above the prompt and the action's typed inputs under it — here the builtin Fix merge conflicts with an open PR already filled in.",
+      "blurb": "The composer running the builtin Fix merge conflicts with an open PR picked — its own look (EXP-1233): the headline names the PR's issue as a chip, the card under it is the PR row (number, branch → base, the picker) and, after a refused merge, the refusal line. A saved action with inputs keeps the generic action chip and its typed fields.",
       "order": 6,
       "web": {
-        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue",
+        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue&conflict=1",
         "anchor": {
-          "testId": "agent-composer-chip-action",
+          "testId": "agent-composer-chip-issue-APP-14",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -973,13 +973,13 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR. Needs `bun run screenshots:desktop` like chat-issues.",
-        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>`, paired with `EXP_DEV_TOOL=agent` by the lane."
+        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR; `conflict=1` (EXP-1233) = a refused merge opened it, so the card shows the refusal line. Needs `bun run screenshots:desktop` like chat-issues.",
+        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>&conflict=1`, paired with `EXP_DEV_TOOL=agent` by the lane."
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue"
+          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue&conflict=1"
         }
       }
     },
@@ -1173,6 +1173,47 @@
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the diff's context, beside the compact rail, back row = the identifier), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar, beside the white Merge capsule). EXP-1154: the standalone review page is gone; this is the issue's Changes face (the toggle's +N −M segment, GitHub in the header, Merge PR in the tray, Close PR in the issue's actions menu).",
         "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. The Changes face draws its own file tree beside the diff. EXP-1154: the drive opens the issue on its Changes face (`issue:<id>?face=changes`); `Screen::PrDiff` is gone. EXP-1192: `EXP_DEV_TOOL=reviews` beside it pins the Reviews origin, so the Reviews rows sit as a second sidebar inside the content card (a \"Reviews\" back row on top), the way a row clicked on the Reviews page opens it."
+      }
+    },
+    {
+      "id": "run-changes",
+      "group": "reviews",
+      "title": "Run changes",
+      "blurb": "The PR diff of an ISSUE-LESS run (a chat or action run's own pull request, EXP-1194): the same file cards as the issue's Changes face, fed by codingSessions.prFiles, opened from the Reviews \"Agent runs\" row. A teammate's run, so it reads read-only.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=diff",
+        "anchor": {
+          "text": "processing.impl.ResolverImpl",
+          "timeoutMs": 60000
+        },
+        "recipe": "expandFirstDiffFile",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_run-changes",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_run-changes",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$runChangesSession"
+        },
+        "env": {
+          "EXP_DEV_RUN_FACE": "changes",
+          "EXP_DEV_TOOL": "reviews"
+        }
+      },
+      "notes": {
+        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunChanges`: the stub header with the GitHub button over the issue Changes body, the file tree in the sidebar on md+, no steer ticket. The owner's own run draws the same files on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
+        "desktop": "`session:<id>` with `EXP_DEV_RUN_FACE=changes` opens the run on its Diff face (the steer viewer's `load_pr_changes` reads an issue-less run's PR files by the RUN id, a teammate's included — no relay ticket is minted); `EXP_DEV_TOOL=reviews` pins the Reviews origin so the queue sits as the second sidebar, the way the Reviews run row opens it.",
+        "ios": "Styleguide lane: Reviews → the \"Agent runs\" row (matched by the run's subject) pushes `RunChangesView` (`AppRoute.runChanges`); the shot waits for the first `changes-file-row`.",
+        "android": "Styleguide lane: Reviews → the first `review-run-row` opens `RunChangesScreen` (`runChanges/{sessionId}`); the shot waits for the first expanded card's unchanged-lines divider, like the store review."
       }
     },
     {
@@ -1662,7 +1703,7 @@
       "id": "settings-api-keys",
       "group": "settings",
       "title": "Settings · Security",
-      "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). Passkeys sat here from EXP-862 until EXP-1126 moved them to Account under Sign-in methods; the section keeps the Security name.",
+      "blurb": "Login sessions (the devices signed in through the desktop app or CLI, each with a Log out) over the personal expu_ API keys for scripts and MCP clients: list, mint, revoke (EXP-1054). FEED-76: the mint dialog offers the consent screen's team/board scope picker; a scoped key is MCP-only and its row wears the pick as a caption. Passkeys sat here from EXP-862 until EXP-1126 moved them to Account under Sign-in methods; the section keeps the Security name.",
       "order": 12,
       "web": {
         "route": "/t/$teamSlug/settings/security",

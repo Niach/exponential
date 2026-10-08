@@ -1,6 +1,5 @@
-- Diálogos: cada confirmação e escolha usa o mesmo cartão, e o Return nunca escolhe uma resposta destrutiva
-- Novo issue: o × pergunta antes de descartar um rascunho, e sair de um rascunho com conteúdo pergunta Create, Keep as draft ou Discard
-- Runs: a marca da execução abre cada linha da lista, uma linha de ferramenta ativa mostra só o título, e uma execução mostra Working até o agente terminar mesmo
-- Boards: o seletor de boards já não mostra o ponto das outras equipas
-- Conta: desliga um método de início de sessão desde que reste outra forma de entrar
-- Dispositivos: o bloco de preparação diz o que ainda falta a uma máquina, e o Computer use pode ser ligado por dispositivo
+- Execuções: uma execução abre como um fio com uma linha de estado (Building on your machine, tempo decorrido, última linha de ferramenta) e os resultados integrados; Show work abre a transcrição completa
+- Rascunhos: um issue criado a partir de um rascunho noutro dispositivo abre aqui como issue, e um rascunho descartado fecha em todo o lado
+- Ações: eliminar uma ação pede confirmação primeiro, no cartão de alerta partilhado
+- Dispositivos: o Codex já não precisa de instalar uma CLI; o IDE transfere-o no primeiro início de sessão
+- Correções: unir o pull request de um agente sem issue funciona, e as imagens de resultados são carregadas de forma fiável

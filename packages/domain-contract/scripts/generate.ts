@@ -97,6 +97,8 @@ interface Contract {
   codingEffort: Section
   codexModel: Section
   codexEffort: Section
+  computerUseModel: Section
+  deviceComputerUseDefaults: { model: string }
   actionInputType: Section
   mcpTransport: Section
   mcpAuth: Section
@@ -255,6 +257,10 @@ const composerUiStrings: [string, string][] = [
   ["chatPlaceholder", composerUi.chatPlaceholder],
   ["instructionsPlaceholder", composerUi.instructionsPlaceholder],
   ["dialogTitle", composerUi.dialogTitle],
+  ["fixConflictsHeadline", composerUi.fixConflictsHeadline],
+  ["fixConflictsSubmit", composerUi.fixConflictsSubmit],
+  ["prPlaceholder", composerUi.prPlaceholder],
+  ["conflictNote", composerUi.conflictNote],
 ]
 const swiftComposerUi = composerUiStrings
   .map(([k, v]) => `    public static let composerUi${capFirst(k)}: String = "${v}"`)
@@ -467,6 +473,7 @@ ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
 ${swiftStringArray("codexModelValues", contract.codexModel.values)}
 ${swiftStringArray("codexEffortValues", contract.codexEffort.values)}
+${swiftStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
@@ -525,6 +532,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
     public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    public static let deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     public static let actionInputsMax: Int = ${contract.actionInputs.max}
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -608,6 +616,7 @@ ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
 ${kotlinStringArray("codexModelValues", contract.codexModel.values)}
 ${kotlinStringArray("codexEffortValues", contract.codexEffort.values)}
+${kotlinStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
@@ -666,6 +675,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
     const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
+    const val deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
     const val actionInputsMax: Int = ${contract.actionInputs.max}
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
@@ -751,6 +761,7 @@ ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
 ${rustStrSlice("codexModelValues", contract.codexModel.values)}
 ${rustStrSlice("codexEffortValues", contract.codexEffort.values)}
+${rustStrSlice("computerUseModelValues", contract.computerUseModel.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
@@ -812,6 +823,7 @@ pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
 pub const BUILTIN_TIDY_UP_ID: &str = "${contract.builtinAction.tidyUpId}";
 pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
 pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
+pub const DEVICE_COMPUTER_USE_DEFAULTS_MODEL: &str = "${contract.deviceComputerUseDefaults.model}";
 pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};

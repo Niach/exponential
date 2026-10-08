@@ -35,7 +35,7 @@ val CodingSessionEntity.hasOpenPr: Boolean
 /**
  * EXP-1165: the covered issue that carries a BATCH run's combined PR (same
  * url, still open), or null. Merging through it reaches the issue path's stack
- * choice and "Fix conflicts" recovery (Reviews) from the run view too. Web
+ * choice and the Fix merge conflicts recovery (Reviews) from the run view too. Web
  * `resolveSessionMergeTarget`.
  */
 fun batchMergeCarrier(

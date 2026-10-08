@@ -148,6 +148,9 @@ fun AgentScreen(
     val resume by viewModel.resume.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val pendingPrIssueId by viewModel.pendingPrIssueId.collectAsStateWithLifecycle()
+    // EXP-1233: the Fix merge conflicts builtin's picked PR + the refusal flag.
+    val fixConflictsPr by viewModel.fixConflictsPr.collectAsStateWithLifecycle()
+    val conflictRefused by viewModel.conflictRefused.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
@@ -251,7 +254,12 @@ fun AgentScreen(
         AgentComposerPrompt.withinLimit(draft, images.size)
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
+    // EXP-1233: the Fix merge conflicts builtin with a picked PR is its own
+    // case (verb + send); unpicked it reads as any action.
+    val fixConflictsActive = actionSubject?.id == DomainContract.builtinFixConflictsId
+    val fixConflictsPicked = if (fixConflictsActive) fixConflictsPr else null
     val promptSubject = when {
+        fixConflictsPicked != null -> AgentComposerPrompt.Subject.FixConflicts
         actionSubject != null -> AgentComposerPrompt.Subject.Action
         checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
         else -> AgentComposerPrompt.Subject.None
@@ -481,13 +489,26 @@ fun AgentScreen(
                     // sentence twice is not a heading.
                     if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
-                            AgentComposerHeadline(
-                                headline = headline,
-                                issueChips = checkedOptions,
-                                onRemoveIssue = viewModel::toggleIssue,
-                                actionChip = selectedAction,
-                                onClearAction = viewModel::clearAction,
-                            )
+                            if (fixConflictsPicked != null) {
+                                // EXP-1233: "Fix merge conflicts" + the PR's
+                                // issue chips; the ✕ clears the PICK only.
+                                AgentComposerHeadline(
+                                    headline = headline,
+                                    issueChips = fixConflictsPicked.issues.map { it.toIssueOption() },
+                                    onRemoveIssue = { viewModel.clearFixConflictsPr() },
+                                    actionChip = null,
+                                    onClearAction = viewModel::clearAction,
+                                    removeIssueDescription = { "Clear the pull request" },
+                                )
+                            } else {
+                                AgentComposerHeadline(
+                                    headline = headline,
+                                    issueChips = checkedOptions,
+                                    onRemoveIssue = viewModel::toggleIssue,
+                                    actionChip = selectedAction,
+                                    onClearAction = viewModel::clearAction,
+                                )
+                            }
                         }
                     }
                     // EXP-820: a few suggestion chips over an EMPTY new chat —
@@ -573,6 +594,9 @@ fun AgentScreen(
                             boards = boardOptions,
                             pullRequests = pullRequestOptions,
                             onInputChange = viewModel::setInput,
+                            fixConflictsActive = fixConflictsActive,
+                            fixConflictsPr = fixConflictsPicked,
+                            conflictRefused = conflictRefused,
                             pendingImages = images,
                             imageError = imageError,
                             canAttach = images.size < MAX_STEER_IMAGES,

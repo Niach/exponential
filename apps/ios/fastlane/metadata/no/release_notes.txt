@@ -1,6 +1,5 @@
-- Dialoger: hver bekreftelse og hvert valg bruker det samme kortet, og Return velger aldri et destruktivt svar
-- Nytt issue: × spør før et utkast forkastes, og når du forlater et utkast med innhold, spør den Create, Keep as draft eller Discard
-- Runs: kjøringsmerket står først i hver listerad, en aktiv verktøyrad viser bare overskriften, og en kjøring viser Working til agenten virkelig er ferdig
-- Boards: boardvelgeren viser ikke lenger prikken for andre team
-- Konto: koble fra en innloggingsmetode så lenge det finnes en annen vei inn
-- Enheter: klarblokken sier hva en maskin fortsatt trenger, og Computer use kan slås på per enhet
+- Kjøringer: en kjøring åpnes som en tråd med en statuslinje (Building on your machine, medgått tid, siste verktøylinje) og resultatene direkte i tråden; Show work åpner hele transkripsjonen
+- Utkast: et issue opprettet fra et utkast på en annen enhet åpnes her som issue, og et forkastet utkast lukkes overalt
+- Handlinger: sletting av en handling spør først, på det felles varselkortet
+- Enheter: Codex trenger ikke lenger en CLI-installasjon; IDE-en laster det ned ved første innlogging
+- Rettelser: sammenslåing av en agents pull request uten issue fungerer, og resultatbilder lastes opp pålitelig

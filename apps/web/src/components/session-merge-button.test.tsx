@@ -52,10 +52,10 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-// EXP-825: the conflict swap's "Fix conflicts" hands the ONE launcher a seed
-// (no device lookup here). EXP-1019: that seed names an action, so it opens
-// the start-coding dialog over this surface instead of navigating: the
-// router stub stays, to prove nothing travels.
+// EXP-825/EXP-1233: a refused conflict hands the ONE launcher a seed (no
+// device lookup here). EXP-1019: that seed names an action, so it opens the
+// start-coding dialog over this surface instead of navigating: the router
+// stub stays, to prove nothing travels.
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => mockState.navigate,
   useParams: () => ({ teamSlug: `acme` }),
@@ -72,6 +72,7 @@ vi.mock(`sonner`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
   toast: { error: vi.fn() },
 }))
+import { toast } from "sonner"
 
 // A server refusal that codes as a real merge conflict (EXP-533).
 function conflictError() {
@@ -90,6 +91,7 @@ describe(`SessionMergeButton`, () => {
     mockState.navigate.mockReset()
     mockState.stackChoice.mockReset()
     mockState.stackChoice.mockReturnValue({ ready: true, choice: null })
+    vi.mocked(toast.error).mockReset()
   })
 
   it(`renders nothing unless the PR is open`, () => {
@@ -151,7 +153,7 @@ describe(`SessionMergeButton`, () => {
   // `issues` shape drops `team_id`, so a gate on `teamId` (the pre-EXP-917
   // rule) was dead on every issue-fed surface: the tray, the run header, the
   // Changes faces, the review detail all toasted a real conflict instead.
-  it(`the swap rule needs a conflict, an issue, a branch and the relay: never a team id`, () => {
+  it(`the recovery rule needs a conflict, an issue, a branch and the relay: never a team id`, () => {
     const conflict = { message: `conflict`, conflict: true }
     expect(
       canOfferFixConflicts({
@@ -199,11 +201,12 @@ describe(`SessionMergeButton`, () => {
     ).toBe(false)
   })
 
-  // EXP-706: "Fix conflicts" REPLACES Merge in its own slot, never sits
-  // beside it: and only where the caller wired the recovery run. The props
-  // here are EXACTLY what `mergeTargetProps` derives from a synced issue row
-  // (EXP-917: no team id: the shape never syncs one).
-  it(`swaps to Fix conflicts when the merge is refused by a conflict`, async () => {
+  // EXP-1233: a merge refused by a REAL conflict opens the LAUNCHER at once
+  // on the Fix merge conflicts builtin with this PR picked and the refusal
+  // flagged — no "Fix conflicts" button parked in the slot, no toast. The
+  // props here are EXACTLY what `mergeTargetProps` derives from a synced
+  // issue row (EXP-917: no team id: the shape never syncs one).
+  it(`opens the recovery composer when the merge is refused by a conflict`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(
       <SessionMergeButton
@@ -219,31 +222,39 @@ describe(`SessionMergeButton`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
 
-    const fix = await screen.findByRole(`button`, {
-      name: `Fix merge conflicts`,
-    })
-    expect(fix.textContent).toContain(`Fix conflicts`)
-    // One trailing action, not two.
-    expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
-
-    // EXP-825: the click lands on the composer with the builtin picked and
-    // this PR pre-filled (any linked issue id resolves the PR, EXP-323).
-    // EXP-1019: on the launcher DIALOG, over the run the merge failed on.
-    fireEvent.click(fix)
-    expect(mockState.navigate).not.toHaveBeenCalled()
+    // EXP-1019: on the launcher DIALOG, over the run the merge failed on;
+    // any linked issue id resolves the PR (EXP-323).
     const { result } = renderHook(() => useLaunchDialogSeed())
-    expect(result.current).toEqual({
-      issueIds: [],
-      actionId: `builtin:fix-conflicts`,
-      prIssueId: `i1`,
-    })
+    await waitFor(() =>
+      expect(result.current).toEqual({
+        issueIds: [],
+        actionId: `builtin:fix-conflicts`,
+        prIssueId: `i1`,
+        conflict: true,
+      })
+    )
+    expect(mockState.navigate).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+    // The button is plain Merge again: a conflict resolved outside the run
+    // is one click away, and no "Fix conflicts" swap takes the slot.
+    expect(
+      screen.getByRole<HTMLButtonElement>(`button`, {
+        name: `Merge pull request`,
+      }).disabled
+    ).toBe(false)
+    expect(
+      screen.queryByRole(`button`, { name: `Fix merge conflicts` })
+    ).toBeNull()
+    expect(screen.queryByRole(`button`, { name: `Retry merge` })).toBeNull()
     closeLaunchDialog()
   })
 
-  // The swap must never be a dead end: a conflict resolved OUTSIDE the
-  // recovery run (a teammate rebases and pushes) has to be mergeable again.
-  it(`keeps a Retry merge affordance beside the swapped-in Fix conflicts`, async () => {
-    mockState.mergeMutate.mockRejectedValue(conflictError())
+  // Every OTHER refusal (a stale base, branch protection, no network) is a
+  // toast — a rebase-and-resolve run fixes none of them.
+  it(`toasts a refusal that is not a conflict`, async () => {
+    const error = new TRPCClientError(`Squash merges are not allowed`)
+    Object.assign(error, { data: { code: `PRECONDITION_FAILED` } })
+    mockState.mergeMutate.mockRejectedValue(error)
     render(
       <SessionMergeButton
         prState="open"
@@ -254,68 +265,15 @@ describe(`SessionMergeButton`, () => {
         steerEnabled
       />
     )
-
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
-    await screen.findByRole(`button`, { name: `Fix merge conflicts` })
-    // EXP-1154: clickable inside the phone's pointer-events-none bar/float.
-    expect(
-      screen.getByRole(`button`, { name: `Retry merge` }).className
-    ).toContain(`pointer-events-auto`)
-
-    mockState.mergeMutate.mockReset()
-    mockState.mergeMutate.mockResolvedValue({ merged: true })
-    fireEvent.click(screen.getByRole(`button`, { name: `Retry merge` }))
-    expect(screen.getByText(`Merge PR #7?`)).toBeTruthy()
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await waitFor(() =>
-      expect(mockState.mergeMutate).toHaveBeenCalledWith(
-        { issueId: `i1` },
-        { context: { skipErrorToast: true } }
-      )
+      expect(toast.error).toHaveBeenCalledWith(`Couldn't merge the pull request`, {
+        description: `Squash merges are not allowed`,
+      })
     )
-  })
-
-  // A refusal describes ONE snapshot of the PR: a re-synced issue row drops
-  // it, so the plain Merge button comes back on its own.
-  it(`drops a stale refusal when the issue row re-syncs`, async () => {
-    mockState.mergeMutate.mockRejectedValue(conflictError())
-    const { rerender } = render(
-      <SessionMergeButton
-        prState="open"
-        prNumber={7}
-        issueId="i1"
-        updatedAt="2026-09-01T10:00:00.000Z"
-        label="Merge"
-        branch="exp/MET-12"
-        steerEnabled
-      />
-    )
-
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
-    await screen.findByRole(`button`, { name: `Fix merge conflicts` })
-
-    rerender(
-      <SessionMergeButton
-        prState="open"
-        prNumber={7}
-        issueId="i1"
-        updatedAt="2026-09-01T10:05:00.000Z"
-        label="Merge"
-        branch="exp/MET-12"
-        steerEnabled
-      />
-    )
-
-    await waitFor(() =>
-      expect(
-        screen.queryByRole(`button`, { name: `Fix merge conflicts` })
-      ).toBeNull()
-    )
-    expect(
-      screen.getByRole(`button`, { name: `Merge pull request` })
-    ).toBeTruthy()
+    const { result } = renderHook(() => useLaunchDialogSeed())
+    expect(result.current).toBeNull()
   })
 
   // EXP-734: a run's OWN chore PR merges through the session, and the
@@ -403,7 +361,7 @@ describe(`SessionMergeButton`, () => {
     expect(pill.className).not.toContain(`h-8`)
   })
 
-  it(`the pill arm swaps to Fix conflicts in the SAME slot`, async () => {
+  it(`the pill arm opens the recovery composer on a conflict too`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(
       <SessionMergePill
@@ -417,11 +375,15 @@ describe(`SessionMergeButton`, () => {
     )
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
-    const fix = await screen.findByRole<HTMLButtonElement>(`button`, {
-      name: `Fix merge conflicts`,
-    })
-    expect(fix.dataset.slot).toBe(`pill`)
-    expect(screen.queryByRole(`button`, { name: `Merge pull request` })).toBeNull()
+    const { result } = renderHook(() => useLaunchDialogSeed())
+    await waitFor(() =>
+      expect(result.current?.actionId).toBe(`builtin:fix-conflicts`)
+    )
+    expect(
+      screen.getByRole<HTMLButtonElement>(`button`, { name: `Merge pull request` })
+        .dataset.slot
+    ).toBe(`pill`)
+    closeLaunchDialog()
   })
 
   it(`keeps the plain Merge button when the caller wired no recovery run`, async () => {
@@ -441,9 +403,10 @@ describe(`SessionMergeButton`, () => {
         }).disabled
       ).toBe(false)
     )
-    expect(
-      screen.queryByRole(`button`, { name: `Fix merge conflicts` })
-    ).toBeNull()
+    // No branch, no relay: the refusal is a toast, the launcher stays shut.
+    expect(toast.error).toHaveBeenCalled()
+    const { result } = renderHook(() => useLaunchDialogSeed())
+    expect(result.current).toBeNull()
   })
 })
 

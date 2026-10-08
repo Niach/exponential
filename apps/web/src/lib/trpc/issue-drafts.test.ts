@@ -10,7 +10,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //     eager, so a blob: URL or a foreign attachment is a client bug, not
 //     something to store;
 //   * `delete` collects the storage keys INSIDE the transaction (the cascade
-//     drops the rows) and reclaims the blobs only AFTER it commits.
+//     drops the rows) and reclaims the blobs only AFTER it commits;
+//   * EXP-1231: a consumed id is refused up front AND re-probed inside the
+//     write transaction after the upsert, so a create committing in between
+//     rolls the re-inserted (zombie) row back instead of leaving it.
 
 const h = vi.hoisted(() => ({
   getBoardTeamId: vi.fn(),
@@ -48,8 +51,12 @@ const state = {
   }[],
   statusRows: [] as { teamId: string }[],
   draftRows: [] as { id: string }[],
-  /** EXP-1231: the issue already created from this draft, if any. */
+  /** EXP-1231: the issue already created from this draft, if any (the
+   *  probe BEFORE the transaction). */
   consumedBy: [] as { identifier: string }[],
+  /** EXP-1231: what the IN-transaction probe (after the upsert) sees — a
+   *  create that committed between the first probe and the write. */
+  consumedByInTx: [] as { identifier: string }[],
   /** What the upsert's `returning()` yields — empty = somebody else's row. */
   upserted: [{ id: DRAFT }] as { id: string }[],
   /** What the delete's `returning()` yields. */
@@ -68,14 +75,17 @@ function thenable(rows: unknown[]) {
   }
 }
 
-function select(fields: Record<string, unknown>) {
+function selectFrom(
+  fields: Record<string, unknown>,
+  consumedBy: () => { identifier: string }[]
+) {
   return {
     from: (table: unknown) => ({
       where: () => {
         if (table === issueStatuses) return thenable(state.statusRows)
         if (table === issueDrafts) return thenable(state.draftRows)
         // EXP-1231: the created-issue probe — `issues.draft_id = id`.
-        if (table === issues) return thenable(state.consumedBy)
+        if (table === issues) return thenable(consumedBy())
         if (table === attachments) {
           // The ownership probe selects `{ id }`; the delete path selects the
           // storage keys.
@@ -89,16 +99,25 @@ function select(fields: Record<string, unknown>) {
   }
 }
 
+const select = (fields: Record<string, unknown>) =>
+  selectFrom(fields, () => state.consumedBy)
+
 const fakeTx = {
   execute: async () => ({ rows: [{ txid: `42` }] }),
-  select,
+  select: (fields: Record<string, unknown>) =>
+    selectFrom(fields, () => state.consumedByInTx),
   insert: () => ({
     values: (row: Record<string, unknown>) => {
       state.inserted.push(row)
       return {
         onConflictDoUpdate: (config: Record<string, unknown>) => {
           state.conflictSets.push(config.set as Record<string, unknown>)
-          return { returning: async () => state.upserted }
+          return {
+            returning: async () => {
+              state.events.push(`upsert-row`)
+              return state.upserted
+            },
+          }
         },
       }
     },
@@ -117,10 +136,16 @@ const caller = issueDraftsRouter.createCaller({
   session: { user: { id: `actor` } },
   db: {
     select,
+    // Like drizzle's: a throw inside the callback rolls the work back.
     transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
-      const result = await fn(fakeTx)
-      state.events.push(`commit`)
-      return result
+      try {
+        const result = await fn(fakeTx)
+        state.events.push(`commit`)
+        return result
+      } catch (error) {
+        state.events.push(`rollback`)
+        throw error
+      }
     },
   },
   request: new Request(ORIGIN),
@@ -144,6 +169,7 @@ beforeEach(() => {
   state.statusRows = []
   state.draftRows = []
   state.consumedBy = []
+  state.consumedByInTx = []
   state.upserted = [{ id: DRAFT }]
   state.deleted = [{ id: DRAFT }]
   state.inserted = []
@@ -211,6 +237,27 @@ describe(`issueDrafts.upsert`, () => {
       message: `This draft was already created as EXP-7`,
     })
     expect(state.inserted).toEqual([])
+  })
+
+  // The race: the first probe sees no issue, the create commits (issue
+  // stamped, row deleted), our upsert re-inserts the row. The in-transaction
+  // re-probe catches it: the write is ROLLED BACK (no zombie draft), and the
+  // caller gets the same CONFLICT.
+  it(`rolls the write back when a create consumed the draft meanwhile`, async () => {
+    state.consumedBy = []
+    state.consumedByInTx = [{ identifier: `EXP-8` }]
+
+    await expect(caller.upsert(input())).rejects.toMatchObject({
+      code: `CONFLICT`,
+      message: `This draft was already created as EXP-8`,
+    })
+    expect(state.inserted).toHaveLength(1)
+    expect(state.events).toEqual([`upsert-row`, `rollback`])
+  })
+
+  it(`commits the write when no issue carries the id after it`, async () => {
+    await caller.upsert(input())
+    expect(state.events).toEqual([`upsert-row`, `commit`])
   })
 
   it(`refuses an id that belongs to another user`, async () => {

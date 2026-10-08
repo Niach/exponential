@@ -95,6 +95,13 @@ data class DeviceLaunchDefaults(
      * server carries the stored value forward; an explicit true/false wins.
      */
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    /**
+     * EXP-1236: the model alias the run's screen-driving subagents run on
+     * (contract `computerUseModel`), a top-level key beside the switch. Null
+     * = never set: readers seed `DomainContract.deviceComputerUseDefaultsModel`
+     * and the key stays ABSENT on the wire so the server keeps what is stored.
+     */
+    @SerialName("computerUseModel") val computerUseModel: String? = null,
 )
 
 /**

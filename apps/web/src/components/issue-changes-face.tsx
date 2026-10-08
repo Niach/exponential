@@ -41,7 +41,7 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 /** EXP-916 / EXP-1154: the phone's Merge PR capsule — a SOLID white pill
  *  hugging its label (28px padding, a 20px glyph), carrying
- *  `SessionMergePill`'s confirm, stack choice and Fix-conflicts swap. It
+ *  `SessionMergePill`'s confirm, stack choice and conflict recovery. It
  *  self-hides unless the PR is open. The Changes and Results faces put it in
  *  the bar's centred cluster; the Issue and Run faces'
  *  composer bars get the Merge circle instead (`MobileMergeCircle`). */
@@ -51,7 +51,6 @@ export function MergeCapsule(props: {
   prState: string | null
   prNumber: number | null
   branch: string | null
-  updatedAt: string | Date | null
   steerEnabled: boolean
 }) {
   return (

@@ -3,13 +3,14 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
-import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
+import { resolveMcpCredential } from "@/lib/auth/resolve-bearer"
 import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 import { resolveMcpToolGates } from "@/lib/mcp/gates"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
 import {
   FULL_ACCESS,
+  resolveMcpAccessForGrant,
   resolveMcpTokenAccess,
   type McpAccess,
 } from "@/lib/mcp/scope"
@@ -27,15 +28,20 @@ const methodNotAllowed = () =>
     }
   )
 
-// Session cookies, bearer session tokens, and personal `expu_` api keys are
-// the user's own credentials → full membership access. OAuth2 access tokens
-// (human MCP clients like Claude) resolve through their consent grant and are
-// confined to the teams/boards selected on the consent screen.
+// Session cookies, bearer session tokens, and UNSCOPED personal `expu_` api
+// keys are the user's own credentials → full membership access. A SCOPED key
+// (FEED-76) is confined to the teams/boards chosen at mint, exactly like an
+// OAuth2 access token (human MCP clients like Claude) is confined to the
+// consent grant it resolves through.
 async function resolveMcpRequest(
   request: Request
 ): Promise<{ userId: string; access: McpAccess } | null> {
-  const sessionUserId = await resolveSessionUserId(request)
-  if (sessionUserId) return { userId: sessionUserId, access: FULL_ACCESS }
+  const { session, keyScope } = await resolveMcpCredential(request)
+  if (session?.user) {
+    const userId = session.user.id
+    if (!keyScope) return { userId, access: FULL_ACCESS }
+    return { userId, access: await resolveMcpAccessForGrant(keyScope, `apiKey`) }
+  }
 
   const authz = request.headers.get(`authorization`)
   const bearer = authz?.match(/^Bearer\s+(.+)$/i)?.[1]

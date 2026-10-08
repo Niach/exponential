@@ -1198,7 +1198,7 @@ struct WorkScreen: View {
             .task(id: "\(issueId ?? "")|\(issuePrOpen)|\(hasRunResults)|\(face == .results)") {
                 await loadPrDescription()
             }
-            // A new merge target starts clean (no stale Fix conflicts).
+            // A new merge target starts clean (no stale spinner).
             .onChange(of: mergeTarget.map(mergeTargetKey)) { _, _ in
                 mergeState = WorkMergeState()
             }

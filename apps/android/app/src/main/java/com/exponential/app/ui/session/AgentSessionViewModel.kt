@@ -37,6 +37,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ConflictRefusal
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
@@ -69,6 +70,8 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import com.exponential.app.data.ShowWorkPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -684,7 +687,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      * EXP-678: the issue whose PR the Merge pill above the composer merges —
      * this run's own issue. EXP-1165: a BATCH run whose combined PR a covered
      * issue carries (same url, still open) merges through THAT issue, so the
-     * stack choice and "Fix conflicts" reach the run view. Any other
+     * stack choice and the Fix merge conflicts composer reach the run view. Any other
      * issue-less run (chat, action, carrier-less batch) has none: it merges
      * the PR on its OWN row, which [mergeTarget] resolves.
      */
@@ -743,12 +746,19 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * A failed merge (EXP-678) — the same banner shape as [killError], cleared
-     * by the next attempt. EXP-706: typed, not a bare string, because the bar
-     * swaps its Merge pill for the "Fix conflicts" run on a REAL conflict
-     * (EXP-533's rule, already modelled for Agents and Reviews).
+     * by the next attempt. Typed, not a bare string: the screen keeps a REAL
+     * conflict (EXP-533) out of its toast when it opened the recovery
+     * composer instead (EXP-1233).
      */
     private val _mergeError = MutableStateFlow<MergeFailure?>(null)
     val mergeError: StateFlow<MergeFailure?> = _mergeError
+
+    /**
+     * EXP-1233: one event per plain ISSUE-target merge refused by a real
+     * conflict; the Work screen opens the Fix merge conflicts composer off it.
+     */
+    private val _conflictRefusals = Channel<ConflictRefusal>(Channel.BUFFERED)
+    val conflictRefusals: Flow<ConflictRefusal> = _conflictRefusals.receiveAsFlow()
 
     /**
      * Squash-merge [mergeTarget]'s PR. The server merges AND ends this session
@@ -773,8 +783,11 @@ class AgentSessionViewModel @AssistedInject constructor(
                     if (t is CancellationException) throw t
                     // Conflicts, branch protection and GitHub App errors are the
                     // common, persistent failures — same copy as Agents/Reviews.
-                    _mergeError.value =
-                        MergeFailure.from(t, "The pull request could not be merged")
+                    val failure = MergeFailure.from(t, "The pull request could not be merged")
+                    _mergeError.value = failure
+                    if (target is MergeTarget.Issue && failure.isConflict) {
+                        _conflictRefusals.send(ConflictRefusal(target.issueId, failure))
+                    }
                 }
             _merging.value = false
         }
@@ -783,7 +796,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     /**
      * EXP-1145: merge the open stack bottom-up THROUGH [throughIssueId]
      * (`issues.mergePr({ mergeStack: true })`), with [merge]'s state handling.
-     * A failure shows the server's message and never swaps the pill for Fix
+     * A failure shows the server's message and never opens Fix merge
      * conflicts: the pull request that stopped the chain may be another member.
      */
     fun mergeStack(throughIssueId: String) {
@@ -890,8 +903,8 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     // ── Remote rails (EXP-706 / EXP-773) ─────────────────────────────────────
-    // EXP-825: a conflict-refused merge's "Fix conflicts" navigates to the
-    // Agent page composer; what stays here is Resume, which rides the shared
+    // EXP-825/EXP-1233: a conflict-refused merge opens the Agent page
+    // composer ([conflictRefusals]); what stays here is Resume, which rides the shared
     // delegate and reports back through the same captions.
     val steerLaunchEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
     val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
