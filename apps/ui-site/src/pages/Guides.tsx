@@ -11,21 +11,21 @@ const GROUPS: { id: string; label: string; title: string; intro: string; slugs: 
     id: `render`,
     label: `Render`,
     title: `Render A2UI on your platform`,
-    intro: `Install a renderer, connect a host and paint the surface an agent sends. About twenty lines each.`,
+    intro: `Install a renderer, connect a host, paint a surface. About twenty lines each.`,
     slugs: [`react`, `swiftui`, `compose`, `gpui`],
   },
   {
     id: `customise`,
     label: `Customise`,
     title: `Make it yours`,
-    intro: `A theme changes how everything looks, an extension adds components, a host plugin decides what a surface may do.`,
+    intro: `Themes change the look, extensions add components, host plugins decide what a surface may do.`,
     slugs: [`themes`, `extensions`, `host-plugins`],
   },
   {
     id: `build`,
     label: `Build`,
     title: `Build with agents`,
-    intro: `Ship a whole app as a declarative package, or give a model the catalog and let it answer with UI.`,
+    intro: `Ship an app as a declarative package, or let a model answer with UI.`,
     slugs: [`vapps`, `agents`],
   },
 ]
@@ -39,8 +39,7 @@ export default function GuidesPage({ path }: PageProps) {
   return (
     <>
       <PageHero title="Guides">
-        From a blank project to a rendered surface on every platform, then themes, extensions, host plugins, vapps
-        and agents. Every example on these pages is a real file that CI compiles from a fresh project.
+        Every platform, then themes, extensions, host plugins, vapps and agents. Every example is a file CI compiles from a fresh project.
       </PageHero>
 
       <DocsLayout nav={GUIDES_NAV} title="Guides" sections={SECTIONS} currentPath={path}>
@@ -60,16 +59,11 @@ export default function GuidesPage({ path }: PageProps) {
         <DocsSection id="ci" num={SECTIONS[SECTIONS.length - 1].num} label="Compiled in CI">
           <h2>Compiled in CI</h2>
           <p>
-            The examples live in <a href={LINKS.source(`apps/ui-site/guides`)}>apps/ui-site/guides</a>, and the
-            pages show those files as they are. <code>guides/check.ts</code> copies each one into an empty temp
-            directory and builds it the way you would: the npm packages packed and installed, the Swift package,
-            the Maven artifacts from the local repository, the crates by path. Run one yourself:
+            The pages show the files in <a href={LINKS.source(`apps/ui-site/guides`)}>apps/ui-site/guides</a> as they are. <code>guides/check.ts</code> builds each in an empty temp directory from the packed npm packages, the Swift package, local Maven artifacts and path crates:
           </p>
           <DocsCode>{`bun apps/ui-site/guides/check.ts react   # or agent, theme, swift, compose, gpui, all`}</DocsCode>
           <p>
-            For complete apps, the <a href={LINKS.source(`samples/exponential-ui`)}>samples</a> run four hosts
-            (web, iOS, Android, gpui) against one local A2UI server, in a third-party theme with a custom extension
-            component.
+            Complete apps: the <a href={LINKS.source(`samples/exponential-ui`)}>samples</a> run web, iOS, Android and gpui hosts against one local A2UI server, with a third-party theme and an extension component.
           </p>
         </DocsSection>
       </DocsLayout>

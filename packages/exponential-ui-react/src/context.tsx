@@ -1,7 +1,7 @@
 // VAPP-87 + round 1: what every painted node reads from its surface.
 
 import { createContext, useContext } from "react"
-import type { ExtensionDef, ModeName, ResolvedTheme, UiNode } from "@exponential-at/ui"
+import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, UiNode } from "@exponential-at/ui"
 import type { CompiledTheme } from "./theme-css"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
@@ -19,8 +19,8 @@ export interface SurfaceContextValue {
   extensionDefs: readonly ExtensionDef[]
   data: DataModel
   setData: (pointer: string, value: unknown) => void
-  /** Resolves a template component id to its node (the flat list `useSurface`
-   *  keeps, else the node of that id in the tree); `undefined` when absent. */
+  /** A template component id → its node (round 2: the reducer's LIFTED
+   *  `templates`); `undefined` when absent. */
   templateNode: (componentId: string) => UiNode | undefined
   /** Interaction states forced on every node (the recipe sheet). */
   states: readonly string[]
@@ -31,11 +31,21 @@ export interface SurfaceContextValue {
   portal: HTMLElement | null
   /** The toast layer (above dialogs). */
   toastLayer: HTMLElement | null
+  /** The direction of the node being painted (round 2 §2: `direction` on
+   *  ANY node, inherited; the surface's at the root). */
   direction: `ltr` | `rtl`
   functions: Record<string, ClientFunction>
   openUrl: (url: string) => void
   /** Round 1 §4: the surface locale (BCP 47). */
   locale: string
+  /** Round 2 §3: the surface Formatter (Intl in `locale` + the time zone). */
+  formatter: Formatter
+  /** The surface clock (epoch ms) `formatRelativeTime` reads without `now`;
+   *  ticks once a minute while the tree uses it. */
+  now: () => number
+  /** Round 2: a windowed List/Table registers its `scrollToIndex` under its
+   *  painted id (the host command); returns the unregister. */
+  registerScroller: (id: string, scroll: (index: number, align?: ScrollAlign) => void) => () => void
   /** The built-in string table (defaults + host overrides). */
   strings: Readonly<Record<string, string>>
   /** A built-in string by id with `{name}` placeholders filled. */
@@ -46,6 +56,9 @@ export interface SurfaceContextValue {
    *  the matching height/orientation conditions (`data-xq`) change; nodes
    *  are memoized, so a surface re-render does not cascade by itself.) */
   breakpoint: string | null
+  /** The surface's matching JS-evaluated conditions (`data-xq` tokens):
+   *  a `@media` block's `direction` reads it. */
+  xq?: string
   /** The platform asks for reduced motion. */
   reducedMotion: boolean
   /** A hover-capable pointer. */
@@ -72,5 +85,5 @@ export const InstanceContext = createContext<string>(``)
 
 /** The resolve context of one render (bindings + calls + `$string`). */
 export function resolveContextOf(ctx: SurfaceContextValue, scope: string): ResolveContext {
-  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings }
+  return { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl, locale: ctx.locale, strings: ctx.strings, formatter: ctx.formatter, now: ctx.now }
 }

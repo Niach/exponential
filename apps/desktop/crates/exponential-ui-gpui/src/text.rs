@@ -17,6 +17,24 @@ use std::borrow::Cow;
 
 use unicode_linebreak::{linebreaks, BreakOpportunity};
 
+/// Round 2 §2: a text's bidi PARAGRAPH direction is its node's (`Hello!` in
+/// an rtl box reads `!Hello`). gpui takes the direction of the first strong
+/// character, so a zero-width mark (RLM / LRM) leads the text when that
+/// differs from the node's.
+pub fn with_paragraph_direction(text: &str, rtl: bool) -> Cow<'_, str> {
+    use unicode_bidi::{bidi_class, BidiClass};
+    let first = text.chars().find_map(|c| match bidi_class(c) {
+        BidiClass::L => Some(false),
+        BidiClass::R | BidiClass::AL => Some(true),
+        _ => None,
+    });
+    match (rtl, first) {
+        (true, Some(true)) | (false, None | Some(false)) => Cow::Borrowed(text),
+        (true, _) => Cow::Owned(format!("\u{200F}{text}")),
+        (false, Some(true)) => Cow::Owned(format!("\u{200E}{text}")),
+    }
+}
+
 /// CSS `text-transform` (`uppercase | lowercase | capitalize`; anything else
 /// leaves the text alone).
 pub fn transform<'a>(text: &'a str, mode: Option<&str>) -> Cow<'a, str> {
@@ -153,6 +171,16 @@ pub fn wrap(text: &str, width: Option<f32>, width_of: &mut dyn FnMut(&str) -> f3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_paragraph_direction_is_the_nodes() {
+        assert_eq!(with_paragraph_direction("Hello!", true), "\u{200F}Hello!");
+        assert_eq!(with_paragraph_direction("Hello!", false), "Hello!");
+        assert_eq!(with_paragraph_direction("שלום!", true), "שלום!");
+        assert_eq!(with_paragraph_direction("שלום!", false), "\u{200E}שלום!");
+        assert_eq!(with_paragraph_direction("42", true), "\u{200F}42");
+        assert_eq!(with_paragraph_direction("42", false), "42");
+    }
 
     /// 8 px per char, like the core's fixed measure.
     fn w8(s: &str) -> f32 {

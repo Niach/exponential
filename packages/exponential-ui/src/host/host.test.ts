@@ -24,9 +24,14 @@ import {
   validatePackage,
   BUILTIN_FUNCTIONS,
   HOST_ERROR_CODES,
+  FORMATTER_METHODS,
+  SURFACE_COMMANDS,
+  SURFACE_SETTING_KEYS,
 } from "."
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, VappPackage } from "."
 import { CORE_CATALOG_ID } from "../catalog"
+import { englishFormatter } from "../format"
+import { A11Y_COMMANDS } from "../a11y"
 
 function feed(dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]): Decoded {
   const out: Decoded = { messages: [], issues: [] }
@@ -60,7 +65,7 @@ describe(`host-policy.json`, () => {
       expect(clientCapabilities(c.extensionIds)).toEqual(c.expected.clientCapabilities)
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.).
-  test(`the 29 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(29))
+  test(`the 31 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(31))
 })
 
 describe(`host-router.json`, () => {
@@ -77,6 +82,13 @@ describe(`host-router.json`, () => {
     for (const flow of routerFixture.flows) for (const s of flow.steps) for (const op of s.expected as { op: string; message?: { error?: { code: string } } }[]) if (op.message?.error) codes.add(op.message.error.code)
     for (const code of codes) expect(HOST_ERROR_CODES).toContain(code)
     expect(hostContract.ops.kinds.sort()).toEqual([`bind`, `components`, `create`, `data`, `delete`, `send`])
+  })
+
+  test(`the surface section matches the Formatter and the a11y commands`, () => {
+    expect(hostContract.version).toBe(2)
+    expect([...FORMATTER_METHODS].sort()).toEqual(Object.keys(englishFormatter()).filter((k) => k !== `locale`).sort())
+    expect(SURFACE_COMMANDS).toEqual(Object.keys(A11Y_COMMANDS))
+    for (const key of [`locale`, `timeZone`]) expect(SURFACE_SETTING_KEYS).toContain(key)
   })
 })
 

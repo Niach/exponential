@@ -4,7 +4,8 @@
 // `hostPlugin(host)`. Nothing here knows a transport or a backend.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react"
-import type { ExponentialHost, SurfaceStore, TransportStatus } from "@exponential-at/ui"
+import { reduceSurface } from "@exponential-at/ui"
+import type { ExponentialHost, SurfaceStore, TransportStatus, UiNode } from "@exponential-at/ui"
 import type { HostPlugin } from "./host"
 import type { SurfaceState } from "./use-surface"
 import { ExponentialSurface, type ExponentialSurfaceProps } from "./surface"
@@ -60,12 +61,34 @@ export function useHostSurface(host: ExponentialHost, surfaceId: string): Surfac
   return useMemo(() => (store ? stateOf(host, store) : null), [host, store, version])
 }
 
+/** Reduced templates per components array (it changes only on
+ *  `setComponents`; a `setData` bumps the version, never the array). */
+const templateCache = new WeakMap<readonly unknown[], { catalogId: string; defs: unknown; templates: Record<string, UiNode> | undefined }>()
+
+/** The store's lifted templates (round 2 §4). `SurfaceStore` does not
+ *  expose its reduce result's `templates` yet, so the components are
+ *  reduced again, ONCE per components array, when the tree references a
+ *  template. */
+function templatesOf(host: ExponentialHost, store: SurfaceStore): Record<string, UiNode> | undefined {
+  const own = (store as unknown as { templates?: Record<string, UiNode> }).templates
+  if (own) return own
+  if (!store.root) return undefined
+  const hit = templateCache.get(store.components)
+  if (hit && hit.catalogId === store.catalogId && hit.defs === host.extensionDefs) return hit.templates
+  const templates = store.components.some((c) => (typeof c.children === `object` && c.children !== null && !Array.isArray(c.children)) || (typeof c.template === `object` && c.template !== null))
+    ? reduceSurface(store.components, { catalogId: store.catalogId, extensions: host.extensionDefs }).templates
+    : undefined
+  templateCache.set(store.components, { catalogId: store.catalogId, defs: host.extensionDefs, templates })
+  return templates
+}
+
 function stateOf(host: ExponentialHost, store: SurfaceStore): SurfaceState {
   return {
     surfaceId: store.surfaceId,
     catalogId: store.catalogId,
     root: store.root,
     issues: store.issues,
+    templates: templatesOf(host, store),
     data: store.data,
     deleted: false,
     components: store.components,

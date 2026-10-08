@@ -12,7 +12,9 @@ import { Copy } from "lucide-react"
    column, and the building blocks (sections, code blocks with copy, callouts,
    definition rows). Styles: styles/docs.css. */
 
-export type DocsNavEntry = { path: string; label: string; blurb?: string }
+/** `group`: a heading printed above the first entry of each run of equal
+ *  groups (a long nav, e.g. ui.exponential.at's 80 components). */
+export type DocsNavEntry = { path: string; label: string; blurb?: string; group?: string }
 
 const IcCopy = ({ size }: { size: number }) => <Copy size={size} strokeWidth={1.6} />
 const IcCheck = ({ size }: { size: number }) => (
@@ -80,13 +82,17 @@ export function DocsLayout({
       <aside className="docs-sidebar">
         <nav className="docs-nav" aria-label={title}>
           <span className="docs-nav-title">{title}</span>
-          {nav.map((page) => {
+          {nav.map((page, i) => {
             const isCurrent = page.path === currentPath
+            const groupStart = page.group && page.group !== nav[i - 1]?.group
             return (
               <div
                 key={page.path}
                 className={`docs-nav-page${isCurrent ? ` is-current` : ``}`}
               >
+                {groupStart && (
+                  <span className="docs-nav-group">{page.group}</span>
+                )}
                 <a
                   href={page.path}
                   className={`docs-nav-page-link${isCurrent ? ` is-current` : ``}`}
@@ -119,23 +125,32 @@ export function DocsLayout({
   )
 }
 
+/** `heading`: the tag IS the section's level-2 heading (named by `label`
+ *  alone); leave it off when the section brings its own `<h2>`. */
 export function DocsSection({
   id,
   num,
   label,
+  heading,
   children,
 }: {
   id: string
   num: string
   label: string
+  heading?: boolean
   children: ReactNode
 }) {
   return (
     <section id={id} data-docs-section={id}>
-      <div className="docs-section-tag">
-        <span className="docs-section-num">{num}</span>
+      <div
+        className="docs-section-tag"
+        {...(heading ? { role: `heading`, "aria-level": 2 } : {})}
+      >
+        <span className="docs-section-num" aria-hidden={heading || undefined}>
+          {num}
+        </span>
         <span className="docs-section-label">{label}</span>
-        <span className="docs-section-line" />
+        <span className="docs-section-line" aria-hidden />
       </div>
       {children}
     </section>

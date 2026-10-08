@@ -71,6 +71,10 @@ pub struct LNode {
     /// The structural style (author's + template's), bindings resolved,
     /// token refs NOT resolved, conditions nested.
     pub base_style: Props,
+    /// The keys of `base_style` a builder only DEFAULTED (`style_default`):
+    /// the native's own root recipe wins over them (an author's key wins
+    /// over the recipe).
+    pub default_keys: Vec<String>,
     /// The native's own root recipe (Text/root for its variant).
     pub own_query: Option<RecipeQuery>,
     /// The macro or native PART recipe (Badge/label, Tabs/tab).
@@ -159,8 +163,43 @@ pub struct ListSpec {
     pub keys: std::sync::Arc<Vec<String>>,
     pub range: VisibleRange,
     pub offsets: std::sync::Arc<Vec<f32>>,
+    /// The content extent on the list's axis (height, or width when
+    /// `horizontal`).
     pub content_height: f32,
     pub windowed: bool,
+    /// Round 2: a horizontal List windows on x.
+    pub horizontal: bool,
+    /// The gap the offsets use (a `divided` list adds the hairline).
+    pub gap: f32,
+    /// The DATA index of each row position (`scrollToIndex` takes data
+    /// indices): `None` = position i is item i (minus static children).
+    pub data_index: Option<std::sync::Arc<Vec<Option<usize>>>>,
+    /// Row positions of the section headers (ascending).
+    pub headers: std::sync::Arc<Vec<usize>>,
+    /// `stickyHeaders`: the header pinned at the scroll offset.
+    pub sticky: bool,
+    /// Static children before the template items (List).
+    pub static_count: usize,
+}
+
+/// Round 2 (§5): where a windowed list's viewport comes from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListViewSource {
+    /// The list scrolls itself (bounded and taller content).
+    Own,
+    /// Its nearest scrolling ancestor `id`; `rel` = the list's content
+    /// start inside that ancestor's content.
+    Ancestor { id: String, rel: f32 },
+    /// The host viewport (`Surface::set_surface_scroll`); `rel` = the
+    /// list's content start in the surface.
+    Host { rel: f32 },
+}
+
+/// A list's viewport on its axis, recorded after each pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListView {
+    pub source: ListViewSource,
+    pub viewport: f32,
 }
 
 /// A form field's validation state after a submit: its failed messages.
@@ -205,6 +244,23 @@ pub struct LocalState {
     pub copied: HashMap<String, bool>,
     /// The child keys of a container with STATIC children (per reduce).
     pub static_keys: HashMap<String, std::sync::Arc<Vec<String>>>,
+    /// Round 2: each windowed list's viewport (own, ancestor or host).
+    pub list_views: HashMap<String, ListView>,
+    /// The host's scroll offset of the whole surface (x, y); `None` = the
+    /// host never set one (a page-scrolled list then takes the offset the
+    /// host gives the list itself, `Surface::scroll`).
+    pub surface_scroll: Option<(f32, f32)>,
+    /// Resizable sizes moved by a drag or a key (unbound groups, and the
+    /// live sizes during a drag).
+    pub sizes: HashMap<String, Vec<f64>>,
+    /// Resizable drags in progress: handle id → the sizes at the START.
+    pub drags: HashMap<String, Vec<f64>>,
+    /// The last pass placed a `position: sticky` node (a scroll lays out again).
+    pub sticky_any: bool,
+    /// Template item keys and child keys per (array, key) / (node, scope),
+    /// valid while the data model's version holds: a scroll step over a
+    /// 100,000-item list never re-keys it.
+    pub key_cache: HashMap<String, (u64, std::sync::Arc<Vec<String>>)>,
 }
 
 pub struct BuildContext<'a> {
@@ -215,6 +271,12 @@ pub struct BuildContext<'a> {
     /// Reduce a template component by id into a normalized subtree.
     pub template: &'a dyn Fn(&str) -> Option<UiNode>,
     pub viewport_height: f32,
+    /// Round 2: the viewport width (horizontal windows).
+    pub viewport_width: f32,
+    /// `$control.hairline` (Resizable handles, list dividers) and
+    /// `$control.row` (the extent of an unmeasured list item).
+    pub hairline: f32,
+    pub row_extent: f32,
     /// The theme's default gap for `List` items per `gap` enum, in px.
     pub gap_px: &'a dyn Fn(&str) -> f32,
     /// Expand form controls into label/field/description parts (a themed
@@ -230,6 +292,13 @@ pub struct BuildContext<'a> {
     pub wide: bool,
     /// Today as `yyyy-mm-dd` (the host's clock; calendars open on it).
     pub today: Option<String>,
+    /// Round 2: the surface formatter (Table cells, NumberField, chart
+    /// ticks, pickers, calendar names, the format functions).
+    pub formatter: &'a dyn crate::format::Formatter,
+    /// The clock (epoch ms) relative times read.
+    pub now: f64,
+    /// Bumped on every write to the data model (the key caches' version).
+    pub data_version: u64,
 }
 
 pub struct Built {
@@ -283,6 +352,8 @@ pub(crate) struct Builder<'a, 'b> {
     pub(crate) sources: HashMap<String, SourceRef>,
     /// Template item suffixes per array (and key) for this build.
     pub(crate) suffixes: HashMap<String, std::sync::Arc<Vec<String>>>,
+    /// The flex gap of each windowed container (its spacers subtract it).
+    pub(crate) flex_gaps: HashMap<u32, f32>,
 }
 
 pub(crate) fn obj(v: Value) -> Props {
@@ -313,6 +384,17 @@ pub const OVERLAYS: &[&str] = &["Dialog", "Drawer", "Popover", "Tooltip", "Dropd
 pub const FORM_FIELDS: &[&str] =
     &["Input", "Textarea", "NumberField", "Checkbox", "Radio", "Switch", "Select", "ChipInput", "DatePicker", "DateRangePicker", "TimePicker", "FileUpload", "Slider"];
 
+/// Text props (`string`/`markdown` schemas) bound to a number or a boolean
+/// show its [`crate::format::display_string`] (`412`, `true`): painters read
+/// strings.
+pub(crate) fn display_text_props(def: &crate::types::ComponentDef, props: &mut Props) {
+    for (k, v) in props.iter_mut() {
+        if matches!(v, Value::Number(_) | Value::Bool(_)) && def.props.get(k).is_some_and(|s| s.type_ == "string" || s.type_ == "markdown") {
+            *v = Value::String(crate::format::display_string(v));
+        }
+    }
+}
+
 pub(crate) fn str_prop<'p>(props: &'p Props, key: &str) -> Option<&'p str> {
     props.get(key).and_then(Value::as_str)
 }
@@ -327,7 +409,7 @@ pub(crate) fn js(v: &Value) -> String {
 
 impl<'a, 'b> Builder<'a, 'b> {
     pub(crate) fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings);
+        let ctx = ResolveContext::new(self.ctx.data, scope).with_strings(self.ctx.strings).with_formatter(self.ctx.formatter).with_now(self.ctx.now);
         match row_scope_root(scope).and_then(|root| self.row_scopes.get_key_value(root)) {
             Some((root, row)) => ctx.with_overlay(root, row),
             None => ctx,
@@ -394,6 +476,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             kind,
             props: Map::new(),
             base_style: Map::new(),
+            default_keys: Vec::new(),
             own_query: None,
             part_query: None,
             hidden,
@@ -444,6 +527,15 @@ impl<'a, 'b> Builder<'a, 'b> {
         self.part_in(parent, owner, part, "Icon", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"name": name, "size": "sm"}), suffix)
     }
 
+    /// Round 2: an accessibility key the author did not set (a built-in
+    /// label such as `$string.dialog` on a title-less Dialog).
+    pub(crate) fn default_a11y(&mut self, index: u32, key: &str, value: Value) {
+        let a = self.nodes[index as usize].accessibility.get_or_insert_with(|| json!({}));
+        if let Some(m) = a.as_object_mut() {
+            m.entry(key.to_string()).or_insert(value);
+        }
+    }
+
     /// Add a state to a node's part query (`selected`, `open`, `checked`…).
     pub(crate) fn add_state(&mut self, index: u32, state: &str) {
         if let Some(q) = &mut self.nodes[index as usize].part_query {
@@ -461,9 +553,25 @@ impl<'a, 'b> Builder<'a, 'b> {
     }
 
     pub(crate) fn style_default(&mut self, index: u32, entries: &[(&str, Value)]) {
-        let s = &mut self.nodes[index as usize].base_style;
+        let n = &mut self.nodes[index as usize];
         for (k, v) in entries {
-            s.entry(k.to_string()).or_insert(v.clone());
+            if !n.base_style.contains_key(*k) {
+                n.base_style.insert(k.to_string(), v.clone());
+                n.default_keys.push(k.to_string());
+            }
+        }
+    }
+
+    /// Image / Video (round 2 §7): the box takes `aspectRatio` (a Video
+    /// always, an Image without a `height`; default `mediaAspectRatio`), so
+    /// height = width / ratio before and after the media loads.
+    fn media_ratio(&mut self, index: u32) {
+        let n = &self.nodes[index as usize];
+        let given = n.props.get("aspectRatio").and_then(Value::as_f64).filter(|r| r.is_finite() && *r > 0.0);
+        let has_height = n.props.get("height").is_some_and(|v| !v.is_null()) || n.base_style.contains_key("height");
+        let ratio = given.or_else(|| (n.component == "Video" || !has_height).then_some(crate::layout::MEDIA_ASPECT_RATIO));
+        if let Some(r) = ratio {
+            self.style_default(index, &[("aspectRatio", json!(r))]);
         }
     }
 
@@ -483,7 +591,13 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         let view = self.ctx.view;
         let def = view.component(&node.component);
-        let mut props = self.resolve_map(&node.props, scope);
+        // Round 2: props resolve ALONG THEIR SCHEMA (a literal Table `rows`
+        // holding `{path}` is data), then a bound number or boolean in a
+        // text prop shows as its display string.
+        let mut props = crate::data::resolve_node_props(def, &node.props, &self.resolve_ctx(scope), &view.defs);
+        if let Some(def) = def {
+            display_text_props(def, &mut props);
+        }
         self.local_overrides(&node.id, &node.component, &mut props);
         // Inside a disabled Form every field (and button) is inert; inside a
         // busy one the submit buttons show loading.
@@ -560,11 +674,24 @@ impl<'a, 'b> Builder<'a, 'b> {
         // The component-specific structure; everything else: slots first
         // (pre-order like the reference `preorder`), then children.
         let expand = self.ctx.expand_controls;
+        // Round 2 §7: explicit sizes instead of browser defaults.
+        match node.component.as_str() {
+            "Image" | "Video" => self.media_ratio(index),
+            // A ToggleGroup is content-sized unless `fill`.
+            "ToggleGroup" if !bool_prop(&self.nodes[index as usize].props, "fill") => self.style_default(index, &[("alignSelf", json!("flex-start"))]),
+            // TreeGuides: depth × `treeGuideColumn` wide, stretched to its row.
+            "TreeGuides" => {
+                let depth = self.nodes[index as usize].props.get("depth").and_then(Value::as_f64).unwrap_or(0.0).max(0.0);
+                self.style_default(index, &[("alignSelf", json!("stretch")), ("width", json!(depth * crate::layout::TREE_GUIDE_COLUMN)), ("flexShrink", json!(0))]);
+            }
+            _ => {}
+        }
         match node.component.as_str() {
             "Tabs" => self.tabs(index, node, scope),
             "Accordion" => self.accordion(index, node, scope),
             "Carousel" => self.carousel(index, node, scope),
             "List" => self.list(index, node, scope),
+            "Resizable" => self.resizable(index, node, scope),
             "Table" => self.table(index, node, scope),
             "Toast" => self.toast(index, node),
             c if Self::is_overlay(c) => self.overlay(index, node, scope),
@@ -653,7 +780,7 @@ impl<'a, 'b> Builder<'a, 'b> {
 
     /// The id suffixes of a template's items (the reference's
     /// `templateItems`): `.<index>` without a `key`; with one, `.<value>`
-    /// (objects as JSON), and `.#<index>` when the value is missing, null,
+    /// (objects as JSON; `~`/`.` escaped as `~0`/`~1`), and `.#<index>` when the value is missing, null,
     /// empty or a DUPLICATE of an earlier item's (more `#` until unique), so
     /// instance ids never collide. Once per array per build.
     fn item_suffixes(&mut self, t: &crate::types::Template, base: &str) -> std::sync::Arc<Vec<String>> {
@@ -661,33 +788,30 @@ impl<'a, 'b> Builder<'a, 'b> {
         if let Some(s) = self.suffixes.get(&cache_key) {
             return s.clone();
         }
-        let count = crate::data::get_pointer(self.ctx.data, base).and_then(Value::as_array).map(Vec::len).unwrap_or(0);
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::with_capacity(count);
-        for i in 0..count {
-            let mut key = i.to_string();
-            if let Some(k) = &t.key {
-                let pointer = crate::data::absolute_path(k, &format!("{base}/{i}"));
-                let own = match crate::data::get_pointer(self.ctx.data, &pointer) {
-                    None | Some(Value::Null) => None,
-                    Some(Value::String(s)) if s.is_empty() => None,
-                    Some(v @ (Value::Object(_) | Value::Array(_))) => Some(serde_json::to_string(v).unwrap_or_default()),
-                    Some(v) => Some(js(v)),
-                };
-                key = match own {
-                    Some(o) if !seen.contains(&o) => o,
-                    _ => format!("#{i}"),
-                };
-                while seen.contains(&key) {
-                    key = format!("#{key}");
-                }
+        let version = self.ctx.data_version;
+        if let Some((v, keys)) = self.ctx.local.key_cache.get(&format!("s\u{0}{cache_key}")) {
+            if *v == version {
+                let keys = keys.clone();
+                self.suffixes.insert(cache_key, keys.clone());
+                return keys;
             }
-            seen.insert(key.clone());
-            out.push(format!(".{key}"));
         }
+        let items = crate::data::get_pointer(self.ctx.data, base).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let out: Vec<String> = crate::list::template_item_keys(items, t.key.as_deref()).into_iter().map(|k| format!(".{}", crate::list::instance_segment(&k))).collect();
         let out = std::sync::Arc::new(out);
+        self.ctx.local.key_cache.insert(format!("s\u{0}{cache_key}"), (version, out.clone()));
         self.suffixes.insert(cache_key, out.clone());
         out
+    }
+
+    /// The instance suffix `node` already wears (`.ops` for a node of the
+    /// `ops` item): a template inside it ACCUMULATES it (round 2,
+    /// `issue.title.ops.1`), so nested items never collide.
+    pub(crate) fn enclosing_suffix(&self, node: &UiNode) -> String {
+        match self.sources.get(&node.id) {
+            Some(src) if node.id.len() > src.id.len() && node.id.starts_with(src.id.as_str()) => node.id[src.id.len()..].to_string(),
+            _ => String::new(),
+        }
     }
 
     /// The node's children (static or from its template) under `parent`.
@@ -702,9 +826,10 @@ impl<'a, 'b> Builder<'a, 'b> {
             let count = crate::data::get_pointer(self.ctx.data, &base).and_then(Value::as_array).map(Vec::len).unwrap_or(0);
             if let Some(tpl) = (self.ctx.template)(&t.component) {
                 let suffixes = self.item_suffixes(t, &base);
+                let enclosing = self.enclosing_suffix(node);
                 for i in 0..count {
                     let item_scope = format!("{base}/{i}");
-                    let suffix = suffixes[i].clone();
+                    let suffix = format!("{enclosing}{}", suffixes[i]);
                     let item = self.instance(&tpl, &suffix, Some(&t.component));
                     out.extend(self.add(&item, Some(parent), layer, &item_scope, hidden));
                 }
@@ -727,14 +852,23 @@ impl<'a, 'b> Builder<'a, 'b> {
             self.ctx.local.static_keys.insert(node.id.clone(), keys.clone());
             return keys;
         }
+        let enclosing = self.enclosing_suffix(node);
+        let cache_key = format!("c\u{0}{}\u{0}{scope}", node.id);
+        if let Some((v, keys)) = self.ctx.local.key_cache.get(&cache_key) {
+            if *v == self.ctx.data_version && keys.len() >= node.children.len() {
+                return keys.clone();
+            }
+        }
         let mut keys: Vec<String> = node.children.iter().map(|c| c.id.clone()).collect();
         if let Some(t) = &node.template {
             let base = crate::data::absolute_path(&t.path, scope);
             for suffix in self.item_suffixes(t, &base).iter() {
-                keys.push(format!("{}{suffix}", t.component));
+                keys.push(format!("{}{enclosing}{suffix}", t.component));
             }
         }
-        std::sync::Arc::new(keys)
+        let keys = std::sync::Arc::new(keys);
+        self.ctx.local.key_cache.insert(cache_key, (self.ctx.data_version, keys.clone()));
+        keys
     }
 
     /// Child `i` (static children first, then template items).
@@ -752,7 +886,7 @@ impl<'a, 'b> Builder<'a, 'b> {
         }
         let tpl = (self.ctx.template)(&t.component)?;
         let item_scope = format!("{base}/{idx}");
-        let suffix = self.item_suffixes(t, &base).get(idx).cloned().unwrap_or_else(|| format!(".{idx}"));
+        let suffix = format!("{}{}", self.enclosing_suffix(node), self.item_suffixes(t, &base).get(idx).cloned().unwrap_or_else(|| format!(".{idx}")));
         let item = self.instance(&tpl, &suffix, Some(&t.component));
         self.add(&item, Some(parent), layer, &item_scope, hidden)
     }
@@ -814,7 +948,7 @@ pub fn builtin_icon(slot: &str) -> Option<&'static str> {
 /// Build the layout tree for a normalized root. `Unknown` nodes become
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
-    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new() };
+    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new() };
     if b.add(root, None, 0, "", false).is_none() {
         // An invisible root: an empty surface (one hidden Box).
         let mut n = b.blank(&root.id, "Box", None, 0, NodeKind::Container, "");
@@ -839,7 +973,7 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     stub.parent = None;
     stub.children.clear();
     let layer = stub.layer;
-    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new() };
+    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new() };
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
     Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms }

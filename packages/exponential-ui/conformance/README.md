@@ -6,7 +6,7 @@ drift-gated) and the report passes:
 
 ```bash
 bun run --filter @exponential-at/ui conformance:check path/to/report.json
-# CONFORMANT  my-renderer (flutter 0.3.0): 1367 cases passed in 15 suites
+# CONFORMANT  my-renderer (flutter 0.3.0): 1642 cases passed in 24 suites
 ```
 
 Every suite present, every case run (the manifest's `cases` count), nothing
@@ -33,6 +33,15 @@ replays them byte for byte.
 | `host-transport` | `host-transport.json` | JSONL / SSE chunks through ONE decoder, the MCP carrier: messages + issues equal |
 | `host-policy` | `host-policy.json` | the function gate, combine, URL policy, media request, source URIs, catalog negotiation |
 | `host-router` | `host-router.json` | package validation; message flows → the ops, in order |
+| `bind` | `bind-time.json` | expand, run the bind pass per dataset: bound tree, `set` presses, per-row slot cells |
+| `style-conditions` | `style-conditions.json` | flatten the style per context |
+| `code-tokens` | `code-tokens.json` | tokenize: the lines of tokens |
+| `format` | `format.json` | format calls through the English fallback (`zoned`: at `offsetMinutes`), exact; display values. A platform Formatter may run too (U+202F, U+00A0 → space) |
+| `template-items` | `template-items.json` | item and row keys, template instances + escaped suffixes, reduce with templates lifted (cycles reported, kept in place) |
+| `text-direction` | `text-direction.json` | every node's direction and physical text alignment |
+| `resizable` | `resizable.json` | panel sizes (normalize, drag, keys, extents, px → percent) within 1e-6 |
+| `virtual-list` | `virtual-list.json` | the window, scrollToIndex (sectioned: data index → row), sections, the sticky header |
+| `animations` | `animations.json` | timing + frames per theme within 1e-3; painted opacity = own × frame |
 
 `manifest.json` says how each count is derived (`unit`). A renderer built on
 the Rust core (the facade, `exponential-ui-ffi`) gets the pure suites through
@@ -57,6 +66,10 @@ passed, failed: [names], skipped?}}}`. Our runners write it to
 CI (`.github/workflows/exponential-ui.yml`) runs all four renderers plus the
 core on every SDK pull request and fails unless every report is conformant.
 
+Version 2 (round 2, `docs/round-2-contract.md` §8) added the last nine
+suites: round 1's bind/style/code fixtures every runner already replayed,
+and the round-2 contract fixtures.
+
 ## With the real-font harness (VAPP-98, round 1)
 
 Round 1 (#VAPP-98) adds the other half to this directory: `run.ts` dumps the
@@ -70,6 +83,14 @@ are on master, the harness's comparison becomes suite `real-font` here
 beyond `conformance-known.json`), so `conformance:check` stays the one verdict.
 Runner files are named `suites` (`browser/suites.test.ts`, gpui
 `tests/suites.rs`) beside the harness's own `conformance` ones.
+
+Round 2: the dump measures LAYOUT boxes (transforms and animations off,
+`LAYOUT_ONLY_CSS`), skips inactive carousel pages (`data-xui-inactive`),
+and every painted part carries `data-xui-id="<node id>.<part>[.<index or
+row key>]"` + `data-xui-part` (catalog/recipes.json lists the parts), so the
+web and gpui dumps cover the same nodes. Nunito and Fira Code are real
+faces (`fonts/`, SIL OFL 1.1). `conformance-known.json` carries the 53
+divergence decisions (`causes`) beside the ratchet's counts.
 
 ## Listing
 

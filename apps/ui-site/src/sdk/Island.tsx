@@ -2,7 +2,7 @@
    first client render both paint a sized placeholder; the SDK renderer and
    the icon set load in an effect after hydration, so every page prerenders
    and hydrates without a mismatch, and no page chunk carries the renderer. */
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react"
 import type { IconMap } from "@exponential-at/ui-react"
 import type { LiveSurfaceProps } from "./runtime"
 
@@ -47,4 +47,47 @@ export function useHydrated(): boolean {
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => setHydrated(true), [])
   return hydrated
+}
+
+/* Many small live renders on one page (the index, a variants gallery) mount
+   only once near the viewport, one per idle slice, so the main thread never
+   takes them all in one long task. */
+const queue: (() => void)[] = []
+let draining = false
+const idle = (cb: () => void) => (typeof requestIdleCallback === `function` ? requestIdleCallback(cb, { timeout: 120 }) : setTimeout(cb, 16))
+
+function drain() {
+  draining = true
+  idle(() => {
+    const started = performance.now()
+    while (queue.length && performance.now() - started < 12) queue.shift()!()
+    if (queue.length) drain()
+    else draining = false
+  })
+}
+
+/** True once the element came within `margin` of the viewport and its turn
+ *  in the mount queue came (stays true). */
+export function useNearViewport(ref: RefObject<Element | null>, margin = `300px`): boolean {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || ready) return
+    let cancelled = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return
+        io.disconnect()
+        queue.push(() => !cancelled && setReady(true))
+        if (!draining) drain()
+      },
+      { rootMargin: margin }
+    )
+    io.observe(el)
+    return () => {
+      cancelled = true
+      io.disconnect()
+    }
+  }, [ref, margin, ready])
+  return ready
 }

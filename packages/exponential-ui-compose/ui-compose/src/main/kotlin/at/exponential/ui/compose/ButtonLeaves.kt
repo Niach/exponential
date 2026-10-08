@@ -60,6 +60,8 @@ internal fun ToggleGroupLeaf(cx: LeafContext) {
     val item = cx.part("ToggleGroup", "item")
     val pad = item.px("paddingHorizontal") ?: item.px("padding") ?: 12f
     val h = item.height ?: 36f
+    // Icon ↔ label: the recipe's gap (none = 0, as the web and gpui).
+    val itemGap = item.px("gap") ?: 0f
     val ts = ResolvedTextStyle(
         item.px("fontSize") ?: cx.textStyle.fontSize,
         (item.props["fontWeight"]?.number ?: 500.0).toInt(),
@@ -92,7 +94,7 @@ internal fun ToggleGroupLeaf(cx: LeafContext) {
                         .padding(horizontal = pad.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(itemGap.dp), verticalAlignment = Alignment.CenterVertically) {
                         it["icon"]?.string?.let { name -> IconView(name, 16f, ink, model) }
                         if (label.isNotEmpty()) LeafLine(cx, label, color = ink, ts = ts)
                     }

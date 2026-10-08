@@ -11,6 +11,8 @@ data class ResolvedTextStyle(
     val fontWeight: Int,
     val lineHeight: Float,
     val fontFamily: String?,
+    /** Round 1 `letterSpacing` (dp), from the leaf's visual. */
+    val letterSpacing: Float? = null,
 ) {
     /** From the facade's record. */
     constructor(f: FfiTextStyle) : this(f.fontSize, f.fontWeight.toInt(), f.lineHeight, f.fontFamily)

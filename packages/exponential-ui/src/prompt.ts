@@ -65,6 +65,11 @@ export const COMMON_PROPS: Readonly<Record<string, string>> = {
   pressable: `fires press`,
   durationMs: `known length`,
   firstDayOfWeek: `0 = Sunday; else the locale's`,
+  direction: ``,
+  orientation: ``,
+  gap: ``,
+  aspectRatio: `width/height`,
+  text: ``,
 }
 
 function typeOf(schema: PropSchema, enums: Record<string, readonly string[]>): string {
@@ -102,9 +107,9 @@ function propLine(name: string, schema: PropSchema, enums: Record<string, readon
 function componentBlock(name: string, def: ComponentDef, enums: Record<string, readonly string[]>, terse: boolean): string {
   const head = `${name}${def.kind === `macro` ? `` : ``}: ${def.description}`
   const meta: string[] = []
-  if (def.children !== `none`) meta.push(`children: ${def.children}`)
+  if (def.children !== `none`) meta.push(def.children === `one` ? `one child` : `children`)
   if (def.slots?.length) meta.push(`slots: ${def.slots.join(`, `)}`)
-  if (def.events?.length) meta.push(`events: ${def.events.join(`, `)}`)
+  if (def.events?.length) meta.push(`on: ${def.events.join(`, `)}`)
   const props = Object.entries(def.props)
   const body = terse
     ? [`  props: ${props.map(([p, s]) => `${p}${marksOf(s)}:${typeOf(s, enums)}`).join(`, `)}`]
@@ -153,7 +158,7 @@ export function catalogPrompt(options: PromptOptions = {}): string {
   const listed = Object.values(coreCatalog.components).filter((def) => !def.hidden && (!options.lite || def.lite))
   lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed, coreCatalog.defs)).join(`; `)}`)
   lines.push(`Functions (client-side, the A2UI basic ones plus core ones): ${coreCatalog.functions.names.join(`, `)}.`)
-  lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position, top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), gridTemplateColumns/Rows/Areas, gridArea, overflow(X/Y), backgroundColor, backgroundGradient {angle, stops}, color, border(Top…)Width, borderColor, borderStyle, borderRadius (+corners), opacity, boxShadow, font*, letterSpacing, textAlign, textDecoration, textTransform, transition $motion.*, transform (translate/scale/rotate, paint only), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
+  lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
   for (const ext of extensions) {
     lines.push(`Extension ${ext.id} (${ext.name}):`)
     for (const [name, def] of Object.entries(ext.components)) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))

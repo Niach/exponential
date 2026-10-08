@@ -51,6 +51,8 @@ pub struct LeafCx<'a> {
     /// The leaf's corner radii after its clipping ancestors' (an image in a
     /// rounded card clips to the card's corners).
     pub radii: [f32; 4],
+    /// The surface's number / date formatter (chart ticks and values).
+    pub formatter: &'a dyn exponential_ui::format::Formatter,
 }
 
 impl LeafCx<'_> {
@@ -262,8 +264,16 @@ pub fn tracked_text(t: Tracked) -> gpui::Canvas<()> {
                     let top = bounds.origin.y + lh * k as f32;
                     let pad = (lh - shaped.ascent - shaped.descent) / 2.0;
                     let baseline = top + pad + shaped.ascent;
-                    // Byte index → characters before it (the tracking).
-                    let char_at: HashMap<usize, usize> = line.char_indices().enumerate().map(|(c, (b, _))| (b, c)).collect();
+                    // Byte index → tracked characters before it (a bidi
+                    // mark takes no letter-spacing).
+                    let char_at: HashMap<usize, usize> = line
+                        .char_indices()
+                        .scan(0usize, |n, (b, c)| {
+                            let before = *n;
+                            *n += usize::from(crate::measure::is_tracked(c));
+                            Some((b, before))
+                        })
+                        .collect();
                     let glyphs: Vec<(gpui::FontId, &gpui::ShapedGlyph)> = shaped.runs.iter().flat_map(|r| r.glyphs.iter().map(move |g| (r.font_id, g))).collect();
                     let mut end_x = x0;
                     let mut painted: Option<(f32, f32)> = None;
@@ -327,6 +337,9 @@ impl LeafCx<'_> {
 pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyElement {
     let a = cx.align();
     let lh = cx.text_style.line_height;
+    // Round 2 §2: every line shapes with the node's paragraph direction.
+    let marked: Vec<String> = lines.iter().map(|l| crate::text::with_paragraph_direction(l, cx.rtl).into_owned()).collect();
+    let lines = &marked[..];
     if cx.style.letter_spacing != 0.0 {
         let (x, y, w, h) = cx.inner();
         let shown: Vec<String> = match clamp {
@@ -341,7 +354,17 @@ pub fn text_lines(cx: &LeafCx, lines: &[String], clamp: Option<usize>) -> AnyEle
         return tracked_text(cx.tracked(shown, a, clamp.is_some())).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).into_any_element();
     }
     match clamp {
-        Some(1) => aligned(cx.content(), a).truncate().child(SharedString::from(lines.join(" "))).into_any_element(),
+        // One ellipsized line: 1 px of slack on the trailing side, so a line
+        // the measurer fitted exactly (sub-pixel float noise) never ellipsizes.
+        Some(1) => {
+            let (x, y, w, h) = cx.inner();
+            let x = match a {
+                "right" => x - 1.0,
+                "center" => x - 0.5,
+                _ => x,
+            };
+            aligned(cx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w + 1.0)).h(px(h))), a).truncate().child(SharedString::from(lines.join(" "))).into_any_element()
+        }
         Some(n) if lines.len() > n && n > 1 => {
             let mut col = cx.content().flex().flex_col().overflow_hidden();
             for (k, line) in lines.iter().enumerate().take(n) {
@@ -370,7 +393,9 @@ pub fn button(cx: &LeafCx, component: &str, window: &Window) -> AnyElement {
     let icon = cx.str("icon");
     let loading = cx.bool("loading");
     let icon_only = cx.str("size") == "icon";
-    let icon_size = px_prop(&cx.part_props(component, "icon", &[]), "width").unwrap_or_else(|| control(cx.theme, "iconSm", 16.0));
+    // The icon recipe for the BUTTON's own props (as the measurer reads
+    // it): a part button (a FileUpload remove) is not sized by its owner's.
+    let icon_size = px_prop(&part_props(cx.theme, cx.mode, component, "icon", &cx.node.props, &[]), "width").unwrap_or_else(|| control(cx.theme, "iconSm", 16.0));
     let mut row = cx.row(cx.content()).items_center().justify_center().gap(px(cx.style.gap)).whitespace_nowrap();
     if loading {
         row = row.child(spinner_glyph(SharedString::from(format!("{}.spinner", cx.node.id)), icon_size, cx.ink));
@@ -410,7 +435,11 @@ pub fn link(cx: &LeafCx) -> AnyElement {
 pub fn icon(cx: &LeafCx) -> AnyElement {
     let (_, _, w, h) = cx.inner();
     let name = if cx.str("name").is_empty() { "ui-icon-placeholder" } else { cx.str("name") };
-    let size = w.min(h).max(1.0);
+    // The glyph is the theme's Icon/root recipe size (`size: sm` →
+    // `$control.iconSm` in the built-in themes; a remove button's box is 36,
+    // its glyph 16), never larger than the box.
+    let recipe = part_props(cx.theme, cx.mode, "Icon", "root", &cx.node.props, cx.states);
+    let size = px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY).min(w.min(h)).max(1.0);
     let rotate = cx.style.transform.rotate;
     let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()
@@ -562,23 +591,45 @@ pub fn avatar(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// The tinted placeholder an `Image` paints without a loadable source: the
-/// `fallback` icon (default `Image.fallback`) and the alt text.
-pub fn image_placeholder(host: &dyn HostPlugin, ink: Hsla, label: &str, fallback_icon: &str) -> AnyElement {
-    let label = SharedString::from(label.to_string());
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .gap(px(4.0))
-        .bg(ink.opacity(0.08))
-        .text_color(ink.opacity(0.6))
-        .text_size(px(12.0))
-        .child(if fallback_icon.is_empty() { icons::glyph(Glyph::Image, 20.0, ink.opacity(0.6)) } else { icons::concept(host, fallback_icon, 20.0, ink.opacity(0.6)) })
-        .child(label)
-        .into_any_element()
+/// What an `Image` paints without a loadable source (round 2 §7): the
+/// `Image/fallback` part fills the box (its recipe colours) with the glyph
+/// (`fallback`, else the builtin `Image.fallback`) at `$control.iconLg`,
+/// centred. The alt text stays the accessible name. Owned, so the image
+/// loader's fallback / loading closures can paint it later.
+#[derive(Clone)]
+pub struct ImageFallback {
+    bg: Option<Hsla>,
+    ink: Hsla,
+    size: f32,
+    name: String,
+    path: Option<SharedString>,
+}
+
+impl ImageFallback {
+    pub fn of(cx: &LeafCx) -> ImageFallback {
+        let part = cx.part("Image", "fallback", &[]);
+        let ink = part.color.or_else(|| cx.theme_color("mutedForeground")).unwrap_or(cx.ink);
+        let bg = part.bg.or_else(|| cx.theme_color("muted"));
+        let size = cx.theme.and_then(|t| t.tokens.control.get("iconLg").copied()).unwrap_or(24.0) as f32;
+        let name = match cx.str("fallback") {
+            "" => exponential_ui::layout_tree::builtin_icon("Image.fallback").unwrap_or("ui-icon-placeholder").to_string(),
+            f => f.to_string(),
+        };
+        let path = cx.host.icon(&name);
+        ImageFallback { bg, ink, size, name, path }
+    }
+
+    pub fn element(&self) -> AnyElement {
+        let glyph = match &self.path {
+            Some(p) => gpui::svg().path(p.clone()).size(px(self.size)).text_color(self.ink).into_any_element(),
+            None => icons::glyph(Glyph::for_concept(&self.name).unwrap_or(Glyph::Image), self.size, self.ink),
+        };
+        div().size_full().flex().items_center().justify_center().when_some(self.bg, |d, bg| d.bg(bg)).child(glyph).into_any_element()
+    }
+}
+
+pub fn image_placeholder(cx: &LeafCx) -> AnyElement {
+    ImageFallback::of(cx).element()
 }
 
 fn rounded<E: Styled>(e: E, r: [f32; 4]) -> E {
@@ -628,11 +679,8 @@ fn render_image(source: &ImageSource, window: &mut Window, cx: &mut App) -> Opti
 /// `object-position`) place the decoded image with [`focal_bounds`].
 pub fn image(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
     let src = cx.str("src");
-    let alt = if cx.str("alt").is_empty() { String::new() } else { cx.str("alt").to_string() };
-    let muted = cx.theme_color("mutedForeground").unwrap_or(cx.ink);
-    let fallback_icon = if cx.str("fallback").is_empty() { "ui-icon-placeholder".to_string() } else { cx.str("fallback").to_string() };
     let Some(source) = crate::media::image_source(cx.host, src) else {
-        return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx.host, muted, &alt, &fallback_icon)).into_any_element();
+        return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx)).into_any_element();
     };
     let fit_name = match cx.str("fit") {
         f @ ("contain" | "fill" | "none" | "scaleDown") => f,
@@ -668,26 +716,12 @@ pub fn image(cx: &LeafCx, window: &mut Window, app: &mut App) -> AnyElement {
                 .size_full()
                 .into_any_element()
             }
-            _ => rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx.host, muted, &alt, &fallback_icon)).into_any_element(),
+            _ => rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx)).into_any_element(),
         };
     }
-    let host_icons: Vec<(String, Option<SharedString>)> = vec![(fallback_icon.clone(), cx.host.icon(&fallback_icon))];
-    let (a, b) = (alt.clone(), alt);
-    let (fa, fb) = (host_icons.clone(), host_icons);
-    let placeholder = move |alt: &str, icons_: &[(String, Option<SharedString>)]| {
-        let (name, path) = &icons_[0];
-        let glyph = match path {
-            Some(p) => gpui::svg().path(p.clone()).size(px(20.0)).text_color(muted.opacity(0.6)).into_any_element(),
-            None => match Glyph::for_concept(name) {
-                Some(g) => icons::glyph(g, 20.0, muted.opacity(0.6)),
-                None => icons::glyph(Glyph::Image, 20.0, muted.opacity(0.6)),
-            },
-        };
-        div().size_full().flex().flex_col().items_center().justify_center().gap(px(4.0)).bg(muted.opacity(0.08)).text_color(muted.opacity(0.6)).text_size(px(12.0)).child(glyph).child(SharedString::from(alt.to_string())).into_any_element()
-    };
-    let p2 = placeholder;
+    let (fa, fb) = (ImageFallback::of(cx), ImageFallback::of(cx));
     rounded(div().size_full().overflow_hidden(), cx.radii)
-        .child(rounded(img(source).size_full().object_fit(fit), cx.radii).with_fallback(move || placeholder(&a, &fa)).with_loading(move || p2(&b, &fb)))
+        .child(rounded(img(source).size_full().object_fit(fit), cx.radii).with_fallback(move || fa.element()).with_loading(move || fb.element()))
         .into_any_element()
 }
 
@@ -730,11 +764,14 @@ pub fn audio(cx: &LeafCx) -> AnyElement {
     if !title.is_empty() {
         col = col.child(aligned(div().truncate(), cx.align()).text_color(track.color.unwrap_or(cx.ink)).child(SharedString::from(title.to_string())));
     }
+    // The controls row: `AudioPlayer/controls` height, else `$control.row`.
+    let row_h = px_prop(&cx.part_props("AudioPlayer", "controls", &[]), "height").unwrap_or_else(|| control(cx.theme, "row", 40.0));
     col.child(
         cx.row(div())
-            .h(px(40.0))
+            .h(px(row_h))
+            .flex_none()
             .w_full()
-            .rounded(px(20.0))
+            .rounded(px(row_h / 2.0))
             .bg(muted)
             .items_center()
             .gap(px(8.0))

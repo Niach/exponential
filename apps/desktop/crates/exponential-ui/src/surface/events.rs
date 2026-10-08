@@ -61,15 +61,38 @@ impl Surface {
             return false;
         }
         self.local.scroll.insert(id.to_string(), (x, y));
-        if let Some(w) = self.local.lists.get_mut(id) {
-            w.scroll_offset = y;
-            // A windowed container re-windows (its subtree only); a plain
-            // one only moves paint.
-            if self.lists.iter().any(|l| l.id == id && l.windowed) {
-                self.subtree_pending.insert(id.to_string());
-            }
+        // A windowed container re-windows (its subtree only), and so does
+        // every windowed list this container is the viewport of (round 2);
+        // a plain one only moves paint.
+        let lists: Vec<String> = self
+            .lists
+            .iter()
+            .filter(|l| l.windowed)
+            .filter(|l| l.id == id || matches!(self.local.list_views.get(&l.id).map(|v| &v.source), Some(crate::layout_tree::ListViewSource::Ancestor { id: a, .. }) if a == id))
+            .map(|l| l.id.clone())
+            .collect();
+        self.subtree_pending.extend(lists);
+        if (self.local.sticky_any || self.lists.iter().any(|l| l.sticky)) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+            // Sticky offsets follow the scroll.
+            self.pending.push(OutEvent::Relayout);
         }
         true
+    }
+
+    /// Round 2 (§5): the host's scroll offset of the WHOLE surface (a
+    /// surface laid out taller than its host viewport, the host scrolls
+    /// it). Lists without a bounded size window against it; sticky nodes
+    /// without a scrolling ancestor pin against it. Returns whether
+    /// anything must lay out again.
+    pub fn set_surface_scroll(&mut self, x: f32, y: f32) -> bool {
+        if self.local.surface_scroll == Some((x, y)) {
+            return false;
+        }
+        self.local.surface_scroll = Some((x, y));
+        let lists: Vec<String> = self.lists.iter().filter(|l| l.windowed && matches!(self.local.list_views.get(&l.id).map(|v| &v.source), Some(crate::layout_tree::ListViewSource::Host { .. }))).map(|l| l.id.clone()).collect();
+        let any = !lists.is_empty() || self.local.sticky_any;
+        self.subtree_pending.extend(lists);
+        any
     }
 
     /// The largest offsets of a scroll container as the last pass laid it
@@ -175,7 +198,11 @@ impl Surface {
     /// The resolve context of a scope: the data model, the strings and, for
     /// a literal Table row's scope, the row standing in for its pointer.
     fn resolve_ctx<'s>(&'s self, scope: &'s str) -> ResolveContext<'s> {
-        let ctx = ResolveContext::new(&self.data, scope).with_strings(&self.strings);
+        let ctx = ResolveContext::new(&self.data, scope).with_strings(&self.strings).with_formatter(&*self.formatter);
+        let ctx = match self.clock {
+            Some(now) => ctx.with_now(now),
+            None => ctx,
+        };
         match crate::layout_tree::row_scope_root(scope).and_then(|root| self.seed.row_scopes.get_key_value(root)) {
             Some((root, row)) => ctx.with_overlay(root, row),
             None => ctx,
@@ -195,6 +222,7 @@ impl Surface {
     fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
         let Some(path) = self.binding_path(id, prop) else { return vec![] };
         set_pointer(&mut self.data, &path, Some(value.clone()));
+        self.data_version += 1;
         self.needs_build = true;
         vec![OutEvent::DataChanged { path, value }]
     }
@@ -226,6 +254,7 @@ impl Surface {
         let mut out = vec![];
         if let Some((path, value)) = outcome.written {
             self.data = outcome.data;
+            self.data_version += 1;
             self.needs_build = true;
             out.push(OutEvent::DataChanged { path, value });
         }
@@ -317,8 +346,9 @@ impl Surface {
                 out.extend(self.fire(&owner_id, "change", Some(json!({"value": joined}))));
                 out.push(OutEvent::Relayout);
             }
-            ("Carousel", _, "change") => {
-                let page = payload.as_ref().and_then(|p| p.get("page")).and_then(Value::as_i64).unwrap_or(0);
+            ("Carousel", _, "change") | ("Carousel", Some("previous" | "next"), "press") => {
+                // A previous/next button carries the page it goes to.
+                let page = if event == "press" { n.props.get("target").and_then(Value::as_i64) } else { payload.as_ref().and_then(|p| p.get("page")).and_then(Value::as_i64) }.unwrap_or(0);
                 self.local.carousel.insert(owner_id.clone(), page);
                 self.subtree_pending.insert(owner_id.clone());
                 out.extend(self.write_through(&owner_id, "page", json!(page)));
@@ -389,10 +419,16 @@ impl Surface {
                 }
             }
             ("NumberField", _, "change" | "commit") => {
+                // Text parses in the surface formatter's separators and
+                // digits (what the field shows); unreadable text changes
+                // nothing (the reference's NumberField), empty text clears.
                 let raw = payload.as_ref().and_then(|p| p.get("value")).cloned().unwrap_or(Value::Null);
                 let parsed = match &raw {
                     Value::Number(_) => raw.as_f64(),
-                    Value::String(s) => s.trim().parse::<f64>().ok(),
+                    Value::String(s) => match crate::format::parse_number(self.formatter.as_ref(), s) {
+                        None if !s.trim().is_empty() => return out,
+                        v => v,
+                    },
                     _ => None,
                 };
                 let value = parsed.map(|v| if event == "commit" { self.clamp_number(&owner_id, v) } else { v });
@@ -451,6 +487,7 @@ impl Surface {
                 self.subtree_pending.insert(owner_id.clone());
                 out.push(OutEvent::Relayout);
             }
+            ("Resizable", Some("handle"), "drag" | "key") => out.extend(self.resize_event(&n, &owner_id, event, payload.as_ref())),
             ("Checkbox" | "Switch", _, "press" | "change") => {
                 let current = self.current_prop(&owner_id, "checked").and_then(|v| v.as_bool()).unwrap_or(false);
                 let checked = payload.as_ref().and_then(|p| p.get("checked")).and_then(Value::as_bool).unwrap_or(!current);
@@ -590,6 +627,7 @@ impl Surface {
                 if let Some(binding) = item.and_then(|i| i.get("checked")).filter(|b| is_binding(b)) {
                     let p = absolute_path(binding["path"].as_str().unwrap_or(""), &self.scope_of(owner_id));
                     set_pointer(&mut self.data, &p, Some(Value::Bool(checked)));
+                    self.data_version += 1;
                     self.needs_build = true;
                     out.push(OutEvent::DataChanged { path: p, value: Value::Bool(checked) });
                 }
@@ -890,6 +928,91 @@ impl Surface {
     }
 
     // ------------------------------------------------------------------
+    // Resizable (round 2 §1)
+    // ------------------------------------------------------------------
+
+    /// A Resizable's sizes as shown, its limits, axis, rtl and slot.
+    fn resizable_state(&self, owner_id: &str) -> Option<ResizableState> {
+        let slot = *self.slot_of.get(owner_id)?;
+        let owner = &self.nodes[slot as usize];
+        let sizes: Vec<f64> = owner.props.get("sizes").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect())?;
+        let limits = crate::resizable::PanelLimits::list(owner.props.get("panels"));
+        let orientation = if owner.props.get("direction").and_then(Value::as_str) == Some("vertical") { crate::resizable::Orientation::Vertical } else { crate::resizable::Orientation::Horizontal };
+        let rtl = self.node_state.get(slot as usize).is_some_and(|s| s.direction == taffy::style::Direction::Rtl);
+        Some((sizes, limits, orientation, rtl, slot))
+    }
+
+    /// A handle drag or key. `drag {phase: start|move|end, delta}` (`delta`
+    /// = px on the main axis since the drag STARTED, screen direction):
+    /// sizes follow from the START sizes (no drift), the end writes a bound
+    /// `sizes` and fires `change {sizes}`. `key {key}` (Arrow*/Home/End/
+    /// Enter, `keyboardResize`) writes and fires at once. Like the
+    /// reference, nothing is written or fired when the sizes did not change
+    /// (a click without movement, a key at a limit, any other key).
+    fn resize_event(&mut self, n: &LNode, owner_id: &str, event: &str, payload: Option<&Value>) -> Vec<OutEvent> {
+        let Some((sizes, limits, orientation, rtl, slot)) = self.resizable_state(owner_id) else { return vec![] };
+        let handle = n.props.get("handle").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let hairline = self.effective.as_ref().and_then(|t| t.tokens.control.get("hairline").copied()).unwrap_or(1.0);
+        let next = if event == "key" {
+            let key = payload.and_then(|p| p.get("key")).and_then(Value::as_str).unwrap_or("");
+            if !crate::resizable::RESIZE_KEYS.contains(&key) {
+                return vec![];
+            }
+            let next = crate::resizable::keyboard_resize(&sizes, handle, key, orientation, rtl, &limits);
+            if next == sizes {
+                return vec![];
+            }
+            next
+        } else {
+            let phase = payload.and_then(|p| p.get("phase")).and_then(Value::as_str).unwrap_or("move");
+            if phase == "start" {
+                self.local.drags.insert(n.id.clone(), sizes);
+                return vec![];
+            }
+            let start = self.local.drags.get(&n.id).cloned().unwrap_or(sizes.clone());
+            let px = payload.and_then(|p| p.get("delta")).and_then(Value::as_f64).unwrap_or(0.0);
+            let frame = self.last_frames.get(slot as usize).copied().unwrap_or_default();
+            let container = if orientation == crate::resizable::Orientation::Vertical { frame.h } else { frame.w } as f64;
+            let delta = crate::resizable::drag_delta(px, container, start.len(), orientation, rtl, hairline);
+            let next = crate::resizable::resize_panels(&start, handle, delta, &limits);
+            if phase != "end" {
+                if next != sizes {
+                    self.local.sizes.insert(owner_id.to_string(), next);
+                    self.subtree_pending.insert(owner_id.to_string());
+                    return vec![OutEvent::Relayout];
+                }
+                return vec![];
+            }
+            self.local.drags.remove(&n.id);
+            if next == start {
+                // No net movement: drop the live preview, commit nothing.
+                if sizes != start {
+                    if self.binding_path(owner_id, "sizes").is_some() {
+                        self.local.sizes.remove(owner_id);
+                    } else {
+                        self.local.sizes.insert(owner_id.to_string(), start);
+                    }
+                    self.subtree_pending.insert(owner_id.to_string());
+                    return vec![OutEvent::Relayout];
+                }
+                return vec![];
+            }
+            next
+        };
+        let value = json!(next);
+        let mut out = self.write_through(owner_id, "sizes", value.clone());
+        if out.is_empty() {
+            self.local.sizes.insert(owner_id.to_string(), next);
+        } else {
+            self.local.sizes.remove(owner_id);
+        }
+        self.needs_build = true;
+        out.extend(self.fire(owner_id, "change", Some(json!({"sizes": value}))));
+        out.push(OutEvent::Relayout);
+        out
+    }
+
+    // ------------------------------------------------------------------
     // Forms
     // ------------------------------------------------------------------
 
@@ -897,7 +1020,7 @@ impl Surface {
     /// messages of the failing ones. The reference's `failingChecks`: a check
     /// WITH a `condition` fails when it resolves to nothing (an unseeded
     /// path), `null`, `false` or `""` (0 passes); a message that is not a
-    /// string reads `Invalid value`.
+    /// string reads `$string.invalidValue` (round 2).
     pub fn failing_checks(&self, id: &str) -> Vec<String> {
         let Some(node) = self.source_node(id) else { return vec![] };
         let scope = self.scope_of(id);
@@ -912,7 +1035,7 @@ impl Surface {
                         let Some(cond) = c.get("condition") else { return false };
                         check_fails(crate::data::resolve_value(cond, &ctx).as_ref())
                     })
-                    .map(|c| c.get("message").and_then(Value::as_str).unwrap_or("Invalid value").to_string())
+                    .map(|c| c.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| self.strings.get("invalidValue").cloned().unwrap_or_else(|| "Invalid value".into())))
                     .collect()
             })
             .unwrap_or_default()
@@ -1052,7 +1175,79 @@ impl Surface {
                 vec![OutEvent::Focus { id: id.clone(), index: slot }]
             }
             SurfaceCommand::ScrollIntoView { id } => self.scroll_into_view(id),
+            SurfaceCommand::ScrollToIndex { id, index, align } => self.scroll_to_index(id, *index as usize, align.as_deref().and_then(crate::list::ScrollAlign::parse).unwrap_or_default()),
         }
+    }
+
+    /// Round 2 (§5): bring item `index` (DATA order, before a local sort)
+    /// of the List or Table `id` into view, `align`ed, the pinned section
+    /// header subtracted. Its own, its scrolling ancestor's or the host's
+    /// offset moves (the host's: [`OutEvent::ScrollSurface`]); a windowed
+    /// list renders the item on the next pass.
+    pub fn scroll_to_index(&mut self, id: &str, index: usize, align: crate::list::ScrollAlign) -> Vec<OutEvent> {
+        use crate::layout_tree::ListViewSource;
+        let Some(spec) = self.lists.iter().find(|l| l.id == id).cloned() else { return vec![] };
+        let pos = match &spec.data_index {
+            Some(map) => map.iter().position(|d| *d == Some(index)),
+            None => Some(spec.static_count + index),
+        };
+        let Some(pos) = pos.filter(|p| *p < spec.keys.len()) else { return vec![] };
+        // Over the window's cached offsets: a row's extent = the next
+        // offset − the gap (O(1) past the cache).
+        let Some(window) = self.local.lists.get_mut(id) else { return vec![] };
+        window.gap = spec.gap;
+        let offsets = window.offsets_cached(&spec.keys);
+        let count = spec.keys.len();
+        let extent = |r: usize| (offsets[r + 1] - offsets[r] - if r + 1 < count { spec.gap } else { 0.0 }) as f64;
+        let h = spec.horizontal;
+        let axis = |p: (f32, f32)| if h { p.0 } else { p.1 };
+        let own = self.local.scroll.get(id).copied().map(axis).unwrap_or(0.0);
+        let view = self.local.list_views.get(id).cloned();
+        let (source, viewport) = match view {
+            Some(v) => (v.source, v.viewport),
+            None => (ListViewSource::Own, if h { self.viewport.0 } else if self.viewport.1 > 0.0 { self.viewport.1 } else { self.max_height.unwrap_or(2000.0) }),
+        };
+        let scroll = match &source {
+            ListViewSource::Own => own,
+            ListViewSource::Ancestor { id: a, rel } => self.local.scroll.get(a).copied().map(axis).unwrap_or(0.0) - rel,
+            ListViewSource::Host { rel } => self.local.surface_scroll.map(|p| axis(p) - rel).unwrap_or(own),
+        };
+        // The pinned header over the item: its section's header extent.
+        let inset = if spec.sticky {
+            let before = spec.headers.partition_point(|&hp| hp < pos);
+            before.checked_sub(1).map(|i| extent(spec.headers[i])).unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let target = crate::list::scroll_offset_at(offsets[pos] as f64, extent(pos), offsets[count] as f64, viewport as f64, scroll.max(0.0) as f64, align, inset) as f32;
+        let with_axis = |p: (f32, f32), v: f32| if h { (v, p.1) } else { (p.0, v) };
+        let mut out = vec![];
+        match source {
+            ListViewSource::Own => {
+                let (x, y) = with_axis(self.local.scroll.get(id).copied().unwrap_or_default(), target);
+                self.local.scroll.insert(id.to_string(), (x, y));
+            }
+            ListViewSource::Ancestor { id: a, rel } => {
+                let (x, y) = with_axis(self.local.scroll.get(&a).copied().unwrap_or_default(), target + rel);
+                self.local.scroll.insert(a.clone(), (x, y));
+            }
+            ListViewSource::Host { rel } => match self.local.surface_scroll {
+                Some(p) => {
+                    let (x, y) = with_axis(p, target + rel);
+                    self.local.surface_scroll = Some((x, y));
+                    out.push(OutEvent::ScrollSurface { x, y });
+                }
+                None => {
+                    let (x, y) = with_axis(self.local.scroll.get(id).copied().unwrap_or_default(), target);
+                    self.local.scroll.insert(id.to_string(), (x, y));
+                }
+            },
+        }
+        if spec.windowed {
+            self.subtree_pending.insert(id.to_string());
+        }
+        out.push(OutEvent::Relayout);
+        out
     }
 
     /// Scroll every scroll container above `id` so the node is in view (a
@@ -1103,3 +1298,6 @@ impl Surface {
         out
     }
 }
+
+/// What a Resizable event reads: sizes, limits, orientation, rtl, slot.
+type ResizableState = (Vec<f64>, Vec<crate::resizable::PanelLimits>, crate::resizable::Orientation, bool, u32);

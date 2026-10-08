@@ -1,9 +1,7 @@
 /* Concepts: A2UI in short, then the epic's vocabulary (catalog, theme,
-   extension, host plugin, vapp) and how the four renderers agree. Written to
-   stay true after round 1 (VAPP-98) lands: stable ideas first, the round-1
-   specifics marked as such. */
+   extension, host plugin, vapp) and how the four renderers agree. */
 import basicMap from "@exponential-at/ui/catalog/basic-map.json"
-import { DocsCallout, DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
+import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
 import { BASIC_FUNCTION_COUNT, COMPONENT_COUNT, CORE_CATALOG as CATALOG_ID, FUNCTION_COUNT, CORE_LITE_CATALOG as LITE_CATALOG_ID, MACRO_COUNT, NATIVE_COUNT, componentHref } from "../lib/catalog-facts"
 import { LEARN_NAV } from "../lib/content"
@@ -91,10 +89,7 @@ export default function ConceptsPage({ path }: PageProps) {
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
           <h1>Concepts</h1>
-          <p>
-            A2UI in five ideas, then the five words the SDK is built from: catalog, theme, extension, host plugin
-            and vapp.
-          </p>
+          <p>A2UI in five ideas, then the SDK's five words: catalog, theme, extension, host plugin, vapp.</p>
         </div>
       </section>
 
@@ -159,11 +154,11 @@ export default function ConceptsPage({ path }: PageProps) {
             Bindings resolve when the renderer binds the tree to the data, after macros have expanded. That is why
             the result is the same on every platform, macros included.
           </p>
-          <DocsCallout kind="note" title="Coming with round 1">
-            Round 1 adds a <code>visible</code> condition on every component, a <code>key</code> per template item
-            (reordering keeps each row's focus and input), per-surface settings for locale, strings, mode, density
-            and contrast, and host commands for focus and announcements.
-          </DocsCallout>
+          <p>
+            Also on every surface: a <code>visible</code> condition on every component, a <code>key</code> per template
+            item (reordering keeps focus and input), per-surface locale, time zone, strings, mode, density and contrast,
+            and host commands (focus, announce, scroll into view, scroll to index).
+          </p>
         </DocsSection>
 
         <DocsSection id="actions" num="04" label="Actions and functions">
@@ -203,7 +198,7 @@ export default function ConceptsPage({ path }: PageProps) {
             </li>
             <li>
               <strong>{MACRO_COUNT} macros</strong> expand into natives before painting, such as <C name="Card" />,{` `}
-              <C name="Badge" />, <C name="Alert" /> and <C name="Table" />. A renderer never implements a macro, and
+              <C name="Badge" />, <C name="Alert" /> and <C name="Sidebar" />. A renderer never implements a macro, and
               every part it expands into stays themable.
             </li>
             <li>

@@ -32,7 +32,7 @@
     "openOn": ["press", "hover"],
     "live": ["off", "polite", "assertive"],
     "selectable": ["none", "single", "multiple"],
-    "cellType": ["text", "number", "date", "boolean", "badge", "slot"],
+    "cellType": ["text", "number", "date", "boolean", "badge", "slot", "currency", "percent", "relativeTime"],
     "sortDirection": ["asc", "desc"],
     "imageLoading": ["lazy", "eager"],
     "scrollDirection": ["vertical", "horizontal", "both"],
@@ -122,11 +122,13 @@
       "properties": {
         "key": { "type": "string", "required": true, "description": "The row field it shows." },
         "label": { "type": "string", "required": true, "description": "The header text." },
-        "type": { "type": "enum", "enum": "cellType", "default": "text", "description": "How cells render: text, a locale number, a date, a tick, a badge, or the named slot's component once per row." },
+        "type": { "type": "enum", "enum": "cellType", "default": "text", "description": "How cells render: text, a locale number/currency/percent, a date, a relative time, a tick, a badge, or the named slot's component once per row." },
         "slot": { "type": "string", "description": "For `type: slot`: the Table slot whose component renders each cell with the row as its data scope." },
         "width": { "type": "number", "description": "A fixed width in px; otherwise columns share the width." },
         "align": { "type": "enum", "values": ["start", "center", "end"], "default": "start", "description": "Cell alignment (numbers read best at `end`)." },
-        "sortable": { "type": "boolean", "default": false, "description": "Lets the header toggle the sort." }
+        "sortable": { "type": "boolean", "default": false, "description": "Lets the header toggle the sort." },
+        "currency": { "type": "string", "description": "ISO 4217 code of a currency column (USD)." },
+        "decimals": { "type": "number", "description": "Fixed fraction digits of a number, currency or percent column." }
       }
     },
     "sort": {
@@ -134,6 +136,14 @@
       "properties": {
         "key": { "type": "string", "required": true, "description": "The sorted column's key." },
         "direction": { "type": "enum", "enum": "sortDirection", "required": true, "description": "Ascending or descending." }
+      }
+    },
+    "panel": {
+      "description": "One Resizable panel's limits, percent of the group.",
+      "properties": {
+        "min": { "type": "number", "description": "Smallest size (10)." },
+        "max": { "type": "number", "description": "Largest size (100)." },
+        "collapsible": { "type": "boolean", "description": "Drags to 0 below half its min; Enter on the handle toggles." }
       }
     },
     "file": {
@@ -147,8 +157,8 @@
     }
   },
   "functions": {
-    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `set` is the one ACTION function: in an Action's `function` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `function` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
-    "names": ["required", "regex", "length", "numeric", "email", "formatString", "formatNumber", "formatCurrency", "formatDate", "pluralize", "openUrl", "and", "or", "not", "percent", "add", "sub", "eq", "lt", "clamp", "cond", "fallback", "concat", "coalesce", "text", "map", "len", "fill", "set"],
+    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Round 2 (docs/round-2-contract.md §3): `formatPercent` and `formatRelativeTime` join them, and EVERY format function (the basic formatNumber/formatCurrency/formatDate/pluralize too) runs through the surface's host-supplied Formatter (locale + timeZone from SurfaceSettings; the English fallback = Intl en-US). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `set` is the one ACTION function: in an Action's `function` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `function` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
+    "names": ["required", "regex", "length", "numeric", "email", "formatString", "formatNumber", "formatCurrency", "formatDate", "pluralize", "openUrl", "and", "or", "not", "percent", "add", "sub", "eq", "lt", "clamp", "cond", "fallback", "concat", "coalesce", "text", "map", "len", "fill", "set", "formatPercent", "formatRelativeTime"],
     "core": {
       "percent": { "description": "The share of max as \"N%\", clamped to 0..100, two decimals; 0% when max is not positive.", "args": { "value": "number", "max": "number" }, "returns": "string" },
       "add": { "description": "a + b; non-numbers count as 0.", "args": { "a": "number", "b": "number" }, "returns": "number" },
@@ -164,7 +174,9 @@
       "map": { "description": "cases[String(value)] when that case exists, else default.", "args": { "value": "any", "cases": "object", "default": "any" }, "returns": "any" },
       "len": { "description": "An array's or a string's length, else 0.", "args": { "value": "any" }, "returns": "number" },
       "fill": { "description": "template with its {name} placeholders filled from params (unknown ones stay); a `$string.<id>` template resolves through the surface's string table first.", "args": { "template": "string", "params": "object" }, "returns": "string" },
-      "set": { "description": "Action only: writes value into the data model at path (a JSON pointer, relative to the node's data scope like a binding).", "args": { "path": "string", "value": "any" }, "returns": "void" }
+      "set": { "description": "Action only: writes value into the data model at path (a JSON pointer, relative to the node's data scope like a binding).", "args": { "path": "string", "value": "any" }, "returns": "void" },
+      "formatPercent": { "description": "A ratio as a locale percent through the surface Formatter (0.256 → 26%); decimals = fixed fraction digits.", "args": { "value": "number", "decimals": "number" }, "returns": "string" },
+      "formatRelativeTime": { "description": "A date (yyyy-mm-dd, ISO date-time or epoch ms) relative to now (epoch ms or a date; default the clock) through the surface Formatter: 3 minutes ago, yesterday, in 2 hours.", "args": { "value": "any", "now": "any" }, "returns": "string" }
     }
   },
   "builtinIcons": {
@@ -261,15 +273,30 @@
       "example": { "orientation": "horizontal" }
     },
     "List": {
-      "kind": "native", "group": "layout", "lite": true, "children": "many",
+      "kind": "native", "group": "layout", "lite": true, "children": "many", "slots": ["section"], "slotScope": "row",
       "description": "A windowed scrolling list; required for anything longer than a screen, children may come from a data template.",
       "props": {
         "direction": { "type": "enum", "enum": "listDirection", "default": "vertical", "description": "Scroll axis." },
         "gap": { "type": "enum", "enum": "gap", "default": "none", "description": "The space between items." },
         "divided": { "type": "boolean", "default": false, "description": "Draws a hairline between items." },
+        "sectionBy": { "type": "string", "description": "Groups consecutive template items by this field; slot `section` = each header (scope {value, count})." },
+        "stickyHeaders": { "type": "boolean", "default": false, "description": "Pins the current section header." },
         "style": { "type": "style", "description": "Extra Box styles for the list frame." }
       },
       "example": { "direction": "vertical", "divided": true }
+    },
+    "Resizable": {
+      "kind": "native", "group": "layout", "lite": true, "children": "many",
+      "description": "Panels split by draggable handles; each child is one panel.",
+      "props": {
+        "direction": { "type": "enum", "enum": "orientation", "default": "horizontal", "responsive": true, "description": "Side by side or stacked." },
+        "sizes": { "type": "array", "items": { "type": "number" }, "bindable": true, "description": "Percent per panel; bind it." },
+        "panels": { "type": "array", "items": { "type": "object", "shape": "panel" }, "description": "Per-panel limits, by index." },
+        "handle": { "type": "boolean", "default": false, "description": "Draws a grip on each handle." },
+        "style": { "type": "style", "description": "Extra Box styles for the group box (give it a height)." }
+      },
+      "events": ["change"],
+      "example": { "direction": "horizontal", "sizes": [30, 70], "handle": true }
     },
     "ScrollArea": {
       "kind": "macro", "group": "layout", "lite": true, "children": "many",
@@ -407,7 +434,7 @@
         "fit": { "type": "enum", "enum": "imageFit", "default": "cover", "description": "How the picture fills its box." },
         "width": { "type": "number", "description": "Fixed width in px; otherwise the box decides." },
         "height": { "type": "number", "description": "Fixed height in px." },
-        "aspectRatio": { "type": "number", "description": "Width over height when only one side is known." },
+        "aspectRatio": { "type": "number", "description": "Width over height (16:9 when unset and no height); the box never waits for the picture." },
         "fallback": { "type": "icon", "description": "An icon shown when the picture fails or is missing." },
         "loading": { "type": "enum", "enum": "imageLoading", "default": "lazy", "description": "Defer loading until near the viewport, or load at once." },
         "focalX": { "type": "number", "description": "Horizontal focal point 0..1 kept when cropped (0.5)." },
@@ -435,6 +462,7 @@
         "poster": { "type": "url", "description": "A still shown before playback." },
         "durationMs": { "type": "number", "description": "Known length for the scrubber." },
         "autoplay": { "type": "boolean", "default": false, "description": "Starts muted playback on appear." },
+        "aspectRatio": { "type": "number", "default": 1.7777778, "description": "Width over height of the player box." },
         "style": { "type": "style", "description": "Extra Box styles for the player box." }
       },
       "example": { "src": "https://example.com/clip.mp4", "durationMs": 12000 }
@@ -809,7 +837,7 @@
         "categories": { "type": "array", "items": { "type": "string" }, "bindable": true, "description": "The x-axis labels, or the pie slices; omit for a sparkline." },
         "series": { "type": "array", "items": { "type": "object", "shape": "series" }, "required": true, "bindable": true, "description": "One per line, bar group or pie ring; coloured $color.chart1..8 unless toned." },
         "title": { "type": "string", "description": "A title above the chart." },
-        "height": { "type": "number", "default": 200, "description": "The chart height in px; the width is the box's." },
+        "height": { "type": "number", "default": 200, "description": "The whole chart's height in px (title, legend, axes inside); the width is the box's." },
         "xLabel": { "type": "string", "description": "A caption under the x axis." },
         "yLabel": { "type": "string", "description": "A caption beside the y axis." },
         "min": { "type": "number", "description": "The y-axis floor; defaults to 0." },

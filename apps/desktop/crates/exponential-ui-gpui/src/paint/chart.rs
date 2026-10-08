@@ -19,6 +19,7 @@ use super::natives::{styled_box, LeafCx};
 use super::parts::{px_prop, spacing, theme_color};
 use super::PaintStyle;
 use crate::measure::{chart_legend, display_text};
+use exponential_ui::format::{Formatter, NumberOptions};
 
 fn num(v: &Value) -> f32 {
     match v {
@@ -28,14 +29,12 @@ fn num(v: &Value) -> f32 {
     }
 }
 
-/// A tick / value label: integers plain, else up to 2 decimals.
-pub fn fmt_value(v: f32) -> String {
-    if (v - v.round()).abs() < 1e-4 {
-        format!("{}", v.round() as i64)
-    } else {
-        let s = format!("{v:.2}");
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
-    }
+/// A tick / value label through the surface's formatter (the web's
+/// `formatter.number`: grouping, 0–3 decimals, the locale's separators).
+pub fn fmt_value(f: &dyn Formatter, v: f32) -> String {
+    // The f32's shortest decimal, so 0.1 stays 0.1 (not 0.10000000149).
+    let v: f64 = format!("{v}").parse().unwrap_or(v as f64);
+    f.number(v, NumberOptions::default())
 }
 
 /// The category under pointer x in a plot `width` wide with `n` slots.
@@ -164,7 +163,7 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
     let plot_h = (cx.h - title_h - legend_h).max(1.0);
     let width = cx.w;
     // Gutters for the axes.
-    let y_label_w = if show_axes { ticks.iter().map(|t| fmt_value(*t).chars().count()).max().unwrap_or(1) as f32 * axis_size * 0.62 + 8.0 } else { 0.0 };
+    let y_label_w = if show_axes { ticks.iter().map(|t| fmt_value(cx.formatter, *t).chars().count()).max().unwrap_or(1) as f32 * axis_size * 0.62 + 8.0 } else { 0.0 };
     let (pl, pr, pt) = if spark { (1.0, 1.0, 2.0) } else { (y_label_w.max(4.0), 8.0, if show_values || !y_label.is_empty() { 16.0 } else { 8.0 }) };
     let pb = if spark || slices { 2.0 } else if show_axes { 20.0 + if x_label.is_empty() { 0.0 } else { 14.0 } } else { 8.0 };
     let inner_w = (width - pl - pr).max(1.0);
@@ -333,7 +332,7 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
         for t in &ticks {
             let y = y_of(*t);
             plot = plot.child(
-                div().absolute().left_0().top(px(y - 7.0)).w(px(pl - 6.0)).h(px(14.0)).text_right().text_size(px(axis_size)).line_height(px(14.0)).text_color(axis_color).whitespace_nowrap().child(SharedString::from(fmt_value(*t))),
+                div().absolute().left_0().top(px(y - 7.0)).w(px(pl - 6.0)).h(px(14.0)).text_right().text_size(px(axis_size)).line_height(px(14.0)).text_color(axis_color).whitespace_nowrap().child(SharedString::from(fmt_value(cx.formatter, *t))),
             );
         }
         let slot = inner_w / n_cat as f32;
@@ -353,7 +352,7 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
             let bw = slot * 0.7 / series.len().max(1) as f32;
             for (i, v) in s.values.iter().enumerate() {
                 let x = if kind == "bar" { pl + slot * i as f32 + slot * 0.15 + bw * si as f32 + bw / 2.0 } else { x_of(i) };
-                plot = plot.child(div().absolute().left(px(x - 20.0)).top(px(y_of(*v) - 15.0)).w(px(40.0)).text_center().text_size(px(axis_size)).line_height(px(14.0)).text_color(value_color).child(SharedString::from(fmt_value(*v))));
+                plot = plot.child(div().absolute().left(px(x - 20.0)).top(px(y_of(*v) - 15.0)).w(px(40.0)).text_center().text_size(px(axis_size)).line_height(px(14.0)).text_color(value_color).child(SharedString::from(fmt_value(cx.formatter, *v))));
             }
         }
     }
@@ -369,11 +368,11 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
         let mut body = div().flex().flex_col().gap(px(2.0)).text_size(px(fs)).line_height(px(fs + 4.0)).text_color(tip_fg).whitespace_nowrap();
         let (anchor_x, lines): (f32, Vec<(String, Hsla, String)>) = if slices {
             let label = categories.get(h).cloned().unwrap_or_default();
-            (width / 2.0, vec![(label, slice_colors.get(h).copied().unwrap_or(grid_color), slice_values.get(h).map(|v| fmt_value(*v)).unwrap_or_default())])
+            (width / 2.0, vec![(label, slice_colors.get(h).copied().unwrap_or(grid_color), slice_values.get(h).map(|v| fmt_value(cx.formatter, *v)).unwrap_or_default())])
         } else {
             let label = categories.get(h).cloned().unwrap_or_default();
             body = body.child(div().font_weight(gpui::FontWeight(600.0)).child(SharedString::from(label)));
-            (x_of(h), series.iter().map(|s| (s.name.clone(), s.color, s.values.get(h).map(|v| fmt_value(*v)).unwrap_or_default())).collect())
+            (x_of(h), series.iter().map(|s| (s.name.clone(), s.color, s.values.get(h).map(|v| fmt_value(cx.formatter, *v)).unwrap_or_default())).collect())
         };
         for (name, color, value) in lines {
             body = body.child(div().flex().flex_row().items_center().gap(px(6.0)).child(div().size(px(8.0)).rounded(px(2.0)).bg(color)).child(SharedString::from(if name.is_empty() { value } else { format!("{name}: {value}") })));
@@ -413,9 +412,11 @@ mod tests {
 
     #[test]
     fn values_and_hits() {
-        assert_eq!(fmt_value(3.0), "3");
-        assert_eq!(fmt_value(2.5), "2.5");
-        assert_eq!(fmt_value(0.126), "0.13");
+        let en = exponential_ui::format::EnglishFormatter;
+        assert_eq!(fmt_value(&en, 3.0), "3");
+        assert_eq!(fmt_value(&en, 2.5), "2.5");
+        assert_eq!(fmt_value(&en, 0.1), "0.1");
+        assert_eq!(fmt_value(&en, 5000.0), "5,000", "grouped like the web's formatter.number");
         assert_eq!(category_at(0.0, 100.0, 4), Some(0));
         assert_eq!(category_at(99.0, 100.0, 4), Some(3));
         assert_eq!(category_at(-1.0, 100.0, 4), None);

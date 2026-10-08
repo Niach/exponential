@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the thirty-three outputs`, () => {
+  test(`renders the forty outputs (round 2 adds seven fixtures)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
       `../../apps/desktop/crates/exponential-ui/src/generated/themes.rs`,
@@ -22,6 +22,8 @@ describe(`generated outputs (VAPP-85)`, () => {
       `conformance/manifest.json`,
       `docs/components.generated.json`,
       `docs/themes.generated.json`,
+      `fixtures/animations.json`,
+      `fixtures/bench-list.json`,
       `fixtures/bind-time.json`,
       `fixtures/catalog-basic-map.json`,
       `fixtures/catalog-components.json`,
@@ -29,17 +31,22 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/catalog-macros.json`,
       `fixtures/code-tokens.json`,
       `fixtures/control-geometry.json`,
+      `fixtures/format.json`,
       `fixtures/host-policy.json`,
       `fixtures/host-router.json`,
       `fixtures/host-transport.json`,
       `fixtures/kitchen-sink.expanded.json`,
       `fixtures/prompt-budget.json`,
+      `fixtures/resizable.json`,
       `fixtures/specimens.json`,
       `fixtures/style-conditions.json`,
+      `fixtures/template-items.json`,
+      `fixtures/text-direction.json`,
       `fixtures/theme-extends.json`,
       `fixtures/theme-invalid.json`,
       `fixtures/theme-recipes.json`,
       `fixtures/theme-resolved.json`,
+      `fixtures/virtual-list.json`,
       `generated/ExponentialUICatalog.generated.kt`,
       `generated/ExponentialUICatalog.generated.swift`,
       `generated/ExponentialUIThemes.generated.kt`,

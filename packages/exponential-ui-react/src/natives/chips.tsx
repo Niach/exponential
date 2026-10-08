@@ -16,6 +16,7 @@ import { FieldErrors, joinIds, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
 import { useListNavigation } from "./listbox"
+import { partClass } from "../theme-css"
 import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart } from "./shared"
 
 export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
@@ -83,10 +84,10 @@ export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: 
       <div {...(part(`field`, focused && `focus`, disabled && `disabled`, f.invalid && `invalid`) as Record<string, string>)} onClick={() => inputRef.current?.focus()} data-xui-chipfield="">
         <ul ref={listRef} className="xui-chip-list" aria-label={str(props.label) || undefined}>
           {values.map((v, i) => (
-            <li key={v} {...(part(`chip`) as Record<string, string>)} data-chip="" tabIndex={-1} onKeyDown={(e) => onChipKey(e, i)} onFocus={(e) => e.currentTarget.setAttribute(`data-xs`, `focus`)} onBlur={(e) => e.currentTarget.removeAttribute(`data-xs`)}>
-              <span {...(part(`chipLabel`) as Record<string, string>)}>{v}</span>
+            <li key={v} {...(part.at(`chip`, i) as Record<string, string>)} data-chip="" tabIndex={-1} onKeyDown={(e) => onChipKey(e, i)} onFocus={(e) => e.currentTarget.setAttribute(`data-xs`, `focus`)} onBlur={(e) => e.currentTarget.removeAttribute(`data-xs`)}>
+              <span {...(part.at(`chipLabel`, i) as Record<string, string>)}>{v}</span>
               {disabled ? null : (
-                <button type="button" tabIndex={-1} {...(part(`remove`) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: v }, () => `${ctx.t(`remove`)} ${v}`)} onClick={(e) => {
+                <button type="button" tabIndex={-1} {...(part.at(`remove`, i) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: v }, () => `${ctx.t(`remove`)} ${v}`)} onClick={(e) => {
                   e.stopPropagation()
                   remove(v)
                 }}>
@@ -99,7 +100,7 @@ export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: 
         <input
           ref={inputRef}
           id={id}
-          className="xui-ChipInput-input"
+          {...(part(`input`) as Record<string, string>)}
           value={text}
           disabled={disabled || values.length >= max}
           placeholder={values.length === 0 ? placeholder || undefined : undefined}
@@ -262,12 +263,17 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
         <span {...(part(`icon`) as Record<string, string>)}>
           <BuiltinIcon slot="FileUpload.icon" />
         </span>
-        <span className="xui-FileUpload-title">{ctx.t(`dropFiles`)}</span>
+        <span {...(part(`title`) as Record<string, string>)}>{ctx.t(`dropFiles`)}</span>
         {hint ? (
           <span {...(part(`hint`) as Record<string, string>)} id={`${id}-hint`}>
             {hint}
           </span>
         ) : null}
+        {/* Round 2 §7: the Browse button inside the zone (an outline small
+            Button's look; the zone itself is the control). */}
+        <span {...(part(`browse`) as Record<string, string>)} className={`${(part(`browse`) as { className: string }).className} ${partClass(`Button`, `root`)}`} data-r-variant="outline" data-r-size="sm" aria-hidden="true">
+          {ctx.t(`browse`)}
+        </span>
         <input ref={inputRef} id={id} type="file" className="xui-sr-only" tabIndex={-1} accept={accept || undefined} multiple={multiple} disabled={disabled} name={name} onChange={(e) => {
           take(e.target.files)
           e.target.value = ``
@@ -275,13 +281,15 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
       </div>
       {files.length ? (
         <ul className="xui-file-list">
-          {files.map((file) => (
-            <li key={file.name} {...(part(`file`) as Record<string, string>)}>
-              <BuiltinIcon slot="FileUpload.file" />
-              <span {...(part(`fileName`) as Record<string, string>)}>{file.url ? <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
-              {file.size !== undefined ? <span {...(part(`fileMeta`) as Record<string, string>)}>{size(file.size)}</span> : null}
+          {files.map((file, i) => (
+            <li key={file.name} {...(part.at(`file`, i) as Record<string, string>)}>
+              <span {...(part.at(`fileIcon`, i) as Record<string, string>)}>
+                <BuiltinIcon slot="FileUpload.file" />
+              </span>
+              <span {...(part.at(`fileName`, i) as Record<string, string>)}>{file.url ? <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
+              {file.size !== undefined ? <span {...(part.at(`fileMeta`, i) as Record<string, string>)}>{size(file.size)}</span> : null}
               {disabled ? null : (
-                <button type="button" {...(part(`remove`) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: file.name }, () => `${ctx.t(`remove`)} ${file.name}`)} onClick={() => remove(file.name)}>
+                <button type="button" {...(part.at(`remove`, i) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: file.name }, () => `${ctx.t(`remove`)} ${file.name}`)} onClick={() => remove(file.name)}>
                   <BuiltinIcon slot="FileUpload.remove" />
                 </button>
               )}

@@ -2581,6 +2581,57 @@
           }
         }
       }
+    },
+    {
+      "id": "panels",
+      "component": "Resizable",
+      "props": {
+        "direction": {
+          "base": "vertical",
+          "md": "horizontal"
+        },
+        "sizes": [
+          40,
+          60
+        ],
+        "panels": [
+          {
+            "min": 20
+          },
+          {
+            "min": 30,
+            "collapsible": true
+          }
+        ],
+        "handle": true
+      },
+      "style": {
+        "height": 160
+      },
+      "children": [
+        {
+          "id": "panels-nav",
+          "component": "Text",
+          "props": {
+            "text": "Boards",
+            "variant": "label"
+          },
+          "style": {
+            "padding": "$spacing.md"
+          }
+        },
+        {
+          "id": "panels-main",
+          "component": "Text",
+          "props": {
+            "text": "Drag the handle; arrow keys move it by 10.",
+            "variant": "muted"
+          },
+          "style": {
+            "padding": "$spacing.md"
+          }
+        }
+      ]
     }
   ]
 }

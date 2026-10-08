@@ -38,25 +38,30 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
       dir={ctx.direction}
     >
       <TabsPrimitive.List {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined} loop>
-        {tabs.map((tab) => {
+        {tabs.map((tab, i) => {
           const selected = tab.value === value
           return (
-            <TabsPrimitive.Trigger key={tab.value} value={tab.value} {...(part(`tab`, selected && `selected`) as Record<string, string>)}>
+            <TabsPrimitive.Trigger key={tab.value} value={tab.value} {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}>
               <span className="xui-Tabs-tab-body">
                 {tab.icon ? <IconGlyph icons={ctx.host.icons} name={tab.icon} className="xui-icon" width={16} height={16} /> : null}
                 <span>{str(tab.label)}</span>
-                {tab.count !== undefined ? <span data-count="">{num(tab.count)}</span> : null}
+                {tab.count !== undefined ? <span data-count="">{ctx.formatter.number(num(tab.count))}</span> : null}
               </span>
               <span {...(part(`indicator`, selected && `selected`) as Record<string, string>)} aria-hidden="true" />
             </TabsPrimitive.Trigger>
           )
         })}
       </TabsPrimitive.List>
-      {tabs.map((tab, i) => (
-        <TabsPrimitive.Content key={tab.value} value={tab.value} {...(part(`content`) as Record<string, string>)}>
-          {node.children[i] ? <NodeView node={node.children[i]} /> : null}
-        </TabsPrimitive.Content>
-      ))}
+      {tabs.map((tab, i) => {
+        // Only the ACTIVE panel is placed (`<id>.content`); the others are hidden.
+        const attrs = part(`content`) as Record<string, string>
+        if (tab.value !== value) delete attrs[`data-xui-id`]
+        return (
+          <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
+            {node.children[i] ? <NodeView node={node.children[i]} /> : null}
+          </TabsPrimitive.Content>
+        )
+      })}
     </TabsPrimitive.Root>
   )
 }
@@ -141,19 +146,20 @@ export function AccordionNative({ node, props, rootProps, emit, scope }: NativeP
   const body = items.map((item, i) => {
     const open = multiple ? asArray(value).includes(item.value) : value === item.value
     return (
-      <AccordionPrimitive.Item key={item.value} value={item.value} {...(part(`item`, open && `open`) as Record<string, string>)}>
+      <AccordionPrimitive.Item key={item.value} value={item.value} {...(part.at(`item`, i, open && `open`) as Record<string, string>)}>
         <AccordionPrimitive.Header asChild>
           <div style={{ display: `flex` }}>
-            <AccordionPrimitive.Trigger {...(part(`trigger`, open && `open`) as Record<string, string>)}>
-              <span>
+            <AccordionPrimitive.Trigger {...(part.at(`trigger`, i, open && `open`) as Record<string, string>)}>
+              <span className="xui-accordion-title">
                 {str(item.title)}
-                {item.count !== undefined ? ` · ${num(item.count)}` : ``}
+                {/* Round 2 §7: the count is its own muted part after the title. */}
+                {item.count !== undefined ? <span {...(part.at(`count`, i) as Record<string, string>)}>{ctx.formatter.number(num(item.count))}</span> : null}
               </span>
               <BuiltinIcon slot="Accordion.trigger" size={16} />
             </AccordionPrimitive.Trigger>
           </div>
         </AccordionPrimitive.Header>
-        <AccordionPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)}>{node.children[i] ? <NodeView node={node.children[i]} /> : null}</AccordionPrimitive.Content>
+        <AccordionPrimitive.Content {...(part.at(`content`, i, open && `open`) as Record<string, string>)}>{node.children[i] ? <NodeView node={node.children[i]} /> : null}</AccordionPrimitive.Content>
       </AccordionPrimitive.Item>
     )
   })

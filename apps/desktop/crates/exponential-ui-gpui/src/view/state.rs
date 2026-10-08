@@ -202,7 +202,7 @@ impl NodeCache {
             for c in level {
                 let Some(n) = self.node(c) else { continue };
                 if n.id.starts_with(&root.id) && n.id.ends_with(&suffix) {
-                    return n.props.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).map(|t| SharedString::from(t.to_string()));
+                    return Some(crate::measure::display_text(n.props.get("text"))).filter(|t| !t.is_empty()).map(SharedString::from);
                 }
                 next.extend(n.children.iter().copied());
             }
@@ -402,6 +402,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Radio", None) => Role::RadioGroup,
         ("Radio", Some("dot")) => Role::RadioButton,
         ("Slider", Some("track")) => Role::Slider,
+        ("Box", Some("handle")) if owner == "Resizable" => Role::Splitter,
+        ("Resizable", None) => Role::Group,
+        ("Box", Some("section")) if owner == "List" => Role::Heading,
         ("Image" | "Avatar" | "Video" | "Chart", _) => Role::Image,
         ("Icon", _) if str_of(n, "label").is_some() => Role::Image,
         ("Ring" | "Spinner", _) => Role::ProgressIndicator,

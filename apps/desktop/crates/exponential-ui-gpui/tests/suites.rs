@@ -36,6 +36,13 @@ use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{div, prelude::*, px, Entity, TestAppContext, VisualTestContext, Window};
 use serde_json::{json, Value};
 
+/// The round-1 bind/style/code and round-2 contract suites (manifest v2):
+/// the cases the core replays, shared case for case (this painter links the
+/// core directly, so its answers ARE the core's).
+#[path = "../../exponential-ui/tests/support/round2.rs"]
+#[allow(dead_code)]
+mod round2;
+
 const MODES: [Mode; 2] = [Mode::Light, Mode::Dark];
 const PKG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui");
 
@@ -637,6 +644,15 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
         "overlay" => overlay_suite(p),
         "replay" => replay_suite(p),
         "host-transport" | "host-policy" | "host-router" => host_suite(id),
+        "bind" => round2::bind_cases(),
+        "style-conditions" => round2::style_condition_cases(),
+        "code-tokens" => round2::code_token_cases(),
+        "format" => round2::format_cases(),
+        "template-items" => round2::template_item_cases(),
+        "text-direction" => round2::text_direction_cases(),
+        "resizable" => round2::resizable_cases(),
+        "virtual-list" => round2::virtual_list_cases(),
+        "animations" => round2::animation_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }
 }

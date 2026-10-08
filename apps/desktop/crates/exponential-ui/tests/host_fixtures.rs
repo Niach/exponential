@@ -65,8 +65,9 @@ fn the_built_ins_are_the_catalogs() {
     let catalog = read("catalog/core.catalog.json");
     let names: Vec<&str> = catalog["functions"]["names"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
     assert_eq!(host::BUILTIN_FUNCTIONS, names.as_slice());
-    // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.).
-    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 29);
+    // The basic catalog's 14 plus the 17 core functions (`set` incl.; round 2
+    // adds formatPercent + formatRelativeTime).
+    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 31);
 }
 
 #[test]

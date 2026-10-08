@@ -22,14 +22,9 @@ fun LeafContent(context: LeafContext) {
     val n = cx.node
     when (n.component) {
         "Extension" -> ExtensionLeaf(cx)
-        "Text" -> when (n.part) {
-            "tab" -> TabLeaf(cx)
-            "trigger" -> AccordionTriggerLeaf(cx)
-            "item" -> MenuItemLeaf(cx)
-            else -> TextLeaf(cx)
-        }
+        "Text" -> TextPart(cx)
         "Markdown" -> MarkdownLeaf(cx)
-        "Button", "Toggle" -> ButtonLeaf(cx)
+        "Button", "Toggle", "DropdownMenu" -> ButtonLeaf(cx)
         "Link" -> LinkLeaf(cx)
         "Icon" -> IconLeaf(cx)
         "Avatar" -> AvatarLeaf(cx)

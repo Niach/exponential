@@ -2,7 +2,9 @@ package at.exponential.ui.model
 
 import at.exponential.ui.ffi.FfiEvent
 import at.exponential.ui.ffi.UiException
+import at.exponential.ui.host.FilePickRequest
 import at.exponential.ui.host.InputKind
+import at.exponential.ui.host.PickedFile
 import at.exponential.ui.host.SurfaceActionEvent
 import at.exponential.ui.host.SurfaceFunctionCallEvent
 import at.exponential.ui.host.SurfaceInputEvent
@@ -63,12 +65,139 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
                     ),
                 )
             }
+            "focus" -> focusRequest = v["id"]?.string
+            "announce" -> announce(v["text"]?.string ?: "", v["live"]?.string ?: "polite")
+            "copy" -> host.copy(v["text"]?.string ?: "")
+            "pickFiles" -> host.pickFiles(
+                FilePickRequest(this, v["component_id"]?.string ?: "", v["accept"]?.string, v["multiple"]?.bool ?: false),
+            )
+            "hoverTimer" -> {
+                val owner = v["owner"]?.string ?: ""
+                val delayMs = (v["delay_ms"]?.number ?: 0.0).toLong()
+                hoverTimers.remove(owner)?.cancel()
+                hoverTimers[owner] = scope.launch {
+                    delay(delayMs)
+                    hoverTimers.remove(owner)
+                    dispatch(surface.hoverTimeout(owner))
+                }
+            }
+            "scrollSurface" -> scrollSurfaceHandler?.invoke((v["x"]?.number ?: 0.0).toFloat(), (v["y"]?.number ?: 0.0).toFloat())
             else -> {}
         }
     }
     nodesDirty = true
     layoutNeeded = true
     pass()
+}
+
+/** Speak `text` through the platform's live region (`polite | assertive`). */
+fun SurfaceModel.announce(text: String, live: String = "polite") {
+    if (text.isEmpty()) return
+    announcer?.invoke(text, live)
+}
+
+/**
+ * A host → surface command (`catalog/a11y.json` `commands`): `{focus: {id}}`,
+ * `{announce: {text, live?}}`, `{scrollIntoView: {id}}`,
+ * `{scrollToIndex: {id, index, align?}}`. Throws `UiException` when invalid.
+ */
+fun SurfaceModel.command(json: String) {
+    dispatch(surface.commandJson(json))
+}
+
+/** Scroll list `id` so the item at DATA index `index` shows (`start | center | end | nearest`). */
+fun SurfaceModel.scrollToIndex(id: String, index: Int, align: String? = null) {
+    dispatch(surface.scrollToIndex(id, index.toUInt(), align))
+}
+
+/** Files the host picked (or dropped) for FileUpload `componentId`: the surface gets `upload {files}` (name, size, type). */
+fun SurfaceModel.filesPicked(componentId: String, files: List<PickedFile>) {
+    val i = indexOf(componentId) ?: nodes.firstOrNull { it.owner == componentId && it.part == "dropzone" }?.index ?: return
+    val list = JsonValue.Arr(files.map { JsonValue.Obj(mapOf("name" to JsonValue.Str(it.name), "size" to JsonValue.Num(it.size.toDouble()), "type" to JsonValue.Str(it.type))) })
+    fire(i, "upload", JsonValue.Obj(mapOf("files" to list)))
+}
+
+/**
+ * Start a timer for every new timed toast; forget the gone ones. A hold
+ * ([toastHold]) pauses it; released, it runs the REST of its duration. The
+ * timer ticks in 100 ms steps (a pause drops at most one partial step).
+ */
+internal fun SurfaceModel.syncToasts() {
+    val live = toasts.map { it.id }.toSet()
+    for (id in toastTimers.keys.filter { it !in live }) toastTimers.remove(id)?.cancel()
+    toastHeld.keys.retainAll(live)
+    toastLeft.keys.retainAll(live)
+    for (t in toasts) {
+        if (t.durationMs <= 0 || toastTimers.containsKey(t.id) || !toastHeld[t.id].isNullOrEmpty()) continue
+        toastTimers[t.id] = scope.launch {
+            while (true) {
+                val left = toastLeft[t.id] ?: t.durationMs.toLong()
+                if (left <= 0L) break
+                val step = kotlin.math.min(left, 100L)
+                delay(step)
+                toastLeft[t.id] = left - step
+            }
+            toastTimers.remove(t.id)
+            toastLeft.remove(t.id)
+            dispatch(surface.dismissToast(t.id))
+        }
+    }
+}
+
+/**
+ * A toast is held (`true`) or released by `reason` (`hover` a mouse over
+ * it, `press` a finger or button down, `focus`): its timer pauses while ANY
+ * hold lasts, then runs the rest of its duration.
+ */
+fun SurfaceModel.toastHold(id: String, held: Boolean, reason: String = "hover") {
+    if (held) {
+        toastHeld.getOrPut(id) { HashSet() }.add(reason)
+        toastTimers.remove(id)?.cancel()
+    } else {
+        val holds = toastHeld[id] ?: return
+        holds.remove(reason)
+        if (holds.isEmpty()) {
+            toastHeld.remove(id)
+            syncToasts()
+        }
+    }
+}
+
+/**
+ * Scroll container `id` (any `overflow: scroll | auto`, a windowed list) to
+ * (x, y) dp. `fromView` = the container's own view scrolled (a fling): a
+ * plain container then only records it (the view already moved the paint),
+ * a windowed or pinning one lays out again. Any other caller (keys, the
+ * host) lays out so the view follows the core's (clamped) offset.
+ */
+fun SurfaceModel.scrollTo(id: String, x: Float, y: Float, fromView: Boolean = false) {
+    val index = indexOf(id)
+    if (fromView && index != null) viewScroll[index] = androidx.compose.ui.geometry.Offset(x, y)
+    if (!surface.scrollTo(id, x, y)) return
+    if (fromView && index != null && !scrollNeedsPass(index)) return
+    nodesDirty = nodesDirty || index == null || lists.values.any { it.windowed && isWithin(it.node, index) }
+    layoutNeeded = true
+    pass()
+}
+
+/** The host viewport's scroll of the whole surface (dp): unbounded lists window against it, sticky pins follow. */
+fun SurfaceModel.setSurfaceScroll(x: Float, y: Float) {
+    surfaceScroll = androidx.compose.ui.geometry.Offset(x, y)
+    if (surface.setSurfaceScroll(x, y)) {
+        nodesDirty = true
+        layoutNeeded = true
+        pass()
+    }
+}
+
+/** A Resizable handle drag (`phase` = start | move | end, `delta` = px along the axis since the drag started). */
+fun SurfaceModel.resizeDrag(index: Int, phase: String, delta: Float) {
+    fire(index, "drag", JsonValue.Obj(mapOf("phase" to JsonValue.Str(phase), "delta" to JsonValue.Num(delta.toDouble()))))
+}
+
+/** A key on a node the core handles itself (a Resizable handle: arrows, Home, End, Enter). */
+fun SurfaceModel.nodeKey(index: Int, key: String) {
+    fire(index, "key", JsonValue.Obj(mapOf("key" to JsonValue.Str(key))))
 }
 
 /** Fire `event` on node `index` through the core and dispatch the result. */
@@ -188,8 +317,9 @@ fun SurfaceModel.hover(id: String, hovered: Boolean) {
 }
 
 /** Focus on / off a node. */
-fun SurfaceModel.focus(id: String, focused: Boolean) {
-    setInteraction(id) { it.copy(focus = focused) }
+fun SurfaceModel.focus(id: String, focused: Boolean, fromKeyboard: Boolean = false) {
+    if (focused) keyboardFocus = id else if (keyboardFocus == id) keyboardFocus = null
+    setInteraction(id) { it.copy(focus = focused, focusVisible = focused && fromKeyboard) }
 }
 
 // overlays

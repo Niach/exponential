@@ -37,13 +37,22 @@ function useOpenState(node: NativeProps[`node`], scope: string, external: boolea
 
 /** The slot wrapper Radix anchors to and clicks through (forwardRef so the
  *  popper can measure it; the rest of the props are Radix's). */
-const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }>(function Trigger({ children, style, ...rest }, ref) {
+const Trigger = forwardRef<HTMLSpanElement, HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }>(function Trigger({ children, ...rest }, ref) {
   return (
-    <span ref={ref} className="xui-trigger" style={{ display: `inline-flex`, ...style }} {...rest}>
+    <span ref={ref} className="xui-trigger" {...rest}>
       {children}
     </span>
   )
 })
+
+/** Round 2 §7: an overlay is LAYOUT-TRANSPARENT — its frame is its
+ *  trigger's (the trigger is the flex item: a Link stretches in a stretch
+ *  row, a Button keeps its control height; the overlay never fills a column
+ *  or stretches a row on its own); without a trigger it lays out nothing. */
+function overlayRootProps(rootProps: Record<string, unknown>, trigger: NativeProps[`slots`][string] | undefined | null, triggerNode?: { component: string } | null): Record<string, unknown> {
+  if (!trigger) return { ...rootProps, "data-xui-overlay-root": `none` }
+  return { ...rootProps, "data-xui-overlay-root": triggerNode?.component === `Link` ? `stretch` : `` }
+}
 
 export function DialogNative(p: NativeProps) {
   return <ModalNative {...p} kind="Dialog" />
@@ -110,7 +119,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
   const drag = useDragToDismiss(side, kind === `Drawer` && props.dragToDismiss !== false && dismissible, () => setOpen(false), ctx.reducedMotion)
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => (next || dismissible ? setOpen(next) : undefined)}>
-      <div {...(rootProps as Record<string, unknown>)} style={{ ...((rootProps.style as object) ?? {}), display: slots.trigger ? undefined : `contents` }}>
+      <div {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
         {slots.trigger ? (
           <DialogPrimitive.Trigger asChild>
             <Trigger>{slots.trigger}</Trigger>
@@ -145,11 +154,11 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           {kind === `Drawer` && (side === `bottom` || side === `top`) ? <div {...(part(`handle`) as Record<string, string>)} aria-hidden="true" {...drag.handlers} /> : null}
           {title || description ? (
             <div className="xui-overlay-head" {...(kind === `Drawer` ? drag.handlers : {})}>
-              {title ? <DialogPrimitive.Title {...(part(`title`) as Record<string, string>)}>{title}</DialogPrimitive.Title> : <DialogPrimitive.Title className="xui-sr-only">{kind}</DialogPrimitive.Title>}
+              {title ? <DialogPrimitive.Title {...(part(`title`) as Record<string, string>)}>{title}</DialogPrimitive.Title> : <DialogPrimitive.Title className="xui-sr-only">{ctx.t(`dialog`)}</DialogPrimitive.Title>}
               {description ? <DialogPrimitive.Description {...(part(`description`) as Record<string, string>)}>{description}</DialogPrimitive.Description> : null}
             </div>
           ) : (
-            <DialogPrimitive.Title className="xui-sr-only">{kind}</DialogPrimitive.Title>
+            <DialogPrimitive.Title className="xui-sr-only">{ctx.t(`dialog`)}</DialogPrimitive.Title>
           )}
           <div className="xui-overlay-body">{children}</div>
           {slots.footer ? <div {...(part(`footer`) as Record<string, string>)}>{slots.footer}</div> : null}
@@ -202,7 +211,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
     : {}
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
-      <div {...(rootProps as Record<string, unknown>)}>
+      <div {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
         {slots.trigger ? (
           <PopoverPrimitive.Trigger asChild>
             <Trigger {...hoverProps}>{slots.trigger}</Trigger>
@@ -241,14 +250,18 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
   const part = useParts(node, props)
   const side = str(props.side, `top`) as `top` | `right` | `bottom` | `left`
   const content = str(props.content) || str(props.text)
+  // The tooltip wraps its children in the ANCHOR (`<id>.anchor`), the frame
+  // it shows against; the root is layout-transparent around it.
   return (
     <TooltipPrimitive.Provider delayDuration={300}>
       <TooltipPrimitive.Root>
-        <TooltipPrimitive.Trigger asChild>
-          <div {...(rootProps as Record<string, unknown>)} tabIndex={0}>
-            {children}
-          </div>
-        </TooltipPrimitive.Trigger>
+        <div {...(rootProps as Record<string, unknown>)} data-xui-overlay-root="">
+          <TooltipPrimitive.Trigger asChild>
+            <div {...(part(`anchor`) as Record<string, string>)} tabIndex={0}>
+              {children}
+            </div>
+          </TooltipPrimitive.Trigger>
+        </div>
         <TooltipPrimitive.Portal container={ctx.portal ?? undefined}>
           <TooltipPrimitive.Content {...(part(`content`) as Record<string, string>)} side={side} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Tooltip">
             {content}
@@ -355,15 +368,17 @@ export function DropdownMenuNative({ node, props, rootProps, emit, slots, scope 
   const [open, setOpen] = useState(false)
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
-      <div {...(rootProps as Record<string, unknown>)}>
+      <div {...overlayRootProps(rootProps, true, node.slots?.trigger)}>
         <MenuPrimitive.Trigger asChild>
           {slots.trigger ? (
             <Trigger>{slots.trigger}</Trigger>
           ) : (
+            // Round 2 §7: the default trigger = an outline button with the
+            // icon (when set) and the label (`$string.menu` without one and
+            // without an icon), no chevron.
             <button type="button" {...(part(`trigger`, open && `open`) as Record<string, string>)} aria-label={label || ctx.t(`menu`)}>
               {icon ? <IconGlyph icons={ctx.host.icons} name={icon} className="xui-icon" width={16} height={16} /> : null}
-              {label ? <span>{label}</span> : null}
-              <BuiltinIcon slot="Select.trigger" size={16} />
+              {label || !icon ? <span>{label || ctx.t(`menu`)}</span> : null}
             </button>
           )}
         </MenuPrimitive.Trigger>

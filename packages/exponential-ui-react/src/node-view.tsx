@@ -14,12 +14,12 @@
 // `set`, then dispatch the event. A data template renders its component
 // once per item under the item's scope, keyed by `template.key`.
 
-import { Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, catalogView, isResponsiveValue, nativeRecipeProps, responsiveAt } from "@exponential-at/ui"
+import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
-import { dynamicStyleEntries, nodeClass } from "./box-css"
-import { InstanceContext, ScopeContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
-import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveProps, resolveValue, resolveVisible, type ResolveContext } from "./data"
+import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "./box-css"
+import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
+import { absolutePath, ariaAttributes, getPointer, resolveAccessibility, resolveNodeProps, resolveValue, resolveVisible, type ResolveContext } from "./data"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
@@ -79,8 +79,12 @@ export function useRootProps(node: UiNode, props: Record<string, unknown>, domId
     // painter's own role/aria-* set after the spread wins.
     if (node.accessibility) Object.assign(attrs, ariaAttributes(resolveAccessibility(node.accessibility, { data: ctx.data, scope, functions: ctx.functions, locale: ctx.locale, strings: ctx.strings })))
     if (style) attrs.style = style
+    // Round 2: a node's own direction is also the `dir` attribute (`:dir()`
+    // selectors, the bidi paragraph direction of its text).
+    const dir = ownDirection(node, ctx)
+    if (dir) attrs.dir = dir
     return { className: classes.join(` `), "data-xui-id": domId, "data-xui-c": node.component, ...attrs }
-  }, [node, props, domId, recipeProps, style, scope, ctx.compiled.scope, ctx.states, ctx.extensions, ctx.extensionDefs, ctx.data, ctx.functions, ctx.locale, ctx.strings])
+  }, [node, props, domId, recipeProps, style, scope, ctx.compiled.scope, ctx.states, ctx.extensions, ctx.extensionDefs, ctx.data, ctx.functions, ctx.locale, ctx.strings, ctx.theme, ctx.xq])
 }
 
 /** `className` on top of the renderer's own. */
@@ -164,8 +168,31 @@ export const NodeView = memo(function NodeView({ node }: { node: UiNode }) {
   const ctx = useSurfaceContext()
   const scope = useContext(ScopeContext)
   if (node.visible !== undefined && !resolveVisible(node.visible, resolveContextOf(ctx, scope))) return null
+  const own = ownDirection(node, ctx)
+  if (own && own !== ctx.direction) return <DirectedNode node={node} scope={scope} direction={own} />
   return <BoundNode node={node} scope={scope} />
 })
+
+/** A node's own style `direction` (round 2 §2: any node, inherited),
+ *  matching `@media` blocks included (`nodeDirections` is the reference). */
+export function ownDirection(node: UiNode, ctx?: Pick<SurfaceContextValue, `theme` | `xq`>): `ltr` | `rtl` | undefined {
+  if (!node.style) return undefined
+  const tokens = ctx?.xq ? ctx.xq.split(` `) : []
+  return styleDirection(node.style, ctx?.theme, (key) => tokens.includes(queryToken(key)))
+}
+
+/** A node whose `direction` differs from its parent's: it and its subtree
+ *  paint with it (Radix `dir`, arrow keys, mirrored glyphs, the chart
+ *  mirror read `ctx.direction`). */
+function DirectedNode({ node, scope, direction }: { node: UiNode; scope: string; direction: `ltr` | `rtl` }) {
+  const ctx = useSurfaceContext()
+  const value = useMemo(() => ({ ...ctx, direction }), [ctx, direction])
+  return (
+    <SurfaceContext.Provider value={value}>
+      <BoundNode node={node} scope={scope} />
+    </SurfaceContext.Provider>
+  )
+}
 
 const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope: string }) {
   const ctx = useSurfaceContext()
@@ -173,7 +200,7 @@ const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope
   const domId = `${node.id}${instance}`
   const rctx = useMemo(() => resolveContextOf(ctx, scope), [ctx, scope])
   const props = useMemo(() => {
-    const out = resolveProps(node.props, rctx)
+    const out = resolveNodeProps(node.component, node.props, rctx, ctx.extensionDefs)
     for (const name of responsiveProps(node.component, ctx.extensionDefs)) {
       const v = out[name]
       if (isResponsiveValue(v)) out[name] = responsiveAt(v, ctx.breakpoint)
@@ -230,11 +257,43 @@ const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope
   for (const [name, slot] of Object.entries(node.slots ?? {})) slots[name] = <NodeView key={slot.id} node={slot} />
 
   const painterProps: NativeProps = { node, props, theme: ctx.theme, mode: ctx.mode, tokens: ctx.theme.tokens, children, slots, emit, rootProps, scope, domId }
-  return <Painter {...painterProps} />
+  if (UNGUARDED.has(node.component) && !Override) return <Painter {...painterProps} />
+  return (
+    <PaintBoundary node={node} domId={domId}>
+      <Painter {...painterProps} />
+    </PaintBoundary>
+  )
 })
 
+/** The plain painters (no formatting, no host code) skip the boundary. */
+const UNGUARDED = new Set([`Box`, `Text`])
+
+/** One node's painter that throws (a bad agent-written prop, a host
+ *  override's bug) paints an EMPTY box in its place; the rest of the
+ *  surface and the host stay mounted. A new node (a re-reduce) retries. */
+class PaintBoundary extends Component<{ node: UiNode; domId: string; children: ReactNode }, { node: UiNode; failed: boolean }> {
+  constructor(props: { node: UiNode; domId: string; children: ReactNode }) {
+    super(props)
+    this.state = { node: props.node, failed: false }
+  }
+  static getDerivedStateFromProps(props: { node: UiNode }, state: { node: UiNode }): { node: UiNode; failed: boolean } | null {
+    return props.node === state.node ? null : { node: props.node, failed: false }
+  }
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown): void {
+    console.error(`[exponential-ui] ${this.props.node.component} "${this.props.node.id}" failed to paint`, error)
+  }
+  render(): ReactNode {
+    const { node, domId, children } = this.props
+    if (this.state.failed) return <div className={`xui-el ${nodeClass(node.id)}`} data-xui-id={domId} data-xui-c={node.component} data-xui-error="" />
+    return children
+  }
+}
+
 export interface TemplateItem {
-  /** The item's instance key (its React key and id suffix): the
+  /** The item's instance key (its React key; escaped, its id suffix): the
    *  `template.key` value; the index when the template has no key; `#<index>`
    *  when the key is missing, null, empty or a DUPLICATE of an earlier item
    *  (so ids stay unique). */
@@ -255,28 +314,22 @@ export function templateItems(ctx: SurfaceContextValue, node: UiNode, scope: str
   const list = getPointer(ctx.data, path)
   const tpl = ctx.templateNode(template.component)
   if (!Array.isArray(list) || !tpl) return null
-  const seen = new Set<string>()
-  const items = list.map((_, index) => {
-    const itemPath = `${path}/${index}`
-    let key = String(index)
-    if (template.key !== undefined) {
-      const v = getPointer(ctx.data, absolutePath(template.key, itemPath))
-      const own = v === undefined || v === null || v === `` ? null : typeof v === `object` ? JSON.stringify(v) : String(v)
-      key = own !== null && !seen.has(own) ? own : `#${index}`
-      while (seen.has(key)) key = `#${key}`
-    }
-    seen.add(key)
-    return { key, path: itemPath, index }
-  })
+  const keys = templateItemKeys(list, template.key)
+  const items = list.map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index }))
   return { items, tpl }
 }
+
+/** A template item's instance suffix: the enclosing one + `.<key>`, the
+ *  key escaped (`instanceSegment`: `.` → `~1`, `~` → `~0`) as the core's
+ *  `templateInstances`, so `a.b` never reads as two levels. */
+export const itemInstance = (instance: string, key: string): string => `${instance}.${instanceSegment(key)}`
 
 /** One template item: its scope + instance suffix around the node. */
 export function TemplateItemView({ tpl, item }: { tpl: UiNode; item: TemplateItem }) {
   const instance = useContext(InstanceContext)
   return (
     <ScopeContext.Provider value={item.path}>
-      <InstanceContext.Provider value={`${instance}.${item.key}`}>
+      <InstanceContext.Provider value={itemInstance(instance, item.key)}>
         <NodeView node={tpl} />
       </InstanceContext.Provider>
     </ScopeContext.Provider>

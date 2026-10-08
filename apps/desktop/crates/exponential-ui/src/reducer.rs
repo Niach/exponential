@@ -59,6 +59,201 @@ impl ReduceOptions {
 pub struct ReduceResult {
     pub root: UiNode,
     pub issues: Vec<ReduceIssue>,
+    /// Round 2 (docs/round-2-contract.md §4): the nodes a data `template`
+    /// renders per item, by component id, LIFTED out of the tree (a
+    /// template node listed as a child too never renders in place),
+    /// validated and expanded like the root, in discovery order. `None`
+    /// without templates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub templates: Option<IndexMap<String, UiNode>>,
+}
+
+/// Builds a template id the trees do not hold (the flat path): the node and
+/// the issues its build raised.
+type BuildMissing<'a> = dyn FnMut(&str) -> Option<(UiNode, Vec<ReduceIssue>)> + 'a;
+
+/// Lift every node a `template.component` names out of the trees (children
+/// and slots, any depth, the root excepted) into the template table; ids
+/// no tree holds are built with `build_missing` (the flat path: the node
+/// and the issues its build raised), else reported. Nested templates (a
+/// template inside a template node) are lifted too. A template that would
+/// instantiate itself (its owner, an ancestor of its owner, the root, or
+/// through other templates) is an issue (`template: cycle through this
+/// id`) and stays in place: each round puts the cyclic ones back (which
+/// may give their new ancestors edges) and lifts again, until none is
+/// left. `src/reducer.ts liftTemplates`.
+fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing) -> IndexMap<String, UiNode> {
+    let original = root.clone();
+    // Cyclic ids: kept in the tree (never stripped, never built) or, when
+    // built, built again (their subtree still names templates) but dropped.
+    let mut in_place: Vec<String> = Vec::new();
+    let mut dropped: Vec<String> = Vec::new();
+    let mut cycles: Vec<ReduceIssue> = Vec::new();
+    loop {
+        *root = original.clone();
+        let mut pass_issues = Vec::new();
+        let pass = lift_pass(root, &mut pass_issues, build_missing, &in_place);
+        let lifted: Vec<&String> = pass.order.iter().filter(|id| pass.found.contains_key(*id) && !in_place.contains(id) && !dropped.contains(id)).collect();
+        // Edges: a lifted template → the lifted templates its subtree's owners name.
+        fn walk(n: &UiNode, lifted: &[&String], out: &mut Vec<String>) {
+            if let Some(t) = &n.template {
+                if lifted.iter().any(|l| **l == t.component) && !out.contains(&t.component) {
+                    out.push(t.component.clone());
+                }
+            }
+            for slot in n.slots.iter().flat_map(|s| s.values()) {
+                walk(slot, lifted, out);
+            }
+            for c in &n.children {
+                walk(c, lifted, out);
+            }
+        }
+        let deps: HashMap<&str, Vec<String>> = lifted
+            .iter()
+            .map(|id| {
+                let mut out = Vec::new();
+                walk(&pass.found[id.as_str()], &lifted, &mut out);
+                (id.as_str(), out)
+            })
+            .collect();
+        let reaches_itself = |from: &str| {
+            let mut seen: HashSet<&str> = HashSet::new();
+            let mut stack: Vec<&str> = deps.get(from).map(|d| d.iter().map(String::as_str).collect()).unwrap_or_default();
+            while let Some(id) = stack.pop() {
+                if id == from {
+                    return true;
+                }
+                if seen.insert(id) {
+                    stack.extend(deps.get(id).into_iter().flatten().map(String::as_str));
+                }
+            }
+            false
+        };
+        let cyclic: Vec<String> = lifted.iter().filter(|id| reaches_itself(id)).map(|id| id.to_string()).collect();
+        if cyclic.is_empty() {
+            issues.extend(pass_issues);
+            if pass.root_named {
+                issues.push(ReduceIssue { id: original.id.clone(), message: "template: cycle through this id".into() });
+            }
+            issues.extend(cycles);
+            let mut found = pass.found;
+            return pass.order.iter().filter(|id| lifted.contains(id)).filter_map(|id| found.shift_remove(id).map(|n| (id.clone(), n))).collect();
+        }
+        for id in cyclic {
+            if pass.built.contains(&id) {
+                dropped.push(id.clone());
+            } else {
+                in_place.push(id.clone());
+            }
+            cycles.push(ReduceIssue { id, message: "template: cycle through this id".into() });
+        }
+    }
+}
+
+/// One lifting pass of [`lift_templates`]: `in_place` ids are never
+/// stripped nor built.
+struct LiftPass {
+    /// Every template node found or built, by id.
+    found: IndexMap<String, UiNode>,
+    /// The template ids in discovery order.
+    order: Vec<String>,
+    /// The ids `build_missing` built.
+    built: Vec<String>,
+    /// A template names the root.
+    root_named: bool,
+}
+
+fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing, in_place: &[String]) -> LiftPass {
+    fn collect(n: &UiNode, root_id: &str, want: &mut Vec<String>, root_named: &mut bool) {
+        if let Some(t) = &n.template {
+            if t.component == root_id {
+                *root_named = true;
+            } else if !want.contains(&t.component) {
+                want.push(t.component.clone());
+            }
+        }
+        for slot in n.slots.iter().flat_map(|s| s.values()) {
+            collect(slot, root_id, want, root_named);
+        }
+        for c in &n.children {
+            collect(c, root_id, want, root_named);
+        }
+    }
+    fn strip(n: &mut UiNode, want: &[String], found: &mut IndexMap<String, UiNode>) {
+        let children = std::mem::take(&mut n.children);
+        for c in children {
+            if want.contains(&c.id) {
+                if !found.contains_key(&c.id) {
+                    found.insert(c.id.clone(), c);
+                }
+            } else {
+                n.children.push(c);
+            }
+        }
+        if let Some(slots) = &mut n.slots {
+            let names: Vec<String> = slots.iter().filter(|(_, v)| want.contains(&v.id)).map(|(k, _)| k.clone()).collect();
+            for name in names {
+                if let Some(slot) = slots.shift_remove(&name) {
+                    if !found.contains_key(&slot.id) {
+                        found.insert(slot.id.clone(), slot);
+                    }
+                }
+            }
+            if slots.is_empty() {
+                n.slots = None;
+            }
+        }
+        for slot in n.slots.iter_mut().flat_map(|s| s.values_mut()) {
+            strip(slot, want, found);
+        }
+        for c in &mut n.children {
+            strip(c, want, found);
+        }
+    }
+    let root_id = root.id.clone();
+    let mut want: Vec<String> = Vec::new();
+    let mut found: IndexMap<String, UiNode> = IndexMap::new();
+    let mut missing: Vec<String> = Vec::new();
+    let mut built: Vec<String> = Vec::new();
+    let mut root_named = false;
+    collect(root, &root_id, &mut want, &mut root_named);
+    let mut before = (usize::MAX, 0, 0);
+    while before != (want.len(), found.len(), missing.len()) {
+        before = (want.len(), found.len(), missing.len());
+        let strippable: Vec<String> = want.iter().filter(|id| !in_place.contains(id)).cloned().collect();
+        strip(root, &strippable, &mut found);
+        loop {
+            let n = found.len();
+            for i in 0..n {
+                let mut node = std::mem::replace(&mut found[i], UiNode::new("", ""));
+                strip(&mut node, &strippable, &mut found);
+                found[i] = node;
+            }
+            if found.len() == n {
+                break;
+            }
+        }
+        for id in want.clone() {
+            if found.contains_key(&id) || missing.contains(&id) || in_place.contains(&id) {
+                continue;
+            }
+            match build_missing(&id) {
+                Some((node, raised)) => {
+                    issues.extend(raised);
+                    built.push(id.clone());
+                    found.insert(id, node);
+                }
+                None => {
+                    missing.push(id.clone());
+                    issues.push(ReduceIssue { id, message: "template: no component with this id".into() });
+                }
+            }
+        }
+        for node in found.values() {
+            collect(node, &root_id, &mut want, &mut root_named);
+        }
+    }
+    LiftPass { found, order: want, built, root_named }
 }
 
 fn unknown(id: &str, component: &str, catalog_id: &str) -> UiNode {
@@ -103,20 +298,24 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
     }
 }
 
-fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, options: &ReduceOptions) -> ReduceResult {
-    if !options.expand {
-        return ReduceResult { root, issues };
-    }
-    match expand_macros_with_issues(&root, &options.view) {
+fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) -> UiNode {
+    match expand_macros_with_issues(&node, &options.view) {
         Ok((expanded, expansion_issues)) => {
             issues.extend(expansion_issues);
-            ReduceResult { root: expanded, issues }
+            expanded
         }
         Err(message) => {
-            issues.push(ReduceIssue { id: root.id.clone(), message });
-            ReduceResult { root, issues }
+            issues.push(ReduceIssue { id: node.id.clone(), message });
+            node
         }
     }
+}
+
+/// Expand the root, then the lifted templates (one issue list).
+fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, lifted: IndexMap<String, UiNode>, options: &ReduceOptions) -> ReduceResult {
+    let root = if options.expand { expand(root, &mut issues, options) } else { root };
+    let templates = (!lifted.is_empty()).then(|| lifted.into_iter().map(|(id, n)| (id, if options.expand { expand(n, &mut issues, options) } else { n })).collect());
+    ReduceResult { root, issues, templates }
 }
 
 struct Builder<'a> {
@@ -213,16 +412,25 @@ pub fn reduce_surface(components: &[FlatComponent], options: &ReduceOptions) -> 
         issues.push(ReduceIssue { id: root_id.clone(), message: format!("unsupported catalog {}", options.catalog_id) });
     }
     let mut builder = Builder { by_id, options, basic: options.catalog_id == A2UI_BASIC_CATALOG_ID, visiting: HashSet::new(), issues };
-    let root = builder.build(&root_id);
-    finish(root, builder.issues, options)
+    let mut root = builder.build(&root_id);
+    let mut issues = std::mem::take(&mut builder.issues);
+    let lifted = lift_templates(&mut root, &mut issues, &mut |id| {
+        if !builder.by_id.contains_key(id) {
+            return None;
+        }
+        let node = builder.build(id);
+        Some((node, std::mem::take(&mut builder.issues)))
+    });
+    finish(root, issues, lifted, options)
 }
 
 /// The nested authoring form → a normalized tree (same validation and
 /// expansion as [`reduce_surface`]; `root_id` is ignored).
 pub fn reduce_nested(tree: &NestedNode, options: &ReduceOptions) -> ReduceResult {
     let mut issues = Vec::new();
-    let root = walk_nested(tree, options, &mut issues);
-    finish(root, issues, options)
+    let mut root = walk_nested(tree, options, &mut issues);
+    let lifted = lift_templates(&mut root, &mut issues, &mut |_| None);
+    finish(root, issues, lifted, options)
 }
 
 fn walk_nested(n: &NestedNode, options: &ReduceOptions, issues: &mut Vec<ReduceIssue>) -> UiNode {

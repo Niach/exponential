@@ -231,6 +231,20 @@ fn run(text: &str, font: Font) -> TextRun {
     TextRun { len: text.len(), font, color: gpui::black(), background_color: None, underline: None, strikethrough: None }
 }
 
+/// The runs covering bytes `start..end` of their text, cut to fit.
+fn slice_runs(runs: &[TextRun], start: usize, end: usize) -> Vec<TextRun> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for r in runs {
+        let (a, b) = (at.max(start), (at + r.len).min(end));
+        if a < b {
+            out.push(TextRun { len: b - a, ..r.clone() });
+        }
+        at += r.len;
+    }
+    out
+}
+
 /// Text shaping against a window's text system.
 pub(crate) struct Shaper<'w> {
     pub window: &'w Window,
@@ -246,8 +260,15 @@ pub fn tracking_width(text: &str, ls: f32) -> f32 {
     if ls == 0.0 {
         0.0
     } else {
-        ls * text.chars().count() as f32
+        ls * text.chars().filter(|c| is_tracked(*c)).count() as f32
     }
+}
+
+/// Whether `letter-spacing` follows a character: every one but the
+/// invisible bidi controls (the paragraph-direction mark a line may lead
+/// with, [`crate::text::with_paragraph_direction`]).
+pub fn is_tracked(c: char) -> bool {
+    !matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 impl<'w> Shaper<'w> {
@@ -302,6 +323,12 @@ impl<'w> Shaper<'w> {
         ((line_height - (ascent + descent)) / 2.0 + ascent).max(0.0)
     }
 
+    fn md_runs(&self, inlines: &[Inline], spec: &TextSpec) -> (SharedString, Vec<TextRun>) {
+        let family = self.fonts.family(spec.family.as_deref());
+        let colors = markdown::RunColors { ink: gpui::black(), link: gpui::black(), code_bg: None };
+        markdown::runs(inlines, &family, &self.fonts.mono, spec.weight, colors)
+    }
+
     /// Rich spans (markdown) wrapped at `wrap`.
     fn spans_height(&mut self, inlines: &[Inline], spec: &TextSpec, wrap: Option<f32>) -> f32 {
         let family = self.fonts.family(spec.family.as_deref());
@@ -323,16 +350,38 @@ impl MdText for Shaper<'_> {
         self.spans_height(inlines, spec, width)
     }
 
+    /// Max-content of styled spans: the widest hard line shaped with its
+    /// runs (a bold or code run is wider than the body font says).
     fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
-        let font = self.fonts.font(spec.family.as_deref(), spec.weight, false);
-        let text = markdown::plain(inlines);
-        self.max_content(&text, &font, spec.size)
+        let (text, runs) = self.md_runs(inlines, spec);
+        if text.is_empty() {
+            return 0.0;
+        }
+        self.calls += 1;
+        match self.window.text_system().shape_text(text, px(spec.size), &runs, None, None) {
+            Ok(lines) => lines.iter().map(|l| f32::from(l.width())).fold(0.0, f32::max),
+            Err(_) => 0.0,
+        }
     }
 
+    /// Min-content of styled spans: the widest unbreakable segment, each
+    /// shaped with the runs it covers.
     fn widest_word(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
-        let font = self.fonts.font(spec.family.as_deref(), spec.weight, false);
-        let text = markdown::plain(inlines);
-        self.min_content(&text, &font, spec.size)
+        let (text, runs) = self.md_runs(inlines, spec);
+        let base = text.as_ptr() as usize;
+        let window = self.window;
+        let mut calls = 0;
+        let w = text::min_content(&text, &mut |seg| {
+            if seg.is_empty() {
+                return 0.0;
+            }
+            let start = seg.as_ptr() as usize - base;
+            let sub = slice_runs(&runs, start, start + seg.len());
+            calls += 1;
+            f32::from(window.text_system().shape_line(SharedString::from(seg.to_string()), px(spec.size), &sub, None).width)
+        });
+        self.calls += calls;
+        w
     }
 }
 
@@ -410,13 +459,10 @@ fn has(props: &Map<String, Value>, key: &str) -> bool {
     props.get(key).is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
 }
 
-/// A JSON scalar as display text (`3` → "3").
+/// A prop as display text: the core's `display_string` (round 2 §3: `412`,
+/// `1.5`, `true`; nothing for null, objects, arrays, NaN).
 pub fn display_text(v: Option<&Value>) -> String {
-    match v {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(other) => exponential_ui::json::to_js_string(other),
-    }
+    exponential_ui::format::display_opt(v)
 }
 
 /// The chart's legend entries (pie/donut: categories; else series names
@@ -442,8 +488,10 @@ pub fn chart_legend(props: &Map<String, Value>) -> Vec<String> {
 pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String, Value>, gap: f32, count_w: f32) -> (f32, f32) {
     let icon = |key: &str| if has(props, key) { 16.0 + gap.max(4.0) } else { 0.0 };
     match (owner_component, part) {
-        ("Tabs", Some("tab")) => (icon("icon"), if has(props, "count") { 4.0 + count_w + 12.0 } else { 0.0 }),
-        ("Accordion", Some("trigger")) => (0.0, 16.0 + gap.max(8.0)),
+        // [icon][label][count], `$spacing.xs`-style gaps, the count plain text (as the web).
+        ("Tabs", Some("tab")) => (icon("icon"), if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 }),
+        // Round 2 §7: `count` is its own muted part after the title, then the chevron.
+        ("Accordion", Some("trigger")) => (0.0, if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 } + 16.0 + gap.max(8.0)),
         ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0)),
         ("DropdownMenu" | "ContextMenu", Some("itemLabel")) => (icon("icon"), 0.0),
         ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
@@ -521,6 +569,10 @@ impl<'a> GpuiMeasure<'a> {
     fn para(&mut self, raw: &str, ts: &TextStyle, wrap: Option<f32>, lines: Option<u32>) -> Content {
         let font = self.fonts.for_style(ts);
         let shown = text::transform(raw, ts.text_transform.as_deref());
+        // Round 2 §7: an empty text lays out ZERO lines (its padding only).
+        if shown.is_empty() {
+            return (0.0, 0.0, None);
+        }
         let single = lines == Some(1);
         let clamp = lines.filter(|n| *n > 0).map(|n| n as usize);
         let mut s = self.shaper().tracked(ts);
@@ -532,11 +584,14 @@ impl<'a> GpuiMeasure<'a> {
                 let n = if single { 1 } else { s.lines(&shown, &font, ts.font_size, None).len() };
                 (w, lh * clamp.map_or(n, |c| n.min(c)).max(1) as f32)
             }
-            // A one-line (ellipsized) text shrinks to nothing, like CSS
-            // `white-space: nowrap; min-width: 0`.
+            // A one-line (ellipsized) text is `white-space: nowrap`: its
+            // min-content is the whole line (a container around it never
+            // gets narrower); the core makes the LEAF a clipping box on x,
+            // so its own automatic minimum is 0 (`min-width: 0`) and it
+            // still ellipsizes in a crowded row.
             Some(w) if w <= 0.0 => {
                 if single {
-                    (0.0, lh)
+                    (s.max_content(&shown, &font, ts.font_size), lh)
                 } else {
                     let m = s.min_content(&shown, &font, ts.font_size);
                     let n = s.lines(&shown, &font, ts.font_size, Some(m)).len();
@@ -572,11 +627,13 @@ impl<'a> GpuiMeasure<'a> {
         self.shaper().baseline(&font, ts.font_size, ts.line_height)
     }
 
-    /// A one-line text with fixed chrome beside it.
-    fn row(&mut self, raw: &str, ts: &TextStyle, (lead, trail): (f32, f32), wrap: Option<f32>) -> Content {
+    /// A one-line text with fixed chrome beside it (`nowrap` when its
+    /// `lines` is 1: min-content = the whole row, see [`Self::para`]).
+    fn row(&mut self, raw: &str, ts: &TextStyle, (lead, trail): (f32, f32), wrap: Option<f32>, single: bool) -> Content {
         let w = lead + self.line(raw, ts) + trail;
         let used = match wrap {
             None => w,
+            Some(x) if x <= 0.0 && single => w,
             Some(x) if x <= 0.0 => lead + trail,
             Some(x) => w.min(x),
         };
@@ -622,8 +679,13 @@ impl<'a> GpuiMeasure<'a> {
         (w, h, baseline)
     }
 
-    fn media(&self, props: &Map<String, Value>, wrap: Option<f32>, default: (f32, f32)) -> (f32, f32) {
-        let ratio = num_prop(props, "aspectRatio").map(|r| r as f32).filter(|r| *r > 0.0).unwrap_or(default.0 / default.1);
+    /// Image / Video (round 2 §7): max-content `mediaIntrinsicWidth`,
+    /// min-content 0, height = width / `aspectRatio` (default
+    /// `mediaAspectRatio`); `width`/`height` props are fixed. The core gives
+    /// the box the same ratio, so a stretched box keeps it.
+    fn media(&self, props: &Map<String, Value>, wrap: Option<f32>) -> (f32, f32) {
+        let intrinsic = exponential_ui::layout::MEDIA_INTRINSIC_WIDTH as f32;
+        let ratio = num_prop(props, "aspectRatio").map(|r| r as f32).filter(|r| *r > 0.0).unwrap_or(exponential_ui::layout::MEDIA_ASPECT_RATIO as f32);
         let fixed_w = match len_of(props.get("width")) {
             Some(Len::Px(w)) => Some(w),
             _ => None,
@@ -634,11 +696,11 @@ impl<'a> GpuiMeasure<'a> {
         };
         let w = match (fixed_w, wrap) {
             (Some(w), _) => w,
-            (None, None) => default.0,
+            (None, None) => intrinsic,
             (None, Some(x)) if x <= 0.0 => 0.0,
-            (None, Some(x)) => x.min(default.0.max(x)),
+            (None, Some(x)) => x,
         };
-        let h = fixed_h.unwrap_or(if w > 0.0 { w / ratio } else { default.0 / ratio });
+        let h = fixed_h.unwrap_or((if w > 0.0 { w } else { intrinsic }) / ratio);
         (w, h)
     }
 
@@ -762,13 +824,15 @@ impl<'a> GpuiMeasure<'a> {
             ..Default::default()
         };
         let gap = leaf.control.gap;
+        // Icon ↔ label: the `ToggleGroup/item` recipe's gap (none = 0, as the web).
+        let item_gap = px_prop(&item, "gap").unwrap_or(0.0);
         let mut w = 0.0;
         for (i, it) in items.iter().enumerate() {
             let label = display_text(it.get("label"));
             let has_icon = it.get("icon").and_then(Value::as_str).is_some();
             let lw = if label.is_empty() { 0.0 } else { self.line(&label, &ts) };
             let iw = if has_icon { 16.0 } else { 0.0 };
-            let inner_gap = if has_icon && lw > 0.0 { 6.0 } else { 0.0 };
+            let inner_gap = if has_icon && lw > 0.0 { item_gap } else { 0.0 };
             w += 2.0 * (pad + border) + iw + inner_gap + lw;
             if i > 0 {
                 w += gap;
@@ -778,15 +842,15 @@ impl<'a> GpuiMeasure<'a> {
     }
 
     /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker):
-    /// the core's `text` + its glyph, at least 160 wide like the web.
+    /// the core's `text` + its glyph, content-sized (round 2 §7: only text
+    /// fields have the 160 px intrinsic width).
     fn trigger(&mut self, leaf: &LeafRequest) -> Content {
         let ts = leaf.text_style;
         let text = str_prop(leaf.props, "text");
         let text = if text.is_empty() { str_prop(leaf.props, "placeholder") } else { text };
         let gap = leaf.control.gap.max(spacing(self.theme, "sm"));
         let w = self.line(text, ts) + gap + 16.0;
-        let (ih, _) = insets(&leaf.control);
-        (w.max(160.0 - ih), ts.line_height, Some(self.line_baseline(ts)))
+        (w, ts.line_height, Some(self.line_baseline(ts)))
     }
 
     /// One leaf at one border-box wrap width: `(width, height, baseline)`.
@@ -805,9 +869,16 @@ impl<'a> GpuiMeasure<'a> {
             ("Text", part) => {
                 let count_w = props.get("count").map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
                 let chrome = text_chrome(leaf.owner_component.unwrap_or(owner), part, props, c.gap, count_w);
-                let raw = str_prop(props, "text");
+                let shown = display_text(props.get("text"));
+                let raw = shown.as_str();
                 if chrome != (0.0, 0.0) {
-                    self.row(raw, ts, chrome, inner)
+                    self.row(raw, ts, chrome, inner, leaf.lines == Some(1))
+                } else if part == Some("lineNumber") {
+                    // Every number as wide as the widest (`digits`), so the
+                    // code column stays put past line 9.
+                    let digits = num_prop(props, "digits").unwrap_or(1.0).max(1.0) as usize;
+                    let (w, h, b) = self.para(raw, ts, None, Some(1));
+                    (w.max(self.line(&"0".repeat(digits), ts)), h, b)
                 } else if part == Some("cell") && str_prop(props, "cellType") == "boolean" {
                     (16.0, ts.line_height, None)
                 } else if part == Some("cell") && str_prop(props, "cellType") == "badge" {
@@ -826,26 +897,30 @@ impl<'a> GpuiMeasure<'a> {
             }
             ("Icon", _) => plain((16.0, 16.0)),
             ("Avatar", _) => plain((32.0, 32.0)),
-            ("Image", _) => plain(self.media(props, inner, (320.0, 180.0))),
-            ("Video", _) => plain(self.media(props, inner, (320.0, 180.0))),
+            ("Image" | "Video", _) => plain(self.media(props, inner)),
             ("AudioPlayer", _) => {
                 let title = str_prop(props, "title");
+                // Round 2 §7: the title line + `$spacing.xs` + a controls
+                // row of `AudioPlayer/controls` height (`$control.row`).
                 let track = if title.is_empty() { 0.0 } else { ts.line_height + spacing(self.theme, "xs") };
+                let controls = px_prop(&self.part("AudioPlayer", "controls", props, &[]), "height").unwrap_or_else(|| control(self.theme, "row", 40.0));
                 let w = match inner {
                     None => 300.0,
                     Some(x) if x <= 0.0 => 160.0,
                     Some(x) => x,
                 };
-                plain((w, track + 40.0))
+                plain((w, track + controls))
             }
             ("Spinner", _) => plain((20.0, 20.0)),
             ("Ring", _) => plain((32.0, 32.0)),
             ("Skeleton", _) => plain(self.skeleton(props, inner)),
             ("Chart", _) => plain(self.chart(leaf, inner)),
             ("Composer", _) => plain(self.composer(leaf, inner)),
+            // depth × `treeGuideColumn` wide; no height of its own (it
+            // stretches to its row, round 2 §7).
             ("TreeGuides", _) => {
                 let depth = num_prop(props, "depth").unwrap_or(0.0).max(0.0) as f32;
-                plain((depth * 16.0, ts.line_height))
+                plain((depth * exponential_ui::layout::TREE_GUIDE_COLUMN as f32, 0.0))
             }
             ("ToggleGroup", _) => plain(self.toggle_group(leaf)),
             ("Unknown", _) => {
@@ -860,11 +935,15 @@ impl<'a> GpuiMeasure<'a> {
                 let text = unknown_label(props, leaf.component);
                 self.para(&text, &lts, inner, None)
             }
+            // The dots row: the `Carousel/indicator` recipe sizes each DOT,
+            // never the row (so no border box around it).
             ("Box", Some("indicator")) => {
                 let n = num_prop(props, "count").unwrap_or(0.0).max(0.0) as f32;
-                let dot = px_prop(&self.part("Carousel", "indicator", props, &[]), "width").unwrap_or(8.0);
+                let dot_props = self.part("Carousel", "indicator", props, &[]);
+                let dot = px_prop(&dot_props, "width").unwrap_or(8.0);
+                let dot_h = px_prop(&dot_props, "height").unwrap_or(dot);
                 let gap = spacing(self.theme, "xs");
-                plain((n * dot + (n - 1.0).max(0.0) * gap, dot + spacing(self.theme, "sm")))
+                return (n * dot + (n - 1.0).max(0.0) * gap, dot_h, None);
             }
             ("Input", Some("field")) => (160.0, ts.line_height, Some(self.line_baseline(ts))),
             ("Textarea", Some("field")) => {
@@ -936,31 +1015,8 @@ fn str_or(props: &Map<String, Value>, key: &str, fallback: &str) -> String {
 
 /// The text of the `Unknown` placeholder.
 pub fn unknown_label(props: &Map<String, Value>, component: &str) -> String {
-    format!("Unknown component {}", str_or(props, "component", component))
-}
-
-/// A Select's trigger text: the chosen option labels or the placeholder.
-pub fn select_label(props: &Map<String, Value>) -> String {
-    let options = props.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-    let chosen: Vec<String> = match props.get("value") {
-        Some(Value::Array(vals)) => vals.iter().map(|v| display_text(Some(v))).collect(),
-        Some(Value::String(s)) if s.contains(',') => s.split(',').map(str::to_string).collect(),
-        Some(v) if !v.is_null() => vec![display_text(Some(v))],
-        _ => Vec::new(),
-    };
-    let labels: Vec<String> = options.iter().filter(|o| chosen.contains(&display_text(o.get("value")))).map(|o| display_text(o.get("label"))).collect();
-    if labels.is_empty() {
-        str_or(props, "placeholder", "Choose")
-    } else {
-        labels.join(", ")
-    }
-}
-
-/// `"2026-10-14"` → `"Oct 14, 2026"`.
-pub fn date_label(value: &str) -> Option<String> {
-    let (y, m, d) = crate::paint::date::parse_iso(value)?;
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    Some(format!("{} {}, {}", MONTHS[(m - 1) as usize], d, y))
+    let lead = exponential_ui::strings::default_string("unknownComponent").unwrap_or("Unknown component");
+    format!("{lead} {}", str_or(props, "component", component))
 }
 
 impl Measure for GpuiMeasure<'_> {
@@ -1005,26 +1061,19 @@ mod tests {
     }
 
     #[test]
+    fn a_paragraph_mark_takes_no_letter_spacing() {
+        let marked = crate::text::with_paragraph_direction("⌘K", true);
+        assert!(marked.starts_with('\u{200F}'), "an rtl node leads ⌘K with an RLM");
+        assert_eq!(tracking_width(&marked, 1.0), tracking_width("⌘K", 1.0), "the mark reserves no letterSpacing");
+    }
+
+    #[test]
     fn lengths_parse() {
         assert_eq!(len_of(Some(&json!(12))), Some(Len::Px(12.0)));
         assert_eq!(len_of(Some(&json!("120px"))), Some(Len::Px(120.0)));
         assert_eq!(len_of(Some(&json!("50%"))), Some(Len::Percent(50.0)));
         assert_eq!(len_of(Some(&json!("auto"))), None);
         assert_eq!(len_of(None), None);
-    }
-
-    #[test]
-    fn select_and_date_labels() {
-        let props = json!({"options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": "b"}).as_object().unwrap().clone();
-        assert_eq!(select_label(&props), "B");
-        let none = json!({"options": [], "placeholder": "Pick"}).as_object().unwrap().clone();
-        assert_eq!(select_label(&none), "Pick");
-        let multi = json!({"options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": ["a", "b"]}).as_object().unwrap().clone();
-        assert_eq!(select_label(&multi), "A, B");
-        let joined = json!({"options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": "a,b"}).as_object().unwrap().clone();
-        assert_eq!(select_label(&joined), "A, B");
-        assert_eq!(date_label("2026-10-14").as_deref(), Some("Oct 14, 2026"));
-        assert_eq!(date_label("nope"), None);
     }
 
     #[test]
@@ -1044,7 +1093,9 @@ mod tests {
     #[test]
     fn text_parts_reserve_their_chrome() {
         let tab = json!({"text": "Inbox", "icon": "nav-inbox", "count": 3}).as_object().unwrap().clone();
-        assert_eq!(text_chrome("Tabs", Some("tab"), &tab, 4.0, 8.0), (20.0, 24.0));
+        assert_eq!(text_chrome("Tabs", Some("tab"), &tab, 4.0, 8.0), (20.0, 12.0), "icon + gap, gap + the plain count");
+        let acc = json!({"text": "History", "count": 4}).as_object().unwrap().clone();
+        assert_eq!(text_chrome("Accordion", Some("trigger"), &acc, 8.0, 7.0), (0.0, 8.0 + 7.0 + 16.0 + 8.0), "count, then the chevron");
         let item = json!({"text": "Open"}).as_object().unwrap().clone();
         assert_eq!(text_chrome("Select", Some("item"), &item, 8.0, 0.0), (0.0, 24.0), "the check slot is always reserved");
         assert_eq!(text_chrome("Text", None, &item, 8.0, 0.0), (0.0, 0.0));

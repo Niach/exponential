@@ -1,6 +1,6 @@
 {
   "$comment": "VAPP-91: the host API contract, the same on all four platforms (TS src/host/, the Rust core's `host` module, which the Swift and Kotlin painters reach through exponential-ui-ffi). A surface needs exactly these from its host: transport, functions, bindings (optional), extensions, theme, catalog negotiation and policy hooks. Every pure rule here is locked by fixtures/host-*.json, replayed by every renderer's conformance runner (conformance/manifest.json).",
-  "version": 1,
+  "version": 2,
   "a2uiVersion": "v0.9",
   "messages": {
     "$comment": "Server → client. The four A2UI v0.9 messages plus two Exponential UI extensions: `applyTemplate` (a registered declarative package's template becomes create + components + data + binds) and `bindDataModel` (a data model path follows a host `source`). A message is ONE object with `version` (optional, must equal a2uiVersion when present) and exactly one kind key.",
@@ -44,5 +44,11 @@
   "package": {
     "$comment": "A declarative vapp package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny.",
     "required": ["id", "name", "version", "catalogId", "templates"]
+  },
+  "surface": {
+    "$comment": "Round 2 (docs/round-2-contract.md §3, §5): what a host hands each surface besides messages. `settings` = the SurfaceSettings keys (src/types.ts): `timeZone` = the IANA zone instants show in (default the platform's). `formatter` = the methods of the host-supplied Formatter that formats every number, currency, percent, date and relative time (TS: intlFormatter(locale, timeZone); Rust: the Formatter trait, default the English fallback at the host's UTC offset per instant; FFI: a foreign Formatter, else the core's). `commands` = what a host may ask of a live surface (catalog/a11y.json `commands`; `scrollToIndex` takes the DATA index).",
+    "settings": ["locale", "timeZone", "strings", "mode", "density", "contrast", "theme"],
+    "formatter": ["number", "currency", "percent", "date", "relativeTime", "plural"],
+    "commands": ["focus", "announce", "scrollIntoView", "scrollToIndex"]
   }
 }

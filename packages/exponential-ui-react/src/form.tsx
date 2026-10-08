@@ -157,7 +157,8 @@ export interface FieldState {
 /** A named control's validation + its registration with the nearest Form. */
 export function useField({ node, domId, props, value, focusRef }: FieldOptions): FieldState {
   const form = useForm()
-  const all = failingChecks(props.checks)
+  const ctx = useSurfaceContext()
+  const all = failingChecks(props.checks, ctx.t(`invalidValue`))
   const [touched, setTouched] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [submitted, setSubmitted] = useState(false)

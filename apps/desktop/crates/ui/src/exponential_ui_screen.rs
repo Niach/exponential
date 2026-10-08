@@ -17,7 +17,8 @@
 //! the IDE's own), `EXP_DEV_EXPONENTIAL_UI_BENCH=<n>` (the core's synthetic
 //! n-node bench tree instead of the fixture — the 200-node budget check),
 //! `EXP_DEV_EXPONENTIAL_UI_POSTS=<n>` (rows for the fixture's `/posts` List;
-//! past 24 it windows. The web reference seeds none, so the default is none),
+//! past 50 it windows against the pane. The web reference seeds none, so the
+//! default is none),
 //! `EXP_DEV_EXPONENTIAL_UI_SCROLL=<px>` (pre-scroll the pane once the content
 //! is laid out, so a capture photographs a lower section of the sink),
 //! `EXP_DEV_EXPONENTIAL_UI_LOCALE=<bcp47>` (`ar` / `he` paint the sink RTL),
@@ -125,6 +126,16 @@ impl HostPlugin for DevHost {
 
     fn on_unknown(&self, node: &PlacedNode) {
         log::warn!("[exponential-ui kitchen sink] unknown component {} ({})", node.component, node.id);
+    }
+
+    /// Round 2 `scrollToIndex` on a list windowed against the pane: the
+    /// pane scrolls (the surface fills it from its top-left).
+    fn scroll_surface(&self, x: f32, y: f32, cx: &mut App) {
+        let Some(screen) = self.screen.borrow().clone() else { return };
+        let _ = screen.update(cx, |this, cx| {
+            this.scroll.set_offset(gpui::point(px(-x), px(-y)));
+            cx.notify();
+        });
     }
 }
 

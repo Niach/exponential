@@ -40,14 +40,38 @@ pub fn equal(a: &Value, b: &Value) -> bool {
     canonical(a) == canonical(b)
 }
 
-/// JavaScript's `String(number)`: integral values without a fraction, the
-/// shortest round-trip form otherwise.
+/// JavaScript's `String(number)` (ECMAScript `Number::toString`): the
+/// shortest round-trip digits, plain from 1e-6 up to 1e21, exponent form
+/// (`1e-7`, `1e+21`) outside; `-0` → `0`, `NaN`, `Infinity`.
 pub fn number_to_string(v: f64) -> String {
-    if v.fract() == 0.0 && v.abs() < 1e21 {
-        format!("{}", v as i64)
-    } else {
-        format!("{v}")
+    if v.is_nan() {
+        return "NaN".into();
     }
+    if v.is_infinite() {
+        return if v > 0.0 { "Infinity".into() } else { "-Infinity".into() };
+    }
+    if v == 0.0 {
+        return "0".into();
+    }
+    let sign = if v < 0.0 { "-" } else { "" };
+    let (digits, n) = crate::format::shortest_digits(v.abs());
+    let k = digits.len() as i32;
+    let body = if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k) as usize))
+    } else if 0 < n && n <= 21 {
+        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat((-n) as usize))
+    } else {
+        let e = n - 1;
+        let exp = if e >= 0 { format!("e+{e}") } else { format!("e{e}") };
+        if k == 1 {
+            format!("{digits}{exp}")
+        } else {
+            format!("{}.{}{exp}", &digits[..1], &digits[1..])
+        }
+    };
+    format!("{sign}{body}")
 }
 
 /// JavaScript's `String(value)` for the scalar values a template may
@@ -138,6 +162,12 @@ mod tests {
         assert_eq!(number_to_string(100.0), "100");
         assert_eq!(number_to_string(66.67), "66.67");
         assert_eq!(number_to_string(1.7777778), "1.7777778");
+        assert_eq!(number_to_string(123456789012345680000.0), "123456789012345680000");
+        assert_eq!(number_to_string(1e21), "1e+21");
+        assert_eq!(number_to_string(1e-7), "1e-7");
+        assert_eq!(number_to_string(1.5e-7), "1.5e-7");
+        assert_eq!(number_to_string(1e-6), "0.000001");
+        assert_eq!(number_to_string(-0.0), "0");
         assert!(equal(&json!({"a": 2.0}), &json!({"a": 2})));
         assert!(!equal(&json!({"a": 2.5}), &json!({"a": 2})));
     }

@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(parts["ButtonGroup"].props, ["size", "selected"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        assert_eq!(parts.len(), 82);
+        assert_eq!(parts.len(), 83);
     }
 
     #[test]

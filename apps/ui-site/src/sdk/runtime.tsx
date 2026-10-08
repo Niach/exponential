@@ -18,6 +18,7 @@ export interface LiveSurfaceProps {
   mode: ModeName
   icons?: IconMap
   width?: number | string
+  direction?: `ltr` | `rtl`
   extensions?: readonly ExtensionDef[]
   onIssues?: (issues: ReduceIssue[]) => void
   onAction?: (event: SurfaceActionEvent) => void
@@ -26,7 +27,7 @@ export interface LiveSurfaceProps {
 const NO_EXTENSIONS: readonly ExtensionDef[] = []
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
 
-export function LiveSurface({ surfaceId, domId, messages, theme, mode, icons, width, extensions = NO_EXTENSIONS, onIssues, onAction }: LiveSurfaceProps) {
+export function LiveSurface({ surfaceId, domId, messages, theme, mode, icons, width, direction, extensions = NO_EXTENSIONS, onIssues, onAction }: LiveSurfaceProps) {
   const surface = useSurface({ surfaceId, extensions })
   const { apply, reset, setData } = surface
 
@@ -63,5 +64,5 @@ export function LiveSurface({ surfaceId, domId, messages, theme, mode, icons, wi
     [icons, setData]
   )
 
-  return <ExponentialSurface id={domId ?? `xui-${surfaceId.replace(/[^a-zA-Z0-9_-]/g, ``)}`} surface={surface} host={host} theme={theme} mode={mode} width={width} />
+  return <ExponentialSurface id={domId ?? `xui-${surfaceId.replace(/[^a-zA-Z0-9_-]/g, ``)}`} surface={surface} host={host} theme={theme} mode={mode} width={width} direction={direction} />
 }

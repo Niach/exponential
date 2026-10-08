@@ -186,10 +186,13 @@ pub struct ThemeTokens {
     /// Multipliers over `control` and `spacing` for the non-default densities.
     #[serde(default, serialize_with = "ser_nums")]
     pub density: IndexMap<String, f64>,
+    /// Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`).
+    #[serde(default, serialize_with = "ser_nums")]
+    pub blur: IndexMap<String, f64>,
 }
 
 /// The numeric groups directly under `tokens`, in overlay order.
-const NUMBER_GROUPS: [&str; 8] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density"];
+const NUMBER_GROUPS: [&str; 9] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density", "blur"];
 /// Token groups whose values are cubic-bezier tuples.
 const TUPLE_GROUPS: [&str; 1] = ["ease"];
 const TYPE_SUBS: [&str; 4] = ["size", "lineHeight", "weight", "family"];
@@ -206,6 +209,7 @@ impl ThemeTokens {
             "motion" => Some(&self.motion),
             "breakpoint" => Some(&self.breakpoint),
             "density" => Some(&self.density),
+            "blur" => Some(&self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers(sub)),
         }
     }
@@ -219,6 +223,7 @@ impl ThemeTokens {
             "motion" => Some(&mut self.motion),
             "breakpoint" => Some(&mut self.breakpoint),
             "density" => Some(&mut self.density),
+            "blur" => Some(&mut self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers_mut(sub)),
         }
     }
@@ -390,10 +395,12 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("transition", &["motion"]),
     ("transitionEasing", &["ease"]),
     ("transform", &[]),
+    ("backdropBlur", &["blur"]),
+    ("animation", &[]),
 ];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
-const TOKEN_ONLY_KEYS: [&str; 4] = ["fontFamily", "boxShadow", "transition", "transitionEasing"];
-const ENUM_KEYS: [&str; 4] = ["borderStyle", "textDecoration", "textTransform", "fontStyle"];
+const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
+const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
 const THEME_KEYS: [&str; 10] = ["$schema", "$comment", "id", "name", "extends", "modes", "contrast", "tokens", "fonts", "recipes"];
 
 /// The enum a style key takes (`borderStyle` → solid|dashed|dotted).

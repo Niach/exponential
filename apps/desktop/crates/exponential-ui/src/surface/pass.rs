@@ -470,6 +470,133 @@ impl Surface {
         }
     }
 
+    /// Round 2 (§5): where a list's viewport comes from — itself (bounded
+    /// with taller content on its axis), its nearest scrolling ancestor, or
+    /// the host viewport — and how long it is.
+    fn list_view(&self, spec: &crate::layout_tree::ListSpec, frames: &[Frame], scrolls: &[ScrollOutput]) -> crate::layout_tree::ListView {
+        use crate::layout_tree::{ListView, ListViewSource};
+        let h = spec.horizontal;
+        let ext = |f: Frame| if h { f.w } else { f.h };
+        let start = |f: Frame| if h { f.x } else { f.y };
+        let scrolls_on_axis = |idx: u32| {
+            scrolls.iter().any(|s| s.index == idx && if h { s.scroll_x && s.content_width > frames[idx as usize].w + 0.5 } else { s.scroll_y && s.content_height > frames[idx as usize].h + 0.5 })
+        };
+        let f = frames[spec.node as usize];
+        if scrolls_on_axis(spec.node) {
+            return ListView { source: ListViewSource::Own, viewport: ext(f) };
+        }
+        let mut cur = self.nodes[spec.node as usize].parent;
+        while let Some(p) = cur {
+            if scrolls_on_axis(p) {
+                let pf = frames[p as usize];
+                return ListView { source: ListViewSource::Ancestor { id: self.scroll_key(p), rel: start(f) - start(pf) }, viewport: ext(pf) };
+            }
+            cur = self.nodes[p as usize].parent;
+        }
+        let viewport = if h {
+            self.viewport.0
+        } else if self.viewport.1 > 0.0 {
+            self.viewport.1
+        } else {
+            self.max_height.unwrap_or(2000.0)
+        };
+        ListView { source: ListViewSource::Host { rel: start(f) }, viewport }
+    }
+
+    /// Round 2: the paint offsets of `position: sticky` nodes (pinned by
+    /// their insets inside the nearest scroller while their parent is in
+    /// view) and of pinned List section headers.
+    fn sticky_offsets(&mut self, frames: &[Frame], scrolls: &[ScrollOutput], drawn: &[u32]) -> Vec<super::StickyOutput> {
+        let mut out = Vec::new();
+        // Pinned section headers (on the window's memoized offsets).
+        for spec in self.lists.iter().filter(|l| l.sticky && !l.headers.is_empty()) {
+            let Some(window) = self.local.lists.get_mut(&spec.id) else { continue };
+            let Some(view) = self.local.list_views.get(&spec.id) else { continue };
+            let axis = |p: (f32, f32)| if spec.horizontal { p.0 } else { p.1 };
+            let scroll = match &view.source {
+                crate::layout_tree::ListViewSource::Own => self.local.scroll.get(&spec.id).copied().map(axis).unwrap_or(0.0),
+                crate::layout_tree::ListViewSource::Ancestor { id, rel } => self.local.scroll.get(id).copied().map(axis).unwrap_or(0.0) - rel,
+                crate::layout_tree::ListViewSource::Host { rel } => self.local.surface_scroll.map(|p| axis(p) - rel).unwrap_or_else(|| self.local.scroll.get(&spec.id).copied().map(axis).unwrap_or(0.0)),
+            }
+            .max(0.0);
+            window.gap = spec.gap;
+            let Some((pin, row_offset)) = window.sticky_header_cached(&spec.keys, &spec.headers, scroll as f64) else { continue };
+            let key = &spec.keys[pin.row];
+            let Some(&header) = self.nodes[spec.node as usize].children.iter().find(|c| self.nodes[**c as usize].props.get("key").and_then(serde_json::Value::as_str) == Some(key.as_str())) else { continue };
+            let delta = (pin.offset - row_offset) as f32;
+            // The header's frame already sits at its row offset (in flow or
+            // absolute); `delta` moves it to the pinned position.
+            let (dx, dy) = if spec.horizontal { (delta, 0.0) } else { (0.0, delta) };
+            if dx.abs() > 0.01 || dy.abs() > 0.01 {
+                out.push(super::StickyOutput { index: header, dx, dy });
+            }
+        }
+        // `position: sticky`.
+        for &i in drawn {
+            let flat = &self.node_state[i as usize].flat;
+            if flat.get("position").and_then(serde_json::Value::as_str) != Some("sticky") {
+                continue;
+            }
+            // A physical side, else the `inset` shorthand (logical insets
+            // are physical by now).
+            let all = flat.get("inset").and_then(style::px);
+            let inset = |k: &str| flat.get(k).and_then(style::px).or(all);
+            let (top, bottom, left, right) = (inset("top"), inset("bottom"), inset("left"), inset("right"));
+            let n = frames[i as usize];
+            let parent_index = self.nodes[i as usize].parent;
+            let mut parent = parent_index.map(|p| frames[p as usize]).unwrap_or(n);
+            // The nearest scroller: an ancestor that scrolls, else the host
+            // viewport (its offset = `set_surface_scroll`).
+            let mut cur = parent_index;
+            let mut port: Option<(Frame, f32, f32)> = None;
+            while let Some(p) = cur {
+                if let Some(s) = scrolls.iter().find(|s| s.index == p && ((s.scroll_y && s.content_height > frames[p as usize].h + 0.5) || (s.scroll_x && s.content_width > frames[p as usize].w + 0.5))) {
+                    port = Some((frames[p as usize], s.offset_x, s.offset_y));
+                    // A direct child of the scroller is bounded by its whole
+                    // scrollable content (CSS: a sticky header in a scrolling
+                    // pane stays pinned all the way down).
+                    if Some(p) == parent_index {
+                        parent = Frame { w: s.content_width.max(parent.w), h: s.content_height.max(parent.h), ..parent };
+                    }
+                    break;
+                }
+                cur = self.nodes[p as usize].parent;
+            }
+            let (pf, ox, oy) = port.unwrap_or((Frame { x: 0.0, y: 0.0, w: self.viewport.0, h: self.viewport.1 }, self.local.surface_scroll.unwrap_or_default().0, self.local.surface_scroll.unwrap_or_default().1));
+            // The start edges pin against the scroll offset alone; the end
+            // edges need the scroller's extent (an auto-height host surface
+            // has none: bottom/right never pin there).
+            let mut dy = 0.0f32;
+            if let Some(t) = top {
+                let edge = pf.y + oy + t;
+                if n.y < edge {
+                    dy = (edge.min(parent.y + parent.h - n.h) - n.y).max(0.0);
+                }
+            } else if let (Some(b), true) = (bottom, pf.h > 0.0) {
+                let edge = pf.y + oy + pf.h - b - n.h;
+                if n.y > edge {
+                    dy = (edge.max(parent.y) - n.y).min(0.0);
+                }
+            }
+            let mut dx = 0.0f32;
+            if let Some(l) = left {
+                let edge = pf.x + ox + l;
+                if n.x < edge {
+                    dx = (edge.min(parent.x + parent.w - n.w) - n.x).max(0.0);
+                }
+            } else if let (Some(r), true) = (right, pf.w > 0.0) {
+                let edge = pf.x + ox + pf.w - r - n.w;
+                if n.x > edge {
+                    dx = (edge.max(parent.x) - n.x).min(0.0);
+                }
+            }
+            if dx.abs() > 0.01 || dy.abs() > 0.01 {
+                out.push(super::StickyOutput { index: i, dx, dy });
+            }
+        }
+        out
+    }
+
     fn output(&mut self, frames: Vec<Frame>, placed: Vec<Placed>, bounded_h: Option<f32>, rounds: u32, upcalls: u32, layout_ns: u64) -> LayoutOutput {
         let mut main = Vec::new();
         let mut drawn: Vec<u32> = Vec::new();
@@ -517,34 +644,6 @@ impl Surface {
                 self.visuals_dirty.insert(i);
             }
         }
-        // Windowed lists: remember the rows' real heights.
-        let mut lists = Vec::new();
-        for spec in self.lists.clone() {
-            let window = self.local.lists.entry(spec.id.clone()).or_insert_with(|| crate::list::ListWindow::new(crate::list::DEFAULT_ESTIMATED_ITEM_HEIGHT, crate::list::DEFAULT_OVERSCAN, 0.0));
-            let mut changed = false;
-            for child in &self.nodes[spec.node as usize].children {
-                let c = &self.nodes[*child as usize];
-                if matches!(c.part.as_deref(), Some("divider" | "empty" | "spacer")) {
-                    continue;
-                }
-                let key = c.props.get("key").and_then(serde_json::Value::as_str).filter(|_| c.part.as_deref() == Some("row")).map(str::to_string).unwrap_or_else(|| c.id.clone());
-                changed |= window.record(&key, frames[*child as usize].h);
-            }
-            if changed && spec.windowed {
-                // Re-window only when the measured heights move the window
-                // or the space standing in for the rows outside it.
-                let offsets = window.offsets_cached(&spec.keys);
-                let viewport = if self.viewport.1 > 0.0 { self.viewport.1 } else { self.max_height.unwrap_or(2000.0) };
-                let range = window.visible_range(&offsets, viewport.max(1.0));
-                let count = spec.keys.len();
-                let pad = |o: &[f32], r: crate::list::VisibleRange| (o[r.start], o[count] - o[r.end.min(count)]);
-                if range != spec.range || pad(&offsets, range) != pad(&spec.offsets, spec.range) {
-                    self.subtree_pending.insert(spec.id.clone());
-                }
-            }
-            let content_height = window.content_height(spec.keys.iter().map(String::as_str));
-            lists.push(ListOutput { id: spec.id.clone(), node: spec.node, content_height, start: spec.range.start as u32, end: spec.range.end as u32, count: spec.keys.len() as u32, windowed: spec.windowed });
-        }
         // Scroll containers: offsets clamped to the content.
         let mut scrolls = Vec::new();
         let mut reclamped = false;
@@ -586,6 +685,56 @@ impl Surface {
             }
             scrolls.push(ScrollOutput { index: i, offset_x: ox, offset_y: oy, content_width: content_w, content_height: content_h, scroll_x: sx, scroll_y: sy });
         }
+        // Windowed lists (round 2): remember the items' real extents on the
+        // list's axis, then window against the list's own, its nearest
+        // scrolling ancestor's or the host's viewport.
+        let mut lists = Vec::new();
+        let mut rewindow = false;
+        for spec in self.lists.clone() {
+            let view = self.list_view(&spec, &frames, &scrolls);
+            self.local.list_views.insert(spec.id.clone(), view.clone());
+            let axis = |p: (f32, f32)| if spec.horizontal { p.0 } else { p.1 };
+            let scroll = match &view.source {
+                crate::layout_tree::ListViewSource::Own => self.local.scroll.get(&spec.id).copied().map(axis).unwrap_or(0.0),
+                crate::layout_tree::ListViewSource::Ancestor { id, rel } => self.local.scroll.get(id).copied().map(axis).unwrap_or(0.0) - rel,
+                crate::layout_tree::ListViewSource::Host { rel } => self.local.surface_scroll.map(|p| axis(p) - rel).unwrap_or_else(|| self.local.scroll.get(&spec.id).copied().map(axis).unwrap_or(0.0)),
+            }
+            .max(0.0);
+            let estimate = self.effective.as_ref().and_then(|t| t.tokens.control.get("row").copied()).map(|v| v as f32).unwrap_or(crate::list::DEFAULT_ESTIMATED_ITEM_HEIGHT);
+            let window = self.local.lists.entry(spec.id.clone()).or_insert_with(|| crate::list::ListWindow::new(estimate, crate::list::DEFAULT_OVERSCAN, spec.gap));
+            let mut changed = false;
+            for child in &self.nodes[spec.node as usize].children {
+                let c = &self.nodes[*child as usize];
+                if matches!(c.part.as_deref(), Some("divider" | "empty" | "spacer")) {
+                    continue;
+                }
+                let key = c.props.get("key").and_then(serde_json::Value::as_str).filter(|_| matches!(c.part.as_deref(), Some("row" | "section"))).map(str::to_string).unwrap_or_else(|| c.id.clone());
+                let f = frames[*child as usize];
+                changed |= window.record(&key, if spec.horizontal { f.w } else { f.h });
+            }
+            if spec.windowed {
+                window.scroll_offset = scroll;
+                let offsets = window.offsets_cached(&spec.keys);
+                let range = window.visible_range(&offsets, view.viewport.max(1.0));
+                let count = spec.keys.len();
+                let pad = |o: &[f32], r: crate::list::VisibleRange| (o[r.start], o[count] - o[r.end.min(count)]);
+                let covered = range.start >= spec.range.start && range.end <= spec.range.end;
+                // Re-window when the measured extents move the window or
+                // the spacers, or when the viewport now shows items the
+                // window does not hold.
+                if (changed && (range != spec.range || pad(&offsets, range) != pad(&spec.offsets, spec.range))) || !covered {
+                    self.subtree_pending.insert(spec.id.clone());
+                    rewindow |= !covered;
+                }
+            }
+            let content_height = window.offsets_cached(&spec.keys).last().copied().unwrap_or(0.0);
+            lists.push(ListOutput { id: spec.id.clone(), node: spec.node, content_height, start: spec.range.start as u32, end: spec.range.end as u32, count: spec.keys.len() as u32, windowed: spec.windowed, horizontal: spec.horizontal });
+        }
+        if rewindow && !self.pending.iter().any(|e| matches!(e, super::OutEvent::Relayout)) {
+            self.pending.push(super::OutEvent::Relayout);
+        }
+        let sticky = self.sticky_offsets(&frames, &scrolls, &drawn);
+        self.local.sticky_any = drawn.iter().any(|&i| self.node_state[i as usize].flat.get("position").and_then(serde_json::Value::as_str) == Some("sticky"));
         self.scrolls = scrolls.clone();
         if reclamped && !self.pending.iter().any(|e| matches!(e, super::OutEvent::Relayout)) {
             // The window moved under the host: one more pass shows the rows.
@@ -606,6 +755,7 @@ impl Surface {
             layers,
             lists,
             scrolls,
+            sticky,
             toasts: self.toasts.clone(),
             visual_changes,
             delta,

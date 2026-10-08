@@ -351,6 +351,15 @@ fn suite(id: &str) -> Vec<Case> {
         "host-transport" => support::transport_cases(),
         "host-policy" => support::policy_cases(),
         "host-router" => support::router_cases(),
+        "bind" => support::round2::bind_cases(),
+        "style-conditions" => support::round2::style_condition_cases(),
+        "code-tokens" => support::round2::code_token_cases(),
+        "format" => support::round2::format_cases(),
+        "template-items" => support::round2::template_item_cases(),
+        "text-direction" => support::round2::text_direction_cases(),
+        "resizable" => support::round2::resizable_cases(),
+        "virtual-list" => support::round2::virtual_list_cases(),
+        "animations" => support::round2::animation_cases(),
         other => panic!("the runner does not know the suite {other}: add it"),
     }
 }

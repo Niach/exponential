@@ -29,7 +29,7 @@ interface MacroCase {
 interface BasicCase {
   name: string
   components: FlatComponent[]
-  expected: { root: UiNode; issues: unknown[] }
+  expected: { root: UiNode; issues: unknown[]; templates?: Record<string, UiNode> }
 }
 interface ExtensionCase {
   name: string
@@ -55,9 +55,9 @@ function markup(container: HTMLElement): string {
 describe(`catalog fixture → every component renders`, () => {
   for (const c of cases) {
     it(c.name, () => {
-      const { root, issues } = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
+      const { root, issues, templates } = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
       expect(issues).toEqual([])
-      const { container } = render(<ExponentialSurface root={root} theme="neutral" id="fx" />)
+      const { container } = render(<ExponentialSurface root={root} templates={templates} theme="neutral" id="fx" />)
       const el = container.querySelector(`[data-xui-id="${root.id}"]`)
       // A closed Toast paints nothing (it lives in the toast layer when open).
       if (!(root.component === `Toast` && root.props.open === false)) expect(el, `root element of ${c.name}`).not.toBeNull()
@@ -83,9 +83,9 @@ describe(`macro fixture renders`, () => {
 describe(`basic-map fixture renders`, () => {
   for (const c of basicCases) {
     it(c.name, () => {
-      const { root, issues } = reduceSurface(c.components, { catalogId: A2UI_BASIC_CATALOG_ID })
-      expect({ root, issues }).toEqual(c.expected)
-      const { container } = render(<ExponentialSurface root={root} theme="neutral" id="bx" />)
+      const { root, issues, templates } = reduceSurface(c.components, { catalogId: A2UI_BASIC_CATALOG_ID })
+      expect(templates ? { root, issues, templates } : { root, issues }).toEqual(c.expected)
+      const { container } = render(<ExponentialSurface root={root} templates={templates} theme="neutral" id="bx" />)
       expect(container.querySelector(`[data-xui-id="root"]`)).not.toBeNull()
     })
   }
@@ -127,12 +127,12 @@ describe(`extension fixture renders`, () => {
 })
 
 describe(`kitchen sink × built-in themes`, () => {
-  const { root, issues } = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
+  const { root, issues, templates } = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
   it(`reduces cleanly`, () => expect(issues).toEqual([]))
   for (const id of BUILTIN_THEME_IDS) {
     for (const mode of [`light`, `dark`] as const) {
       it(`${id} / ${mode}`, () => {
-        const { container } = render(<ExponentialSurface root={root} theme={id} mode={mode} id={`ks-${id}`} />)
+        const { container } = render(<ExponentialSurface root={root} templates={templates} theme={id} mode={mode} id={`ks-${id}`} />)
         const surface = container.firstElementChild as HTMLElement
         expect(surface.dataset.xuiTheme).toBe(id)
         expect(surface.dataset.xuiMode).toBe(mode)

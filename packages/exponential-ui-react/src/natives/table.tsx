@@ -15,23 +15,33 @@
 // ArrowUp/Down, Home/End move it BY INDEX (scrolling a windowed body to the
 // row first), Enter presses, Space selects.
 
-import { useCallback, useContext, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import { Checkbox as CheckboxPrimitive } from "radix-ui"
-import { WINDOW_THRESHOLD } from "@exponential-at/ui"
+import { tableRowKeys, WINDOW_THRESHOLD } from "@exponential-at/ui"
 import { InstanceContext, ScopeContext, SurfaceContext, useSurfaceContext } from "../context"
 import { boundPath, getPointer, setPointer, LITERAL_ROWS_ROOT } from "../data"
 import { WindowedList, type WindowedListHandle } from "../list"
 import { NodeView, type NativeProps } from "../node-view"
 import { partClass } from "../theme-css"
 import { useBoundState } from "./bound"
+import { displayString } from "@exponential-at/ui"
 import { arr, bool, BuiltinIcon, num, phrase, str, useParts } from "./shared"
+
+const CURRENCY_CODE = /^[A-Za-z]{3}$/
+
+/** A cell value as a number (a number, or a numeric string); NaN otherwise. */
+const cellNumber = (v: unknown): number => (typeof v === `number` ? v : typeof v === `string` && v.trim() !== `` ? Number(v) : NaN)
 
 export interface TableColumn {
   key: string
   /** The header text (a slot or checkbox column may have none). */
   label?: string
-  type?: `text` | `number` | `date` | `boolean` | `badge` | `slot`
+  type?: `text` | `number` | `date` | `boolean` | `badge` | `slot` | `currency` | `percent` | `relativeTime`
   slot?: string
+  /** ISO 4217 code of a `currency` column. */
+  currency?: string
+  /** Fixed fraction digits of a number / currency / percent column. */
+  decimals?: number
   width?: number
   align?: `start` | `center` | `end`
   sortable?: boolean
@@ -78,11 +88,13 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   const rawSort = props.sort as Sort | undefined
   const [sort, setSort] = useBoundState<Sort | null>(node, scope, `sort`, rawSort && rawSort.key ? { key: rawSort.key, direction: rawSort.direction === `desc` ? `desc` : `asc` } : null)
   const [selected, setSelected] = useBoundState<string[]>(node, scope, `selected`, arr<unknown>(props.selected).map(String))
-  const keyOf = (row: Record<string, unknown>, i: number) => (row?.[rowKey] === undefined || row?.[rowKey] === null ? String(i) : String(row[rowKey]))
+  // Round 2 §4: the row keys (`rowKey` field; missing, empty or duplicate →
+  // `#<index>`), the instance suffix of every row part and slot cell.
+  const rowKeys = useMemo(() => tableRowKeys(rows, rowKey), [rows, rowKey])
+  const keyOf = (_row: Record<string, unknown>, i: number) => rowKeys[i] ?? String(i)
   const order = useMemo(() => (sortBound ? rows.map((_, i) => i) : sortRows(rows, sort, columns.find((c) => c.key === sort?.key), ctx.locale)), [rows, sort, sortBound, columns, ctx.locale])
-  const numberFmt = useMemo(() => new Intl.NumberFormat(ctx.locale), [ctx.locale])
-  const dateFmt = useMemo(() => new Intl.DateTimeFormat(ctx.locale, { year: `numeric`, month: `short`, day: `numeric` }), [ctx.locale])
-  const template = [selectable === `multiple` ? `calc(var(--xui-control-checkbox, 16px) + 2 * var(--xui-spacing-sm))` : null, ...columns.map((c) => (c.width ? `${c.width}px` : `minmax(0, 1fr)`))].filter(Boolean).join(` `)
+  // The checkbox column is as wide as the checkbox (round 2 §7).
+  const template = [selectable === `multiple` ? `var(--xui-control-checkbox, 16px)` : null, ...columns.map((c) => (c.width ? `${c.width}px` : `minmax(0, 1fr)`))].filter(Boolean).join(` `)
   const cycle = (c: TableColumn) => {
     const next: Sort = sort?.key === c.key && sort.direction === `asc` ? { key: c.key, direction: `desc` } : { key: c.key, direction: `asc` }
     setSort(next)
@@ -105,7 +117,12 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const windowRef = useRef<WindowedListHandle | null>(null)
   const pendingFocus = useRef<string | null>(null)
-  const focusRow = useCallback((key: string) => bodyRef.current?.querySelector<HTMLElement>(`[role="row"][data-key="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(key) : key.replace(/"/g, `\\"`)}"]`) ?? null, [])
+  // OWN rows only (flat: the body's children; windowed: the window's
+  // items'): a nested Table in a slot cell has rows of its own.
+  const focusRow = useCallback((key: string) => {
+    const k = `[role="row"][data-key="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(key) : key.replace(/"/g, `\\"`)}"]`
+    return bodyRef.current?.querySelector<HTMLElement>(`:scope > ${k}, :scope > .xui-list-window > .xui-list-item > ${k}`) ?? null
+  }, [])
   const moveTo = (pos: number) => {
     if (orderKeys.length === 0) return
     const clamped = Math.max(0, Math.min(orderKeys.length - 1, pos))
@@ -120,6 +137,19 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
       windowRef.current?.scrollToIndex(clamped)
     }
   }
+  // The `scrollToIndex` host command (round 2 §5): the DATA index (before a
+  // local sort) → its position in the shown order.
+  useEffect(
+    () =>
+      ctx.registerScroller(domId, (index, align) => {
+        const pos = order.indexOf(index)
+        if (pos < 0) return
+        if (windowed) windowRef.current?.scrollToIndex(pos, align)
+        else focusRow(keyOf(rows[index], index))?.scrollIntoView({ block: align === `center` || align === `start` || align === `end` ? align : `nearest` })
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ctx, domId, order, windowed, rows, rowKeys]
+  )
   // Literal (unbound) rows: a slot cell's edits live HERE, per row key, never
   // in the surface data model (there is no path to write them to).
   const [literalEdits, setLiteralEdits] = useState<Record<string, Record<string, unknown>>>({})
@@ -129,13 +159,26 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
 
   const cell = (c: TableColumn, row: Record<string, unknown>, index: number): ReactNode => {
     const v = row?.[c.key]
+    const missing = v === undefined || v === null || v === ``
+    const decimals = c.decimals === undefined ? undefined : num(c.decimals)
+    // Round 2 §3: every formatted cell goes through the surface Formatter,
+    // guarded as the bind table's format functions are: a value that is not
+    // a finite number = an empty cell, a currency that is not 3 letters =
+    // an empty cell (Intl would throw).
+    const n = cellNumber(v)
     switch (c.type) {
       case `number`:
-        return v === undefined || v === null || v === `` ? `` : numberFmt.format(num(v))
-      case `date`: {
-        const d = v ? new Date(String(v)) : null
-        return d && !Number.isNaN(d.getTime()) ? dateFmt.format(d) : ``
+        return Number.isFinite(n) ? ctx.formatter.number(n, { decimals }) : ``
+      case `currency`: {
+        const code = c.currency === undefined ? `USD` : c.currency
+        return Number.isFinite(n) && typeof code === `string` && CURRENCY_CODE.test(code) ? ctx.formatter.currency(n, code, { decimals }) : ``
       }
+      case `percent`:
+        return Number.isFinite(n) ? ctx.formatter.percent(n, { decimals }) : ``
+      case `date`:
+        return missing ? `` : ctx.formatter.date(v)
+      case `relativeTime`:
+        return missing ? `` : ctx.formatter.relativeTime(v, ctx.now())
       case `boolean`:
         return v ? <BuiltinIcon slot="Checkbox.check" size={16} /> : <span className="xui-sr-only">—</span>
       case `badge`:
@@ -153,7 +196,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
         return <RowScope rowsPath={rowsPath} row={rowsPath ? row : (literalEdits[key] ?? row)} rowKey={key} index={index} tableId={domId} node={slot} onLiteralEdit={editLiteral} />
       }
       default:
-        return v === undefined || v === null ? `` : typeof v === `object` ? JSON.stringify(v) : String(v)
+        return displayString(v)
     }
   }
 
@@ -188,7 +231,7 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
               }
             : undefined
         }
-        {...(part.with(`row`, { striped: striped && odd }, isSel && `selected`) as Record<string, string>)}
+        {...(part.atWith(`row`, key, { striped: striped && odd }, isSel && `selected`) as Record<string, string>)}
         style={{ gridTemplateColumns: template }}
         onClick={interactive && selectable !== `multiple` ? press : node.on?.rowPress ? press : undefined}
         onKeyDown={(e: KeyboardEvent) => {
@@ -209,9 +252,9 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
         }}
       >
         {selectable === `multiple` ? (
-          <div role="gridcell" {...(part.with(`cell`, { align: `center` }) as Record<string, string>)}>
+          <div role="gridcell" className="xui-table-check">
             <CheckboxPrimitive.Root
-              {...(part(`checkbox`, isSel && `checked`) as Record<string, string>)}
+              {...(part.at(`checkbox`, key, isSel && `checked`) as Record<string, string>)}
               className={`${part(`checkbox`).className as string} xui-Checkbox-box`}
               checked={isSel}
               aria-label={ctx.t(`selectRow`)}
@@ -224,8 +267,8 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
             </CheckboxPrimitive.Root>
           </div>
         ) : null}
-        {columns.map((c) => (
-          <div key={c.key} role={interactive ? `gridcell` : `cell`} {...(part.with(`cell`, { align: c.align ?? `start` }) as Record<string, string>)} data-type={c.type ?? `text`}>
+        {columns.map((c, ci) => (
+          <div key={c.key} role={interactive ? `gridcell` : `cell`} {...(part.atWith(`cell`, `${key}.${ci}`, { align: c.align ?? `start` }) as Record<string, string>)} data-type={c.type ?? `text`}>
             {cell(c, row, index)}
           </div>
         ))}
@@ -237,9 +280,9 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
     <div role="rowgroup" {...(part(`header`) as Record<string, string>)} data-sticky={bool(props.stickyHeader) ? `true` : undefined}>
       <div role="row" aria-rowindex={1} className="xui-table-row" style={{ gridTemplateColumns: template }}>
         {selectable === `multiple` ? (
-          <div role="columnheader" {...(part.with(`headerCell`, { align: `center` }) as Record<string, string>)}>
+          <div role="columnheader" className="xui-table-check">
             <CheckboxPrimitive.Root
-              {...(part(`checkbox`, allSelected && `checked`) as Record<string, string>)}
+              {...(part.at(`checkbox`, `header`, allSelected && `checked`) as Record<string, string>)}
               className={`${part(`checkbox`).className as string} xui-Checkbox-box`}
               checked={allSelected ? true : someSelected ? `indeterminate` : false}
               aria-label={ctx.t(`selectAll`)}
@@ -251,11 +294,11 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
             </CheckboxPrimitive.Root>
           </div>
         ) : null}
-        {columns.map((c) => {
+        {columns.map((c, ci) => {
           const active = sort?.key === c.key ? sort.direction : null
           const ariaSort = active === `asc` ? `ascending` : active === `desc` ? `descending` : c.sortable ? `none` : undefined
           return (
-            <div key={c.key} role="columnheader" aria-sort={ariaSort} {...(part.with(`headerCell`, { align: c.align ?? `start` }) as Record<string, string>)}>
+            <div key={c.key} role="columnheader" aria-sort={ariaSort} {...(part.atWith(`headerCell`, ci, { align: c.align ?? `start` }) as Record<string, string>)}>
               {c.sortable ? (
                 <button type="button" className="xui-table-sort" aria-label={phrase(ctx, active === `asc` ? `sortByDescending` : `sortByAscending`, { name: str(c.label) }, () => `${str(c.label)}: ${ctx.t(active === `asc` ? `sortDescending` : `sortAscending`)}`)} onClick={() => cycle(c)}>
                   <span>{str(c.label)}</span>
@@ -281,10 +324,11 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
       aria-rowcount={rows.length + 1}
       aria-multiselectable={selectable === `multiple` || undefined}
       aria-describedby={caption ? `${domId}.caption` : undefined}
+      aria-label={caption ? undefined : ((rootProps as Record<string, string | undefined>)[`aria-label`] ?? ctx.t(`table`))}
       data-windowed={windowed ? `true` : undefined}
     >
       {header}
-      <div role="rowgroup" className="xui-table-body" ref={bodyRef}>
+      <div role="rowgroup" {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-table-body`} ref={bodyRef}>
         {rows.length === 0 ? (
           <div role="row">
             <div role="cell" {...(part(`empty`) as Record<string, string>)}>

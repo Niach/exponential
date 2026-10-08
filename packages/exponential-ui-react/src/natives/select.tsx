@@ -228,6 +228,7 @@ function Combobox({ props, rootProps, part, id, listId, multiple, searchable, pl
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
           <PopoverPrimitive.Content
             {...(part(`content`, open && `open`) as Record<string, string>)}
+            dir={ctx.direction}
             align="start"
             sideOffset={OVERLAY_OFFSET}
             collisionPadding={OVERLAY_PADDING}

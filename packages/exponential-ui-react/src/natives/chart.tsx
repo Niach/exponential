@@ -13,9 +13,10 @@
 // mirror.
 
 import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
-import { chartExtent, niceTicks, seriesColor, DONUT_HOLE } from "@exponential-at/ui"
+import { chartExtent, chartSummaryParams, niceTicks, seriesColor, DONUT_HOLE } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
+import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
 import { tokenVar } from "../theme-css"
 import { arr, bool, num, str, useParts } from "./shared"
@@ -40,14 +41,19 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const longest = Math.max(0, ...series.map((s) => s.values.length))
   const categories = arr<unknown>(props.categories).map(String)
   const n = Math.max(categories.length, longest)
-  const height = Math.max(16, num(props.height, sparkline ? 24 : 200))
+  // Round 2 §7: `height` = the WHOLE chart box (title, legend and axes
+  // inside); the plot takes what is left of it.
+  const boxHeight = Math.max(16, num(props.height, sparkline ? 24 : 200))
   const showAxes = !sparkline && !round && props.showAxes !== false
   const showGrid = !sparkline && !round && props.showGrid !== false
   const showValues = bool(props.showValues)
   const [box, setBox] = useState<HTMLDivElement | null>(null)
   const size = useElementSize(box, 320)
   const width = Math.max(40, size.width || 320)
-  const fmt = useMemo(() => new Intl.NumberFormat(ctx.locale, { maximumFractionDigits: 2 }), [ctx.locale])
+  const height = Math.max(16, size.measured && size.height > 0 ? size.height : boxHeight)
+  // Ticks, value labels, the tooltip and the summary format through the
+  // surface Formatter (round 2 §3).
+  const fmt = useMemo(() => ({ format: (v: number) => ctx.formatter.number(v) }), [ctx.formatter])
   const [active, setActive] = useState<number | null>(null)
   const plotRef = useRef<SVGSVGElement>(null)
 
@@ -177,7 +183,9 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const legendEntries = round ? categories.map((c, i) => ({ name: c, color: colorVar(i) })) : series.map((s, i) => ({ name: s.name, color: colorVar(i, s.tone) }))
   const legend = props.showLegend !== false && !sparkline && legendEntries.length >= 2
   const title = str(props.title)
-  const summary = `${title ? `${title}: ` : ``}${kind} chart, ${series.map((s) => s.name).filter(Boolean).join(`, `) || `${series.length} series`}${round ? `` : `, ${fmt.format(ext.min)} to ${fmt.format(ext.max)}`}`
+  const summaryParams = chartSummaryParams(series)
+  const summaryText = ctx.t(`chartSummary`, { series: summaryParams.series, min: fmt.format(summaryParams.min), max: fmt.format(summaryParams.max) })
+  const summary = title ? `${title}: ${summaryText}` : summaryText
 
   const onKey = (e: KeyboardEvent) => {
     if (n === 0) return
@@ -214,13 +222,13 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
     ) : null
 
   return (
-    <div {...(rootProps as Record<string, unknown>)} data-kind={kind} data-mirrored={rtl ? `true` : undefined}>
+    <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { height: boxHeight })} data-kind={kind} data-mirrored={rtl ? `true` : undefined}>
       {title ? (
         <span {...(part(`title`) as Record<string, string>)} id={`${id}-title`}>
           {title}
         </span>
       ) : null}
-      <div ref={setBox} className="xui-chart-plot" style={{ height }}>
+      <div ref={setBox} className="xui-chart-plot">
         <svg
           ref={plotRef}
           width={width}

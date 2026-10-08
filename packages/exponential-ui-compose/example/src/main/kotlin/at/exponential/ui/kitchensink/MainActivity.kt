@@ -72,10 +72,16 @@ class MainActivity : ComponentActivity() {
         val options = LaunchOptions.parse(intent)
         setContent {
             val scope = rememberCoroutineScope()
-            val state = remember { SinkState(this, options, scope) }
+            val state = remember { SinkState(this, options, scope).also { live = it.model } }
             SystemBars(state)
             SinkScreen(state, rootView = window.decorView)
         }
+    }
+
+    companion object {
+        /** The live surface model (the instrumented tests read it). */
+        @Volatile
+        var live: at.exponential.ui.model.SurfaceModel? = null
     }
 
     /** Edge to edge, the bars' icons following the picked mode over the theme's background. */

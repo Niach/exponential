@@ -272,15 +272,22 @@ textarea.sdk-input {
   width: 100%;
   max-width: 100%;
 }
-.sdk-stage.is-dark {
-  background: #0a0a0a;
+/* The theme's two grounds ride as --ground-light/--ground-dark
+   (backgrounds.ts groundVars); the mode class picks one. `is-auto` = no pick
+   yet: <html data-scheme> decides, so the prerender paints the visitor's
+   scheme before hydration. */
+.sdk-stage.is-dark,
+.sdk-stage.is-auto {
+  background: var(--ground-dark, #0a0a0a);
 }
-.sdk-stage.is-light {
-  background: #ffffff;
+.sdk-stage.is-light,
+:root[data-scheme="light"] .sdk-stage.is-auto {
+  background: var(--ground-light, #ffffff);
   color-scheme: light;
   border-color: var(--glass-stroke-strong);
 }
-.sdk-stage.is-light .sdk-placeholder {
+.sdk-stage.is-light .sdk-placeholder,
+:root[data-scheme="light"] .sdk-stage.is-auto .sdk-placeholder {
   color: #737373;
 }
 /* Overlays position `fixed`; the transform makes the stage their containing
@@ -292,11 +299,12 @@ textarea.sdk-input {
 }
 
 /* ─── Shots ─── */
+/* Equal heights: each column's share is its shot's width/height ratio. */
 .sdk-shots {
   display: grid;
-  grid-template-columns: 1.5fr 0.62fr 0.62fr 1.5fr;
+  grid-template-columns: 1.5fr 0.46fr 0.45fr 1.6fr;
   gap: 12px;
-  align-items: end;
+  align-items: start;
   margin: 4px 0 8px;
 }
 .sdk-shot {
@@ -345,18 +353,90 @@ textarea.sdk-input {
 }
 
 /* ─── Components index ─── */
+.sdk-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .sdk-index {
+  margin-top: 40px;
   padding-bottom: 96px;
 }
-.sdk-index-jump {
+.sdk-index-head h1 {
+  font-size: clamp(32px, 4.4vw, 46px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  margin: 0 0 6px;
+}
+.sdk-index-sub {
+  margin: 0 0 20px;
+  font-size: 15px;
+  color: var(--fg-muted);
+}
+.sdk-index-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sdk-search {
+  max-width: 420px;
+}
+.sdk-search .sdk-input {
+  font-size: 14px;
+  padding: 9px 12px;
+}
+.sdk-filter {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 4px;
+}
+button.sdk-chip {
+  appearance: none;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sdk-chip[aria-pressed="true"] {
+  color: var(--accent-fg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.sdk-chip[aria-pressed="true"] span {
+  color: inherit;
+  opacity: 0.7;
+}
+.sdk-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--fg-dim);
+}
+.sdk-legend .sdk-pdot + .sdk-pdot,
+.sdk-legend .sdk-pdot:not(:first-child) {
+  margin-left: 10px;
+}
+.sdk-index-status {
+  min-height: 1em;
+  margin: 18px 0 0;
+  font-size: 12.5px;
+  color: var(--fg-muted);
 }
 .sdk-index-group {
-  margin-top: 40px;
+  margin-top: 28px;
   scroll-margin-top: 72px;
+}
+.sdk-index-group[hidden],
+.sdk-card[hidden] {
+  display: none;
 }
 .sdk-index-group h2 {
   display: flex;
@@ -369,10 +449,11 @@ textarea.sdk-input {
 }
 .sdk-index-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 12px;
 }
 .sdk-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--glass-stroke-card);
@@ -381,44 +462,50 @@ textarea.sdk-input {
   overflow: hidden;
   transition:
     border-color 140ms,
-    background 140ms,
-    transform 140ms;
+    background 140ms;
 }
 .sdk-card:hover {
   border-color: var(--glass-stroke-active);
   background: var(--glass-fill-active);
 }
-/* The web shot is 1800×1200 with the specimen at the top left: show that
-   corner, magnified. */
+.sdk-card:focus-within {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
 .sdk-card-thumb {
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: #0a0a0a;
+  height: 176px;
   border-bottom: 1px solid var(--glass-stroke-row);
 }
-.sdk-card-thumb img {
-  display: block;
-  width: 760px;
-  max-width: none;
-  height: auto;
-}
-.sdk-card-thumb .sdk-shot-missing {
+.sdk-card-thumb .sdk-mini {
   height: 100%;
+  border-radius: 0;
 }
 .sdk-card-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px 14px;
+  flex: 1;
 }
 .sdk-card-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--fg);
+}
+.sdk-card-link {
+  outline: none;
+}
+/* The whole card is the link (the render is inert, so nothing nests). */
+.sdk-card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 .sdk-card-body p {
   margin: 0;
@@ -429,6 +516,75 @@ textarea.sdk-input {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.sdk-card-body p code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.sdk-dots {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.sdk-pdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--fg-dim);
+}
+.sdk-pdot.is-on {
+  background: var(--fg-muted);
+  border-color: var(--fg-muted);
+}
+
+/* ─── Small live renders (cards, variants) ─── */
+.sdk-mini {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 14px;
+  border-radius: var(--radius-section);
+  /* fixed overlays (a toast layer) stay inside the box */
+  transform: translateZ(0);
+  /* the page scheme's ground (MiniSurface's groundVars), from the prerender on */
+  background: var(--ground-dark, transparent);
+}
+:root[data-scheme="light"] .sdk-mini {
+  background: var(--ground-light, transparent);
+}
+.sdk-mini-inner {
+  max-height: 100%;
+}
+.sdk-mini-wait {
+  width: 40%;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--glass-fill-active);
+}
+.sdk-variants {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.sdk-variant {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sdk-variant .sdk-mini {
+  height: 132px;
+  border: 1px solid var(--glass-stroke-card);
+}
+.sdk-variant figcaption code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
 }
 
 /* ─── Component page ─── */
@@ -814,15 +970,63 @@ textarea.sdk-input {
   border-bottom: 1px solid var(--glass-stroke-section);
   min-height: calc(100vh - 56px);
 }
-/* Sticky under the site's 56px header. */
+/* Before builder.css arrives (it loads with the builder's module), the
+   prerendered toolbar already has its final box: the same rules, so the
+   mount moves nothing (no layout shift). */
+.sdk-builder {
+  font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
 .sdk-builder .bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  position: sticky;
+  z-index: 2;
+}
+.sdk-builder .bar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sdk-builder .grow {
+  flex: 1;
+}
+.sdk-builder select,
+.sdk-builder button {
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.sdk-builder button {
+  padding: 5px 10px;
+}
+.sdk-builder .seg {
+  display: inline-flex;
+  border: 1px solid transparent;
+}
+.sdk-builder .seg button {
+  border: 0;
+}
+.sdk-builder .layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+}
+/* Base select: as wide before its options arrive as after. */
+.sdk-builder #base {
+  min-width: 190px;
+}
+/* Sticky under the site's 56px header (.xb.sdk-builder outranks
+   builder.css, which loads after this sheet). */
+.xb.sdk-builder .bar {
   top: 56px;
   flex-wrap: wrap;
 }
-.sdk-builder .layout {
+.xb.sdk-builder .layout {
   min-height: calc(100vh - 56px - 46px);
 }
-.sdk-builder .panel {
+.xb.sdk-builder .panel {
   top: calc(56px + 46px);
   height: calc(100vh - 56px - 46px);
 }
@@ -1061,6 +1265,174 @@ textarea.sdk-input {
   font-size: 11.5px;
 }
 
+/* ─── Component page: head, studio, tables ─── */
+.sdk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+}
+.sdk-meta > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sdk-meta dt {
+  color: var(--fg-dim);
+}
+.sdk-meta dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+.sdk-meta code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.sdk-lead code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+.sdk-stage.is-hero {
+  min-height: 260px;
+  padding: 32px 24px;
+}
+/* A fixed-height frame that centres its content: the placeholder → surface
+   swap inserts nodes, it never moves one (no layout shift). */
+.sdk-stage > .sdk-stage-frame {
+  width: 100%;
+  max-width: 100%;
+  min-height: 196px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.sdk-stage-frame > .sdk-placeholder {
+  min-height: 120px !important;
+}
+.sdk-stage.is-sized > .sdk-stage-frame {
+  flex: none;
+  max-width: none;
+}
+.sdk-stage.is-sized {
+  overflow: hidden;
+}
+/* The preset's edges, so the width reads at a glance. */
+.sdk-stage.is-sized > .sdk-stage-frame {
+  outline: 1px dashed var(--glass-stroke-strong);
+  outline-offset: 10px;
+}
+.sdk-stage > .sdk-stage-size {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  width: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.sdk-stage.is-light > .sdk-stage-size,
+:root[data-scheme="light"] .sdk-stage.is-auto > .sdk-stage-size {
+  color: #63636b;
+}
+.sdk-studio .sdk-tabs {
+  margin-top: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sdk-studio .sdk-tabs button {
+  white-space: nowrap;
+}
+.sdk-panel {
+  padding-top: 12px;
+}
+.sdk-panel[hidden] {
+  display: none;
+}
+.sdk-panel .sdk-controls {
+  margin-top: 0;
+}
+.sdk-panel .docs-code pre {
+  max-height: 520px;
+  overflow: auto;
+}
+.sdk-tabs button:focus-visible,
+.sdk-seg button:focus-visible,
+.sdk-chip:focus-visible,
+.sdk-switch:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+.sdk-props td:first-child {
+  white-space: nowrap;
+}
+.sdk-bindable.is-responsive {
+  color: #f0abfc;
+  background: color-mix(in oklab, #d946ef 12%, transparent);
+}
+:root[data-scheme="light"] .sdk-bindable.is-responsive {
+  color: #a21caf;
+}
+.sdk-keys td:first-child {
+  width: 40%;
+}
+.sdk-keys kbd,
+.sdk-table kbd {
+  display: inline-block;
+  margin: 1px 4px 1px 0;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg);
+  border: 1px solid var(--glass-stroke-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--glass-fill-row);
+}
+.sdk-table td code {
+  font-family: var(--font-mono);
+}
+.sdk-related {
+  margin-top: 36px;
+}
+.sdk-related h2 {
+  font-size: 14px !important;
+  font-weight: 600;
+  margin: 0 0 10px !important;
+}
+.sdk-related div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sdk-parity-blurb p {
+  margin: 0 0 6px;
+}
+.sdk-parity-blurb details {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.sdk-parity-blurb summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+.sdk-shot-missing span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sdk-shot .sdk-shot-missing {
+  border: 1px dashed var(--glass-stroke-strong);
+  border-radius: inherit;
+}
+
 /* ─── Narrow screens ─── */
 @media (max-width: 960px) {
   .sdk-gallery-grid {
@@ -1082,10 +1454,11 @@ textarea.sdk-input {
   .sdk-home-shots .sdk-shot:last-child {
     grid-column: auto;
   }
-  .sdk-builder .layout {
+  /* .xb.sdk-builder: outranks builder.css, which loads after this sheet. */
+  .xb.sdk-builder .layout {
     grid-template-columns: 1fr;
   }
-  .sdk-builder .panel {
+  .xb.sdk-builder .panel {
     position: static;
     height: auto;
     max-height: 50vh;
@@ -1099,11 +1472,110 @@ textarea.sdk-input {
   .sdk-page-component .docs-sidebar {
     display: none;
   }
-  .sdk-shots {
-    grid-template-columns: 1fr 1fr;
+  .sdk-index {
+    margin-top: 20px;
   }
-  .sdk-shots .sdk-shot:not(.is-phone) {
+  /* Phones: two cards a row, a smaller render, no badges. */
+  .sdk-index-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .sdk-card-thumb {
+    height: 112px;
+  }
+  .sdk-card .sdk-mini {
+    padding: 8px;
+  }
+  .sdk-card-body {
+    padding: 9px 10px 10px;
+    gap: 4px;
+  }
+  .sdk-card-title {
+    font-size: 13px;
+  }
+  .sdk-card-title .sdk-badges {
+    display: none;
+  }
+  .sdk-card-body p {
+    font-size: 11.5px;
+  }
+  .sdk-legend {
+    display: none;
+  }
+  /* Phones: one equal-height strip that scrolls sideways. */
+  .sdk-shots {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 6px;
+  }
+  .sdk-shots .sdk-shot {
+    flex: none;
+    scroll-snap-align: start;
+  }
+  .sdk-shots .sdk-shot-frame {
+    height: 190px;
+  }
+  .sdk-shots .sdk-shot.is-web .sdk-shot-frame {
+    width: 285px;
+  }
+  .sdk-shots .sdk-shot.is-desktop .sdk-shot-frame {
+    width: 304px;
+  }
+  .sdk-shots .sdk-shot.is-ios .sdk-shot-frame,
+  .sdk-shots .sdk-shot.is-android .sdk-shot-frame {
+    width: 87px;
+  }
+  .sdk-variants {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sdk-variant .sdk-mini {
+    height: 104px;
+  }
+  /* Props: one block per prop instead of a four-column squeeze. */
+  .sdk-props thead {
+    display: none;
+  }
+  .sdk-props tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--glass-stroke-row);
+  }
+  .sdk-props tr:last-child {
+    border-bottom: 0;
+  }
+  .sdk-props td {
+    padding: 0 !important;
+    border: 0 !important;
+  }
+  .sdk-props td:nth-child(2) {
+    text-align: right;
+  }
+  .sdk-props td:nth-child(3):has(.sdk-dim) {
+    display: none;
+  }
+  .sdk-props td:nth-child(3)::before {
+    content: "default ";
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .sdk-props td:nth-child(4) {
     grid-column: 1 / -1;
+  }
+  .sdk-keys td:first-child {
+    width: auto;
+  }
+  .sdk-shots .sdk-shot img,
+  .sdk-shots .sdk-shot .sdk-shot-missing {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .sdk-stage.is-hero {
+    padding: 20px 14px;
   }
   .sdk-controls {
     grid-template-columns: 1fr;
@@ -1134,4 +1606,13 @@ textarea.sdk-input {
   .sdk-builder-intro {
     padding: 20px;
   }
+}
+
+/* Light scheme: the literal status colours need their dark twins. */
+:root[data-scheme="light"] .sdk-parity-cell.is-ok .sdk-parity-status {
+  color: #166534;
+}
+:root[data-scheme="light"] .sdk-parity-cell.is-leftover .sdk-parity-status,
+:root[data-scheme="light"] .sdk-issue-kind {
+  color: #92400e;
 }

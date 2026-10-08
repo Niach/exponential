@@ -138,9 +138,10 @@ export function ownProps(flat: Record<string, unknown>): Record<string, unknown>
 export function specimenSubject(node: Nested, component: string): Nested | null {
   const first = node.children?.[0]
   if (!first) return null
-  if (first.component === component) return first
-  const hit = (first.children ?? []).find((c) => c.component === component)
+  // The case's own children first (a Stack specimen's case IS a Stack), never its caption.
+  const hit = (first.children ?? []).find((c) => c.component === component && !c.id.endsWith(`-label`))
   if (hit) return hit
+  if (first.component === component) return first
   // A deeper subject (rare): pre-order search.
   const stack: Nested[] = [...(first.children ?? [])]
   while (stack.length) {

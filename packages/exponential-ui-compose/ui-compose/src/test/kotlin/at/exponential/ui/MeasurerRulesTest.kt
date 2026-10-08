@@ -39,15 +39,16 @@ class MeasurerRulesTest {
         val wrapped = s.measure("Hello world again and again", ts, wrap = 60f, lines = null)
         assertTrue("height ${wrapped.height}", wrapped.height >= 40f)
         assertEquals("n lines = n × lineHeight", 0f, wrapped.height % 20f, 0f)
-        assertEquals("a one-line text shrinks to nothing at min-content", 0f, s.measure("Hello world", ts, wrap = 0f, lines = 1).width, 0f)
+        assertEquals("a one-line text is nowrap: min-content = the whole line", s.maxContent("Hello world", ts), s.measure("Hello world", ts, wrap = 0f, lines = 1).width, 0f)
         assertEquals(s.minContent("Hello world", ts), s.measure("Hello world", ts, wrap = 0f, lines = null).width, 0f)
         assertEquals("min-content = the widest word", s.maxContent("world", ts), s.minContent("Hello world", ts), 0f)
         assertEquals("clamped to the lines prop", 40f, s.measure("a\nb\nc", ts, wrap = null, lines = 2).height, 0f)
         assertEquals(60f, s.measure("a\nb\nc", ts, wrap = null, lines = null).height, 0f)
         // A one-line text never wraps: the line height at any width.
         assertEquals(20f, s.measure("Hello world again and again", ts, wrap = 30f, lines = 1).height, 0f)
-        // Widths are whole dp (ceil), and max-content is the line width.
-        assertEquals(one.width, kotlin.math.ceil(one.width), 0f)
+        // Widths are the FRACTIONAL shaped extent (never ceiled to a px, as the
+        // web and gpui), and max-content is the line width.
+        assertTrue("fractional width ${one.width}", one.width != kotlin.math.ceil(one.width))
         assertEquals(s.maxContent("Hello world", ts), one.width, 0f)
     }
 

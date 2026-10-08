@@ -52,10 +52,13 @@ describe(`the font set`, () => {
     for (const spec of Object.values(fonts.families)) if (spec.substitute) expect(fonts.families[spec.substitute]?.faces?.length).toBeGreaterThan(0)
   })
 
-  it(`declares substitutes under the substituted name`, () => {
+  it(`declares substitutes under the substituted name; Nunito and Fira Code are real faces (round 2)`, () => {
     const css = fontFaceCss(fonts, (f) => `/repo/${f}`)
-    expect(css).toContain(`font-family: "Nunito"; src: url("/repo/apps/desktop/assets/fonts/Inter-Regular.ttf")`)
     expect(css).toContain(`font-family: "ui-monospace"; src: url("/repo/apps/desktop/assets/fonts/JetBrainsMono-Regular.ttf")`)
+    expect(css).toContain(`font-family: "Nunito"; src: url("/repo/packages/exponential-ui/conformance/fonts/Nunito-Regular.ttf")`)
+    expect(css).toContain(`font-family: "Fira Code"; src: url("/repo/packages/exponential-ui/conformance/fonts/FiraCode-Regular.ttf")`)
+    expect(fonts.families.Nunito.substitute).toBeUndefined()
+    expect(fonts.families[`Fira Code`].substitute).toBeUndefined()
     expect(css).toContain(`font-weight: 600`)
   })
 })

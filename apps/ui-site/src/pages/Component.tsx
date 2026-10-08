@@ -1,17 +1,30 @@
 import { DocsLayout, DocsSection } from "@exp/site-shell"
-import { COMPONENT_DOCS, SHOT_PLATFORMS, THEMES_DOC, componentBySlug, componentPath, specimenById, type ComponentDoc } from "../lib/catalog"
+import {
+  ORDERED_DOCS,
+  SHOT_PLATFORMS,
+  THEMES_DOC,
+  componentBySlug,
+  componentPath,
+  componentSummary,
+  keyboardRows,
+  macroParts,
+  relatedComponents,
+  specimenById,
+  componentByName,
+  type ComponentDoc,
+} from "../lib/catalog"
 import type { PageProps } from "../lib/routes"
 import { appParityFor, type AppParity, type ParityCell, type ParityPlatform } from "../data/app-parity"
 import { themeBackgrounds } from "../sdk/backgrounds"
 import { ComponentStudio } from "../sdk/ComponentStudio"
-import { groupLabel, KindBadges } from "../sdk/labels"
+import { VariantGallery, hasVariants } from "../sdk/VariantGallery"
+import { groupLabel, KindBadges, RichText } from "../sdk/labels"
 import { ShotFigure } from "../sdk/Shot"
 
-/* One page per core component (the slug from the path): the model-facing
-   description, the live studio (render + props switcher + A2UI JSON), the
-   four platform shots, the props table, slots/events/aliases, the theme's
-   recipe parts and where the Exponential app uses it. The component's
-   "dialog": everything about it on one page, all from generated data. */
+/* One page per core component (the slug from the path), all from generated
+   data: the live studio (render, switches, props, JSON, embed code), the four
+   platform shots, the variants, props, events and slots, keyboard, theming
+   parts, where the Exponential app uses it, related components. */
 
 const REPO_BLOB = `https://github.com/Niach/exponential/blob/master/`
 const PLATFORM_ORDER: { id: ParityPlatform; label: string }[] = [
@@ -25,102 +38,198 @@ export default function ComponentPage({ path }: PageProps) {
   const slug = path.split(`/`).filter(Boolean)[1] ?? ``
   const doc = componentBySlug(slug)
   if (!doc) return <div className="shell docs-hero">Unknown component.</div>
-  const index = COMPONENT_DOCS.indexOf(doc)
-  const prev = COMPONENT_DOCS[index - 1]
-  const next = COMPONENT_DOCS[index + 1]
+  const index = ORDERED_DOCS.indexOf(doc)
+  const prev = ORDERED_DOCS[index - 1]
+  const next = ORDERED_DOCS[index + 1]
   const specimen = specimenById(doc.specimenId)
   const recipe = THEMES_DOC.components.find((c) => c.name === doc.name)
   const parity = appParityFor(doc.name)
+  const backgrounds = themeBackgrounds(THEMES_DOC)
+  const variants = hasVariants(doc, specimen)
+  const keys = keyboardRows(doc)
+  const parts = doc.kind === `macro` ? macroParts(doc.name) : []
+  const related = relatedComponents(doc)
 
   const sections = [
-    { id: `live`, num: `01`, label: `Live render` },
-    { id: `platforms`, num: `02`, label: `Every platform` },
-    { id: `props`, num: `03`, label: `Props` },
-    { id: `contract`, num: `04`, label: `Slots, events, theming` },
-    ...(parity.length ? [{ id: `in-the-app`, num: `05`, label: `In the Exponential app` }] : []),
-  ]
+    { id: `preview`, label: `Preview` },
+    { id: `platforms`, label: `Platforms` },
+    ...(variants ? [{ id: `variants`, label: `Variants` }] : []),
+    { id: `props`, label: `Props` },
+    { id: `events-slots`, label: `Events and slots` },
+    { id: `accessibility`, label: `Accessibility` },
+    { id: `theming`, label: `Theming` },
+    ...(parity.length ? [{ id: `in-the-app`, label: `In the Exponential app` }] : []),
+  ].map((s, i) => ({ ...s, num: String(i + 1).padStart(2, `0`) }))
+  const num = (id: string) => sections.find((s) => s.id === id)!.num
 
   return (
     <div className="sdk-page-component">
-      <DocsLayout nav={COMPONENT_DOCS.map((d) => ({ path: componentPath(d), label: d.name }))} title="Components" sections={sections} currentPath={path}>
+      <DocsLayout nav={ORDERED_DOCS.map((d) => ({ path: componentPath(d), label: d.name, group: groupLabel(d.group) }))} title="Components" sections={sections} currentPath={path}>
         <header className="sdk-component-head">
-          <a className="sdk-crumb" href="/components/">
-            Components · {groupLabel(doc.group)}
+          <a className="sdk-crumb" href={`/components/?group=${doc.group}`}>
+            Components / {groupLabel(doc.group)}
           </a>
           <h1>
             {doc.name} <KindBadges doc={doc} />
           </h1>
-          <p className="sdk-lead">{doc.description}</p>
-          {doc.macro && <p className="sdk-note">{doc.macro}</p>}
+          <p className="sdk-lead">
+            <RichText text={componentSummary(doc)} />
+          </p>
+          <dl className="sdk-meta">
+            {parts.length > 0 && (
+              <div>
+                <dt>Built from</dt>
+                <dd>
+                  {parts.map((p) => (
+                    <a key={p} className="sdk-chip" href={componentPath(componentByName(p)!)}>
+                      {p}
+                    </a>
+                  ))}
+                </dd>
+              </div>
+            )}
+            {doc.basic.length > 0 && (
+              <div>
+                <dt>A2UI basic</dt>
+                <dd>
+                  {doc.basic.map((b) => (
+                    <code key={b}>{b}</code>
+                  ))}
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>Children</dt>
+              <dd>
+                <code>{doc.children}</code>
+              </dd>
+            </div>
+          </dl>
         </header>
 
-        <DocsSection id="live" num="01" label="Live render">
-          <p>
-            Rendered right here by <code>@exponential-at/ui-react</code>. Switch the props below; the render and the JSON follow.
-          </p>
-          <ComponentStudio doc={doc} specimen={specimen} themes={THEMES_DOC.themes} backgrounds={themeBackgrounds(THEMES_DOC)} />
+        <DocsSection heading id="preview" num={num(`preview`)} label="Preview">
+          <ComponentStudio doc={doc} specimen={specimen} themes={THEMES_DOC.themes} backgrounds={backgrounds} />
         </DocsSection>
 
-        <DocsSection id="platforms" num="02" label="Every platform">
-          <p>The same specimen surface painted natively by each renderer (the stored shots of view <code>{doc.specimenId}</code>).</p>
+        <DocsSection heading id="platforms" num={num(`platforms`)} label="Platforms">
           <div className="sdk-shots">
             {SHOT_PLATFORMS.map((p) => (
               <ShotFigure key={p.id} viewId={doc.specimenId} platform={p} title={doc.name} />
             ))}
           </div>
+          <p className="sdk-note">
+            View <code>{doc.specimenId}</code>, painted by each native renderer.
+          </p>
         </DocsSection>
 
-        <DocsSection id="props" num="03" label="Props">
+        {variants && (
+          <DocsSection heading id="variants" num={num(`variants`)} label="Variants">
+            <VariantGallery doc={doc} specimen={specimen} backgrounds={backgrounds} />
+          </DocsSection>
+        )}
+
+        <DocsSection heading id="props" num={num(`props`)} label="Props">
           <PropsTable doc={doc} />
         </DocsSection>
 
-        <DocsSection id="contract" num="04" label="Slots, events, theming">
+        <DocsSection heading id="events-slots" num={num(`events-slots`)} label="Events and slots">
+          <EventsSlots doc={doc} />
+        </DocsSection>
+
+        <DocsSection heading id="accessibility" num={num(`accessibility`)} label="Accessibility">
           <dl className="sdk-facts">
-            <dt>Kind</dt>
-            <dd>{doc.kind === `macro` ? `Macro: expands into natives before painting, so every renderer gets it for free.` : `Native: every renderer paints it.`}</dd>
-            <dt>Children</dt>
+            <dt>Role</dt>
             <dd>
-              <code>{doc.children}</code>
+              <code>{doc.accessibility?.role ?? `none`}</code>
             </dd>
-            <dt>Slots</dt>
-            <dd>{doc.slots.length ? doc.slots.map((s) => <code key={s}>{s}</code>) : `none`}</dd>
-            <dt>Events</dt>
-            <dd>{doc.events.length ? doc.events.map((e) => <code key={e}>on.{e}</code>) : `none`}</dd>
-            <dt>A2UI basic</dt>
-            <dd>{doc.basic.length ? doc.basic.map((b) => <code key={b}>{b}</code>) : `no basic-catalog alias`}</dd>
-            <dt>Core lite</dt>
-            <dd>{doc.lite ? `yes` : `no (left out of the lite catalog)`}</dd>
-            {recipe && (
+            {doc.accessibility?.notes && (
               <>
-                <dt>Recipe parts</dt>
+                <dt>Semantics</dt>
                 <dd>
-                  {recipe.parts.map((p) => (
-                    <code key={p}>
-                      {doc.name}/{p}
-                    </code>
-                  ))}
+                  <RichText text={doc.accessibility.notes} />
                 </dd>
-                <dt>Recipe props</dt>
-                <dd>{recipe.props.length ? recipe.props.map((p) => <code key={p}>{p}</code>) : `none (state only)`}</dd>
               </>
             )}
           </dl>
+          {keys.length > 0 ? (
+            <div className="sdk-table-wrap">
+              <table className="sdk-table sdk-keys">
+                <thead>
+                  <tr>
+                    <th scope="col">Keys</th>
+                    <th scope="col">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {keys.map((k, i) => (
+                    <tr key={i}>
+                      <td>{k.keys.length ? k.keys.map((key) => <kbd key={key}>{key}</kbd>) : <span className="sdk-dim">–</span>}</td>
+                      <td>
+                        <RichText text={k.action} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="sdk-note">Not focusable; no keys.</p>
+          )}
+        </DocsSection>
+
+        <DocsSection heading id="theming" num={num(`theming`)} label="Theming">
+          {recipe ? (
+            <dl className="sdk-facts">
+              <dt>Recipe parts</dt>
+              <dd>
+                {recipe.parts.map((p) => (
+                  <code key={p}>
+                    {doc.name}/{p}
+                  </code>
+                ))}
+              </dd>
+              <dt>Keyed by</dt>
+              <dd>
+                {recipe.props.map((p) => (
+                  <code key={p}>{p}</code>
+                ))}
+                {THEMES_DOC.states.map((s) => (
+                  <code key={s} className="sdk-dim">
+                    :{s}
+                  </code>
+                ))}
+              </dd>
+            </dl>
+          ) : (
+            <p className="sdk-note">No recipe: styled through the components it is built from.</p>
+          )}
           <p className="sdk-note">
-            A theme styles each part with rules keyed by <code>when</code> (the recipe props and the states {THEMES_DOC.states.join(`, `)}). See{` `}
-            <a href="/themes/">Themes</a> and <a href="/guides/themes/">Write your own theme</a>.
+            <a href="/themes/">Themes</a> · <a href="/guides/themes/">Write a theme</a>
           </p>
         </DocsSection>
 
         {parity.length > 0 && (
-          <DocsSection id="in-the-app" num="05" label="In the Exponential app">
-            <p>Where the Exponential app draws the same thing with its own components on each platform.</p>
+          <DocsSection heading id="in-the-app" num={num(`in-the-app`)} label="In the Exponential app">
             {parity.map((row) => (
               <ParityRow key={row.id} row={row} />
             ))}
           </DocsSection>
         )}
 
-        <nav className="sdk-prevnext" aria-label="Components">
+        {related.length > 0 && (
+          <nav className="sdk-related" aria-label="Related components">
+            <h2>Related</h2>
+            <div>
+              {related.map((r) => (
+                <a key={r.name} className="sdk-chip" href={componentPath(r)}>
+                  {r.name}
+                </a>
+              ))}
+            </div>
+          </nav>
+        )}
+
+        <nav className="sdk-prevnext" aria-label="Previous and next component">
           {prev ? (
             <a href={componentPath(prev)}>
               <span>Previous</span>
@@ -143,17 +252,23 @@ export default function ComponentPage({ path }: PageProps) {
   )
 }
 
+/** The first sentence of a prop description (the table keeps one line). */
+const firstSentence = (text: string) => {
+  const m = text.match(/^(.+?[.!?])(\s|$)/)
+  return m ? m[1]! : text
+}
+
 function PropsTable({ doc }: { doc: ComponentDoc }) {
-  if (doc.props.length === 0) return <p>No props.</p>
+  if (doc.props.length === 0) return <p className="sdk-note">No props.</p>
   return (
     <div className="sdk-table-wrap">
-      <table className="sdk-table">
+      <table className="sdk-table sdk-props">
         <thead>
           <tr>
-            <th>Prop</th>
-            <th>Type</th>
-            <th>Default</th>
-            <th>Description</th>
+            <th scope="col">Prop</th>
+            <th scope="col">Type</th>
+            <th scope="col">Default</th>
+            <th scope="col">Description</th>
           </tr>
         </thead>
         <tbody>
@@ -166,7 +281,12 @@ function PropsTable({ doc }: { doc: ComponentDoc }) {
                   {p.required && <span className="sdk-req">required</span>}
                   {p.bindable && (
                     <span className="sdk-bindable" title="Accepts a data binding {path}">
-                      bindable
+                      bind
+                    </span>
+                  )}
+                  {p.responsive && (
+                    <span className="sdk-bindable is-responsive" title="Takes a per-breakpoint object">
+                      resp
                     </span>
                   )}
                 </td>
@@ -174,10 +294,39 @@ function PropsTable({ doc }: { doc: ComponentDoc }) {
                   <code className="sdk-type">{String(p.type)}</code>
                 </td>
                 <td>{def === undefined ? <span className="sdk-dim">–</span> : <code>{JSON.stringify(def)}</code>}</td>
-                <td>{p.description}</td>
+                <td>
+                  <RichText text={firstSentence(p.description)} />
+                </td>
               </tr>
             )
           })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function EventsSlots({ doc }: { doc: ComponentDoc }) {
+  const rows = [...doc.events.map((e) => ({ kind: `event`, name: `on.${e}` })), ...doc.slots.map((s) => ({ kind: `slot`, name: s }))]
+  if (rows.length === 0) return <p className="sdk-note">No events, no slots. Children: <code>{doc.children}</code>.</p>
+  return (
+    <div className="sdk-table-wrap">
+      <table className="sdk-table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Kind</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={`${r.kind}-${r.name}`}>
+              <td>
+                <code className="sdk-prop-name">{r.name}</code>
+              </td>
+              <td>{r.kind === `event` ? `event: runs an action` : `slot: one component by id`}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -189,8 +338,8 @@ const STATUS_LABEL: Record<string, string> = { ok: `ok`, leftover: `leftover`, "
 function ParityRow({ row }: { row: AppParity }) {
   return (
     <div className="sdk-parity">
-      <h2 className="sdk-parity-title">{row.title}</h2>
-      <p>{row.blurb}</p>
+      <h3 className="sdk-parity-title">{row.title}</h3>
+      <ParityBlurb text={row.blurb} />
       <div className="sdk-parity-grid">
         {PLATFORM_ORDER.map((p) => (
           <ParityCellView key={p.id} label={p.label} cell={row.status[p.id]} />
@@ -204,6 +353,23 @@ function ParityRow({ row }: { row: AppParity }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+/** The first sentence; the rest folds (the parity notes run long). */
+function ParityBlurb({ text }: { text: string }) {
+  const head = firstSentence(text)
+  const rest = text.slice(head.length).trim()
+  return (
+    <div className="sdk-parity-blurb">
+      <p>{head}</p>
+      {rest && (
+        <details>
+          <summary>More</summary>
+          <p>{rest}</p>
+        </details>
       )}
     </div>
   )

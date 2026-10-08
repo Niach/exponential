@@ -1,0 +1,12 @@
+{
+  "$comment": "Round 2 (docs/round-2-contract.md §7): the layout NUMBERS every painter shares where no theme token decides (px unless noted). `windowThreshold` = items past which List and Table window; `windowOverscan` = items rendered beyond each viewport edge; `resizeStep` = percentage points per arrow key on a Resizable handle; `panelMin` = a panel's min (percent) when unset; `resizeHandleHit` = a handle's hit area across its hairline; `fieldIntrinsicWidth` = the max-content width of a text field (Input, Textarea, NumberField, ChipInput: never the browser's `size` default) — picker triggers (Select, DatePicker, DateRangePicker, TimePicker) size to their content; `mediaIntrinsicWidth` = the max-content width of an Image/Video without a width (its min-content is 0); `mediaAspectRatio` = width/height of an Image without `aspectRatio` or a height (Video: its `aspectRatio` default); `treeGuideColumn` = one TreeGuides gutter column (the recipe's `line` width is the STROKE). Generated into every target; src/layout.ts reads it.",
+  "windowThreshold": 50,
+  "windowOverscan": 5,
+  "resizeStep": 10,
+  "panelMin": 10,
+  "resizeHandleHit": 8,
+  "fieldIntrinsicWidth": 160,
+  "mediaIntrinsicWidth": 320,
+  "mediaAspectRatio": 1.7777778,
+  "treeGuideColumn": 16
+}

@@ -1866,6 +1866,44 @@
           "playful": 1.2
         }
       }
+    ],
+    "blur": [
+      {
+        "name": "sm",
+        "ref": "$blur.sm",
+        "values": {
+          "neutral": 4,
+          "exponential": 4,
+          "playful": 4
+        }
+      },
+      {
+        "name": "md",
+        "ref": "$blur.md",
+        "values": {
+          "neutral": 12,
+          "exponential": 12,
+          "playful": 12
+        }
+      },
+      {
+        "name": "lg",
+        "ref": "$blur.lg",
+        "values": {
+          "neutral": 16,
+          "exponential": 16,
+          "playful": 16
+        }
+      },
+      {
+        "name": "xl",
+        "ref": "$blur.xl",
+        "values": {
+          "neutral": 24,
+          "exponential": 24,
+          "playful": 24
+        }
+      }
     ]
   },
   "states": [
@@ -1911,6 +1949,8 @@
     "transition",
     "transitionEasing",
     "transform",
+    "backdropBlur",
+    "animation",
     "native"
   ],
   "components": [
@@ -1965,11 +2005,27 @@
       "kind": "native",
       "parts": [
         "root",
-        "divider"
+        "divider",
+        "section"
       ],
       "props": [
         "direction",
-        "divided"
+        "divided",
+        "stickyHeaders"
+      ]
+    },
+    {
+      "name": "Resizable",
+      "kind": "native",
+      "parts": [
+        "root",
+        "panel",
+        "handle",
+        "grip"
+      ],
+      "props": [
+        "direction",
+        "handle"
       ]
     },
     {
@@ -2086,7 +2142,9 @@
         "gutter",
         "line",
         "lineNumber",
-        "token"
+        "token",
+        "body",
+        "code"
       ],
       "props": [
         "lineNumbers",
@@ -2177,7 +2235,10 @@
       "parts": [
         "root",
         "page",
-        "indicator"
+        "indicator",
+        "controls",
+        "previous",
+        "next"
       ],
       "props": [
         "loop",
@@ -2219,7 +2280,8 @@
         "root",
         "item",
         "trigger",
-        "content"
+        "content",
+        "count"
       ],
       "props": [
         "type"
@@ -2385,7 +2447,8 @@
       "kind": "native",
       "parts": [
         "content",
-        "arrow"
+        "arrow",
+        "anchor"
       ],
       "props": [
         "side"
@@ -2561,7 +2624,8 @@
         "row",
         "cell",
         "checkbox",
-        "empty"
+        "empty",
+        "body"
       ],
       "props": [
         "selectable",
@@ -2691,7 +2755,8 @@
         "increment",
         "unit",
         "description",
-        "error"
+        "error",
+        "input"
       ],
       "props": [
         "disabled"
@@ -2719,7 +2784,8 @@
         "root",
         "item",
         "dot",
-        "label"
+        "label",
+        "items"
       ],
       "props": [
         "orientation"
@@ -2733,7 +2799,8 @@
         "track",
         "thumb",
         "label",
-        "description"
+        "description",
+        "body"
       ],
       "props": [
         "checked",
@@ -2749,7 +2816,8 @@
         "range",
         "thumb",
         "label",
-        "value"
+        "value",
+        "header"
       ],
       "props": []
     },
@@ -2799,7 +2867,8 @@
         "remove",
         "placeholder",
         "description",
-        "error"
+        "error",
+        "input"
       ],
       "props": [
         "disabled"
@@ -2859,7 +2928,10 @@
         "fileMeta",
         "remove",
         "description",
-        "error"
+        "error",
+        "title",
+        "browse",
+        "fileIcon"
       ],
       "props": [
         "multiple",

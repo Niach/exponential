@@ -51,7 +51,7 @@ const STRING_GROUPS = new Set([`type.family`])
 /** Token groups whose values are cubic-bezier tuples. */
 const TUPLE_GROUPS = new Set([`ease`])
 /** The mode-less NUMBER groups under `tokens`, in file order. */
-const NUMBER_GROUPS = [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`, `breakpoint`, `density`] as const
+const NUMBER_GROUPS = [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`, `breakpoint`, `density`, `blur`] as const
 const TYPE_SUBGROUPS = [`size`, `lineHeight`, `weight`, `family`] as const
 /** Which token groups each recipe key accepts. */
 const KEY_GROUPS: Record<string, readonly string[]> = {
@@ -86,10 +86,12 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   transition: [`motion`],
   transitionEasing: [`ease`],
   transform: [],
+  backdropBlur: [`blur`],
+  animation: [],
 }
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
-const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`, `transition`, `transitionEasing`])
-const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`])
+const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`, `transition`, `transitionEasing`, `backdropBlur`])
+const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`, `animation`])
 
 export class ThemeError extends Error {
   readonly issues: ThemeIssue[]
@@ -348,7 +350,7 @@ function emptyTheme(source: ThemeSource): ResolvedTheme {
     chain: [],
     modes: { light: emptyMode(), dark: emptyMode() },
     contrast: { light: emptyMode(), dark: emptyMode() },
-    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {}, breakpoint: {}, ease: {}, density: {} },
+    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {}, breakpoint: {}, ease: {}, density: {}, blur: {} },
     fonts: {},
     recipes: {},
   }

@@ -74,6 +74,20 @@ bindings), so an embedder never builds Rust.
   `formatString`, `resolveConditionsJson`, `componentA11yJson`,
   `validateStyleJson`.
 
+## Round 2 (`docs/round-2-contract.md`)
+
+| API | what |
+|---|---|
+| `HostFormatter` (foreign trait) + `Surface.setFormatter(f?)` | `number(value, decimals?, grouping)`, `currency(value, code, decimals?, grouping)`, `percent(value, decimals?)`, `date(epochMs, dateOnly, format?, style?, time)`, `relativeTime(value, unit)`, `plural(value) → zero\|one\|two\|few\|many\|other`. The core parses and decides, the host localizes (in its own zone: the core never reads `FfiSettings.timeZone`). Called with the surface locked: never call the surface from it. `null` = the English fallback (UTC) |
+| `HostZone` (foreign trait) + `Surface.setFallbackZone(z?)` | `offsetMinutes(epochMs)`: the English fallback in the platform zone (replaces a host formatter) |
+| `setClock(nowMs?)`, `tick()`, `usesClock()` | relative times; tick at least once a minute while `usesClock()` |
+| `bindRowSlotJson(slot, rowsProp, rows, index, data, options?, formatter?)`, `bindSectionHeaderJson(slot, section, index, data, options?, formatter?)` | `options` = `{scope?, strings?, now?}`; `formatter` = the surface's (`null` = English); returns `null` = not visible |
+| `scrollToIndex(id, index, align?)`, `commandJson({"scrollToIndex": …})`, `setSurfaceScroll(x, y)` | `scrollSurface {x, y}` event = scroll the host viewport, then report it |
+| `FfiVisual` | `direction`, `backdropBlur`, `animationJson` (sample with `animationFrameJson(name, timingJson, elapsedMs, reducedMotion)`), `sticky` |
+| `FfiLayout.sticky`, `FfiList.horizontal` | sticky paint offsets `{index, dx, dy}`; lists windowed on x |
+| Resizable | `event(handle, "drag", {phase, delta})`, `event(handle, "key", {key})`; `resizableJson({op, …})` for previews (`drag`/`extents` take `handleExtent` = `$control.hairline`) |
+| helpers | `formatCallJson(call, formatter?, now?, offsetMinutes?)`, `displayStringJson`, `parseDateValueJson`, `formatPatternJson(pattern, fields, names?)`, `relativeTimeUnitJson`, `listJson({op, …})` (`window`, `scrollTo`, `scrollToItem`, `sections`, `sticky {…, gap?, rowOffsets?}`, `keys`, `rowKeys`) |
+
 ## Build
 
 ```bash

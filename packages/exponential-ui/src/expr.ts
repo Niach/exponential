@@ -23,6 +23,7 @@
 // a `$string.<id>` the surface's string table resolves at bind time).
 
 import { formatString } from "./strings"
+import { ENGLISH_FORMAT_FUNCTIONS } from "./format"
 
 export interface ExprContext {
   id: string
@@ -358,5 +359,10 @@ export const CORE_FUNCTIONS: Record<string, (args: Record<string, unknown>) => u
   },
   len: ({ value }) => (Array.isArray(value) ? value.length : typeof value === `string` ? value.length : 0),
   fill: ({ template, params }) => fillTemplate(template, params),
+  // Round 2 (docs/round-2-contract.md §3): the two core format functions, here
+  // through the English fallback; a renderer runs them (and the basic
+  // format* ones) through the surface's Formatter (src/dynamic.ts).
+  formatPercent: ENGLISH_FORMAT_FUNCTIONS.formatPercent,
+  formatRelativeTime: ENGLISH_FORMAT_FUNCTIONS.formatRelativeTime,
 }
 export const CORE_FUNCTION_NAMES: readonly string[] = Object.keys(CORE_FUNCTIONS)

@@ -76,6 +76,18 @@
   margin: 4px 0 10px;
 }
 
+/* A group heading above a run of pages (DocsNavEntry.group). */
+.docs-nav-group {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+  padding: 0 14px;
+  margin: 14px 0 4px;
+}
+
 /* Cross-page nav: every docs page is a link; the current page expands its
    numbered sections (scroll-spy) inline beneath it. */
 .docs-nav-page {
@@ -596,6 +608,9 @@
      (order pushes them last, flex-basis forces the line break). */
   .docs-nav-page {
     display: contents;
+  }
+  .docs-nav-group {
+    display: none;
   }
   .docs-nav-page-link {
     border-left: none;

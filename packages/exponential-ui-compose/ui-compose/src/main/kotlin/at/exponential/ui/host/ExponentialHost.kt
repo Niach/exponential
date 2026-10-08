@@ -25,6 +25,7 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
+import at.exponential.ui.model.SurfaceSettings
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +65,8 @@ data class HostOptions(
     val theme: ThemeHandle? = null,
     val mode: Mode = Mode.Dark,
     val overlays: OverlayPresentation = OverlayPresentation.Native,
+    /** Locale, strings, density, contrast, motion, insets, the formatter: every surface's. */
+    val settings: SurfaceSettings = SurfaceSettings(),
     /** Icons, fonts, markdown, input observers… (actions, functions, urls and media route through the host first). */
     val plugin: HostPlugin = NoHost,
     /** Every client message that leaves (after the transport got it). */
@@ -269,6 +272,7 @@ class ExponentialHost(
                         theme = theme ?: opTheme ?: ThemeHandle.builtin(defaultThemeId()),
                         mode = mode,
                         overlays = options.overlays,
+                        settings = options.settings,
                     ),
                     bridge,
                     scope,
@@ -423,6 +427,10 @@ class ExponentialHost(
         override fun fontFamily(name: String): FontFamily? = base.fontFamily(name)
 
         override fun markdown(text: String, width: Float): (@Composable () -> Unit)? = base.markdown(text, width)
+
+        override fun copy(text: String) = base.copy(text)
+
+        override fun pickFiles(request: FilePickRequest) = base.pickFiles(request)
     }
 }
 

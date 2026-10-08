@@ -52,8 +52,10 @@ describe(`components`, () => {
       `HoverCard`, `ContextMenu`, `Toast`, `Sparkline`, `Form`, `NumberField`, `Rating`, `ChipInput`, `DateRangePicker`,
       `TimePicker`, `FileUpload`,
     ]
-    for (const name of [...expected, ...round1]) expect(coreCatalog.components[name], name).toBeDefined()
-    expect(componentNames()).toHaveLength(expected.length + round1.length)
+    // Round 2 (docs/round-2-contract.md §1).
+    const round2 = [`Resizable`]
+    for (const name of [...expected, ...round1, ...round2]) expect(coreCatalog.components[name], name).toBeDefined()
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -134,7 +136,7 @@ describe(`components`, () => {
 
 describe(`tokens and icons`, () => {
   test(`the token groups the issue names, every name unique`, () => {
-    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`, `breakpoint`, `ease`, `density`])
+    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`, `breakpoint`, `ease`, `density`, `blur`])
     expect(TOKEN_GROUPS.breakpoint).toEqual([`sm`, `md`, `lg`, `xl`])
     for (const n of [6, 7, 8]) expect(TOKEN_GROUPS.color).toContain(`chart${n}`)
     for (const [group, names] of Object.entries(TOKEN_GROUPS)) {
@@ -167,7 +169,7 @@ describe(`basic map`, () => {
     // Round 1: the basic catalog's 14 functions, then the core ones (functions.core), in that order.
     const core = Object.keys(coreCatalog.functions.core)
     expect([...coreCatalog.functions.names]).toEqual([...Object.keys(basic.functions), ...core])
-    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`])
+    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`])
     for (const rule of Object.values(basicMap.components)) expect(coreCatalog.components[rule.to], rule.to).toBeDefined()
   })
 })

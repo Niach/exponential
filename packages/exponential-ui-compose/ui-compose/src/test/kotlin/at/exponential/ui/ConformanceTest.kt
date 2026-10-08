@@ -84,7 +84,9 @@ class ConformanceTest {
     @Before
     fun setUp() = Fixtures.require()
 
-    private class Case(val name: String, val error: String?)
+    private class Case(val name: String, val error: String?) {
+        constructor(p: Pair<String, String?>) : this(p.first, p.second)
+    }
 
     private fun case(name: String, check: () -> String?): Case = try {
         Case(name, check())
@@ -528,6 +530,15 @@ class ConformanceTest {
         "host-transport" -> hostTransportSuite()
         "host-policy" -> hostPolicySuite()
         "host-router" -> hostRouterSuite()
+        "bind" -> Round2Suites.bind().map(::Case)
+        "style-conditions" -> Round2Suites.styleConditions().map(::Case)
+        "code-tokens" -> Round2Suites.codeTokens().map(::Case)
+        "format" -> Round2Suites.format().map(::Case)
+        "template-items" -> Round2Suites.templateItems().map(::Case)
+        "text-direction" -> Round2Suites.textDirection().map(::Case)
+        "resizable" -> Round2Suites.resizable().map(::Case)
+        "virtual-list" -> Round2Suites.virtualList().map(::Case)
+        "animations" -> Round2Suites.animations().map(::Case)
         else -> error("the runner does not know the suite $id: add it")
     }
 

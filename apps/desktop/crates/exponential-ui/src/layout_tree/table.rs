@@ -2,7 +2,7 @@
 //! (bound `sort` = the host orders `rows`; unbound = a local sorted copy),
 //! row selection (`multiple` = a checkbox column with a select-all header),
 //! striped rows, slot cells with the ROW as their data scope, windowing past
-//! `chart::WINDOW_THRESHOLD` (50) rows. Columns share the width (a fixed
+//! `layout.json` `windowThreshold` (50) rows. Columns share the width (a fixed
 //! `width` keeps its px), so header and rows line up as flex rows.
 
 use std::cmp::Ordering;
@@ -13,8 +13,8 @@ use super::{bool_prop, js, str_prop, Builder, LNode, NodeKind};
 use crate::list::VisibleRange;
 use crate::types::UiNode;
 
-/// The rows past which a Table windows its body.
-pub const TABLE_WINDOW_THRESHOLD: usize = crate::chart::WINDOW_THRESHOLD;
+/// The rows past which a Table windows its body (`layout.json`).
+pub const TABLE_WINDOW_THRESHOLD: usize = crate::list::WINDOW_THRESHOLD;
 
 /// The order the renderer sorts an unbound table in (the reference's
 /// `sortRows`): missing values (absent, null, `""`) last in both
@@ -32,8 +32,8 @@ pub fn compare_cells(a: Option<&Value>, b: Option<&Value>, column_type: &str, de
     let (a, b) = (a.expect("present"), b.expect("present"));
     let ord = match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64().partial_cmp(&y.as_f64()).unwrap_or(Ordering::Equal),
-        _ if column_type == "number" => num(a).partial_cmp(&num(b)).unwrap_or(Ordering::Equal),
-        _ if column_type == "date" => match (date_time(a), date_time(b)) {
+        _ if matches!(column_type, "number" | "currency" | "percent") => num(a).partial_cmp(&num(b)).unwrap_or(Ordering::Equal),
+        _ if matches!(column_type, "date" | "relativeTime") => match (date_time(a), date_time(b)) {
             (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
             // `NaN - x` is NaN: the reference's comparator calls it a tie.
             _ => Ordering::Equal,
@@ -182,13 +182,32 @@ fn fold_accent(c: char) -> char {
     }
 }
 
-/// A cell's text by column type (`en` formatting; natives format numbers
-/// and dates in the surface locale from `value`).
-pub fn cell_text(kind: &str, v: Option<&Value>) -> String {
-    let Some(v) = v.filter(|v| !v.is_null()) else { return String::new() };
+/// A cell's text by column type, through the surface formatter (round 2),
+/// as the reference's Table `cell`: a missing value (absent, null, `""`)
+/// is empty; `number` / `currency` / `percent` coerce like `num` (a
+/// numeric string counts, anything else is 0); `number` takes
+/// `column.decimals`, `currency` `column.currency` (ISO 4217, default
+/// USD), `percent` a ratio; `date` (the medium preset) and `relativeTime`
+/// (against `now`) are empty when unreadable; `boolean` = a tick;
+/// everything else shows as [`crate::format::display_string`].
+pub fn cell_text(kind: &str, v: Option<&Value>, column: &Value, formatter: &dyn crate::format::Formatter, now: f64) -> String {
+    use crate::format::{display_string, format_date_value, format_relative_value, DateOptions, NumberOptions};
+    let Some(v) = v.filter(|v| !v.is_null() && v.as_str() != Some("")) else { return String::new() };
+    let decimals = column.get("decimals").and_then(Value::as_f64).and_then(crate::format::fixed_digits);
+    let options = NumberOptions { decimals, grouping: true };
+    let currency = match column.get("currency") {
+        None | Some(Value::Null) => Some("USD".to_string()),
+        Some(c) => c.as_str().filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_alphabetic())).map(str::to_uppercase),
+    };
     match kind {
-        "number" => v.as_f64().map(|n| crate::data::format_number(n, 0, 2)).unwrap_or_else(|| js(v)),
-        "date" => v.as_str().map(super::fields::dates::label).unwrap_or_else(|| js(v)),
+        "number" => formatter.number(num(v), options),
+        "currency" => match &currency {
+            Some(code) => formatter.currency(num(v), code, options),
+            None => formatter.number(num(v), options),
+        },
+        "percent" => formatter.percent(num(v), decimals),
+        "date" => format_date_value(formatter, v, &DateOptions::default()),
+        "relativeTime" => format_relative_value(formatter, v, now),
         "boolean" => {
             if crate::expr::truthy(v) && v != &Value::Bool(false) {
                 "✓".into()
@@ -196,7 +215,7 @@ pub fn cell_text(kind: &str, v: Option<&Value>) -> String {
                 String::new()
             }
         }
-        _ => js(v),
+        _ => display_string(v),
     }
 }
 
@@ -210,6 +229,9 @@ impl Builder<'_, '_> {
 
     pub(crate) fn table(&mut self, index: u32, node: &UiNode, scope: &str) {
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
+        // Round 2: the table's name — its caption, else `$string.table`.
+        let label = str_prop(&self.nodes[index as usize].props, "caption").map(str::to_string).unwrap_or_else(|| self.string("table"));
+        self.default_a11y(index, "label", json!(label));
         let owner = self.nodes[index as usize].clone();
         let columns = owner.props.get("columns").and_then(Value::as_array).cloned().unwrap_or_default();
         let rows = owner.props.get("rows").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -231,7 +253,9 @@ impl Builder<'_, '_> {
                 order.sort_by(|&a, &b| compare_cells(rows[a].get(&key), rows[b].get(&key), &kind, desc));
             }
         }
-        let key_of = |i: usize| rows[i].get(&row_key).filter(|v| !v.is_null()).map(js).unwrap_or_else(|| i.to_string());
+        // Round 2: `#<index>` for a missing, empty or duplicate key (`tableRowKeys`).
+        let row_keys = crate::list::table_row_keys(&rows, &row_key);
+        let key_of = |i: usize| row_keys[i].clone();
         let multiple = selectable == "multiple";
         let striped = bool_prop(&owner.props, "striped");
 
@@ -272,7 +296,11 @@ impl Builder<'_, '_> {
         self.nodes[body as usize].part_query = None;
         let keys: std::sync::Arc<Vec<String>> = std::sync::Arc::new(order.iter().map(|&i| key_of(i)).collect());
         let windowed = rows.len() > TABLE_WINDOW_THRESHOLD;
-        let range = if rows.is_empty() { VisibleRange::default() } else { self.window(&owner.id, &keys, 0.0, windowed, body) };
+        let range = if rows.is_empty() { VisibleRange::default() } else { self.window(&owner.id, &keys, super::containers::Axis { gap: 0.0, flex_gap: 0.0, horizontal: false }, windowed, body) };
+        if let Some(spec) = self.lists.iter_mut().rev().find(|l| l.node == body) {
+            // scrollToIndex takes the DATA index: position → row index.
+            spec.data_index = Some(std::sync::Arc::new(order.iter().map(|&i| Some(i)).collect()));
+        }
         for (pos, &i) in order.iter().enumerate().take(range.end).skip(range.start) {
             let key = &keys[pos];
             let is_selected = selected.contains(key);
@@ -343,7 +371,7 @@ impl Builder<'_, '_> {
         }
         style["textAlign"] = json!(align);
         let value = data.get(&col_key);
-        let text = cell_text(&kind, value);
+        let text = cell_text(&kind, value, col, self.ctx.formatter, self.ctx.now);
         let cell = self.part_in(row, owner, "cell", "Text", NodeKind::Leaf, style, json!({"text": text, "cellType": kind, "align": align, "value": value.cloned().unwrap_or(Value::Null), "lines": 1}), &suffix);
         self.query_prop(cell, "align", json!(align));
     }
@@ -370,8 +398,24 @@ mod tests {
         assert_eq!(collate("a01", "a1"), Ordering::Equal);
         assert_eq!(date_time(&json!("1970-01-02")), Some(86_400_000.0));
         assert_eq!(date_time(&json!("2026-10-07T10:00:00Z")), date_time(&json!("2026-10-07T12:00:00+02:00")));
-        assert_eq!(cell_text("number", Some(&json!(1234.5))), "1,234.5");
-        assert_eq!(cell_text("boolean", Some(&json!(true))), "✓");
-        assert_eq!(cell_text("date", Some(&json!("2026-10-07"))), "Oct 7, 2026");
+        let en = &crate::format::ENGLISH;
+        let col = json!({});
+        assert_eq!(cell_text("number", Some(&json!(1234.5)), &col, en, 0.0), "1,234.5");
+        assert_eq!(cell_text("number", Some(&json!(1234.5678)), &col, en, 0.0), "1,234.568");
+        assert_eq!(cell_text("currency", Some(&json!(1234.5)), &json!({"currency": "usd"}), en, 0.0), "$1,234.50");
+        assert_eq!(cell_text("percent", Some(&json!(0.256)), &json!({"decimals": 1}), en, 0.0), "25.6%");
+        assert_eq!(cell_text("boolean", Some(&json!(true)), &col, en, 0.0), "✓");
+        assert_eq!(cell_text("date", Some(&json!("2026-10-07")), &col, en, 0.0), "Oct 7, 2026");
+        assert_eq!(cell_text("relativeTime", Some(&json!(0)), &col, en, 86_400_000.0), "yesterday");
+        assert_eq!(cell_text("text", Some(&json!(412)), &col, en, 0.0), "412");
+        // The reference's coercions: USD by default, numeric strings count,
+        // unreadable dates and missing values are empty.
+        assert_eq!(cell_text("currency", Some(&json!(12.5)), &col, en, 0.0), "$12.50");
+        assert_eq!(cell_text("number", Some(&json!("1234.5")), &col, en, 0.0), "1,234.5");
+        assert_eq!(cell_text("number", Some(&json!("n/a")), &col, en, 0.0), "0");
+        assert_eq!(cell_text("number", Some(&json!("")), &col, en, 0.0), "");
+        assert_eq!(cell_text("percent", Some(&json!("0.5")), &col, en, 0.0), "50%");
+        assert_eq!(cell_text("date", Some(&json!("next week")), &col, en, 0.0), "");
+        assert_eq!(cell_text("relativeTime", Some(&json!("soon")), &col, en, 0.0), "");
     }
 }

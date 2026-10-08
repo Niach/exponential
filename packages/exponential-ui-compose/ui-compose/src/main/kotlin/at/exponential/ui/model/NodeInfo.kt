@@ -47,6 +47,12 @@ class NodeInfo(n: FfiNode) {
     val partStates: List<String> = n.partStates
     val macroName: String? = n.macroName
 
+    /** A live region (`polite | assertive`; Text `live`, Toast, Form announcements). */
+    val live: String? = n.live
+
+    /** The Form this field belongs to. */
+    val form: String? = n.form
+
     /** Not a leaf. */
     val isContainer: Boolean get() = !isLeaf
 
@@ -94,7 +100,7 @@ class NodeInfo(n: FfiNode) {
                 "Image", "Video" -> s("alt") ?: s("title")
                 "Avatar" -> s("name")
                 "Box", "Extension" -> s("label") ?: s("title")
-                "Spinner" -> s("label") ?: "Loading"
+                "Spinner" -> s("label")
                 "Link" -> s("label") ?: s("href")
                 "Chart" -> s("title") ?: s("kind")
                 "Markdown" -> props.str("text").ifEmpty { null }
@@ -178,12 +184,14 @@ data class PassStats(
 )
 
 /** The interaction states of one node (reported to the core as `states`). */
-internal data class InteractionState(val hover: Boolean = false, val pressed: Boolean = false, val focus: Boolean = false) {
+internal data class InteractionState(val hover: Boolean = false, val pressed: Boolean = false, val focus: Boolean = false, val focusVisible: Boolean = false) {
     val states: List<String>
         get() = buildList {
             if (hover) add("hover")
             if (pressed) add("pressed")
             if (focus) add("focus")
+            // Focus from the keyboard (`:focus-visible`, the focus ring).
+            if (focusVisible) add("focus-visible")
         }
 }
 

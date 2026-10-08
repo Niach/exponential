@@ -115,5 +115,5 @@ export function seriesColor(index: number, tone?: string): string {
 
 /** The donut's hole as a share of its radius (pie = 0). */
 export const DONUT_HOLE = 0.6
-/** Rows past which Table and List window their children. */
-export const WINDOW_THRESHOLD = 50
+/** Rows past which Table and List window their children (catalog/layout.json). */
+export { WINDOW_THRESHOLD } from "./layout"

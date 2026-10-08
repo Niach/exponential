@@ -131,6 +131,7 @@ impl SurfaceView {
                     self.announcement = Some((text.into(), live));
                 }
                 OutEvent::Copy { text } => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+                OutEvent::ScrollSurface { x, y } => host.scroll_surface(x, y, cx),
                 OutEvent::PickFiles { component_id, accept, multiple } => self.pick_files(component_id, accept, multiple, cx),
                 // A hover overlay's close delay: ask the core again when it
                 // ran out (it stays open if the pointer came back).
@@ -153,6 +154,19 @@ impl SurfaceView {
             }
         }
         cx.notify();
+    }
+
+    /// A host command (`focus`, `announce`, `scrollIntoView`,
+    /// `scrollToIndex`; `a11y.json`), dispatched like an interaction's events.
+    pub fn command(&mut self, command: &exponential_ui::surface::SurfaceCommand, cx: &mut Context<Self>) {
+        let events = self.surface.command(command);
+        self.dispatch(events, None, cx);
+    }
+
+    /// Round 2 §5: bring item `index` (DATA order) of the List or Table `id`
+    /// into view (`align` = start | center | end | nearest, default nearest).
+    pub fn scroll_to_index(&mut self, id: &str, index: u32, align: Option<&str>, cx: &mut Context<Self>) {
+        self.command(&exponential_ui::surface::SurfaceCommand::ScrollToIndex { id: id.to_string(), index, align: align.map(str::to_string) }, cx);
     }
 
     /// Fire `event` on node `index` through the core and dispatch the result.
@@ -687,6 +701,22 @@ impl SurfaceView {
                 }
             }
             ("Text", "DatePicker" | "DateRangePicker", Some("day")) => return self.calendar_key(&n, key, shift, step_h, window, cx),
+            // Round 2 §1: arrows / Home / End / Enter resize (the core's
+            // `keyboardResize`, rtl-aware).
+            ("Box", "Resizable", Some("handle")) => {
+                let dom = match key {
+                    "left" => "ArrowLeft",
+                    "right" => "ArrowRight",
+                    "up" => "ArrowUp",
+                    "down" => "ArrowDown",
+                    "home" => "Home",
+                    "end" => "End",
+                    "enter" => "Enter",
+                    _ => return false,
+                };
+                self.fire(n.index, "key", Some(json!({"key": dom})), cx);
+                return true;
+            }
             _ => {}
         }
         // Openers: ArrowDown (Up) on a picker / menu trigger opens it.
@@ -770,8 +800,8 @@ impl SurfaceView {
         let pos = set.iter().position(|i| *i == current).unwrap_or(0);
         let text_of = |i: u32| -> String {
             let Some(n) = self.cache.node(i) else { return String::new() };
-            let own = n.props.get("text").and_then(Value::as_str).map(str::to_string);
-            own.or_else(|| n.children.iter().filter_map(|c| self.cache.node(*c)).find_map(|c| c.props.get("text").and_then(Value::as_str).map(str::to_string))).unwrap_or_default()
+            let text = |n: &exponential_ui::surface::PlacedNode| Some(crate::measure::display_text(n.props.get("text"))).filter(|t| !t.is_empty());
+            text(n).or_else(|| n.children.iter().filter_map(|c| self.cache.node(*c)).find_map(text)).unwrap_or_default()
         };
         for k in 1..=set.len() {
             let i = set[(pos + k) % set.len()];
@@ -1049,6 +1079,16 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// A press on a Resizable handle's hit area: the drag starts (the core
+    /// keeps the sizes it starts from).
+    pub(crate) fn resize_start(&mut self, handle_id: &str, vertical: bool, pointer: f32, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(index) = self.cache.index_of(handle_id) else { return };
+        self.focus_id(handle_id, window, cx);
+        self.resize_drag = Some(super::ResizeDrag { handle: handle_id.to_string(), vertical, start: pointer });
+        self.fire(index, "drag", Some(json!({"phase": "start", "delta": 0})), cx);
+        cx.notify();
+    }
+
     pub(crate) fn scroll_drag_start(&mut self, id: &str, vertical: bool, pointer: f32, start_offset: f32, ratio: f32, cx: &mut Context<Self>) {
         self.scroll_drag = Some(ScrollDrag { id: id.to_string(), vertical, start_pointer: pointer, start_offset, ratio });
         cx.notify();
@@ -1061,6 +1101,13 @@ impl SurfaceView {
         if self.md_dragging {
             if let Some(node) = self.md_selection.map(|s| s.node) {
                 self.md_drag(node, ev.position, cx);
+            }
+            return;
+        }
+        if let Some(d) = self.resize_drag.clone() {
+            let p = if d.vertical { f32::from(ev.position.y) } else { f32::from(ev.position.x) };
+            if let Some(i) = self.cache.index_of(&d.handle) {
+                self.fire(i, "drag", Some(json!({"phase": "move", "delta": p - d.start})), cx);
             }
             return;
         }
@@ -1093,9 +1140,17 @@ impl SurfaceView {
         }
     }
 
-    pub(crate) fn on_pointer_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn on_pointer_up(&mut self, ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         // A dismissal remembered for the trigger under this click is spent.
         self.just_dismissed = None;
+        if let Some(d) = self.resize_drag.take() {
+            let p = if d.vertical { f32::from(ev.position.y) } else { f32::from(ev.position.x) };
+            if let Some(i) = self.cache.index_of(&d.handle) {
+                self.fire(i, "drag", Some(json!({"phase": "end", "delta": p - d.start})), cx);
+            }
+            cx.notify();
+            return;
+        }
         self.scroll_drag = None;
         self.md_dragging = false;
         if let Some(d) = self.sheet_drag.take() {

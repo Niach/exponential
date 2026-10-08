@@ -166,6 +166,35 @@ pub struct Visual {
     /// A Chart's series (or slice) colours, resolved for the mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub series_colors: Option<Vec<String>>,
+    /// Round 2: a LEAF's resolved direction (`ltr | rtl`): the bidi
+    /// paragraph direction its text is shaped with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    /// Round 2: `backdropBlur` in px (`$blur.*` resolved): blur what is
+    /// behind the box through its translucent background. No platform blur
+    /// = paint the background alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop_blur: Option<f32>,
+    /// Round 2: the keyframe animation with its resolved timing; a painter
+    /// keeps the time the node entered the tree and paints
+    /// [`crate::animation::frame_with_timing`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<VisualAnimation>,
+    /// Round 2: `position: sticky` (the pinned offsets are
+    /// `LayoutOutput::sticky`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sticky: bool,
+}
+
+/// A node's animation (`animation` + `animationDuration`, resolved).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualAnimation {
+    pub name: String,
+    pub timing: crate::animation::AnimationTiming,
+    /// Reduced motion: paint the rest frame, no band.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reduced: bool,
 }
 
 /// Logical properties → physical sides for the surface direction. taffy has
@@ -449,6 +478,9 @@ pub fn to_taffy(r: &Map<String, Value>, direction: Direction, kind: BoxKind) -> 
     s.position = match str_of("position") {
         None | Some("relative") => Position::Relative,
         Some("absolute") => Position::Absolute,
+        // Round 2: sticky = relative in layout; the surface pins it by its
+        // insets inside the nearest scroller (`LayoutOutput::sticky`).
+        Some("sticky") => Position::Relative,
         Some(other) => return Err(format!("unsupported position {other:?}")),
     };
     let ox = axis_overflow(r, "overflowX").map(overflow_of).transpose()?;
@@ -509,7 +541,9 @@ pub fn to_taffy(r: &Map<String, Value>, direction: Direction, kind: BoxKind) -> 
             Some(a.trim().parse::<f32>().ok()? / b.trim().parse::<f32>().ok()?)
         });
     }
-    s.inset = rect_lpa(r, "inset", "insetHorizontal", "insetVertical", ["top", "right", "bottom", "left"], LengthPercentageAuto::auto());
+    if str_of("position") != Some("sticky") {
+        s.inset = rect_lpa(r, "inset", "insetHorizontal", "insetVertical", ["top", "right", "bottom", "left"], LengthPercentageAuto::auto());
+    }
     s.margin = rect_lpa(r, "margin", "marginHorizontal", "marginVertical", ["marginTop", "marginRight", "marginBottom", "marginLeft"], LengthPercentageAuto::ZERO);
     if kind == BoxKind::Container {
         s.padding = rect_lp(r, "padding", "paddingHorizontal", "paddingVertical", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]);
@@ -668,6 +702,10 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         user_select: str_of("userSelect"),
         cursor: str_of("cursor"),
         series_colors: None,
+        direction: None,
+        backdrop_blur: r.get("backdropBlur").and_then(px),
+        animation: None,
+        sticky: r.get("position").and_then(Value::as_str) == Some("sticky"),
     }
 }
 

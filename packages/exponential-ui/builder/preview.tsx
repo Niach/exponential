@@ -54,8 +54,8 @@ const h = createElement
 function Preview({ theme, mode, width }: PreviewState) {
   const host = { icons }
   const surface = (id: string, node: NestedNode, states: string[] = []) => {
-    const { root } = reduceNested(node, { catalogId: CORE_CATALOG_ID })
-    return h(ExponentialSurface, { key: id, id, root, theme, mode, host, states })
+    const { root, templates } = reduceNested(node, { catalogId: CORE_CATALOG_ID })
+    return h(ExponentialSurface, { key: id, id, root, templates, theme, mode, host, states })
   }
   const sheet = h(
     `div`,
@@ -80,8 +80,8 @@ function Preview({ theme, mode, width }: PreviewState) {
       )
     )
   )
-  const { root } = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
-  const sink = h(`section`, { className: `sink` }, h(`h3`, null, `Kitchen sink · exponential-ui-kitchen-sink`), h(ExponentialSurface, { id: `sink`, root, theme, mode, host, width }))
+  const { root, templates } = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
+  const sink = h(`section`, { className: `sink` }, h(`h3`, null, `Kitchen sink · exponential-ui-kitchen-sink`), h(ExponentialSurface, { id: `sink`, root, templates, theme, mode, host, width }))
   return h(Fragment, null, sheet, sink)
 }
 

@@ -86,9 +86,6 @@ pub fn month_grid(y: i32, m: u32) -> Vec<(i32, u32, u32, bool)> {
         .collect()
 }
 
-pub const MONTH_NAMES: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-pub const WEEKDAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
-
 /// Today in UTC (the calendar's initial month without a value).
 pub fn today() -> (i32, u32, u32) {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);

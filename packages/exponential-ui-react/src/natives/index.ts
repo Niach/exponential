@@ -12,6 +12,7 @@ import { ChartNative } from "./chart"
 import { ChipInputNative, FileUploadNative } from "./chips"
 import { CodeBlockNative } from "./code"
 import { DatePickerNative, DateRangePickerNative, TimePickerNative } from "./dates"
+import { ResizableNative } from "./resizable"
 import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative } from "./feedback"
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
 import { BoxNative, ListNative, UnknownNative } from "./layout"
@@ -26,6 +27,7 @@ import { IconNative, MarkdownNative, TextNative } from "./text"
 export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Box: BoxNative,
   List: ListNative,
+  Resizable: ResizableNative,
   Text: TextNative,
   Markdown: MarkdownNative,
   CodeBlock: CodeBlockNative,

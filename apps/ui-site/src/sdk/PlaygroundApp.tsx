@@ -139,7 +139,7 @@ export default function PlaygroundApp() {
     history.replaceState(null, ``, url)
     try {
       await navigator.clipboard.writeText(url)
-      setShareNote(`Link copied (${url.length.toLocaleString()} characters).`)
+      setShareNote(`Link copied (${url.length.toLocaleString(`en-US`)} characters).`)
     } catch {
       setShareNote(`Link is in the address bar.`)
     }
@@ -353,7 +353,7 @@ export default function PlaygroundApp() {
           </label>
           <span className="sdk-grow" />
           <span className="sdk-note">
-            ~{estimateTokens(prompt).toLocaleString()} tokens · {prompt.length.toLocaleString()} characters
+            ~{estimateTokens(prompt).toLocaleString(`en-US`)} tokens · {prompt.length.toLocaleString(`en-US`)} characters
           </span>
         </div>
         <p className="sdk-note">

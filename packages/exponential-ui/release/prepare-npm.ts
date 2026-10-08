@@ -65,7 +65,7 @@ export async function prepareNpm(version: string, outDir: string): Promise<strin
     const target = join(outDir, spec.out)
     rmSync(target, { recursive: true, force: true })
     mkdirSync(target, { recursive: true })
-    for (const f of spec.files) if (existsSync(join(dir, f))) cpSync(join(dir, f), join(target, f), { recursive: true, filter: (p) => !p.endsWith(`.test.ts`) && !p.includes(`/node_modules`) })
+    for (const f of spec.files) if (existsSync(join(dir, f))) cpSync(join(dir, f), join(target, f), { recursive: true, filter: (p) => !p.endsWith(`.test.ts`) && !p.includes(`/node_modules`) && !p.includes(`/conformance/fonts/`) && !p.endsWith(`/conformance/fonts`) })
     cpSync(join(repo, `LICENSE`), join(target, `LICENSE`))
     cpSync(join(repo, `NOTICE`), join(target, `NOTICE`))
     const pkg = JSON.parse(readFileSync(join(dir, `package.json`), `utf8`)) as Record<string, unknown> & { dependencies?: Record<string, string> }

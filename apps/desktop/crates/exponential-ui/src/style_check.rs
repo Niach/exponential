@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn box_style_whitelist_conditions_surface_media_and_pressed_one_level_deep_direction_root_only() {
+    fn box_style_whitelist_conditions_surface_media_and_pressed_one_level_deep_direction_on_any_node() {
         assert_eq!(v(json!({"@media (min-width: 600px)": {"gap": 8}, ":pressed": {"opacity": 0.6}})), vec![]);
         assert_eq!(v(json!({"@media (min-width: 600px)": {":pressed": {"opacity": 0.6}}}))[0].message, "conditions do not nest");
         assert_eq!(v(json!({":hover": {"opacity": 1}, ":focus-visible": {"borderColor": "$color.ring"}})), vec![]);
@@ -343,7 +343,8 @@ mod tests {
         assert_eq!(v(json!({"@media (min-width: 600)": {"gap": 1}}))[0].message, "not a supported condition");
         assert_eq!(v(json!({"@media (min-width: $breakpoint.huge)": {"gap": 1}}))[0].message, "unknown breakpoint $breakpoint.huge; known: sm|md|lg|xl");
         assert_eq!(v(json!({"@media (max-width: $breakpoint.md)": {"display": "none"}, "@media (orientation: portrait)": {"gap": 2}, "@media (hover: hover)": {"cursor": "pointer"}})), vec![]);
-        assert_eq!(validate_style(&json!({"direction": "rtl"}), "style", Some(false))[0].message, "allowed on the root only");
+        // Round 2: `direction` is valid on any node (style.json drops `rootOnly`).
+        assert_eq!(validate_style(&json!({"direction": "rtl"}), "style", Some(false)), vec![]);
         assert_eq!(validate_style(&json!({"direction": "rtl"}), "style", Some(true)), vec![]);
     }
 
@@ -365,5 +366,13 @@ mod tests {
         assert!(v(json!({"backgroundGradient": {"angle": 90, "stops": [{"color": "#fff", "offset": 0}]}}))[0].message.contains("two or more stops"));
         assert!(v(json!({"transform": "translate(1px,2px)"}))[0].message.contains("translate"));
         assert!(v(json!({"width": {"path": "/w"}}))[0].message.contains("expected px"), "authors cannot write dynamic style values");
+    }
+
+    #[test]
+    fn round_2_style_keys_sticky_backdrop_blur_token_only_animation_and_its_duration_token() {
+        assert_eq!(v(json!({"position": "sticky", "top": 0, "backdropBlur": "$blur.md", "animation": "pulse", "animationDuration": "$motion.slow"})), vec![]);
+        assert_eq!(v(json!({"backdropBlur": 8})).len(), 1);
+        assert_eq!(v(json!({"animation": "wobble"})).len(), 1);
+        assert_eq!(v(json!({"animationDuration": 300})).len(), 1);
     }
 }

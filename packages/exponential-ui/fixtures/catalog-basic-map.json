@@ -639,7 +639,20 @@
             "props": {}
           }
         },
-        "issues": []
+        "issues": [],
+        "templates": {
+          "item": {
+            "id": "item",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "name"
+              },
+              "variant": "body"
+            },
+            "children": []
+          }
+        }
       }
     },
     {

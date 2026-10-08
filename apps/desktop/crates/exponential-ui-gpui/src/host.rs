@@ -107,6 +107,12 @@ pub trait HostPlugin: 'static {
     /// announcement as a `status` node; gpui has no live-region API.
     fn announce(&self, _text: &str, _live: &str, _cx: &mut gpui::App) {}
 
+    /// Round 2 §5: scroll the host's scroller (the one showing the WHOLE
+    /// surface) so the surface's `(x, y)` sits at its top-left — a
+    /// `scrollToIndex` on a list that windows against the host viewport.
+    /// The host then reports its offset back through the visible region.
+    fn scroll_surface(&self, _x: f32, _y: f32, _cx: &mut gpui::App) {}
+
     /// Open a file picker for a FileUpload. Return `true` when the host
     /// handles it (and later calls `SurfaceView::files_picked`); `false` =
     /// the painter opens the platform picker itself.

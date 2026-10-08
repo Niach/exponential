@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
@@ -116,6 +117,8 @@ class MarkdownComposeText(
         fontFamily = fonts.family(spec.family, mono = false),
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
         platformStyle = PlatformTextStyle(includeFontPadding = false),
+        // Fractional advances, as the SDK measurer (`TextShaper.style`).
+        textMotion = TextMotion.Animated,
     )
 
     /** The spans of [inlines] on [spec]: bold ≥ 600, italic, strike, mono code, underlined links. */

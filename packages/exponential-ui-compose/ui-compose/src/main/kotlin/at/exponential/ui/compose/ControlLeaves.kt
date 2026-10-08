@@ -385,7 +385,7 @@ private fun SelectMenu(cx: LeafContext) {
                     modifier = Modifier.weight(1f),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) BasicText("Search…", style = ts.copy(color = muted), maxLines = 1)
+                            if (query.isEmpty()) BasicText(cx.string("search"), style = ts.copy(color = muted), maxLines = 1)
                             inner()
                         }
                     },

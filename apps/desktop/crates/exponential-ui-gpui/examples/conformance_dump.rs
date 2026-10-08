@@ -84,7 +84,12 @@ pub fn cases(manifest: &Value) -> Vec<Case> {
 /// The case's tree (root `direction` = the case's) and its data model.
 pub fn fixture_input(manifest: &Value, case: &Case) -> (Value, Map<String, Value>) {
     let spec = &manifest["fixtures"][&case.fixture];
-    let (mut tree, data) = if let Some(geometry) = spec["geometry"].as_str() {
+    // `EXP_UI_CONFORMANCE_TREE=<file>`: lay out that tree instead (a
+    // debugging aid: one component under the case's theme and width).
+    let (mut tree, data) = if let Some(file) = std::env::var_os("EXP_UI_CONFORMANCE_TREE") {
+        let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.to_string_lossy()));
+        (serde_json::from_str(&text).expect("the tree parses"), Map::new())
+    } else if let Some(geometry) = spec["geometry"].as_str() {
         let g = read_json(geometry);
         (g["surface"].clone(), g["data"].as_object().cloned().unwrap_or_default())
     } else {
@@ -200,8 +205,10 @@ fn leaf_text(n: &PlacedNode) -> Option<String> {
 }
 
 /// The main tree's placed nodes, relative to the root's frame; `lines` for
-/// the manifest's `textComponents`.
-pub fn dump_surface(surface: &mut Surface, text_components: &[String]) -> CaseDump {
+/// the manifest's `textComponents`: the painter's own count when `painted`
+/// knows it (a stretched Text keeps its lines), else box height over line
+/// height (a Link is one line).
+pub fn dump_surface(surface: &mut Surface, text_components: &[String], painted: &HashMap<u32, u32>) -> CaseDump {
     let nodes = surface.nodes();
     let ids: HashMap<u32, String> = nodes.iter().filter(|n| !n.removed).map(|n| (n.index, n.id.clone())).collect();
     let root = nodes.iter().find(|n| !n.removed && n.parent.is_none() && n.layer == 0).and_then(|n| surface.last_frame(n.index)).unwrap_or_default();
@@ -225,7 +232,11 @@ pub fn dump_surface(surface: &mut Surface, text_components: &[String]) -> CaseDu
                 let pad = v.and_then(|v| v.padding).map(|p| p[0] + p[2]).unwrap_or(0.0);
                 let border = v.and_then(|v| v.border_widths.map(|b| b[0] + b[2]).or(v.border_width.map(|b| 2.0 * b))).unwrap_or(0.0);
                 if ts.line_height > 0.0 && text_components.contains(&n.component) {
-                    let lines = ((f.h - pad - border) / ts.line_height).round().max(1.0) as u32;
+                    let lines = match painted.get(&n.index) {
+                        Some(l) => *l,
+                        None if n.component == "Link" => 1,
+                        None => ((f.h - pad - border) / ts.line_height).round().max(1.0) as u32,
+                    };
                     node.lines = Some(lines);
                     node.lh = Some(round2(ts.line_height));
                 }
@@ -328,7 +339,8 @@ pub mod headless {
                     setup::load(view, &manifest, case, cx);
                     view.layout_now(window, cx);
                     view.layout_now(window, cx);
-                    dump_surface(view.surface_mut(), &text_components)
+                    let painted: HashMap<u32, u32> = view.placed_nodes().iter().filter_map(|n| view.painted_lines(n.index, window).map(|l| (n.index, l))).collect();
+                    dump_surface(view.surface_mut(), &text_components, &painted)
                 })
                 .expect("the window updates");
             let _ = window.update(&mut cx, |_, window, _| window.remove_window());

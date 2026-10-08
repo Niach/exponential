@@ -119,23 +119,41 @@ impl SurfaceView {
         let i = index as usize;
         let n = self.cache.node(index)?;
         if n.hidden {
+            // An animation restarts when the node shows again.
+            if self.styles.get(index as usize).is_some_and(|s| s.animation.is_some()) {
+                self.anim_start.borrow_mut().remove(self.cache.ids[index as usize].as_ref());
+            }
             return None;
         }
         if let Some(t) = self.paint_trace.borrow_mut().as_mut() {
             t.push(index);
         }
-        let style = self.shown_style(index);
+        let mut style = self.shown_style(index);
         if style.invisible {
             // `visibility: hidden`: the box keeps its place, nothing paints.
             return None;
         }
         let target = self.frames.get(i).copied().unwrap_or_default();
         let f = if self.ghosting.get() { target } else { self.motion.frame(index, target, self.now()) };
+        // Round 2 §2: a keyframe animation composes OUTSIDE the node's own
+        // transform; opacity multiplies; a leaf scales about its centre; a
+        // rotation turns an Icon's glyph (gpui rotates no other box).
+        let anim = if self.ghosting.get() { None } else { self.animation_frame(index, &style, window) };
+        if let Some(a) = &anim {
+            style.opacity = Some(style.opacity.unwrap_or(1.0) * a.opacity as f32);
+            style.transform.tx += a.translate_x as f32;
+            style.transform.ty += a.translate_y as f32;
+            style.transform.scale *= a.scale as f32;
+            style.transform.rotate += a.rotate as f32;
+        }
         let tf = style.transform;
         let leaf = n.kind == NodeKind::Leaf;
+        // Round 2 §2: `position: sticky` / a pinned section header moves by
+        // the core's offset (inside its scroller's translation).
+        let (sdx, sdy) = self.sticky.get(&index).copied().unwrap_or((0.0, 0.0));
         // Paint-only transform: the translate moves the box; a leaf's scale
         // grows it about its centre (containers keep their size).
-        let (mut x, mut y, mut w, mut h) = (f.x - place.origin.0 + tf.tx, f.y - place.origin.1 + tf.ty, f.w, f.h);
+        let (mut x, mut y, mut w, mut h) = (f.x - place.origin.0 + tf.tx + sdx, f.y - place.origin.1 + tf.ty + sdy, f.w, f.h);
         if leaf && (tf.scale - 1.0).abs() > 1e-3 && tf.scale > 0.0 {
             let (nw, nh) = (w * tf.scale, h * tf.scale);
             x -= (nw - w) / 2.0;
@@ -218,6 +236,11 @@ impl SurfaceView {
         let child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip };
         let kids = self.children_elements(index, child_place, window, cx);
         el = el.children(kids);
+        // The shimmer band sweeps OVER the content (the web's `::after`),
+        // clipped to its own box; the node's children stay unclipped.
+        if let (Some(band), Some(a)) = (anim.and_then(|a| a.band), style.animation.as_ref()) {
+            el = el.child(self.shimmer_band(&a.name, band as f32, w, h, radii));
+        }
         if let Some(s) = self.scrolls.get(&index).copied() {
             el = self.scroll_container(el, index, n, s, w, h, ink, cx);
         }
@@ -226,6 +249,43 @@ impl SurfaceView {
             el = el.child(rounded(div().absolute().top(px(-2.0)).left(px(-2.0)).w(px(w + 4.0)).h(px(h + 4.0)).border_2().border_color(ring), radii.map(|r| r + 2.0)));
         }
         Some(el.into_any_element())
+    }
+
+    /// The keyframe frame of an animated node now (`None` = not animated);
+    /// asks for the next frame while it moves (reduced motion: the rest
+    /// frame, never moving).
+    fn animation_frame(&self, index: u32, style: &PaintStyle, window: &mut Window) -> Option<exponential_ui::animation::AnimationFrame> {
+        let a = style.animation.as_ref()?;
+        let reduced = a.reduced || self.surface.settings().reduced_motion;
+        let now = self.now();
+        let id = self.cache.ids.get(index as usize)?.clone();
+        let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+        let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        let frame = exponential_ui::animation::frame_with_timing(&a.name, &a.timing, elapsed, reduced)?;
+        let total = a.timing.duration_ms * a.timing.iterations.count();
+        if !reduced && a.timing.duration_ms > 0.0 && elapsed < total {
+            window.request_animation_frame();
+        }
+        Some(frame)
+    }
+
+    /// The shimmer band at `band` box widths (−1 → 1): the set's band colour
+    /// (a theme colour) through its alpha stops.
+    fn shimmer_band(&self, name: &str, band: f32, w: f32, h: f32, radii: [f32; 4]) -> AnyElement {
+        let def = exponential_ui::animation::ANIMATIONS.get(name).and_then(|d| d.band.clone());
+        let theme = self.surface.theme().cloned();
+        let color = def
+            .as_ref()
+            .and_then(|b| b.color.strip_prefix("$color.").map(str::to_string))
+            .and_then(|c| theme_color(theme.as_deref(), self.surface.mode(), &c))
+            .unwrap_or(gpui::white());
+        let peak = def.as_ref().and_then(|b| b.stops.iter().map(|s| s.alpha).reduce(f64::max)).unwrap_or(0.5) as f32;
+        let edge = Hsla { a: 0.0, ..color };
+        let mid = Hsla { a: color.a * peak, ..color };
+        let half = w / 2.0;
+        let left = div().absolute().top_0().h(px(h)).left(px(band * w)).w(px(half)).bg(linear_gradient(90.0, linear_color_stop(edge, 0.0), linear_color_stop(mid, 1.0)));
+        let right = div().absolute().top_0().h(px(h)).left(px(band * w + half)).w(px(half)).bg(linear_gradient(90.0, linear_color_stop(mid, 0.0), linear_color_stop(edge, 1.0)));
+        rounded(div().absolute().top_0().left_0().w(px(w)).h(px(h)).overflow_hidden(), radii).child(left).child(right).into_any_element()
     }
 
     /// A node's role, name and description (`None` = no a11y node).
@@ -237,7 +297,13 @@ impl SurfaceView {
         // footer), unless the author named it.
         let title = macro_root.and_then(|_| self.cache.macro_part_text(n.index, "title"));
         let footer = macro_root.filter(|m| m.name == "Group").and_then(|_| self.cache.macro_part_text(n.index, "footer"));
-        Some(super::AccessibleInfo { role, label: a11y_label(n, self.surface.strings()).or(title), description: a11y_description(n).or(footer) })
+        // The core's `accessibility` defaults: a windowed item's place in the
+        // whole list, a heading's level (a List section header = 3).
+        let a = n.accessibility.as_ref();
+        let count = |k: &str| a.and_then(|a| a.get(k)).and_then(Value::as_u64).map(|v| v as usize);
+        let level = (role == gpui::Role::Heading).then(|| count("level").unwrap_or(3));
+        let position = count("posInSet").zip(count("setSize"));
+        Some(super::AccessibleInfo { role, label: a11y_label(n, self.surface.strings()).or(title), description: a11y_description(n).or(footer), level, position })
     }
 
     /// The Composer's built-in button names: `(send or stop, attach)`.
@@ -265,12 +331,26 @@ impl SurfaceView {
         if let Some(d) = info.description {
             el = el.aria_description(d);
         }
+        if let Some(l) = info.level {
+            el = el.aria_level(l);
+        }
+        if let Some((at, of)) = info.position {
+            el = el.aria_position_in_set(at).aria_size_of_set(of);
+        }
         match role {
             gpui::Role::Tab | gpui::Role::ListBoxOption | gpui::Role::GridCell | gpui::Role::Row => el = el.aria_selected(flags.selected),
             gpui::Role::CheckBox | gpui::Role::Switch | gpui::Role::RadioButton | gpui::Role::MenuItemCheckBox => {
                 el = el.aria_toggled(if self.checked(n) { gpui::Toggled::True } else { gpui::Toggled::False });
             }
             gpui::Role::ComboBox | gpui::Role::DateInput => el = el.aria_expanded(flags.open),
+            gpui::Role::Splitter => {
+                let num = |k: &str| n.props.get(k).and_then(Value::as_f64);
+                if let Some(v) = num("valueNow") {
+                    el = el.aria_numeric_value(v);
+                }
+                el = el.aria_min_numeric_value(num("valueMin").unwrap_or(0.0)).aria_max_numeric_value(num("valueMax").unwrap_or(100.0));
+                el = el.aria_orientation(if n.props.get("orientation").and_then(Value::as_str) == Some("horizontal") { gpui::Orientation::Horizontal } else { gpui::Orientation::Vertical });
+            }
             gpui::Role::Slider => {
                 let num = |k: &str| n.props.get(k).and_then(Value::as_f64);
                 if let Some(v) = num("value") {
@@ -290,16 +370,28 @@ impl SurfaceView {
     fn children_elements(&self, index: u32, place: Place, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(n) = self.cache.node(index) else { return Vec::new() };
         let layer = n.layer;
-        let kids = n.children.clone();
-        let mut out = Vec::with_capacity(kids.len());
-        for c in kids {
+        let mut out = Vec::with_capacity(n.children.len());
+        let mut members = Vec::new();
+        let pins = n.children.iter().any(|c| self.sticky.contains_key(c));
+        for &c in &n.children {
             let Some(child) = self.cache.node(c) else { continue };
             if child.hidden || child.layer != layer {
                 continue;
             }
-            if let Some(el) = self.paint_node(c, place, window, cx) {
+            let Some(el) = self.paint_node(c, place, window, cx) else { continue };
+            if pins {
+                // Element (= AccessKit) order stays the DOM order; the pinned
+                // child paints on top of the siblings scrolling under it.
+                let f = self.frames.get(c as usize).copied().unwrap_or_default();
+                let (dx, dy) = self.sticky.get(&c).copied().unwrap_or((0.0, 0.0));
+                let rect = gpui::Bounds::new(gpui::point(px(f.x - place.origin.0 + dx), px(f.y - place.origin.1 + dy)), gpui::size(px(f.w), px(f.h)));
+                members.push(super::pinned::Member { element: el, rect, pinned: self.sticky.contains_key(&c) });
+            } else {
                 out.push(el);
             }
+        }
+        if !members.is_empty() {
+            out.push(super::pinned::PinnedStack::new(members).into_any_element());
         }
         out
     }
@@ -387,6 +479,28 @@ impl SurfaceView {
         if let Some(target) = n.trigger_for.clone().filter(|t| self.opens_on_hover(t)) {
             let hid = id.clone();
             el = el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.hover_trigger(&hid, &target, *hovered, window, cx)));
+        }
+        // Round 2 §1: a Resizable handle drags from an 8 px hit area centred
+        // on its hairline; the core resizes from the sizes at the start.
+        if owner == "Resizable" && n.part.as_deref() == Some("handle") {
+            let vertical = n.props.get("orientation").and_then(Value::as_str) == Some("horizontal");
+            let hit = n.props.get("hit").and_then(Value::as_f64).unwrap_or(exponential_ui::layout::RESIZE_HANDLE_HIT) as f32;
+            let f = self.frames.get(index as usize).copied().unwrap_or_default();
+            let cursor = if vertical { gpui::CursorStyle::ResizeRow } else { gpui::CursorStyle::ResizeColumn };
+            let down_id = id.clone();
+            let area = div().id(SharedString::from(format!("{id}.hit"))).absolute().cursor(cursor).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    let p = if vertical { f32::from(ev.position.y) } else { f32::from(ev.position.x) };
+                    this.resize_start(&down_id, vertical, p, window, cx);
+                }),
+            );
+            let area = if vertical { area.left_0().w(px(f.w)).top(px((f.h - hit) / 2.0)).h(px(hit)) } else { area.top_0().h(px(f.h)).left(px((f.w - hit) / 2.0)).w(px(hit)) };
+            // The hit area (it covers the hairline) owns the hover state.
+            let hid = id.clone();
+            let area = area.on_hover(cx.listener(move |this, h: &bool, _, cx| this.hover(&hid, *h, cx)));
+            return el.child(area);
         }
         let is_slider = n.component == "Slider" && n.part.as_deref() == Some("track");
         if is_slider {
@@ -512,9 +626,10 @@ impl SurfaceView {
             host: self.host.as_ref(),
             states: &states,
             owner_props: &owner_props,
-            rtl: self.rtl,
+            rtl: style.rtl.unwrap_or(self.rtl),
             reduced_motion: self.surface.settings().reduced_motion,
             radii,
+            formatter: self.surface.formatter().as_ref(),
         };
         let part = n.part.as_deref();
         Some(match (n.component.as_str(), part) {
@@ -577,8 +692,15 @@ impl SurfaceView {
                 let shown = if v.is_empty() { lcx.str("placeholder").to_string() } else { v };
                 natives::text_lines(&lcx, &[shown], Some(1))
             }
-            ("Table" | "CodeBlock" | "FileUpload", None) => {
-                let label = if n.component == "CodeBlock" { lcx.str("code").to_string() } else { n.component.clone() };
+            // Geometry mode only: an expanded native paints its parts.
+            ("Table" | "CodeBlock" | "FileUpload", None) if n.children.is_empty() => {
+                // Geometry mode (controls not expanded): a stand-in label
+                // from the strings table (round 2 §3), never the kind name.
+                let label = match n.component.as_str() {
+                    "CodeBlock" => lcx.str("code").to_string(),
+                    "Table" => self.builtin_string("table"),
+                    _ => self.builtin_string("dropFiles"),
+                };
                 natives::text_lines(&lcx, &label.split('\n').map(str::to_string).collect::<Vec<_>>(), None)
             }
             _ => return None,
@@ -603,7 +725,8 @@ impl SurfaceView {
         let n = lcx.node;
         let owner = n.owner_component.as_deref().unwrap_or("");
         let part = n.part.as_deref();
-        let raw = lcx.str("text");
+        let shown_text = display_text(n.props.get("text"));
+        let raw = shown_text.as_str();
         let ts = lcx.text_style;
         let (x, y, w, h) = lcx.inner();
         if owner == "Table" && part == Some("cell") {
@@ -628,6 +751,12 @@ impl SurfaceView {
         if lead == 0.0 && trail == 0.0 {
             let clamp = n.lines.filter(|l| *l > 0).map(|l| l as usize);
             let lines = if clamp == Some(1) { Rc::new(vec![shown.replace('\n', " ")]) } else { shaper.lines(&shown, &lcx.font, ts.font_size, Some(w.max(1.0))) };
+            // A Table cell centres its line in the row (the web's
+            // `align-items: center`).
+            if owner == "Table" && matches!(part, Some("cell" | "headerCell")) && h > ts.line_height * lines.len() as f32 {
+                let pad = (h - ts.line_height * lines.len().min(clamp.unwrap_or(usize::MAX)) as f32) / 2.0;
+                return div().absolute().left_0().top(px(pad)).w(px(lcx.w)).h(px(lcx.h - pad)).child(natives::text_lines(lcx, &lines, clamp)).into_any_element();
+            }
             return natives::text_lines(lcx, &lines, clamp);
         }
         // A one-line text with chrome: [lead] text [trail], mirrored in RTL.
@@ -642,13 +771,13 @@ impl SurfaceView {
         if lcx.style.letter_spacing != 0.0 {
             row = row.child(natives::tracked_text(lcx.tracked(vec![shown], align, true)).min_w_0().flex_1().h(px(ts.line_height)));
         } else {
-            row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(shown)));
+            row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));
         }
         match (owner, part) {
             ("Tabs", Some("tab")) => {
                 if let Some(c) = count {
                     let muted = lcx.theme_color("mutedForeground").unwrap_or(lcx.ink);
-                    row = row.child(div().flex_none().px(px(6.0)).rounded_full().text_size(px(12.0)).text_color(muted).child(SharedString::from(c)));
+                    row = row.child(div().flex_none().text_color(muted).child(SharedString::from(c)));
                 }
                 let selected = NodeFlags::of(n).selected;
                 let states: Vec<String> = if selected { vec!["selected".into()] } else { vec![] };
@@ -664,6 +793,11 @@ impl SurfaceView {
                 return out.into_any_element();
             }
             ("Accordion", Some("trigger")) => {
+                if let Some(c) = count {
+                    let cp = lcx.part("Accordion", "count", &[]);
+                    let muted = cp.color.or_else(|| lcx.theme_color("mutedForeground")).unwrap_or(lcx.ink);
+                    row = row.child(div().flex_none().text_color(muted).child(SharedString::from(c)));
+                }
                 let open = NodeFlags::of(n).open;
                 let chevron = icons::concept_rotated(lcx.host, "ui-chevron-down", 16.0, lcx.ink, if open { std::f32::consts::PI } else { 0.0 });
                 row = row.child(div().flex_none().child(chevron));
@@ -869,7 +1003,7 @@ impl SurfaceView {
             let s = lcx.part("ToggleGroup", "item", &st);
             let color = s.color.unwrap_or(lcx.ink);
             let label = display_text(it.get("label"));
-            let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(6.0)).whitespace_nowrap().text_color(color), &s, 80.0, ih)
+            let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(px_prop(&item_props, "gap").unwrap_or(0.0))).whitespace_nowrap().text_color(color), &s, 80.0, ih)
                 .when(fill, |d| d.flex_1())
                 .role(gpui::Role::RadioButton)
                 .aria_label(SharedString::from(label.clone()))
