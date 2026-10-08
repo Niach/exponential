@@ -1,10 +1,12 @@
 // VAPP-87: what an EMBEDDING APP provides (the host plugin) and what the
-// renderer sends it. The SDK knows no transport: actions and input edits
-// are plain objects the host forwards wherever it likes (A2UI over A2A, the
-// Exponential steer channel, a test harness).
+// renderer sends it. The plugin knows no transport: actions and input edits
+// are plain objects the host forwards wherever it likes. VAPP-91: the host
+// API (`@exponential-at/ui` `ExponentialHost`: transport, functions,
+// bindings, negotiation, policy) plugs in through `hostPlugin(host)` /
+// `<HostSurface>` (host-surface.tsx).
 
 import type { ComponentType, SVGProps } from "react"
-import type { UiNode, ResolvedTheme, ModeName } from "@exponential-at/ui"
+import type { UiNode, ResolvedTheme, ModeName, FunctionCallInfo, MediaRequest } from "@exponential-at/ui"
 import type { ClientFunction } from "./data"
 
 /** An icon component the host maps a registry name to (`lucide-react`'s
@@ -53,8 +55,17 @@ export interface HostPlugin {
   onInput?: (event: SurfaceInputEvent) => void | Promise<void>
   /** `openUrl` and `Link`; default `window.open(url, "_blank")`. */
   openUrl?: (url: string) => void
-  /** Extra or overriding client functions. */
+  /** Extra or overriding VALUE functions (`{call, args}` in a prop),
+   *  React only; portable action functions go through onFunctionCall. */
   functions?: Record<string, ClientFunction>
+  /** An action `functionCall` to a name outside the 14 built-ins (the host
+   *  function registry + its policy gate, `ExponentialHost.callFunction`).
+   *  A promise keeps the source control pending until it settles. */
+  onFunctionCall?: (call: FunctionCallInfo) => unknown | Promise<unknown>
+  /** The media loader's request for a source (absolute url + headers, e.g.
+   *  auth for /api/attachments). A request WITH headers is fetched and shown
+   *  as a blob url; without, its url is used as is. */
+  mediaRequest?: (src: string) => MediaRequest | null
   /** A richer markdown renderer than the built-in one. */
   Markdown?: ComponentType<{ text: string; className?: string }>
   /** Rewrites media URLs (relative attachment paths, signed URLs). */

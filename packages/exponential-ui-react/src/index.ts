@@ -24,3 +24,7 @@ export type { SurfaceContextValue } from "./context"
 export { IconGlyph, resolveIcon } from "./icons"
 export { BuiltinMarkdown, renderMarkdown } from "./markdown"
 export { useParts, str, num, bool, arr } from "./natives/shared"
+// VAPP-91: the host API on React.
+export { HostSurface, hostPlugin, useHostSurface, useHostSurfaceIds, useHostStatus } from "./host-surface"
+export type { HostSurfaceProps } from "./host-surface"
+export { useMediaSrc } from "./media"

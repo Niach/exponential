@@ -11,7 +11,7 @@ import { UNKNOWN_COMPONENT, nativeRecipeProps } from "@exponential-at/ui"
 import type { UiNode } from "@exponential-at/ui"
 import { nodeClass } from "./box-css"
 import { ScopeContext, useSurfaceContext } from "./context"
-import { absolutePath, getPointer, resolveProps, resolveValue } from "./data"
+import { CLIENT_FUNCTIONS, absolutePath, getPointer, resolveProps, resolveValue } from "./data"
 import { extensionComponent, extensionMacroNames } from "./extensions"
 import type { ExtensionComponentProps, SurfaceActionEvent } from "./host"
 import { NATIVES } from "./natives"
@@ -24,8 +24,11 @@ export interface NativeProps extends ExtensionComponentProps {
 
 const CONTAINERS = new Set([`Box`, `List`])
 
-function suffixIds(node: UiNode, suffix: string): UiNode {
-  const out: UiNode = { ...node, id: `${node.id}${suffix}`, children: node.children.map((c) => suffixIds(c, suffix)) }
+/** A template item: ids suffixed per item (`row.0`), the node sheet's class
+ *  kept on `styleId` (the template component's own id) so every item wears
+ *  its styles. */
+export function suffixIds(node: UiNode, suffix: string): UiNode {
+  const out: UiNode & { styleId?: string } = { ...node, id: `${node.id}${suffix}`, styleId: styleIdOf(node), children: node.children.map((c) => suffixIds(c, suffix)) }
   if (node.slots) {
     out.slots = {}
     for (const [k, v] of Object.entries(node.slots)) out.slots[k] = suffixIds(v, suffix)
@@ -33,12 +36,17 @@ function suffixIds(node: UiNode, suffix: string): UiNode {
   return out
 }
 
+/** The id a node's style rules are keyed by. */
+export function styleIdOf(node: UiNode): string {
+  return (node as UiNode & { styleId?: string }).styleId ?? node.id
+}
+
 /** The attributes every painted root carries. */
 export function useRootProps(node: UiNode, props: Record<string, unknown>): Record<string, unknown> {
   const ctx = useSurfaceContext()
   return useMemo(() => {
     const macros = extensionMacroNames(ctx.extensions)
-    const classes = [`xui-el`, nodeClass(node.id), ctx.compiled.scope, partClass(node.component, `root`)]
+    const classes = [`xui-el`, nodeClass(styleIdOf(node)), ctx.compiled.scope, partClass(node.component, `root`)]
     const attrs: Record<string, unknown> = {}
     if (node.recipe) {
       classes.push(partClass(node.recipe.macro, node.recipe.part))
@@ -73,10 +81,17 @@ export function useEmitter(node: UiNode, scope: string) {
       const action = node.on?.[event]
       if (!action) return undefined
       const resolveCtx = { data: ctx.data, scope, functions: ctx.functions, openUrl: ctx.openUrl }
-      const fn = (action as { functionCall?: unknown }).functionCall ?? action.function
+      // A2UI's `functionCall` (the core also reads the legacy `function`).
+      const fn = ((action as { functionCall?: unknown }).functionCall ?? action.function) as { call?: unknown; args?: unknown } | undefined
       if (fn) {
-        resolveValue(fn, resolveCtx)
-        return undefined
+        const name = typeof fn.call === `string` ? fn.call : ``
+        if (name in CLIENT_FUNCTIONS) {
+          resolveValue(fn, resolveCtx)
+          return undefined
+        }
+        const args = (resolveValue(fn.args ?? {}, resolveCtx) as Record<string, unknown>) ?? {}
+        const out = ctx.host.onFunctionCall?.({ surfaceId: ctx.surfaceId, componentId: node.id, name, args })
+        return out instanceof Promise ? out.then(() => undefined) : undefined
       }
       if (action.event) {
         const context = (resolveValue(action.event.context ?? {}, resolveCtx) as Record<string, unknown>) ?? {}
@@ -118,7 +133,7 @@ export function NodeView({ node }: { node: UiNode }) {
     const size = ctx.measure(node)
     if (size) {
       return (
-        <div className={`xui-el ${nodeClass(node.id)} xui-leaf`} data-xui-id={node.id} data-xui-c={node.component}>
+        <div className={`xui-el ${nodeClass(styleIdOf(node))} xui-leaf`} data-xui-id={node.id} data-xui-c={node.component}>
           <div className="xui-measured" style={{ width: size.w, height: size.h }} />
         </div>
       )

@@ -116,6 +116,9 @@ export interface FunctionCall {
 /** An A2UI v0.9 Action: a server event or a client function. */
 export interface Action {
   event?: { name: string; context?: Record<string, unknown> }
+  /** A2UI v0.9's client function action. */
+  functionCall?: FunctionCall
+  /** The legacy key the core also reads. */
   function?: FunctionCall
 }
 

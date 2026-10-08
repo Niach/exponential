@@ -5,7 +5,7 @@ import { ScopeContext, useSurfaceContext } from "../context"
 import { absolutePath, getPointer } from "../data"
 import { WindowedList } from "../list"
 import type { NativeProps } from "../node-view"
-import { NodeView } from "../node-view"
+import { NodeView, suffixIds } from "../node-view"
 import { bool, str, useParts } from "./shared"
 
 export function BoxNative({ node, props, rootProps, emit, children }: NativeProps) {
@@ -91,19 +91,10 @@ function ListItem({ index, node, templateItems, divided, part }: { index: number
     <>
       {divider}
       <ScopeContext.Provider value={`${templateItems.path}/${i}`}>
-        <NodeView node={suffix(templateItems.tpl, `.${i}`)} />
+        <NodeView node={suffixIds(templateItems.tpl, `.${i}`)} />
       </ScopeContext.Provider>
     </>
   )
-}
-
-function suffix(node: NativeProps[`node`], s: string): NativeProps[`node`] {
-  const out = { ...node, id: `${node.id}${s}`, children: node.children.map((c) => suffix(c, s)) }
-  if (node.slots) {
-    out.slots = {}
-    for (const [k, v] of Object.entries(node.slots)) out.slots[k] = suffix(v, s)
-  }
-  return out
 }
 
 export function UnknownNative({ node, props, rootProps }: NativeProps) {

@@ -1,0 +1,147 @@
+{
+  "$comment": "VAPP-91: the Devices page as a declarative package (VAPP-82 format, VAPP-83's template): data, no code. `exp:devices` is the app host's binding resolver over the synced devices (web: the Electric collection; desktop: the IDE's store); it emits {rows, count, online}, each row {id, label, detail, icon, discTone, tone, status}. A row press calls harness.toast (the package allowlist); every host runs it through the same public API.",
+  "id": "exponential.devices",
+  "name": "Devices",
+  "version": "1.0.0",
+  "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
+  "icon": {
+    "glyph": "nav-devices"
+  },
+  "functions": [
+    "harness.toast",
+    "harness.openDevice"
+  ],
+  "templates": {
+    "devices": {
+      "data": {
+        "devices": {
+          "rows": [],
+          "count": 0,
+          "online": 0
+        }
+      },
+      "bindings": [
+        {
+          "path": "/devices",
+          "source": "exp:devices"
+        }
+      ],
+      "components": [
+        {
+          "id": "root",
+          "component": "Stack",
+          "gap": "md",
+          "children": [
+            "band",
+            "list"
+          ]
+        },
+        {
+          "id": "band",
+          "component": "Band",
+          "title": "Devices",
+          "icon": "nav-devices"
+        },
+        {
+          "id": "list",
+          "component": "List",
+          "divided": true,
+          "children": {
+            "componentId": "row",
+            "path": "/devices/rows"
+          }
+        },
+        {
+          "id": "row",
+          "component": "Box",
+          "pressable": true,
+          "style": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": "$spacing.md",
+            "paddingTop": "$spacing.sm",
+            "paddingBottom": "$spacing.sm",
+            "paddingLeft": "$spacing.md",
+            "paddingRight": "$spacing.md"
+          },
+          "accessibility": {
+            "label": {
+              "path": "label"
+            }
+          },
+          "children": [
+            "disc",
+            "texts",
+            "dot"
+          ],
+          "on": {
+            "press": {
+              "functionCall": {
+                "call": "harness.openDevice",
+                "args": {
+                  "id": {
+                    "path": "id"
+                  },
+                  "label": {
+                    "path": "label"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "disc",
+          "component": "IconDisc",
+          "icon": {
+            "path": "icon"
+          },
+          "tone": {
+            "path": "discTone"
+          }
+        },
+        {
+          "id": "texts",
+          "component": "Stack",
+          "gap": "xs",
+          "style": {
+            "flexGrow": 1,
+            "flexShrink": 1,
+            "minWidth": 0
+          },
+          "children": [
+            "label",
+            "detail"
+          ]
+        },
+        {
+          "id": "label",
+          "component": "Text",
+          "text": {
+            "path": "label"
+          },
+          "lines": 1
+        },
+        {
+          "id": "detail",
+          "component": "Text",
+          "text": {
+            "path": "detail"
+          },
+          "variant": "muted",
+          "lines": 1
+        },
+        {
+          "id": "dot",
+          "component": "LiveDot",
+          "tone": {
+            "path": "tone"
+          },
+          "label": {
+            "path": "status"
+          }
+        }
+      ]
+    }
+  }
+}

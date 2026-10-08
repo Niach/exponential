@@ -6,16 +6,18 @@
 //   ?view=geometry&case=900|390|900-rtl|390-rtl        (fixed fake measure)
 //   ?view=overlay&case=<n>                              (overlay-geometry.json)
 //   ?view=catalog                                        (every fixture case)
+//   ?view=controls&theme=<id>                            (control-geometry.json, VAPP-91 conformance)
 // No app code: the SDK, its fixtures and a stub host with a 150 ms echo.
 
 import { StrictMode, useMemo, useState } from "react"
 import { createRoot } from "react-dom/client"
-import { CORE_CATALOG_ID, reduceNested, BUILTIN_THEME_IDS } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, reduceNested, BUILTIN_THEME_IDS, componentDef } from "@exponential-at/ui"
 import type { NestedNode, UiNode } from "@exponential-at/ui"
 import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
 import geometry from "@exponential-at/ui/fixtures/layout-geometry.json"
 import overlays from "@exponential-at/ui/fixtures/overlay-geometry.json"
 import components from "@exponential-at/ui/fixtures/catalog-components.json"
+import controlGeometry from "@exponential-at/ui/fixtures/control-geometry.json"
 import { ExponentialSurface, useSurface } from "../src/index"
 import type { HostPlugin, SurfaceInputEvent } from "../src/index"
 import { harnessIcons } from "./icons"
@@ -33,6 +35,7 @@ declare global {
     __xuiFrames?: (rootId?: string) => { id: string; x: number; y: number; w: number; h: number }[]
     __xuiLog: unknown[]
     __xuiOverlay?: () => { x: number; y: number; w: number; h: number; side: string } | null
+    __xuiControls?: () => Record<string, Record<string, number> | null>
   }
 }
 window.__xuiLog = []
@@ -138,7 +141,54 @@ function Catalog() {
   )
 }
 
+/** VAPP-91 conformance: every control-geometry case of one theme, each its
+ *  own surface; `__xuiControls()` reads the sizing part's box per case. */
+function Controls() {
+  type Entry = { part: string; cases: Record<string, { props: Record<string, unknown> }> }
+  const byComponent = (controlGeometry.themes as unknown as Record<string, Record<string, Entry>>)[themeId] ?? {}
+  const all = Object.entries(byComponent).flatMap(([component, entry]) => Object.entries(entry.cases).map(([name, c]) => ({ key: `${component} ${name}`, component, part: entry.part, props: c.props })))
+  window.__xuiControls = () => {
+    const out: Record<string, Record<string, number> | null> = {}
+    for (const c of all) {
+      const box = document.querySelector<HTMLElement>(`[data-case="${c.key}"]`)
+      const el = box?.querySelector<HTMLElement>(`.xui-${c.component}-${c.part}`)
+      if (!el) {
+        out[c.key] = null
+        continue
+      }
+      const r = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      const px = (v: string) => parseFloat(v) || 0
+      out[c.key] = {
+        width: r.width,
+        height: r.height,
+        minHeight: px(cs.minHeight),
+        paddingHorizontal: px(cs.paddingLeft),
+        paddingVertical: px(cs.paddingTop),
+        gap: px(cs.columnGap),
+        borderWidth: px(cs.borderLeftWidth),
+        borderRadius: Math.min(px(cs.borderTopLeftRadius), 9999),
+      }
+    }
+    return out
+  }
+  return (
+    <div style={{ display: `flex`, flexWrap: `wrap`, gap: 16, padding: 16, alignItems: `flex-start` }}>
+      {all.map((c) => {
+        const example = (componentDef(c.component)?.example ?? {}) as Record<string, unknown>
+        const { root } = reduceNested({ id: `root`, component: c.component, props: { ...example, ...c.props } }, { catalogId: CORE_CATALOG_ID })
+        return (
+          <div key={c.key} data-case={c.key} style={{ width: 360 }}>
+            <ExponentialSurface id={c.key.replace(/[^a-z0-9]/gi, `-`)} root={root} theme={themeId} mode="light" host={{ icons: harnessIcons }} />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function App() {
+  if (view === `controls`) return <Controls />
   if (view === `geometry`) return <Geometry />
   if (view === `overlay`) return <Overlay />
   if (view === `catalog`) return <Catalog />

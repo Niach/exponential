@@ -25,12 +25,14 @@ export function* walkNodes(root: UiNode): Generator<UiNode> {
 }
 
 /** The node sheet for one tree. */
-export function nodeSheet(root: UiNode, surfaceId: string, fonts: Record<string, FontSpec> = {}): string {
+export function nodeSheet(roots: UiNode | readonly UiNode[], surfaceId: string, fonts: Record<string, FontSpec> = {}): string {
   const scope = `.${surfaceClass(surfaceId)}`
   const base: string[] = []
   const media: [number, string][] = []
   const pressed: string[] = []
-  for (const node of walkNodes(root)) {
+  // VAPP-91: template components render per item but are reduced apart from
+  // the tree; the surface passes them as extra roots so their styles land.
+  for (const node of (Array.isArray(roots) ? roots : [roots]).flatMap((r) => [...walkNodes(r)])) {
     const style = node.style
     if (!style) continue
     const sel = `${scope} .${nodeClass(node.id)}`

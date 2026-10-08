@@ -11,7 +11,7 @@ import { useCallback, useId, useMemo, useState, useSyncExternalStore, type CSSPr
 import { builtinTheme, loadTheme, BUILTIN_THEMES, DEFAULT_THEME_ID, CORE_CATALOG_ID } from "@exponential-at/ui"
 import type { ModeName, ResolvedTheme, ThemeSource, UiNode, FlatComponent } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
-import { nodeSheet, surfaceClass } from "./box-css"
+import { nodeSheet, surfaceClass, walkNodes } from "./box-css"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { CLIENT_FUNCTIONS, setPointer, type DataModel } from "./data"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
@@ -110,7 +110,7 @@ export function ExponentialSurface({
   )
 
   const root = surface ? surface.root : (rootProp ?? null)
-  const sheet = useMemo(() => (root ? nodeSheet(root, surfaceId, theme.fonts) : ``), [root, surfaceId, theme.fonts])
+
   const [portal, setPortal] = useState<HTMLElement | null>(null)
   const functions = useMemo(() => ({ ...CLIENT_FUNCTIONS, ...(host?.functions ?? {}) }), [host?.functions])
   const openUrl = host?.openUrl ?? defaultOpenUrl
@@ -118,6 +118,21 @@ export function ExponentialSurface({
   const components = surface?.components ?? noComponents
   const catalogId = surface?.catalogId ?? CORE_CATALOG_ID
   const templateNode = useCallback((componentId: string) => templateNodeFrom(components, catalogId, extensionDefs, componentId), [components, catalogId, extensionDefs])
+  // The sheet covers the tree AND every template component it instantiates
+  // (a List's row), reduced once each.
+  const sheet = useMemo(() => {
+    if (!root) return ``
+    const roots: UiNode[] = [root]
+    const seen = new Set<string>()
+    for (let i = 0; i < roots.length; i++)
+      for (const node of walkNodes(roots[i]!))
+        if (node.template && !seen.has(node.template.component)) {
+          seen.add(node.template.component)
+          const t = templateNode(node.template.component)
+          if (t) roots.push(t)
+        }
+    return nodeSheet(roots, surfaceId, theme.fonts)
+  }, [root, surfaceId, theme.fonts, templateNode])
 
   const ctx: SurfaceContextValue = useMemo(
     () => ({

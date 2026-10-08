@@ -180,6 +180,12 @@ export class ExponentialHost {
     for (const pkg of options.packages ?? []) this.installPackage(pkg)
   }
 
+  /** False for a local-only host (packages, in-memory feeds): no
+   *  `host_offline` state to show. */
+  get hasTransport(): boolean {
+    return this.options.transport !== undefined
+  }
+
   // --- negotiation + registration ----------------------------------------
 
   get supportedCatalogIds(): string[] {
