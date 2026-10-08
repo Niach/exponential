@@ -14,7 +14,8 @@ its data passed in, and the app keeps the binding beside its own state (see
 | | |
 | --- | --- |
 | `styles.css` | The theme: `@import "tailwindcss"`, `@theme inline`, `:root, :host`, `.dark`, the base layer, the motion/glass `@utility` recipes and the `.issue-chip` box. An app imports THIS instead of `tailwindcss`. |
-| the shadcn set | 34 modules — `button`, `dialog`, `sheet`, `select`, `dropdown-menu`, `command`, `sidebar`, `calendar`, `alert`, `pill`, `glass-rows`, the colour/icon pickers … |
+| the shadcn set + the generic primitives (VAPP-87) | They LIVE in `@exponential-at/ui-react/primitives` (`packages/exponential-ui-react/src/primitives/`); every one keeps a ONE-line shim here (`export * from "@exponential-at/ui-react/primitives/<name>"`, the `.ts` helpers as named re-exports from the primitives barrel), so `@exp/ui` still exports every name and sibling files still import `./button`. Moved: `button`, `input`, `textarea`, `switch`, `checkbox`, `select`, `tabs`, `dialog` + `dialog-arms`, `sheet` + `sheet-chrome`, `popover`, `tooltip`, `dropdown-menu` + `menu-surface`, `avatar` + `avatar-color`, `badge`, `card` + `glass-card`, `progress`, `separator`, `skeleton`, `calendar`, `collapsible`, `label`, `alert`, `pill`, `meter`, `progress-ring` + `context-ring`, `segmented-control`, `segmented-bar`, `empty-state` + `icon-disc`, `glass-rows`, `disclosure-header`, `composer`, `hover-card`, `typeahead`, `truncate`, `cn`, `use-sheet-drag`, `use-mobile`, `use-media-query`. Added there: `accordion`, `button-group`, `carousel` (scroll snap, no embla), `pagination`, `radio-group`, `slider`, `spinner`, `table`, `toggle`, `toggle-group`. `styles.css` `@source`s that directory, so the app's build still emits their utilities. |
+| the app-bound shadcn set | stays HERE: `command`, `context-menu`, `sidebar`, `date-picker` (`@exp/db-schema`), the colour/icon pickers, `combobox` … |
 | primitives | `IssueChip` + `ChipRemoveButton`, `StatusGlyph`, `UserAvatar`, `TeamAvatar`, `LiveDot`, `RichTab`, `EmptyState` + `ListEmpty` (the in-list empty line) + `EmptyCta` (the dashed nudge that starts one), `GlassCard`, `IconDisc`, `BrandHeading` (the signed-out / first-run head: the 56px mark over the title, the ONE place the logo is drawn big; `description` only for a line that carries state), `IconTooltip`, `MobilePopover` |
 | moved in by EXP-961 | the presentational files that were stranded in `apps/web/src/components`: `Composer` + `ComposerTool` + `ComposerSubmit` (the ONE composer card), `PasswordInput`, `ExponentialLogo`, `AuthFormShell`, `BoardGlyph`, `MobileWorkBar` + `MobileWorkCapsule` + `MOBILE_WORK_CIRCLE_CLASS`/`MOBILE_WORK_CAPSULE_CLASS` (beside `FAB_CHROME_CLASS`) with `useKeyboardInset`, `WorkHeader` + `WORK_COLUMN_CLASS`/`RUN_TITLE_CLASS`/`DETAIL_STICKY_BAND_CLASS`, `ChangesFileSheet`, `PrGithubButton`, `ContextRing` (the percent and the tone come IN; the app's `lib/context-ring.ts` maps `severity` onto `RING_TONE_CLASS`), the brand marks (`ClaudeIcon`/`CodexIcon`/`OpenAiIcon`/`CursorIcon`, `AgentBrandMark`), `AgentPicker` + `AgentPickerTabs` + `agentLabel`, `ImagePreviewDialog` + its non-portal body `PreviewMedia`, `SessionResultsView` (`attachmentSrc` comes IN; the pure `session-results` rules ride along) and `EmojiPicker` + `EmojiPickerPopover` (`data` + `recent` come IN, cells are `Button` ghost, the empty line is `ListEmpty`; `emoji-search` = the pure index/rank half, the app keeps the lazy load and the recents). `IssueGroupBand` is the group header's presentational half, bound by the app's `components/issue-group-header.tsx` like the chip. |
 | small primitives (EXP-962) | The shapes the app kept redrawing at one-off sizes, one component each: `Badge` (the 16px count capsule — `muted` parked, `primary` unread, nothing at zero, `99+` past `max`; placement stays at the call site), `DisclosureHeader` (the bare fold toggle inside a row: 12px chevron `leading` or `trailing`, muted text that brightens, `aria-expanded` — NOT the group band, which is a filled strip heading a list), `EmptyCta` (the dashed full-width nudge that IS the button, standing where the first row will go), `FabButton` + `FAB_CIRCLE_CLASS` (the 52px floating circle, glyph at `secondary` emphasis unless the bar's one call to action says `primary`; `MOBILE_WORK_CIRCLE_CLASS` aliases the class for the two slots that are not buttons), `ListRow density="compact"` / `SidebarMenuButton density="compact"` (the 28px one-line row the 17rem column runs at, twins so a nav entry and a list row are the same height), `AttachmentThumb size="inline"` + `onOpen`/`onRemove` (the image as POSTED — its own width, capped at 480 tall, contained under the same hairline — with a zoom arm into the lightbox and an optional corner delete badge), and `Button variant="text"` + `size="inline"` (words with no box: `text` toggles something in place, `link` underlines because it goes somewhere). |
@@ -42,6 +43,21 @@ relatively keeps the real hook. Mock the surface you assert on, not the
 package's internals.
 
 ## Adding a component
+
+A GENERIC component (a shadcn part, a primitive with no Exponential data,
+contract or concept icon in it) goes into the SDK, `packages/exponential-ui-react/src/primitives/<name>.tsx`:
+
+1. relative imports only (`./cn`, `./button`), the `radix-ui` umbrella, icons
+   as direct `lucide-react` imports (the SDK has no `conceptIcon` registry), a
+   `data-slot` on every part;
+2. add `export * from "./<name>"` to `src/primitives/index.ts` and a smoke
+   test beside it (`bun run --filter @exponential-at/ui-react test`);
+3. here: a one-line shim `src/<name>.tsx` =
+   `export * from "@exponential-at/ui-react/primitives/<name>"` and
+   `export * from "./<name>"` in `src/index.ts`.
+
+A SPECIALISED component (synced shapes as props, `conceptIcon`,
+`@exp/db-schema`/`@exp/domain-contract`/`@exp/emoji`, fixtures) stays HERE:
 
 ```bash
 cd packages/ui && bunx shadcn@latest add <name>

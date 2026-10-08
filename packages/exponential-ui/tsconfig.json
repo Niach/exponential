@@ -3,7 +3,8 @@
   "include": [
     "src/**/*.ts",
     "scripts/**/*.ts",
-    "builder/**/*.ts"
+    "builder/**/*.ts",
+    "builder/**/*.tsx"
   ],
   "compilerOptions": {
     "lib": [
@@ -13,6 +14,7 @@
     ],
     "types": [
       "bun"
-    ]
+    ],
+    "jsx": "react-jsx"
   }
 }

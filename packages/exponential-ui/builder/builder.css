@@ -47,3 +47,6 @@ button.primary { background: var(--accent); color: var(--accent-fg); border-colo
 .import h2 { margin: 0 0 6px; font-size: 15px; }
 .import p { margin: 0 0 10px; color: var(--muted); }
 .import pre { white-space: pre-wrap; max-height: 120px; overflow: auto; color: var(--muted); }
+/* VAPP-87: every specimen is its own surface; a surface never shrinks below its content in a wrapping row. */
+.sheet-col > .xui-surface { flex: 0 0 auto; max-width: 100%; }
+.sink > .xui-surface { width: 100%; }

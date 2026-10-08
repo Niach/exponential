@@ -595,8 +595,13 @@ describe(`icon call sites`, () => {
     const bad: string[] = []
     // EXP-887: the shadcn set moved into @exp/ui, so the gate walks BOTH the
     // app and the package — the raw lucide imports the generated components
-    // carry now live there.
-    const sources = [`apps/web/src`, `packages/ui/src`].flatMap((root) =>
+    // carry now live there. VAPP-87: the shadcn set moved on into the SDK's
+    // primitives (direct lucide imports, no concept registry there).
+    const sources = [
+      `apps/web/src`,
+      `packages/ui/src`,
+      `packages/exponential-ui-react/src/primitives`,
+    ].flatMap((root) =>
       walk(join(repoRoot, root), `.tsx`).concat(walk(join(repoRoot, root), `.ts`))
     )
     for (const file of sources) {

@@ -1,21 +1,18 @@
 // VAPP-92: the theme builder page — pick a base, tweak tokens and recipes
 // with the whole catalog previewed live, import a shadcn `globals.css` or a
-// tweakcn export as a start, export the JSON. Plain DOM, no framework; the
-// engine is src/builder.ts, the preview painter builder/paint.ts.
+// tweakcn export as a start, export the JSON. Plain DOM for the editor; the
+// engine is src/builder.ts, the preview is the REAL React renderer
+// (builder/preview.tsx on `@exponential-at/ui-react`, VAPP-87).
 // ui.exponential.at (VAPP-93) mounts this page; `bun run --filter
 // @exponential-at/ui build:builder` bundles it.
 
-import { CORE_CATALOG_ID, TOKEN_GROUPS } from "../src/catalog"
+import { TOKEN_GROUPS } from "../src/catalog"
 import { diffTheme, exportThemeJson, importShadcnCss, parseThemeJson, themeFromImport } from "../src/builder"
 import { recipeParts } from "../src/recipes"
-import { reduceNested } from "../src/reducer"
 import { tryLoadTheme } from "../src/theme"
 import { BUILTIN_THEMES, builtinTheme } from "../src/themes"
 import type { ModeName, ResolvedTheme, ThemeIssue, ThemeSource } from "../src/theme-types"
-import type { NestedNode } from "../src/types"
-import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
-import { paint } from "./paint"
-import type { PaintContext } from "./paint"
+import { renderPreview as mountPreview } from "./preview"
 
 const STORAGE = `exponential-ui.theme-builder`
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T
@@ -250,59 +247,16 @@ function renderIssues(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Preview: the recipe sheet + the kitchen sink
+// Preview: the recipe sheet + the kitchen sink (builder/preview.tsx)
 // ---------------------------------------------------------------------------
-
-const SHEET: { title: string; nodes: NestedNode[]; states?: string[][] }[] = [
-  {
-    title: `Button · variant × size`,
-    nodes: [`default`, `secondary`, `outline`, `ghost`, `destructive`, `link`].flatMap((variant) => [`sm`, `default`, `lg`, `icon`].map((size) => ({ id: `b-${variant}-${size}`, component: `Button`, props: { label: variant, icon: size === `icon` ? `ui-add` : undefined, variant, size } }))),
-  },
-  {
-    title: `Button · states`,
-    nodes: [`default`, `outline`].map((variant) => ({ id: `bs-${variant}`, component: `Button`, props: { label: variant, variant } })),
-    states: [[], [`hover`], [`pressed`], [`focus`], [`disabled`]],
-  },
-  { title: `Badge`, nodes: [`default`, `secondary`, `outline`, `ghost`, `destructive`, `link`].map((variant) => ({ id: `badge-${variant}`, component: `Badge`, props: { text: variant, icon: `ui-check`, variant } })) },
-  { title: `Pill · tone, selected`, nodes: [...[`neutral`, `primary`, `success`, `warning`, `danger`, `info`].map((tone) => ({ id: `pill-${tone}`, component: `Pill`, props: { label: tone, tone, icon: `ui-check` } })), { id: `pill-sel`, component: `Pill`, props: { label: `selected`, selected: true } }] },
-  { title: `Text`, nodes: [`body`, `caption`, `muted`, `lead`, `code`, `label`, `title`].map((variant) => ({ id: `text-${variant}`, component: `Text`, props: { text: variant, variant } })) },
-  { title: `Inputs`, nodes: [{ id: `in-1`, component: `Input`, props: { label: `Email`, placeholder: `you@example.com` } }, { id: `in-2`, component: `Select`, props: { label: `Board`, options: [{ label: `Sprint`, value: `sprint` }], value: `sprint` } }, { id: `in-3`, component: `Textarea`, props: { label: `Notes`, placeholder: `Anything else?` } }] },
-  { title: `Toggles`, nodes: [{ id: `t-1`, component: `Switch`, props: { label: `Auto-scan`, checked: true } }, { id: `t-2`, component: `Switch`, props: { label: `Off`, checked: false } }, { id: `t-3`, component: `Checkbox`, props: { label: `Checked`, checked: true } }, { id: `t-4`, component: `Checkbox`, props: { label: `Unchecked`, checked: false } }, { id: `t-5`, component: `Radio`, props: { options: [{ label: `One`, value: `1` }, { label: `Two`, value: `2` }], value: `1` } }, { id: `t-6`, component: `Toggle`, props: { label: `Bold`, icon: `editor-bold`, pressed: true } }, { id: `t-7`, component: `Toggle`, props: { label: `Outline`, variant: `outline` } }] },
-  { title: `Navigation`, nodes: [{ id: `n-1`, component: `Tabs`, props: { tabs: [{ label: `Issue`, value: `issue` }, { label: `Run`, value: `run` }, { label: `Changes`, value: `changes` }], value: `issue` } }, { id: `n-2`, component: `ToggleGroup`, props: { items: [{ label: `List`, value: `list` }, { label: `Board`, value: `board` }], value: `list`, variant: `segmented` } }, { id: `n-3`, component: `ToggleGroup`, props: { items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: `a`, variant: `outline` } }, { id: `n-4`, component: `Pagination`, props: { page: 2, totalPages: 5 } }] },
-  { title: `Feedback`, nodes: [...[`info`, `success`, `warning`, `error`].map((type) => ({ id: `al-${type}`, component: `Alert`, props: { type, title: `${type} alert`, message: `Something to know.` } })), { id: `pr-1`, component: `Progress`, props: { value: 62, label: `Upload` } }, { id: `me-1`, component: `Meter`, props: { label: `Usage`, segments: [{ value: 40, tone: `success` }, { value: 25, tone: `warning` }, { value: 10, tone: `danger` }] } }, { id: `ri-1`, component: `Ring`, props: { value: 0.62 } }, { id: `sp-1`, component: `Spinner`, props: {} }, { id: `sk-1`, component: `Skeleton`, props: { width: `120px`, height: `16px` } }] },
-  { title: `Lists`, nodes: [{ id: `l-band`, component: `Band`, props: { title: `In progress`, count: 3, icon: `ui-check` } }, { id: `l-row`, component: `ListRow`, props: { title: `A list row`, subtitle: `with a subtitle`, meta: `2d`, icon: `ui-check`, chevron: true } }, { id: `l-row-sel`, component: `ListRow`, props: { title: `Selected row`, selected: true } }, { id: `l-card`, component: `CardRow`, props: { title: `Card row`, subtitle: `bordered`, icon: `ui-check` } }, { id: `l-nav`, component: `NavRow`, props: { label: `Inbox`, icon: `nav-inbox`, count: 4, selected: true } }, { id: `l-chip`, component: `EntityChip`, props: { label: `APP-12`, detail: `Quick-add`, icon: `ui-check`, removable: true } }] },
-  { title: `Surfaces`, nodes: [{ id: `s-card`, component: `Card`, props: { title: `Card`, description: `A card with a body`, padded: true }, children: [{ id: `s-card-t`, component: `Text`, props: { text: `Body text` } }] }, { id: `s-group`, component: `Group`, props: { title: `Group`, footer: `Footer note` }, children: [{ id: `s-g-1`, component: `PropertyRow`, props: { label: `Status`, value: `Open` } }, { id: `s-g-2`, component: `PickerRow`, props: { label: `Assignee`, placeholder: `Choose` } }] }, { id: `s-tip`, component: `Tooltip`, props: { text: `Tooltip` }, children: [{ id: `s-tip-b`, component: `Button`, props: { label: `Hover`, variant: `outline` } }] }, { id: `s-pop`, component: `Popover`, props: { open: true }, slots: { trigger: { id: `s-pop-t`, component: `Button`, props: { label: `Open`, variant: `secondary` } } }, children: [{ id: `s-pop-c`, component: `Text`, props: { text: `Popover content` } }] }, { id: `s-menu`, component: `DropdownMenu`, props: { items: [{ label: `Edit`, icon: `ui-edit` }, { label: `Share` }, { separator: true }, { label: `Delete`, destructive: true }] }, slots: { trigger: { id: `s-menu-t`, component: `Button`, props: { label: `Menu`, variant: `outline` } } } }, { id: `s-dialog`, component: `Dialog`, props: { open: true, title: `Dialog`, description: `A modal surface` }, children: [{ id: `s-dialog-c`, component: `Text`, props: { text: `Dialog body` } }], slots: { footer: { id: `s-dialog-f`, component: `Button`, props: { label: `Confirm` } } } }] },
-]
 
 function renderPreview(): void {
   const host = $(`#preview`)
-  host.replaceChildren()
-  const ctx: PaintContext = { theme: state.theme, mode: state.mode, width: state.width }
   const bg = state.theme.modes[state.mode].color.background
   const fg = state.theme.modes[state.mode].color.foreground
   host.style.cssText = `background:${bg};color:${fg};width:${state.width}px`
   document.body.dataset.mode = state.mode
-  const sheet = h(`div`, { class: `sheet` })
-  for (const group of SHEET) {
-    const block = h(`section`, { class: `sheet-group` }, h(`h3`, {}, group.title))
-    const row = h(`div`, { class: `sheet-row` })
-    for (const states of group.states ?? [[]]) {
-      const col = h(`div`, { class: `sheet-col` })
-      if (group.states) col.append(h(`div`, { class: `sheet-state` }, states[0] ?? `default`))
-      for (const node of group.nodes) {
-        const { root } = reduceNested(node, { catalogId: CORE_CATALOG_ID })
-        col.append(paint(root, { ...ctx, states }))
-      }
-      row.append(col)
-    }
-    block.append(row)
-    sheet.append(block)
-  }
-  host.append(sheet)
-  const sink = h(`section`, { class: `sink` }, h(`h3`, {}, `Kitchen sink · exponential-ui-kitchen-sink`))
-  const { root } = reduceNested(kitchenSink as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
-  sink.append(paint(root, ctx))
-  host.append(sink)
+  mountPreview(host, { theme: state.theme, mode: state.mode, width: state.width })
 }
 
 // ---------------------------------------------------------------------------

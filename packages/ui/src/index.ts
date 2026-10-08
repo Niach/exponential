@@ -3,8 +3,11 @@
 // touching an app. Intra-package imports stay RELATIVE (never through this
 // file) so the barrel cannot become a cycle.
 //
-// Adding a component: `shadcn add` into src/, rewrite its `@/…` imports to
+// Adding a component: a GENERIC one goes into
+// @exponential-at/ui-react/primitives with a one-line shim here (VAPP-87); a
+// specialised one = `shadcn add` into src/, rewrite its `@/…` imports to
 // relative ones, then add a line here (see README.md).
+export * from "./accordion"
 export * from "./agent-brand-mark"
 export * from "./account-picker"
 export * from "./agent-picker"
@@ -24,8 +27,10 @@ export * from "./claude-spinner"
 export * from "./claude-spinner.generated"
 export * from "./brand-icons.generated"
 export * from "./button"
+export * from "./button-group"
 export * from "./calendar"
 export * from "./card"
+export * from "./carousel"
 export * from "./changes-file-sheet"
 export * from "./checkbox"
 export * from "./cn"
@@ -79,6 +84,7 @@ export * from "./issue-menu"
 export * from "./meter"
 export * from "./mobile-popover"
 export * from "./mobile-work-bar"
+export * from "./pagination"
 export * from "./password-input"
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021) —
 // the WHOLE directory, so a leaf never edits this file.
@@ -92,6 +98,7 @@ export * from "./progress"
 export * from "./prompt"
 // EXP-1097: the sub-issue completion ring.
 export * from "./progress-ring"
+export * from "./radio-group"
 // SLOP-7: the "Ready to code?" checklist chrome and the repository picker
 // body, shared by the web app and the styleguide specimens.
 export * from "./readiness-checklist"
@@ -118,17 +125,22 @@ export * from "./sheet"
 export * from "./sheet-chrome"
 export * from "./sidebar"
 export * from "./skeleton"
+export * from "./slider"
+export * from "./spinner"
 export * from "./status-glyph"
 export * from "./status-icons"
 // EXP-1029: sub-shell navigation for the settings shell (EXP-1020).
 export * from "./sub-shell"
 export * from "./switch"
 export * from "./scope-picker"
+export * from "./table"
 export * from "./tabs"
 export * from "./team-avatar"
 export * from "./textarea"
 // EXP-1031: THE toast (sonner + the fixture numbers) and its specimen.
 export * from "./toast"
+export * from "./toggle"
+export * from "./toggle-group"
 export * from "./tooltip"
 export * from "./tree-guides"
 export * from "./tree-guides-view"

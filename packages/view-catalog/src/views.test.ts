@@ -98,6 +98,7 @@ const groupIds = [
   `settings`,
   `ide`,
   `getting-started`,
+  `exponential-ui`,
 ] as const
 
 const platformEnum = z.enum([`web`, `web-mobile`, `desktop`, `ios`, `android`])

@@ -1,0 +1,272 @@
+{
+  "$comment": "VAPP-87: the OVERLAY placement contract (src/overlay.ts placeOverlay): an anchor box, the overlay's size and the viewport, a preferred side → where it lands. OVERLAY_OFFSET (4 px) from the anchor, centred on the cross axis; FLIP to the opposite side when the preferred side has less room than the overlay needs and the opposite has more; SHIFT on the cross axis to stay OVERLAY_PADDING (8 px) inside the viewport. `expected` is what the TS rule returns (src/overlay.test.ts replays it); the React renderer checks that Radix's popper lands within `tolerancePx` of it in headless Chromium (browser/overlay.test.ts), the Rust core's layer manager (VAPP-86) reproduces it exactly.",
+  "offset": 4,
+  "padding": 8,
+  "tolerancePx": 2,
+  "cases": [
+    {
+      "name": "bottom, room below",
+      "anchor": {
+        "x": 300,
+        "y": 100,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "expected": {
+        "x": 260,
+        "y": 140,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "bottom, no room below → flips to top",
+      "anchor": {
+        "x": 300,
+        "y": 500,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "expected": {
+        "x": 260,
+        "y": 376,
+        "side": "top",
+        "flipped": true
+      }
+    },
+    {
+      "name": "top, room above",
+      "anchor": {
+        "x": 300,
+        "y": 400,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "expected": {
+        "x": 260,
+        "y": 276,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "top, no room above → flips to bottom",
+      "anchor": {
+        "x": 300,
+        "y": 20,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 120
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "expected": {
+        "x": 260,
+        "y": 60,
+        "side": "bottom",
+        "flipped": true
+      }
+    },
+    {
+      "name": "right, room",
+      "anchor": {
+        "x": 100,
+        "y": 250,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "right",
+      "expected": {
+        "x": 224,
+        "y": 228,
+        "side": "right",
+        "flipped": false
+      }
+    },
+    {
+      "name": "right, no room → flips to left",
+      "anchor": {
+        "x": 660,
+        "y": 250,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "right",
+      "expected": {
+        "x": 496,
+        "y": 228,
+        "side": "left",
+        "flipped": true
+      }
+    },
+    {
+      "name": "left, no room → flips to right",
+      "anchor": {
+        "x": 20,
+        "y": 250,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 160,
+        "height": 80
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "left",
+      "expected": {
+        "x": 144,
+        "y": 228,
+        "side": "right",
+        "flipped": true
+      }
+    },
+    {
+      "name": "bottom, anchor at the left edge → shifted right",
+      "anchor": {
+        "x": 4,
+        "y": 100,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 100
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "expected": {
+        "x": 8,
+        "y": 140,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "bottom, anchor at the right edge → shifted left",
+      "anchor": {
+        "x": 756,
+        "y": 100,
+        "width": 40,
+        "height": 36
+      },
+      "size": {
+        "width": 240,
+        "height": 100
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "bottom",
+      "expected": {
+        "x": 552,
+        "y": 140,
+        "side": "bottom",
+        "flipped": false
+      }
+    },
+    {
+      "name": "top, just enough room above → no flip",
+      "anchor": {
+        "x": 300,
+        "y": 120,
+        "width": 120,
+        "height": 36
+      },
+      "size": {
+        "width": 200,
+        "height": 60
+      },
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "side": "top",
+      "expected": {
+        "x": 260,
+        "y": 56,
+        "side": "top",
+        "flipped": false
+      }
+    },
+    {
+      "name": "phone viewport, bottom sheet-like popover flips",
+      "anchor": {
+        "x": 20,
+        "y": 760,
+        "width": 350,
+        "height": 44
+      },
+      "size": {
+        "width": 300,
+        "height": 200
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "side": "bottom",
+      "expected": {
+        "x": 45,
+        "y": 556,
+        "side": "top",
+        "flipped": true
+      }
+    }
+  ]
+}

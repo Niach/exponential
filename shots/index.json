@@ -504,6 +504,22 @@
         "sha256": "2daae25d0d70f58350568f0f9c6b86ffafe5b4919f9161dbe6b8a49e218960dd"
       }
     },
+    "exponential-ui-kitchen-sink": {
+      "web": {
+        "file": "shots/exponential-ui-kitchen-sink/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 37008,
+        "sha256": "a87d47434da23bb1ddce50866cf81ac6e27bc9318d329be9dfbd60e241f9a229"
+      },
+      "web-mobile": {
+        "file": "shots/exponential-ui-kitchen-sink/web-mobile.webp",
+        "width": 832,
+        "height": 1800,
+        "bytes": 43244,
+        "sha256": "994cdf35e6d60e8ecc8c8ee60f39df164cd21593b5b39f203258f588116e2a70"
+      }
+    },
     "files": {
       "desktop": {
         "file": "shots/files/desktop.webp",

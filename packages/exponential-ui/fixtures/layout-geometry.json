@@ -1,0 +1,2072 @@
+{
+  "$comment": "VAPP-87: the LAYOUT GEOMETRY contract. `surface` = the VAPP-4 spike kitchen sink (spikes/vapp-layout on exp/VAPP-4, 48 nodes: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons) rewritten in the core vocabulary: every container is a Box with the spike's style (its palette/semantic tokens mapped onto the core colour tokens; the card hairline is PAINT, never a border), every leaf names the nearest native. In GEOMETRY mode a renderer replaces every leaf's content with a fixed box of `measures[id]` (the spike's FixedMeasure: 8 px per character, 20 px lines, the control sizes below) and lays the containers out for real; `cases` are taffy's frames (x, y, w, h relative to the root) at 900 and 390 px, LTR and RTL — the React renderer in headless Chromium matches them within 1 px (Blink's 1/64 px LayoutUnit is the only delta), and the Rust core (VAPP-86) must reproduce them exactly. Rules that make CSS agree with taffy: every node restates box-sizing border-box / display flex / flex-direction row / position relative, min-width stays auto, chrome stays out of layout, overflow hidden becomes clip. Leaf components are irrelevant to the geometry (only measures matter) and keep the real renderers honest.",
+  "measure": {
+    "charWidth": 8,
+    "lineHeight": 20,
+    "tolerancePx": 1
+  },
+  "measures": {
+    "hdr-avatar": {
+      "w": 32,
+      "h": 32
+    },
+    "hdr-title": {
+      "w": 96,
+      "h": 20
+    },
+    "hdr-sub": {
+      "w": 376,
+      "h": 20
+    },
+    "hdr-badge": {
+      "w": 20,
+      "h": 20
+    },
+    "hdr-scan": {
+      "w": 88,
+      "h": 36
+    },
+    "nav-heading": {
+      "w": 56,
+      "h": 20
+    },
+    "row-1": {
+      "w": 184,
+      "h": 32
+    },
+    "row-2": {
+      "w": 176,
+      "h": 32
+    },
+    "row-3": {
+      "w": 160,
+      "h": 32
+    },
+    "nav-div": {
+      "w": 0,
+      "h": 1
+    },
+    "nav-toggle": {
+      "w": 44,
+      "h": 24
+    },
+    "main-heading": {
+      "w": 48,
+      "h": 20
+    },
+    "media-img": {
+      "w": 320,
+      "h": 180
+    },
+    "media-badge": {
+      "w": 52,
+      "h": 28
+    },
+    "main-md": {
+      "w": 528,
+      "h": 80
+    },
+    "main-progress": {
+      "w": 160,
+      "h": 8
+    },
+    "pill-1": {
+      "w": 44,
+      "h": 28
+    },
+    "pill-2": {
+      "w": 68,
+      "h": 28
+    },
+    "pill-3": {
+      "w": 52,
+      "h": 28
+    },
+    "pill-4": {
+      "w": 84,
+      "h": 28
+    },
+    "footer-more": {
+      "w": 56,
+      "h": 36
+    },
+    "form-heading": {
+      "w": 88,
+      "h": 20
+    },
+    "echo-field": {
+      "w": 160,
+      "h": 36
+    },
+    "form-body": {
+      "w": 160,
+      "h": 72
+    },
+    "form-sub": {
+      "w": 160,
+      "h": 36
+    },
+    "form-cancel": {
+      "w": 72,
+      "h": 36
+    },
+    "form-send": {
+      "w": 56,
+      "h": 36
+    },
+    "fx-1-t": {
+      "w": 144,
+      "h": 20
+    },
+    "fx-2-t": {
+      "w": 112,
+      "h": 20
+    },
+    "fx-3-t": {
+      "w": 128,
+      "h": 20
+    },
+    "fx-4-t": {
+      "w": 24,
+      "h": 20
+    }
+  },
+  "surface": {
+    "id": "root",
+    "component": "Box",
+    "style": {
+      "display": "flex",
+      "flexDirection": "column",
+      "gap": 16,
+      "padding": 16,
+      "width": "100%",
+      "backgroundColor": "$color.background",
+      "direction": "ltr"
+    },
+    "children": [
+      {
+        "id": "header",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "gap": 12
+        },
+        "children": [
+          {
+            "id": "hdr-avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Alex Chen"
+            }
+          },
+          {
+            "id": "hdr-text",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "flexGrow": 1,
+              "flexShrink": 1,
+              "minWidth": 0,
+              "gap": 2
+            },
+            "children": [
+              {
+                "id": "hdr-title",
+                "component": "Text",
+                "props": {
+                  "text": "Reddit radar",
+                  "variant": "title"
+                }
+              },
+              {
+                "id": "hdr-sub",
+                "component": "Text",
+                "props": {
+                  "text": "Kitchen sink · one taffy layout on every client",
+                  "variant": "muted"
+                }
+              }
+            ]
+          },
+          {
+            "id": "hdr-badge",
+            "component": "Text",
+            "props": {
+              "text": "3",
+              "variant": "caption"
+            }
+          },
+          {
+            "id": "hdr-scan",
+            "component": "Button",
+            "props": {
+              "label": "Scan now",
+              "variant": "default"
+            },
+            "style": {
+              "flexShrink": 0,
+              ":pressed": {
+                "opacity": 0.6
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "grid",
+        "component": "Box",
+        "style": {
+          "display": "grid",
+          "gap": 12,
+          "gridTemplateColumns": "1fr",
+          "gridTemplateAreas": [
+            "nav",
+            "main",
+            "footer"
+          ],
+          "@media (min-width: 600px)": {
+            "gridTemplateColumns": "minmax(180px, 1fr) 2fr",
+            "gridTemplateRows": "auto auto",
+            "gridTemplateAreas": [
+              "nav main",
+              "nav footer"
+            ]
+          }
+        },
+        "children": [
+          {
+            "id": "nav-card",
+            "component": "Box",
+            "style": {
+              "gridArea": "nav",
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 8,
+              "padding": 12,
+              "backgroundColor": "$color.card",
+              "borderRadius": 16
+            },
+            "children": [
+              {
+                "id": "nav-heading",
+                "component": "Text",
+                "props": {
+                  "text": "Sources",
+                  "variant": "label"
+                }
+              },
+              {
+                "id": "row-1",
+                "component": "Text",
+                "props": {
+                  "text": "r/selfhosted  312 posts",
+                  "lines": 1
+                }
+              },
+              {
+                "id": "row-2",
+                "component": "Text",
+                "props": {
+                  "text": "r/opensource  88 posts",
+                  "lines": 1
+                }
+              },
+              {
+                "id": "row-3",
+                "component": "Text",
+                "props": {
+                  "text": "r/webdev  1.2k posts",
+                  "lines": 1
+                }
+              },
+              {
+                "id": "nav-div",
+                "component": "Skeleton",
+                "props": {
+                  "height": "1px"
+                }
+              },
+              {
+                "id": "nav-toggle",
+                "component": "Switch",
+                "props": {
+                  "label": "Auto-scan",
+                  "name": "nav-toggle",
+                  "checked": true
+                }
+              }
+            ]
+          },
+          {
+            "id": "main-card",
+            "component": "Box",
+            "style": {
+              "gridArea": "main",
+              "display": "flex",
+              "flexDirection": "column",
+              "gap": 10,
+              "padding": 12,
+              "minWidth": 0,
+              "backgroundColor": "$color.card",
+              "borderRadius": 16
+            },
+            "children": [
+              {
+                "id": "main-heading",
+                "component": "Text",
+                "props": {
+                  "text": "Drafts",
+                  "variant": "label"
+                }
+              },
+              {
+                "id": "media",
+                "component": "Box",
+                "style": {
+                  "position": "relative",
+                  "width": "100%",
+                  "aspectRatio": 1.7777778,
+                  "borderRadius": 12,
+                  "overflow": "hidden",
+                  "backgroundColor": "$color.info"
+                },
+                "children": [
+                  {
+                    "id": "media-img",
+                    "component": "Image",
+                    "props": {
+                      "alt": "Cover"
+                    },
+                    "style": {
+                      "width": "100%",
+                      "height": "100%"
+                    }
+                  },
+                  {
+                    "id": "media-badge",
+                    "component": "Button",
+                    "props": {
+                      "label": "LIVE",
+                      "variant": "outline",
+                      "size": "sm"
+                    },
+                    "style": {
+                      "position": "absolute",
+                      "top": 8,
+                      "right": 8
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "main-md",
+                "component": "Markdown",
+                "props": {
+                  "text": "**Looking for a Linear alternative** — self-hostable, with agents.\n\n- Draft reply ready\n- 2 sources cited"
+                },
+                "style": {
+                  "minWidth": 0
+                }
+              },
+              {
+                "id": "main-progress",
+                "component": "Skeleton",
+                "props": {
+                  "height": "8px"
+                },
+                "style": {
+                  "width": "100%"
+                }
+              }
+            ]
+          },
+          {
+            "id": "footer-card",
+            "component": "Box",
+            "style": {
+              "gridArea": "footer",
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "center",
+              "gap": 8,
+              "padding": 12,
+              "minWidth": 0,
+              "backgroundColor": "$color.card",
+              "borderRadius": 16
+            },
+            "children": [
+              {
+                "id": "pill-1",
+                "component": "Button",
+                "props": {
+                  "label": "All",
+                  "variant": "outline",
+                  "size": "sm"
+                }
+              },
+              {
+                "id": "pill-2",
+                "component": "Button",
+                "props": {
+                  "label": "Drafts",
+                  "variant": "outline",
+                  "size": "sm"
+                }
+              },
+              {
+                "id": "pill-3",
+                "component": "Button",
+                "props": {
+                  "label": "Sent",
+                  "variant": "outline",
+                  "size": "sm"
+                }
+              },
+              {
+                "id": "pill-4",
+                "component": "Button",
+                "props": {
+                  "label": "Archived",
+                  "variant": "outline",
+                  "size": "sm"
+                }
+              },
+              {
+                "id": "footer-spacer",
+                "component": "Box",
+                "style": {
+                  "flexGrow": 1,
+                  "flexBasis": 120,
+                  "minWidth": 40,
+                  "height": 1
+                }
+              },
+              {
+                "id": "footer-more",
+                "component": "Button",
+                "props": {
+                  "label": "More",
+                  "variant": "ghost"
+                },
+                "style": {
+                  ":pressed": {
+                    "opacity": 0.6
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "form",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": 10,
+          "padding": 12,
+          "backgroundColor": "$color.card",
+          "borderRadius": 16
+        },
+        "children": [
+          {
+            "id": "form-heading",
+            "component": "Text",
+            "props": {
+              "text": "Draft reply",
+              "variant": "label"
+            }
+          },
+          {
+            "id": "echo-field",
+            "component": "Input",
+            "props": {
+              "label": "",
+              "name": "echo-field",
+              "placeholder": "Title (echoes after 150 ms)"
+            },
+            "style": {
+              "width": "100%"
+            }
+          },
+          {
+            "id": "form-body",
+            "component": "Textarea",
+            "props": {
+              "label": "",
+              "name": "form-body",
+              "placeholder": "Body"
+            },
+            "style": {
+              "width": "100%",
+              "minHeight": 72
+            }
+          },
+          {
+            "id": "form-row",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "flexWrap": "wrap",
+              "alignItems": "center",
+              "gap": 8
+            },
+            "children": [
+              {
+                "id": "form-sub",
+                "component": "Select",
+                "props": {
+                  "name": "form-sub",
+                  "options": [
+                    {
+                      "label": "r/selfhosted",
+                      "value": "r/selfhosted"
+                    },
+                    {
+                      "label": "r/opensource",
+                      "value": "r/opensource"
+                    },
+                    {
+                      "label": "r/webdev",
+                      "value": "r/webdev"
+                    }
+                  ],
+                  "value": "r/selfhosted"
+                },
+                "style": {
+                  "flexGrow": 1,
+                  "flexBasis": 160,
+                  "maxWidth": 320
+                }
+              },
+              {
+                "id": "form-actions",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "gap": 8,
+                  "marginLeft": "auto"
+                },
+                "children": [
+                  {
+                    "id": "form-cancel",
+                    "component": "Button",
+                    "props": {
+                      "label": "Cancel",
+                      "variant": "outline"
+                    },
+                    "style": {
+                      ":pressed": {
+                        "opacity": 0.6
+                      }
+                    }
+                  },
+                  {
+                    "id": "form-send",
+                    "component": "Button",
+                    "props": {
+                      "label": "Send",
+                      "variant": "default"
+                    },
+                    "style": {
+                      ":pressed": {
+                        "opacity": 0.6
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "flex-demo",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "flexWrap": "wrap",
+          "gap": 8
+        },
+        "children": [
+          {
+            "id": "fx-1",
+            "component": "Box",
+            "style": {
+              "flexBasis": "30%",
+              "flexGrow": 1,
+              "minWidth": 96,
+              "height": 40,
+              "borderRadius": 8,
+              "backgroundColor": "$color.success",
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center"
+            },
+            "children": [
+              {
+                "id": "fx-1-t",
+                "component": "Text",
+                "props": {
+                  "text": "basis 30% · grow 1",
+                  "variant": "caption"
+                }
+              }
+            ]
+          },
+          {
+            "id": "fx-2",
+            "component": "Box",
+            "style": {
+              "width": 160,
+              "flexShrink": 0,
+              "height": 40,
+              "borderRadius": 8,
+              "backgroundColor": "$color.warning",
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center"
+            },
+            "children": [
+              {
+                "id": "fx-2-t",
+                "component": "Text",
+                "props": {
+                  "text": "160 · shrink 0",
+                  "variant": "caption"
+                }
+              }
+            ]
+          },
+          {
+            "id": "fx-3",
+            "component": "Box",
+            "style": {
+              "flexGrow": 2,
+              "flexBasis": 80,
+              "maxWidth": "50%",
+              "height": 40,
+              "borderRadius": 8,
+              "backgroundColor": "$color.destructive",
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center"
+            },
+            "children": [
+              {
+                "id": "fx-3-t",
+                "component": "Text",
+                "props": {
+                  "text": "grow 2 · max 50%",
+                  "variant": "caption"
+                }
+              }
+            ]
+          },
+          {
+            "id": "fx-4",
+            "component": "Box",
+            "style": {
+              "width": "25%",
+              "minWidth": 64,
+              "height": 40,
+              "borderRadius": 8,
+              "backgroundColor": "$color.warning",
+              "display": "flex",
+              "alignItems": "center",
+              "justifyContent": "center"
+            },
+            "children": [
+              {
+                "id": "fx-4-t",
+                "component": "Text",
+                "props": {
+                  "text": "25%",
+                  "variant": "caption"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "cases": {
+    "390": {
+      "width": 390,
+      "direction": "ltr",
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 1102.875
+        },
+        {
+          "id": "header",
+          "x": 16,
+          "y": 16,
+          "w": 358,
+          "h": 42
+        },
+        {
+          "id": "hdr-avatar",
+          "x": 16,
+          "y": 21,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "id": "hdr-text",
+          "x": 60,
+          "y": 16,
+          "w": 182,
+          "h": 42
+        },
+        {
+          "id": "hdr-title",
+          "x": 60,
+          "y": 16,
+          "w": 182,
+          "h": 20
+        },
+        {
+          "id": "hdr-sub",
+          "x": 60,
+          "y": 38,
+          "w": 182,
+          "h": 20
+        },
+        {
+          "id": "hdr-badge",
+          "x": 254,
+          "y": 27,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "hdr-scan",
+          "x": 286,
+          "y": 19,
+          "w": 88,
+          "h": 36
+        },
+        {
+          "id": "grid",
+          "x": 16,
+          "y": 74,
+          "w": 358,
+          "h": 674.875
+        },
+        {
+          "id": "nav-card",
+          "x": 16,
+          "y": 74,
+          "w": 358,
+          "h": 205
+        },
+        {
+          "id": "nav-heading",
+          "x": 28,
+          "y": 86,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "row-1",
+          "x": 28,
+          "y": 114,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "row-2",
+          "x": 28,
+          "y": 154,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "row-3",
+          "x": 28,
+          "y": 194,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "nav-div",
+          "x": 28,
+          "y": 234,
+          "w": 334,
+          "h": 1
+        },
+        {
+          "id": "nav-toggle",
+          "x": 28,
+          "y": 243,
+          "w": 334,
+          "h": 24
+        },
+        {
+          "id": "main-card",
+          "x": 16,
+          "y": 291,
+          "w": 358,
+          "h": 349.875
+        },
+        {
+          "id": "main-heading",
+          "x": 28,
+          "y": 303,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "media",
+          "x": 28,
+          "y": 333,
+          "w": 334,
+          "h": 187.875
+        },
+        {
+          "id": "media-img",
+          "x": 28,
+          "y": 333,
+          "w": 334,
+          "h": 187.875
+        },
+        {
+          "id": "media-badge",
+          "x": 302,
+          "y": 341,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "main-md",
+          "x": 28,
+          "y": 530.875,
+          "w": 334,
+          "h": 80
+        },
+        {
+          "id": "main-progress",
+          "x": 28,
+          "y": 620.875,
+          "w": 334,
+          "h": 8
+        },
+        {
+          "id": "footer-card",
+          "x": 16,
+          "y": 652.875,
+          "w": 358,
+          "h": 96
+        },
+        {
+          "id": "pill-1",
+          "x": 28,
+          "y": 664.875,
+          "w": 44,
+          "h": 28
+        },
+        {
+          "id": "pill-2",
+          "x": 80,
+          "y": 664.875,
+          "w": 68,
+          "h": 28
+        },
+        {
+          "id": "pill-3",
+          "x": 156,
+          "y": 664.875,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "pill-4",
+          "x": 216,
+          "y": 664.875,
+          "w": 84,
+          "h": 28
+        },
+        {
+          "id": "footer-spacer",
+          "x": 28,
+          "y": 718.375,
+          "w": 270,
+          "h": 1
+        },
+        {
+          "id": "footer-more",
+          "x": 306,
+          "y": 700.875,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "form",
+          "x": 16,
+          "y": 764.875,
+          "w": 358,
+          "h": 218
+        },
+        {
+          "id": "form-heading",
+          "x": 28,
+          "y": 776.875,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "echo-field",
+          "x": 28,
+          "y": 806.875,
+          "w": 334,
+          "h": 36
+        },
+        {
+          "id": "form-body",
+          "x": 28,
+          "y": 852.875,
+          "w": 334,
+          "h": 72
+        },
+        {
+          "id": "form-row",
+          "x": 28,
+          "y": 934.875,
+          "w": 334,
+          "h": 36
+        },
+        {
+          "id": "form-sub",
+          "x": 28,
+          "y": 934.875,
+          "w": 190,
+          "h": 36
+        },
+        {
+          "id": "form-actions",
+          "x": 226,
+          "y": 934.875,
+          "w": 136,
+          "h": 36
+        },
+        {
+          "id": "form-cancel",
+          "x": 226,
+          "y": 934.875,
+          "w": 72,
+          "h": 36
+        },
+        {
+          "id": "form-send",
+          "x": 306,
+          "y": 934.875,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "flex-demo",
+          "x": 16,
+          "y": 998.875,
+          "w": 358,
+          "h": 88
+        },
+        {
+          "id": "fx-1",
+          "x": 16,
+          "y": 998.875,
+          "w": 190,
+          "h": 40
+        },
+        {
+          "id": "fx-1-t",
+          "x": 39,
+          "y": 1008.875,
+          "w": 144,
+          "h": 20
+        },
+        {
+          "id": "fx-2",
+          "x": 214,
+          "y": 998.875,
+          "w": 160,
+          "h": 40
+        },
+        {
+          "id": "fx-2-t",
+          "x": 238,
+          "y": 1008.875,
+          "w": 112,
+          "h": 20
+        },
+        {
+          "id": "fx-3",
+          "x": 16,
+          "y": 1046.875,
+          "w": 179,
+          "h": 40
+        },
+        {
+          "id": "fx-3-t",
+          "x": 41.5,
+          "y": 1056.875,
+          "w": 128,
+          "h": 20
+        },
+        {
+          "id": "fx-4",
+          "x": 203,
+          "y": 1046.875,
+          "w": 89.5,
+          "h": 40
+        },
+        {
+          "id": "fx-4-t",
+          "x": 235.75,
+          "y": 1056.875,
+          "w": 24,
+          "h": 20
+        }
+      ]
+    },
+    "900": {
+      "width": 900,
+      "direction": "ltr",
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 900,
+          "h": 921.5
+        },
+        {
+          "id": "header",
+          "x": 16,
+          "y": 16,
+          "w": 868,
+          "h": 42
+        },
+        {
+          "id": "hdr-avatar",
+          "x": 16,
+          "y": 21,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "id": "hdr-text",
+          "x": 60,
+          "y": 16,
+          "w": 692,
+          "h": 42
+        },
+        {
+          "id": "hdr-title",
+          "x": 60,
+          "y": 16,
+          "w": 692,
+          "h": 20
+        },
+        {
+          "id": "hdr-sub",
+          "x": 60,
+          "y": 38,
+          "w": 692,
+          "h": 20
+        },
+        {
+          "id": "hdr-badge",
+          "x": 764,
+          "y": 27,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "hdr-scan",
+          "x": 796,
+          "y": 19,
+          "w": 88,
+          "h": 36
+        },
+        {
+          "id": "grid",
+          "x": 16,
+          "y": 74,
+          "w": 868,
+          "h": 541.5
+        },
+        {
+          "id": "nav-card",
+          "x": 16,
+          "y": 74,
+          "w": 285.3333435058594,
+          "h": 541.5
+        },
+        {
+          "id": "nav-heading",
+          "x": 28,
+          "y": 86,
+          "w": 261.3333435058594,
+          "h": 20
+        },
+        {
+          "id": "row-1",
+          "x": 28,
+          "y": 114,
+          "w": 261.3333435058594,
+          "h": 32
+        },
+        {
+          "id": "row-2",
+          "x": 28,
+          "y": 154,
+          "w": 261.3333435058594,
+          "h": 32
+        },
+        {
+          "id": "row-3",
+          "x": 28,
+          "y": 194,
+          "w": 261.3333435058594,
+          "h": 32
+        },
+        {
+          "id": "nav-div",
+          "x": 28,
+          "y": 234,
+          "w": 261.3333435058594,
+          "h": 1
+        },
+        {
+          "id": "nav-toggle",
+          "x": 28,
+          "y": 243,
+          "w": 261.3333435058594,
+          "h": 24
+        },
+        {
+          "id": "main-card",
+          "x": 313.3333435058594,
+          "y": 74,
+          "w": 570.6666259765625,
+          "h": 469.5
+        },
+        {
+          "id": "main-heading",
+          "x": 325.3333435058594,
+          "y": 86,
+          "w": 546.6666259765625,
+          "h": 20
+        },
+        {
+          "id": "media",
+          "x": 325.3333435058594,
+          "y": 116,
+          "w": 546.6666259765625,
+          "h": 307.4999694824219
+        },
+        {
+          "id": "media-img",
+          "x": 325.3333435058594,
+          "y": 116,
+          "w": 546.6666259765625,
+          "h": 307.4999694824219
+        },
+        {
+          "id": "media-badge",
+          "x": 812,
+          "y": 124,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "main-md",
+          "x": 325.3333435058594,
+          "y": 433.4999694824219,
+          "w": 546.6666259765625,
+          "h": 80
+        },
+        {
+          "id": "main-progress",
+          "x": 325.3333435058594,
+          "y": 523.5,
+          "w": 546.6666259765625,
+          "h": 8
+        },
+        {
+          "id": "footer-card",
+          "x": 313.3333435058594,
+          "y": 555.5,
+          "w": 570.6666259765625,
+          "h": 60
+        },
+        {
+          "id": "pill-1",
+          "x": 325.3333435058594,
+          "y": 571.5,
+          "w": 44,
+          "h": 28
+        },
+        {
+          "id": "pill-2",
+          "x": 377.3333435058594,
+          "y": 571.5,
+          "w": 68,
+          "h": 28
+        },
+        {
+          "id": "pill-3",
+          "x": 453.3333435058594,
+          "y": 571.5,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "pill-4",
+          "x": 513.3333740234375,
+          "y": 571.5,
+          "w": 84,
+          "h": 28
+        },
+        {
+          "id": "footer-spacer",
+          "x": 605.3333740234375,
+          "y": 585,
+          "w": 202.6666259765625,
+          "h": 1
+        },
+        {
+          "id": "footer-more",
+          "x": 816,
+          "y": 567.5,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "form",
+          "x": 16,
+          "y": 631.5,
+          "w": 868,
+          "h": 218
+        },
+        {
+          "id": "form-heading",
+          "x": 28,
+          "y": 643.5,
+          "w": 844,
+          "h": 20
+        },
+        {
+          "id": "echo-field",
+          "x": 28,
+          "y": 673.5,
+          "w": 844,
+          "h": 36
+        },
+        {
+          "id": "form-body",
+          "x": 28,
+          "y": 719.5,
+          "w": 844,
+          "h": 72
+        },
+        {
+          "id": "form-row",
+          "x": 28,
+          "y": 801.5,
+          "w": 844,
+          "h": 36
+        },
+        {
+          "id": "form-sub",
+          "x": 28,
+          "y": 801.5,
+          "w": 320,
+          "h": 36
+        },
+        {
+          "id": "form-actions",
+          "x": 736,
+          "y": 801.5,
+          "w": 136,
+          "h": 36
+        },
+        {
+          "id": "form-cancel",
+          "x": 736,
+          "y": 801.5,
+          "w": 72,
+          "h": 36
+        },
+        {
+          "id": "form-send",
+          "x": 816,
+          "y": 801.5,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "flex-demo",
+          "x": 16,
+          "y": 865.5,
+          "w": 868,
+          "h": 40
+        },
+        {
+          "id": "fx-1",
+          "x": 16,
+          "y": 865.5,
+          "w": 302.6000061035156,
+          "h": 40
+        },
+        {
+          "id": "fx-1-t",
+          "x": 95.30000305175781,
+          "y": 875.5,
+          "w": 144,
+          "h": 20
+        },
+        {
+          "id": "fx-2",
+          "x": 326.6000061035156,
+          "y": 865.5,
+          "w": 160,
+          "h": 40
+        },
+        {
+          "id": "fx-2-t",
+          "x": 350.6000061035156,
+          "y": 875.5,
+          "w": 112,
+          "h": 20
+        },
+        {
+          "id": "fx-3",
+          "x": 494.6000061035156,
+          "y": 865.5,
+          "w": 164.39999389648438,
+          "h": 40
+        },
+        {
+          "id": "fx-3-t",
+          "x": 512.7999877929688,
+          "y": 875.5,
+          "w": 128,
+          "h": 20
+        },
+        {
+          "id": "fx-4",
+          "x": 667,
+          "y": 865.5,
+          "w": 217,
+          "h": 40
+        },
+        {
+          "id": "fx-4-t",
+          "x": 763.5,
+          "y": 875.5,
+          "w": 24,
+          "h": 20
+        }
+      ]
+    },
+    "900-rtl": {
+      "width": 900,
+      "direction": "rtl",
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 900,
+          "h": 921.5
+        },
+        {
+          "id": "header",
+          "x": 16,
+          "y": 16,
+          "w": 868,
+          "h": 42
+        },
+        {
+          "id": "hdr-avatar",
+          "x": 852,
+          "y": 21,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "id": "hdr-text",
+          "x": 148,
+          "y": 16,
+          "w": 692,
+          "h": 42
+        },
+        {
+          "id": "hdr-title",
+          "x": 148,
+          "y": 16,
+          "w": 692,
+          "h": 20
+        },
+        {
+          "id": "hdr-sub",
+          "x": 148,
+          "y": 38,
+          "w": 692,
+          "h": 20
+        },
+        {
+          "id": "hdr-badge",
+          "x": 116,
+          "y": 27,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "hdr-scan",
+          "x": 16,
+          "y": 19,
+          "w": 88,
+          "h": 36
+        },
+        {
+          "id": "grid",
+          "x": 16,
+          "y": 74,
+          "w": 868,
+          "h": 541.5
+        },
+        {
+          "id": "nav-card",
+          "x": 598.6666870117188,
+          "y": 74,
+          "w": 285.33331298828125,
+          "h": 541.5
+        },
+        {
+          "id": "nav-heading",
+          "x": 610.6666870117188,
+          "y": 86,
+          "w": 261.33331298828125,
+          "h": 20
+        },
+        {
+          "id": "row-1",
+          "x": 610.6666870117188,
+          "y": 114,
+          "w": 261.33331298828125,
+          "h": 32
+        },
+        {
+          "id": "row-2",
+          "x": 610.6666870117188,
+          "y": 154,
+          "w": 261.33331298828125,
+          "h": 32
+        },
+        {
+          "id": "row-3",
+          "x": 610.6666870117188,
+          "y": 194,
+          "w": 261.33331298828125,
+          "h": 32
+        },
+        {
+          "id": "nav-div",
+          "x": 610.6666870117188,
+          "y": 234,
+          "w": 261.33331298828125,
+          "h": 1
+        },
+        {
+          "id": "nav-toggle",
+          "x": 610.6666870117188,
+          "y": 243,
+          "w": 261.33331298828125,
+          "h": 24
+        },
+        {
+          "id": "main-card",
+          "x": 16,
+          "y": 74,
+          "w": 570.6666870117188,
+          "h": 469.5
+        },
+        {
+          "id": "main-heading",
+          "x": 28,
+          "y": 86,
+          "w": 546.6666870117188,
+          "h": 20
+        },
+        {
+          "id": "media",
+          "x": 28,
+          "y": 116,
+          "w": 546.6666870117188,
+          "h": 307.5
+        },
+        {
+          "id": "media-img",
+          "x": 28,
+          "y": 116,
+          "w": 546.6666870117188,
+          "h": 307.5
+        },
+        {
+          "id": "media-badge",
+          "x": 514.6666870117188,
+          "y": 124,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "main-md",
+          "x": 28,
+          "y": 433.5,
+          "w": 546.6666870117188,
+          "h": 80
+        },
+        {
+          "id": "main-progress",
+          "x": 28,
+          "y": 523.5,
+          "w": 546.6666870117188,
+          "h": 8
+        },
+        {
+          "id": "footer-card",
+          "x": 16,
+          "y": 555.5,
+          "w": 570.6666870117188,
+          "h": 60
+        },
+        {
+          "id": "pill-1",
+          "x": 530.6666870117188,
+          "y": 571.5,
+          "w": 44,
+          "h": 28
+        },
+        {
+          "id": "pill-2",
+          "x": 454.66668701171875,
+          "y": 571.5,
+          "w": 68,
+          "h": 28
+        },
+        {
+          "id": "pill-3",
+          "x": 394.66668701171875,
+          "y": 571.5,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "pill-4",
+          "x": 302.66668701171875,
+          "y": 571.5,
+          "w": 84,
+          "h": 28
+        },
+        {
+          "id": "footer-spacer",
+          "x": 92,
+          "y": 585,
+          "w": 202.66668701171875,
+          "h": 1
+        },
+        {
+          "id": "footer-more",
+          "x": 28,
+          "y": 567.5,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "form",
+          "x": 16,
+          "y": 631.5,
+          "w": 868,
+          "h": 218
+        },
+        {
+          "id": "form-heading",
+          "x": 28,
+          "y": 643.5,
+          "w": 844,
+          "h": 20
+        },
+        {
+          "id": "echo-field",
+          "x": 28,
+          "y": 673.5,
+          "w": 844,
+          "h": 36
+        },
+        {
+          "id": "form-body",
+          "x": 28,
+          "y": 719.5,
+          "w": 844,
+          "h": 72
+        },
+        {
+          "id": "form-row",
+          "x": 28,
+          "y": 801.5,
+          "w": 844,
+          "h": 36
+        },
+        {
+          "id": "form-sub",
+          "x": 552,
+          "y": 801.5,
+          "w": 320,
+          "h": 36
+        },
+        {
+          "id": "form-actions",
+          "x": 408,
+          "y": 801.5,
+          "w": 136,
+          "h": 36
+        },
+        {
+          "id": "form-cancel",
+          "x": 472,
+          "y": 801.5,
+          "w": 72,
+          "h": 36
+        },
+        {
+          "id": "form-send",
+          "x": 408,
+          "y": 801.5,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "flex-demo",
+          "x": 16,
+          "y": 865.5,
+          "w": 868,
+          "h": 40
+        },
+        {
+          "id": "fx-1",
+          "x": 581.4000244140625,
+          "y": 865.5,
+          "w": 302.6000061035156,
+          "h": 40
+        },
+        {
+          "id": "fx-1-t",
+          "x": 660.7000122070312,
+          "y": 875.5,
+          "w": 144,
+          "h": 20
+        },
+        {
+          "id": "fx-2",
+          "x": 413.4000244140625,
+          "y": 865.5,
+          "w": 160,
+          "h": 40
+        },
+        {
+          "id": "fx-2-t",
+          "x": 437.4000244140625,
+          "y": 875.5,
+          "w": 112,
+          "h": 20
+        },
+        {
+          "id": "fx-3",
+          "x": 241.00003051757812,
+          "y": 865.5,
+          "w": 164.39999389648438,
+          "h": 40
+        },
+        {
+          "id": "fx-3-t",
+          "x": 259.20001220703125,
+          "y": 875.5,
+          "w": 128,
+          "h": 20
+        },
+        {
+          "id": "fx-4",
+          "x": 16.000030517578125,
+          "y": 865.5,
+          "w": 217,
+          "h": 40
+        },
+        {
+          "id": "fx-4-t",
+          "x": 112.50003051757812,
+          "y": 875.5,
+          "w": 24,
+          "h": 20
+        }
+      ]
+    },
+    "390-rtl": {
+      "width": 390,
+      "direction": "rtl",
+      "frames": [
+        {
+          "id": "root",
+          "x": 0,
+          "y": 0,
+          "w": 390,
+          "h": 1102.875
+        },
+        {
+          "id": "header",
+          "x": 16,
+          "y": 16,
+          "w": 358,
+          "h": 42
+        },
+        {
+          "id": "hdr-avatar",
+          "x": 342,
+          "y": 21,
+          "w": 32,
+          "h": 32
+        },
+        {
+          "id": "hdr-text",
+          "x": 148,
+          "y": 16,
+          "w": 182,
+          "h": 42
+        },
+        {
+          "id": "hdr-title",
+          "x": 148,
+          "y": 16,
+          "w": 182,
+          "h": 20
+        },
+        {
+          "id": "hdr-sub",
+          "x": 148,
+          "y": 38,
+          "w": 182,
+          "h": 20
+        },
+        {
+          "id": "hdr-badge",
+          "x": 116,
+          "y": 27,
+          "w": 20,
+          "h": 20
+        },
+        {
+          "id": "hdr-scan",
+          "x": 16,
+          "y": 19,
+          "w": 88,
+          "h": 36
+        },
+        {
+          "id": "grid",
+          "x": 16,
+          "y": 74,
+          "w": 358,
+          "h": 674.875
+        },
+        {
+          "id": "nav-card",
+          "x": 16,
+          "y": 74,
+          "w": 358,
+          "h": 205
+        },
+        {
+          "id": "nav-heading",
+          "x": 28,
+          "y": 86,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "row-1",
+          "x": 28,
+          "y": 114,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "row-2",
+          "x": 28,
+          "y": 154,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "row-3",
+          "x": 28,
+          "y": 194,
+          "w": 334,
+          "h": 32
+        },
+        {
+          "id": "nav-div",
+          "x": 28,
+          "y": 234,
+          "w": 334,
+          "h": 1
+        },
+        {
+          "id": "nav-toggle",
+          "x": 28,
+          "y": 243,
+          "w": 334,
+          "h": 24
+        },
+        {
+          "id": "main-card",
+          "x": 16,
+          "y": 291,
+          "w": 358,
+          "h": 349.875
+        },
+        {
+          "id": "main-heading",
+          "x": 28,
+          "y": 303,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "media",
+          "x": 28,
+          "y": 333,
+          "w": 334,
+          "h": 187.875
+        },
+        {
+          "id": "media-img",
+          "x": 28,
+          "y": 333,
+          "w": 334,
+          "h": 187.875
+        },
+        {
+          "id": "media-badge",
+          "x": 302,
+          "y": 341,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "main-md",
+          "x": 28,
+          "y": 530.875,
+          "w": 334,
+          "h": 80
+        },
+        {
+          "id": "main-progress",
+          "x": 28,
+          "y": 620.875,
+          "w": 334,
+          "h": 8
+        },
+        {
+          "id": "footer-card",
+          "x": 16,
+          "y": 652.875,
+          "w": 358,
+          "h": 96
+        },
+        {
+          "id": "pill-1",
+          "x": 318,
+          "y": 664.875,
+          "w": 44,
+          "h": 28
+        },
+        {
+          "id": "pill-2",
+          "x": 242,
+          "y": 664.875,
+          "w": 68,
+          "h": 28
+        },
+        {
+          "id": "pill-3",
+          "x": 182,
+          "y": 664.875,
+          "w": 52,
+          "h": 28
+        },
+        {
+          "id": "pill-4",
+          "x": 90,
+          "y": 664.875,
+          "w": 84,
+          "h": 28
+        },
+        {
+          "id": "footer-spacer",
+          "x": 92,
+          "y": 718.375,
+          "w": 270,
+          "h": 1
+        },
+        {
+          "id": "footer-more",
+          "x": 28,
+          "y": 700.875,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "form",
+          "x": 16,
+          "y": 764.875,
+          "w": 358,
+          "h": 218
+        },
+        {
+          "id": "form-heading",
+          "x": 28,
+          "y": 776.875,
+          "w": 334,
+          "h": 20
+        },
+        {
+          "id": "echo-field",
+          "x": 28,
+          "y": 806.875,
+          "w": 334,
+          "h": 36
+        },
+        {
+          "id": "form-body",
+          "x": 28,
+          "y": 852.875,
+          "w": 334,
+          "h": 72
+        },
+        {
+          "id": "form-row",
+          "x": 28,
+          "y": 934.875,
+          "w": 334,
+          "h": 36
+        },
+        {
+          "id": "form-sub",
+          "x": 172,
+          "y": 934.875,
+          "w": 190,
+          "h": 36
+        },
+        {
+          "id": "form-actions",
+          "x": 28,
+          "y": 934.875,
+          "w": 136,
+          "h": 36
+        },
+        {
+          "id": "form-cancel",
+          "x": 92,
+          "y": 934.875,
+          "w": 72,
+          "h": 36
+        },
+        {
+          "id": "form-send",
+          "x": 28,
+          "y": 934.875,
+          "w": 56,
+          "h": 36
+        },
+        {
+          "id": "flex-demo",
+          "x": 16,
+          "y": 998.875,
+          "w": 358,
+          "h": 88
+        },
+        {
+          "id": "fx-1",
+          "x": 184,
+          "y": 998.875,
+          "w": 190,
+          "h": 40
+        },
+        {
+          "id": "fx-1-t",
+          "x": 207,
+          "y": 1008.875,
+          "w": 144,
+          "h": 20
+        },
+        {
+          "id": "fx-2",
+          "x": 16,
+          "y": 998.875,
+          "w": 160,
+          "h": 40
+        },
+        {
+          "id": "fx-2-t",
+          "x": 40,
+          "y": 1008.875,
+          "w": 112,
+          "h": 20
+        },
+        {
+          "id": "fx-3",
+          "x": 195,
+          "y": 1046.875,
+          "w": 179,
+          "h": 40
+        },
+        {
+          "id": "fx-3-t",
+          "x": 220.5,
+          "y": 1056.875,
+          "w": 128,
+          "h": 20
+        },
+        {
+          "id": "fx-4",
+          "x": 97.5,
+          "y": 1046.875,
+          "w": 89.5,
+          "h": 40
+        },
+        {
+          "id": "fx-4-t",
+          "x": 130.25,
+          "y": 1056.875,
+          "w": 24,
+          "h": 20
+        }
+      ]
+    }
+  }
+}

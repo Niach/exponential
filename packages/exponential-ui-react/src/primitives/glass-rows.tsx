@@ -1,0 +1,481 @@
+import * as React from "react"
+import { Slot } from "radix-ui"
+
+import { ChevronDown, ChevronRight, Search } from "lucide-react"
+
+import { BARE_FIELD_CLASS, Input } from "./input"
+import { Label } from "./label"
+import { Switch } from "./switch"
+import { Tabs, TabsList } from "./tabs"
+import { cn } from "./cn"
+
+// EXP-616 — web ports of the iOS glass vocabulary: the row/section ladder from
+// GlassTheme.swift (plain-text section headers, 10px glass rows, the grouped
+// form card with hairline dividers) and the picker/toggle rows from
+// GlassOptionRows.swift (label leading, value trailing, whole row tappable).
+// `border-glass-stroke` IS the row stroke: styles.css maps
+// `--color-glass-stroke: var(--glass-stroke-row)`, and there is no
+// `glass-stroke-row` colour utility.
+
+const ChevronDownGlyph = ChevronDown
+const ChevronRightGlyph = ChevronRight
+
+function GlassSectionHeader({
+  label,
+  leading,
+  trailing,
+  count,
+  expanded,
+  onToggle,
+  className,
+}: {
+  label: string
+  /** Optional glyph before the label (e.g. the board icon on Reviews). */
+  leading?: React.ReactNode
+  trailing?: React.ReactNode
+  /** EXP-862: the muted item count at the trailing edge, before `trailing`.
+   * A folded band shows how much it hides without unfolding. */
+  count?: number
+  /** EXP-862 FOLDABLE variant — pass both to make the band a toggle: the
+   * whole strip becomes the click target, a chevron leads it and
+   * `aria-expanded` states the fold (the Agent page's "Recent" band, collapsed
+   * by default). Omit `onToggle` and the band stays the plain strip it has
+   * always been. */
+  expanded?: boolean
+  onToggle?: () => void
+  className?: string
+}) {
+  // EXP-818: the GROUP BAND — the Linear group header. A full-width strip
+  // filled `bg-glass-section` with the group's name, sitting directly over
+  // its flat rows (`ListRow`) with a 4px gap; rows read as a table under a
+  // highlighted header, not as a stack of cards. Desktop
+  // `surface::glass_section_band` twin.
+  const foldable = onToggle != null
+  const open = expanded !== false
+  const body = (
+    <>
+      {foldable &&
+        (open ? (
+          <ChevronDownGlyph className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRightGlyph className="size-3.5 shrink-0 text-muted-foreground" />
+        ))}
+      {leading}
+      <span className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
+      {(count !== undefined || trailing) && (
+        <div className="ml-auto flex items-center gap-1.5">
+          {count !== undefined && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {count}
+            </span>
+          )}
+          {trailing}
+        </div>
+      )}
+    </>
+  )
+  const bandClassName = cn(
+    // EXP-1076: `group` so a `trailing` control can hover-reveal off the band.
+    `group mb-1 flex w-full items-center gap-1.5 rounded-md bg-glass-section px-3 py-1.5`,
+    foldable &&
+      `cursor-pointer text-left transition-colors duration-fast outline-none hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+    className
+  )
+  if (foldable) {
+    return (
+      <button
+        type="button"
+        data-slot="glass-section-header"
+        aria-expanded={open}
+        onClick={onToggle}
+        className={bandClassName}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <div data-slot="glass-section-header" className={bandClassName}>
+      {body}
+    </div>
+  )
+}
+
+// EXP-818: ONE flat list row — no stroke, no fill of its own: rows stack
+// with NO gap under a `GlassSectionHeader` band and read as a table; the
+// `bg-glass-row` wash is the only thing a hover paints, and the active row
+// takes `bg-glass-active`. Every list wears this since EXP-818 (`GlassRow`
+// stays for the few real cards). Desktop `surface::flat_row` twin.
+const LIST_ROW = `flex items-center gap-3 rounded-md p-3`
+const LIST_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-row focus-visible:ring-[3px] focus-visible:ring-ring/50`
+// EXP-962: the COMPACT density — the 28px one-line row the sidebar's arms
+// run at (the compact inbox, the pinned rows): the list's own 14px type, 8px
+// of side padding, 8px between the glyph and the text. The twin of
+// `SidebarMenuButton density="compact"`, which is exactly as tall.
+const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
+
+/** EXP-1076: THE settings ladder — the desktop `surface::list_row` twin. An
+ *  entity LIST in settings is a `GlassSectionHeader` band over gapless
+ *  `ListRow`s with ONE hairline between each pair and no outer box; form
+ *  FIELDS are `GlassGroup`. Gapped self-bordered `GlassRow` cards are legacy
+ *  in settings. */
+export const SETTINGS_LIST_CLASS = `flex flex-col divide-y divide-glass-stroke`
+
+function ListRow({
+  interactive = false,
+  active = false,
+  asChild = false,
+  density = `list`,
+  className,
+  onClick,
+  onKeyDown,
+  ...props
+}: React.ComponentProps<`div`> & {
+  interactive?: boolean
+  /** The selected row (a master-detail's open item). */
+  active?: boolean
+  /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
+  asChild?: boolean
+  /** `compact` = the sidebar's 28px one-line row (EXP-962). */
+  density?: `list` | `compact`
+}) {
+  const rowClassName = cn(
+    LIST_ROW,
+    density === `compact` && LIST_ROW_COMPACT,
+    interactive && LIST_ROW_INTERACTIVE,
+    active && `bg-glass-active`,
+    className
+  )
+  if (asChild) {
+    return (
+      <Slot.Root
+        data-slot="list-row"
+        data-density={density}
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        className={rowClassName}
+        {...props}
+      />
+    )
+  }
+  const clickable = interactive && onClick != null
+  return (
+    <div
+      data-slot="list-row"
+      data-density={density}
+      role={clickable ? `button` : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              onKeyDown?.(e)
+              if (e.defaultPrevented || e.target !== e.currentTarget) return
+              if (e.key === `Enter` || e.key === ` `) {
+                e.preventDefault()
+                e.currentTarget.click()
+              }
+            }
+          : onKeyDown
+      }
+      className={rowClassName}
+      {...props}
+    />
+  )
+}
+
+/** EXP-895: the glass SURFACE itself — the 6px-radius card fill under the row
+ *  hairline, with no layout of its own. `GlassRow` adds the row's flex box and
+ *  padding; a bigger box that wants the same paint (`FileDiffCard`) takes this
+ *  and brings its own. */
+export const GLASS_SURFACE = `rounded-md border border-glass-stroke bg-glass-row`
+
+const GLASS_ROW = `flex items-center gap-3 ${GLASS_SURFACE} p-3`
+const GLASS_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-active/50 focus-visible:ring-[3px] focus-visible:ring-ring/50`
+
+function GlassRow({
+  interactive = false,
+  asChild = false,
+  className,
+  onClick,
+  onKeyDown,
+  ...props
+}: React.ComponentProps<`div`> & {
+  interactive?: boolean
+  /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
+  asChild?: boolean
+}) {
+  const rowClassName = cn(
+    GLASS_ROW,
+    interactive && GLASS_ROW_INTERACTIVE,
+    className
+  )
+
+  // The child arm already IS a link/button: it brings its own role, focus and
+  // Enter handling, so the div arm's synthetic keyboard plumbing stays out.
+  if (asChild) {
+    return (
+      <Slot.Root
+        data-slot="glass-row"
+        onClick={onClick}
+        onKeyDown={onKeyDown}
+        className={rowClassName}
+        {...props}
+      />
+    )
+  }
+
+  const clickable = interactive && onClick != null
+  return (
+    <div
+      data-slot="glass-row"
+      role={clickable ? `button` : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              onKeyDown?.(e)
+              // Only the row itself — nested buttons/links run their own
+              // Enter/Space and the bubbled event must not double-fire.
+              if (e.defaultPrevented || e.target !== e.currentTarget) return
+              if (e.key === `Enter` || e.key === ` `) {
+                e.preventDefault()
+                e.currentTarget.click()
+              }
+            }
+          : onKeyDown
+      }
+      className={rowClassName}
+      {...props}
+    />
+  )
+}
+
+// EXP-994: THE settings shell — the ONE grouped-rows container every platform
+// draws (desktop `surface::glass_group`, iOS `GlassSection`, Android
+// `OptionGroup`): the row fill, radius 12, a hairline BETWEEN every pair of
+// rows, and NO outer stroke — the fill is the edge. `bare` is the same shell
+// with the fill and the radius dropped, for a host that already IS a surface
+// (the composer's `⋯` popover, a bottom sheet): the rows keep their dividers
+// and the host's card is the only edge, never a card inside a card.
+function GlassGroup({
+  className,
+  scroll = false,
+  bare = false,
+  ...props
+}: React.ComponentProps<`div`> & {
+  /** A long roster scrolls INSIDE the group (EXP-939): the vertical axis
+   *  opens, the group keeps clipping sideways. The host caps the height. */
+  scroll?: boolean
+  /** Dividers only — no fill, no radius: the host (a popover, a sheet) is
+   *  the surface. */
+  bare?: boolean
+}) {
+  return (
+    <div
+      data-slot="glass-group"
+      data-bare={bare ? `true` : undefined}
+      className={cn(
+        `flex flex-col divide-y divide-glass-stroke`,
+        !bare && `rounded-lg bg-glass-row`,
+        scroll ? `overflow-x-hidden overflow-y-auto` : `overflow-hidden`,
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+// EXP-694 — the EMBEDDED tab row. A segmented strip stops being a
+// free-floating capsule floating above a card and becomes the group's FIRST
+// ROW: full width, no fill of its own, no capsule border, 8px of padding on
+// every side, and the hairline underneath comes from the group's `divide-y`.
+// The segments themselves are unchanged (equal width, rounded pills, the
+// active one filled `bg-glass-active`). Mirrors the iOS/Android
+// `GlassSegmentedControl` embedded style and the desktop `glass_tabs_row`.
+const GLASS_TABS_ROW = `flex h-auto w-full rounded-none border-0 bg-transparent p-2 [&>[data-slot=tabs-trigger]]:h-auto [&>[data-slot=tabs-trigger]]:flex-1 [&>[data-slot=tabs-trigger]]:py-1.5`
+
+function GlassTabsRow({
+  value,
+  onValueChange,
+  className,
+  children,
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  className?: string
+  /** `TabsTrigger`s — the row supplies the `Tabs` root they need. */
+  children: React.ReactNode
+}) {
+  return (
+    <Tabs
+      data-slot="glass-tabs-row"
+      value={value}
+      onValueChange={onValueChange}
+      className="gap-0"
+    >
+      <TabsList className={cn(GLASS_TABS_ROW, className)}>{children}</TabsList>
+    </Tabs>
+  )
+}
+
+/** A text field that reads as a picker row: label leading, the value typed
+ * trailing, no field chrome of its own — the group around it IS the field
+ * (EXP-694, the Name row of the device sheet on every client). `trailing`
+ * carries the row's own status glyph (the autosave spinner). */
+function GlassInputRow({
+  id,
+  label,
+  trailing,
+  className,
+  inputClassName,
+  ...inputProps
+}: Omit<React.ComponentProps<typeof Input>, `className`> & {
+  id: string
+  label: string
+  trailing?: React.ReactNode
+  className?: string
+  /** Extra classes on the field itself — a native `type="time"` widget
+   * ignores `text-right`, so such rows pass `ml-auto w-auto flex-none` to
+   * park the whole control at the trailing edge (EXP-698 r4). */
+  inputClassName?: string
+}) {
+  return (
+    <div
+      data-slot="glass-input-row"
+      className={cn(`flex items-center gap-3 px-4 py-3`, className)}
+    >
+      <Label htmlFor={id} className="shrink-0 font-normal text-foreground">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        className={cn(
+          BARE_FIELD_CLASS,
+          `text-right text-foreground/70`,
+          // EXP-827: a native time/date widget paints its clock/calendar
+          // glyph for the LIGHT scheme (black on the dark row) unless the
+          // control itself says dark.
+          (inputProps.type === `time` || inputProps.type === `date`) &&
+            `[color-scheme:dark]`,
+          inputClassName
+        )}
+        {...inputProps}
+      />
+      {trailing}
+    </div>
+  )
+}
+
+// EXP-768 — the SEARCH row that heads a picker group on every client (the
+// Android `GlassTextField(bordered = false)` first row of the start-coding
+// sheet, iOS `GlassSheetSearchField(bordered: false)`): the search glyph
+// leading, a chrome-less field filling the row, and the group's hairline
+// underneath. The list it filters follows as the group's next child.
+const SearchGlyph = Search
+
+function GlassSearchRow({
+  value,
+  onChange,
+  placeholder,
+  className,
+  ...inputProps
+}: Omit<
+  React.ComponentProps<typeof Input>,
+  `value` | `onChange` | `className` | `placeholder`
+> & {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="glass-search-row"
+      className={cn(`flex shrink-0 items-center gap-3 px-4`, className)}
+    >
+      <SearchGlyph className="size-4 shrink-0 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={cn(BARE_FIELD_CLASS, `px-0 py-3`)}
+        {...inputProps}
+      />
+    </div>
+  )
+}
+
+// EXP-958: the picker ROW is `Combobox triggerVariant="row"` now — the
+// closed single-select that used to live here (a Radix Select on desktop, a
+// hand-rolled sheet on the phone) drew a third "this is picked" idiom. What
+// stays is the row SHELL for a stock `SelectTrigger` that must still be one
+// (the board repository field, whose Select carries an inline "Connect" arm).
+//
+// The classes must BEAT the stock SelectTrigger's: `data-[size=default]:h-9`
+// only loses to the same data-variant. Since EXP-616 the trigger's fill/hover
+// are unprefixed (`bg-glass-row` / `hover:bg-glass-active/50`), so a plain
+// `bg-transparent` clears the fill and the hover is inherited rather than
+// restated — the row draws the group's own fill one level up.
+export const GLASS_PICKER_ROW = `flex w-full items-center gap-3 rounded-none border-0 bg-transparent px-4 py-3 shadow-none focus-visible:border-0 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 data-[size=default]:h-auto`
+
+function GlassToggleRow({
+  id,
+  label,
+  checked,
+  onCheckedChange,
+  disabled,
+  description,
+  className,
+}: {
+  id: string
+  label: React.ReactNode
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+  disabled?: boolean
+  description?: React.ReactNode
+  className?: string
+}) {
+  return (
+    <label
+      htmlFor={id}
+      data-slot="glass-toggle-row"
+      className={cn(
+        `flex cursor-pointer items-center gap-3 px-4 py-3`,
+        disabled && `cursor-not-allowed opacity-50`,
+        className
+      )}
+    >
+      <span className="flex flex-1 flex-col gap-0.5">
+        <span className="text-sm font-normal">{label}</span>
+        {description && (
+          <span className="text-xs text-foreground/50">{description}</span>
+        )}
+      </span>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
+    </label>
+  )
+}
+
+/** The glass skin for a stock `SelectTrigger`/`PopoverTrigger` that sits INSIDE
+ * a form rather than being a picker row of its own (EXP-698 — one constant,
+ * not a per-file copy). */
+const GLASS_SELECT_TRIGGER = `border-glass-stroke bg-glass-row shadow-none dark:bg-glass-row dark:hover:bg-glass-active/50`
+
+export {
+  GLASS_SELECT_TRIGGER,
+  GlassSectionHeader,
+  GlassRow,
+  GlassGroup,
+  GlassTabsRow,
+  GlassInputRow,
+  GlassSearchRow,
+  GlassToggleRow,
+  ListRow,
+}

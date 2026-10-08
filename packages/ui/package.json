@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
     "@exp/emoji": "workspace:*",

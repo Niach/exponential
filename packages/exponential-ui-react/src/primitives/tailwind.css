@@ -1,0 +1,207 @@
+/* VAPP-87 — the stylesheet the primitives SHIP. Tailwind is an internal
+   build detail of this package: scripts/build-css.ts compiles this file
+   against the primitives' own sources into dist/exponential-ui-react.css, so
+   a consumer imports `@exponential-at/ui-react/styles.css` and never runs
+   Tailwind. (The Exponential app does NOT use this file: its own
+   packages/ui/src/styles.css scans this directory instead.)
+
+   NO preflight and NO palette: the utilities only map Tailwind's names onto
+   CSS variables, and the VALUES come from the surface root (`compileTheme`
+   in ../theme-css.ts writes --primary, --glass-fill-card, --radius,
+   --font-sans … onto `.xui-surface`). The mappings below are the SAME as
+   packages/ui/src/styles.css's `@theme inline` block, so a class means the
+   same thing in the app and in the SDK. */
+@import "tailwindcss/theme" layer(theme);
+@import "tw-animate-css";
+@import "tailwindcss/utilities" layer(utilities);
+
+@source "./**/*.{ts,tsx}";
+
+/* The app's `dark:` variant is `.dark` on an ancestor; a surface states its
+   mode as `data-xui-mode="dark"`. Either one turns the dark arms on. */
+@custom-variant dark (&:is(.dark *, [data-xui-mode="dark"] *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  /* The glass set: the surface maps each onto a semantic theme colour. */
+  --color-glass-section: var(--glass-fill-section);
+  --color-glass-row: var(--glass-fill-row);
+  --color-glass-card: var(--glass-fill-card);
+  --color-glass-panel: var(--glass-fill-panel);
+  --color-glass-active: var(--glass-fill-active);
+  --color-glass-stroke: var(--glass-stroke-row);
+  --color-glass-stroke-section: var(--glass-stroke-section);
+  --color-glass-stroke-card: var(--glass-stroke-card);
+  --color-glass-stroke-strong: var(--glass-stroke-strong);
+  --color-glass-stroke-active: var(--glass-stroke-active);
+  --color-glass-bottom: var(--glass-background-bottom);
+  --color-code-text: var(--code-text);
+  --color-code-fill: var(--code-fill);
+  --color-code-stroke: var(--code-stroke);
+  --color-diff-add-fg: var(--diff-add-fg);
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-del-fg: var(--diff-del-fg);
+  --color-diff-del-bg: var(--diff-del-bg);
+  --color-diff-hunk-fg: var(--diff-hunk-fg);
+  --color-diff-hunk-bg: var(--diff-hunk-bg);
+  --color-diff-gutter-fg: var(--diff-gutter-fg);
+  /* Avatar fallback hues (avatar-color.ts). A theme does not carry them, so
+     each falls back to the app's value (design-tokens `avatar`). */
+  --color-avatar-0: var(--avatar-0, #f87171);
+  --color-avatar-1: var(--avatar-1, #fb923c);
+  --color-avatar-2: var(--avatar-2, #facc15);
+  --color-avatar-3: var(--avatar-3, #4ade80);
+  --color-avatar-4: var(--avatar-4, #2dd4bf);
+  --color-avatar-5: var(--avatar-5, #60a5fa);
+  --color-avatar-6: var(--avatar-6, #a78bfa);
+  --color-avatar-7: var(--avatar-7, #f472b6);
+  --ease-standard: var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
+  --ease-decelerate: var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1));
+  --ease-accelerate: var(--motion-ease-accelerate, cubic-bezier(0.3, 0, 1, 1));
+  /* `font-sans` needs no mapping: core's utility already reads --font-sans,
+     which the surface root sets (theme `type.family.sans`) over the default. */
+}
+
+/* Custom animations the primitives use: the indeterminate Progress sweep
+   (styles.css EXP-724) and the Accordion open/close (shadcn's keyframes,
+   reading Radix's measured content height). */
+@theme {
+  --animate-progress-indeterminate: progress-indeterminate 1.4s
+    cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes progress-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(300%);
+    }
+  }
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height, auto);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height, auto);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+/* Menu row geometry (styles.css EXP-1074): GEOMETRY, not palette, and menus
+   portal out of the surface, so the defaults sit at zero specificity on the
+   document root where any surface or host value wins. Touch density below
+   md, pointer density from md up — the app's own split. */
+@layer theme {
+  :where(:root, :host) {
+    --menu-item-height: 48px;
+    --menu-item-padding-x: 12px;
+    --menu-item-gap: 12px;
+    --menu-icon-size: 16px;
+    --menu-surface-padding: 4px;
+    --menu-min-width: 180px;
+    --menu-max-width: 280px;
+  }
+  @media (min-width: 768px) {
+    :where(:root, :host) {
+      --menu-item-height: 36px;
+      --menu-item-padding-x: 8px;
+      --menu-item-gap: 8px;
+    }
+  }
+}
+
+/* The named durations (styles.css EXP-523): each sets BOTH
+   `transition-duration` and `--tw-duration`, which tw-animate-css reads for
+   its keyframe length. The app's --motion-* value wins, else the surface's
+   theme duration, else the app default. */
+@utility duration-fast {
+  --tw-duration: var(--motion-duration-fast, var(--xui-duration-fast, 120ms));
+  transition-duration: var(
+    --motion-duration-fast,
+    var(--xui-duration-fast, 120ms)
+  );
+}
+
+@utility duration-standard {
+  --tw-duration: var(
+    --motion-duration-standard,
+    var(--xui-duration-standard, 180ms)
+  );
+  transition-duration: var(
+    --motion-duration-standard,
+    var(--xui-duration-standard, 180ms)
+  );
+}
+
+@utility duration-slow {
+  --tw-duration: var(--motion-duration-slow, 280ms);
+  transition-duration: var(--motion-duration-slow, 280ms);
+}
+
+/* The glass recipes the moved menus and tooltips wear (styles.css). */
+@utility glass-panel {
+  border: 1px solid var(--glass-stroke-card);
+  background: color-mix(in oklab, var(--popover) 95%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow:
+    0 12px 32px -12px oklch(0 0 0 / 0.45),
+    inset 0 1px 0 oklch(1 0 0 / 6%);
+}
+
+@utility bg-glass-card-opaque {
+  background-color: var(--popover);
+  background-image: linear-gradient(
+    var(--glass-fill-card),
+    var(--glass-fill-card)
+  );
+}
