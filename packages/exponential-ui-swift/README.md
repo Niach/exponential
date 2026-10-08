@@ -44,14 +44,34 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   = the catalog's registry concepts → your views (nil = the placeholder
   circle); `onAction` = every A2UI action; `onInput` = host-owned text
   edits (`change` debounced 150 ms with a revision, `commit` on blur /
-  Enter); `openUrl`; `resolveUrl`; `onUnknown`; `fontFamily`; `markdown`.
-  `ClosureHost` builds one from closures.
+  Enter); `openUrl`; `resolveUrl`; `onUnknown`; `fontFamily`; `markdown`;
+  `onUpload` = the files a FileUpload got (name, size, MIME type, URL,
+  bytes; the surface already fired `upload`); `pickFiles` = `true` when
+  the host shows its own picker (then `model.filesPicked(componentId:urls:)`),
+  else the surface presents `.fileImporter`; `announce` = what the model
+  also posted to VoiceOver; `copy` = `true` when the host wrote the
+  clipboard (a CodeBlock copy). `ClosureHost` builds one from closures.
+- **Settings** (contract §4–6). `SurfaceOptions.settings` /
+  `model.setSettings(SurfaceSettings(...))` or one setter each
+  (`setLocale`, `setStrings`, `setModeSetting`, `setDensity`,
+  `setContrast`, `setFontScale`, `setInsets`, `setHoverCapable`,
+  `setReducedMotion`, `setToday`). nil / `system` parts follow the
+  platform live: `ExponentialSurface` feeds the colour scheme,
+  `colorSchemeContrast`, Dynamic Type, Reduce Motion, the safe area and an
+  iPad pointer into the model (`setPlatform` without the view). Density
+  and contrast paint with the core's effective theme; week start, text
+  direction and the built-in strings are the core's, formatting
+  (NumberField, Table number / date cells, picker dates) is Foundation in
+  the surface locale.
+- **Commands.** `model.command(.focus(id:))`, `.announce(text:live:)`,
+  `.scrollIntoView(id:)`; `submitForm(id:)`, `failingChecks(_:)`,
+  `setOpen(_:_:)`, `dismissToast(_:)`, `escape()`.
 - **Fonts.** `ExponentialUI.registerFont(at:)` registers a file a theme
   names (`Inter`); a missing family falls back to the system font.
 - **Themes.** `ThemeHandle.builtin(id)` / `ThemeHandle.load(json:)`;
   `model.setTheme` / `setMode`. Painters never read recipes: the core hands
   resolved visuals, and sub-parts it does not synthesize (a Checkbox
-  `check`, a Switch `thumb`, a Select `trigger`…) resolve through the
+  `check`, a Switch / Slider `thumb`, a ToggleGroup `item`…) resolve through the
   facade's `Theme` object (`model.part(component, part, props:)`), cached
   per query.
 - **Extensions.** `ExponentialUI.register(extension: json, painters: [kind:
@@ -61,6 +81,14 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
 - **Viewport.** The width comes from the view's geometry;
   `model.setViewport(width:height:maxHeight:)` sets the visible height
   (dialog centring, windowed lists) and a card bound.
+- **Keyboard.** The surface root takes keyboard focus and hands every key
+  to `model.handleKey` (`catalog/a11y.json`: Tab order = paint order with
+  roving stops and the top layer's focus trap, arrows in roving widgets,
+  menus, listbox type-ahead, the calendar grid, sliders, charts, scroll
+  containers, Escape, Shift+F10). Horizontal arrows mirror in rtl. Focus is
+  the model's (`focusedId`); `focusRequest` moves the platform's (a text
+  field's first responder, `@AccessibilityFocusState`); the ring paints
+  for `focus-visible` (keyboard focus) only.
 
 ## The host API (VAPP-91)
 
@@ -125,19 +153,26 @@ file URLs for binary targets).
 
 ## The painting model
 
-- The core returns absolute frames in surface coordinates; pre-order is
-  paint order and accessibility order. `FrameLayout` (a custom `Layout`)
-  places every child at its frame relative to its container; the
-  containers nest like the tree, so `overflow: hidden`, radius clips and
-  opacity inherit without emulation. The surface root pins
-  `layoutDirection` to left-to-right: an RTL surface, already resolved by
-  the core, is not mirrored a second time.
-- A container paints its box (background, radius, shadow, opacity, clip);
-  its border is an overlay, so children are never offset. A measured leaf
-  paints inside the recipe padding the measurer counted.
-- Text is shaped and painted by ONE TextKit engine (`TextShaper` + a
-  `UILabel` / `NSTextField` label): the measured height is the painted
-  height, line heights follow CSS (`n` lines = `n × lineHeight`).
+- Nodes are STABLE SLOTS patched from each pass's delta (a removed node
+  is a tombstone until the core compacts); `model.order` is paint order =
+  accessibility order. The core returns UNSCROLLED frames in surface
+  coordinates; `FrameLayout` (a custom `Layout`) places every child at its
+  frame relative to its container, so clips and opacity inherit. The
+  surface pins `layoutDirection` to left-to-right: an rtl surface comes
+  mirrored from the core; text direction and the `rtlMirroredIcons` glyphs
+  (`scaleX(-1)` outermost) read `model.isRTL`.
+- A box paints every round-1 key: per-side borders (dashed / dotted),
+  per-corner radii, multi-stop gradients, shadows, per-axis overflow, the
+  paint-only `transform`, `visibility`, `pointerEvents`, `cursor` (macOS),
+  inherited text keys (tracking, decoration, transform, italic). Motion:
+  only a node's own box animates, with its `transition` and easing; none
+  under reduced motion. Hover, press and focus go to the core as states
+  (`hover`, `pressed`, `focus`, `focus-visible`, `dragover`), which
+  restyles that node.
+- Text is shaped by ONE engine (`TextShaper`, CSS font matching in
+  `TextFonts`) for the measurer AND the painter: a text leaf draws the
+  shaper's own line breaks, so painted wraps equal measured wraps; line
+  heights follow CSS (`n` lines = `n × lineHeight`).
 - Text colour: the node's own, else the nearest ancestor's, else the
   theme's `foreground`.
 
@@ -148,59 +183,56 @@ crossings per pass (`measureIntrinsics` = min-content, max-content and the
 height at max-content for every leaf in ONE call; `measureHeights` for the
 leaves whose width was narrower). Every answer is the BORDER box: the
 recipe's padding and border around the content, fixed and minimum sizes
-winning. Rules mirror the gpui painter: a `lines: 1` text shrinks to 0 at
-min-content; Select / DatePicker fields size from the `trigger` recipe;
-Markdown measures with the same block layout it paints; controls that are
-platform views have recipe-fixed boxes. Nothing is measured through
-SwiftUI's `sizeThatFits`, so a pass runs headless (tests on macOS).
+winning. Rules mirror the gpui painter (`measure.rs`) where it matches the
+web: a `lines: 1` text shrinks to 0 at min-content; picker `trigger`s are
+their text + glyph; Markdown measures with the same block layout it
+paints. Nothing is measured through SwiftUI's `sizeThatFits`, so a pass
+runs headless (tests on macOS).
 
 ## Controls
 
-Platform-native where users expect it, drawn when the theme says so
-(`native: false` on the part's recipe, which the built-in themes set on the
-Switch track): Switch = a `Toggle` scaled into the track frame or the drawn
-thumb; Slider = a `Slider` or the drawn range + thumb with a drag that
-snaps to `step`; DatePicker = a graphical `DatePicker` in a popover
-anchored at the field (date only); Select and DropdownMenu = a native
-`Menu` on the trigger (a Select's `searchable` has no native equivalent:
-the menu lists the options). Input / Textarea / Composer are
-UIKit/AppKit-owned text views (`OwnedTextField`): the view owns the string,
-every edit carries a revision, an echo (a changed `value` prop) is written
-in only while the field is idle and unfocused. Unbound Checkbox / Switch /
-Radio / Toggle / ToggleGroup / Select / DatePicker / Slider values live in a
-local mirror the painter re-resolves part visuals from until the prop
-changes.
+The round-1 natives are the core's PARTS (a picker's `trigger`, a
+calendar's `day`, a NumberField's `input`, a Table's `cell`, a CodeBlock's
+`code` line, a menu's `itemLabel`): the core builds, lays out and keeps
+their values; the painter draws each part and routes the platform input
+back. Every host text field (Input / Textarea `.field`, the Composer, the
+NumberField / ChipInput `input`, a searchable Select's `search`) is ONE
+UIKit/AppKit-owned view (`OwnedTextField`): the view owns the string,
+every edit carries a revision, an echo is written in only while the field
+is idle and unfocused; Up / Down step a NumberField, Backspace in an empty
+ChipInput removes the last chip. Switch and Slider are platform controls
+unless the recipe sets `native: false` (the drawn ones are rtl-aware).
+FileUpload takes `.fileImporter` picks and drops (`dragover` meanwhile);
+a ContextMenu opens at a secondary click (macOS) or a long press.
 
 ## Overlays
 
-`SurfaceOptions.overlays`: `.native` (default) presents a Dialog / Drawer
-as a sheet (a detent as tall as the layer, swipe-to-dismiss unless
-`dismissible: false`, a second modal stacks), a Popover as a `.popover`
-anchored at the core's anchor frame (`presentationCompactAdaptation` keeps
-it a popover on iPhone), a DropdownMenu as a `Menu`; a Tooltip is painted
-in the surface at the core's frame (a long press on touch, hover with a
-300 ms delay on macOS). `.painted` draws every layer inside the surface at
-the core's frames with a scrim (snapshots, hosts that own their windows).
-Escape (macOS) and the sheet's dismissal return focus to the trigger
-through the core's `set_open`.
+Overlays are CORE LAYERS (contract §5), painted inside the surface at the
+core's frames: base < overlay < toast. A modal layer gets the recipe's
+scrim and traps VoiceOver; a press on the scrim, outside a menu / popover
+or a drawer drag dismisses only a `dismissible` layer; Escape closes the
+top one; focus moves into an opening layer (its `autoFocus` node) and back
+to the trigger. Hover-opened cards stay open while hovered; toasts pause
+their timer while hovered or focused.
 
-## Windowed lists
+## Scrolling and windowed lists
 
-A `List` past 24 rows is windowed by the core: the rows sit at content
-offsets inside a scroll view whose content is as tall as the core says; the
-visible offset goes back through `scroll(list, offset)`, which moves the
-window in constant work. No `LazyVStack`, no guessed row heights. A
-scroll never bumps the structure version, so the model re-reads `nodes()`
-after one (the core trap VAPP-90 found).
+A scroll container (`overflowX/Y: scroll | auto`, the core's
+`FfiScroll`) or a windowed List paints in a native `ScrollView` as large
+as the content the core reports; the view reports its offset
+(`scrollReported`), and an offset the core moves (`scrollIntoView`, the
+keyboard, a clamp) scrolls the view there. A windowed list moves its
+window in constant work: no `LazyVStack`, no guessed row heights.
 
 ## Accessibility
 
-VoiceOver reads pre-order: every node carries
-`accessibilitySortPriority(count − index)`; containers `.contain`,
-pressable containers `.combine` into one button, leaves carry their label
-and trait (tab, toggle, slider with an adjustable action, link, image,
-header). A sheet is modal to VoiceOver (the focus trap). The example app's
-`-a11yDump` prints the UIAccessibility walk VoiceOver consumes.
+VoiceOver reads in paint order (`model.accessibilityPriority`). Roles come
+from `accessibility.role` / `catalog/a11y.json`: containers `.contain`,
+pressables combine into one element, leaves carry label, value, hint (the
+linked `<id>.error`), traits and heading levels; Slider and NumberField
+are adjustable; live regions and `announce` post
+`AccessibilityNotification.Announcement`; a modal layer is the focus
+trap. The example app's `-a11yDump` prints the UIAccessibility walk.
 
 ## Example app
 
@@ -209,7 +241,7 @@ by local path (`..`) and renders `packages/exponential-ui/fixtures/
 kitchen-sink.json`: a theme picker (the built-ins + `brand`, the
 third-party test theme of `theme-extends.json`), light / dark, a host that
 echoes every input after 150 ms. Launch arguments: `-theme <id>`,
-`-mode light|dark`, `-rtl`, `-width N`, `-overlays painted`, `-shot <view>`
+`-mode light|dark`, `-rtl`, `-width N`, `-shot <view>`
 (no chrome; what `bun run shots --platform ios --views
 exponential-ui-kitchen-sink` captures), `-a11yDump`. Icons are SF Symbols
 mapped from the kitchen sink's concepts; a real host hands the renderer its
@@ -223,20 +255,18 @@ through a probe painter), `GeometryTests` (the EXACT frames of
 `layout-geometry.json` at 900/390 LTR/RTL, overlay placement, open layers),
 `SnapshotTests` (`__Snapshots__/components.json`: the painted tree of every
 component case under the core's fixed measure; `EXPONENTIAL_UI_RECORD=1`
-rewrites it), `InteractionTests` (actions, the `:pressed` relayout,
-mirrors, tabs / accordion through the core, the field debounce +
-revisions + commit + echo rule, a 40-key burst with a 150 ms echo, layers,
-links, the measurer rules, the accessibility order, a windowed list scroll).
+rewrites it), `InteractionTests` (actions, the `:pressed` relayout, tabs /
+accordion through the core, the field debounce + revisions + commit + echo
+rule, a 40-key burst, layers, the accessibility order, a windowed list),
+`Round1ModelTests` / `Round1PaintTests` / `Round1NativesTests` (settings,
+OutEvents, commands, keyboard, toasts, style keys, motion, rtl, layers,
+every specimen, the natives), `ConformanceTests` (every suite of the
+conformance manifest), `RealFontConformanceTests` (the CoreText frame dump
+against the web baseline, ratcheted: [`conformance/`](conformance/README.md)).
 
 ## Known divergences from the React renderer
 
-- Line breaks follow TextKit; the `lines` clamp truncates with an ellipsis.
-- Skeleton is static. Images load through the host's media request; Video and
-  AudioPlayer are static placeholders.
-- A Select's `searchable` opens the plain native menu; `multiple` toggles
-  per pick (the menu closes between picks).
-- The Carousel `indicator` leaf is the recipe's single dot; the strip is
-  centred on it. The Slider track frame is the 6 px bar; the thumb (and the
-  native slider) overflows it.
+- Video and AudioPlayer are static placeholders (poster, duration).
 - `ImageRenderer` renders the text leaves blank (they are UIKit/AppKit
   views); capture a real window instead.
+- The real-font layout gaps left are core-side (`conformance/README.md`).
