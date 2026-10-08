@@ -65,3 +65,8 @@ export type { ControlGeometry, GeometryKey, MeasuredBox, PainterOverride, Geomet
 // VAPP-87: the overlay placement contract (renderers + the Rust core).
 export { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
 export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"
+// VAPP-91: the host API (transport, functions, bindings, negotiation, policy, packages).
+export * from "./host"
+// VAPP-91: the conformance suite.
+export { CONFORMANCE_VERSION, conformanceManifest, checkReport } from "./conformance"
+export type { ConformanceSuite, ConformanceManifest, ConformanceReport, ReportVerdict } from "./conformance"

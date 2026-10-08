@@ -14,14 +14,16 @@
     "./docs/*": "./docs/*",
     "./vendor/*": "./vendor/*",
     "./themes/*": "./themes/*",
-    "./generated/*": "./generated/*"
+    "./generated/*": "./generated/*",
+    "./conformance/*": "./conformance/*"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
     "test": "bun test ./src",
     "typecheck": "tsc --noEmit",
     "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
-    "dev:builder": "bun ./builder/serve.ts"
+    "dev:builder": "bun ./builder/serve.ts",
+    "conformance:check": "bun run ./scripts/conformance-check.ts"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",

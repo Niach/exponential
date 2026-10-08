@@ -1,0 +1,12 @@
+// VAPP-91: the host API (catalog/host.json) — the TS reference.
+export * from "./contract"
+export * from "./policy"
+export * from "./sources"
+export * from "./decoders"
+export * from "./package"
+export { HostRouter, normalizePath } from "./router"
+export type { HostRouterOptions, SurfaceInfo } from "./router"
+export { ExponentialHost, SurfaceStore, setPointerImmutable } from "./runtime"
+export type { Transport, TransportStatus, HostOptions, HostPolicy, HostFunction, FunctionCallInfo, FunctionOutcome } from "./runtime"
+export { MemoryTransport, JsonlStreamTransport, SseTransport, WebSocketTransport, McpTransport } from "./transports"
+export type { HttpTransportOptions, McpTransportOptions } from "./transports"

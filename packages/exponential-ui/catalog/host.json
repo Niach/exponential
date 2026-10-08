@@ -1,0 +1,48 @@
+{
+  "$comment": "VAPP-91: the host API contract, the same on all four platforms (TS src/host/, the Rust core's `host` module, which the Swift and Kotlin painters reach through exponential-ui-ffi). A surface needs exactly these from its host: transport, functions, bindings (optional), extensions, theme, catalog negotiation and policy hooks. Every pure rule here is locked by fixtures/host-*.json, replayed by every renderer's conformance runner (conformance/manifest.json).",
+  "version": 1,
+  "a2uiVersion": "v0.9",
+  "messages": {
+    "$comment": "Server → client. The four A2UI v0.9 messages plus two Exponential UI extensions: `applyTemplate` (a registered declarative package's template becomes create + components + data + binds) and `bindDataModel` (a data model path follows a host `source`). A message is ONE object with `version` (optional, must equal a2uiVersion when present) and exactly one kind key.",
+    "a2ui": ["createSurface", "updateComponents", "updateDataModel", "deleteSurface"],
+    "extensions": ["applyTemplate", "bindDataModel"]
+  },
+  "ops": {
+    "$comment": "What the router (`HostRouter.route`) turns a message into. A platform host performs them in order: create = a new EMPTY surface (replacing one with that id), components = updateComponents on it, data = updateDataModel (no `value` = remove the path), bind = subscribe the path to a source resolver, delete = drop the surface and every subscription, send = a client message back over the transport (errors).",
+    "kinds": ["create", "components", "data", "bind", "delete", "send"]
+  },
+  "clientMessages": {
+    "$comment": "Client → server, A2UI v0.9 client_to_server: `{version, action: {name, surfaceId, sourceComponentId, timestamp, context}}` (+ `payload` when the component adds one, e.g. a Select's value) or `{version, error: {code, surfaceId, message, path?}}`.",
+    "errorCodes": ["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED"]
+  },
+  "functions": {
+    "$comment": "An `on.<event>` action `{functionCall: {call, args}}` (A2UI; the core also reads the legacy `function` key) runs on the client. The catalog's 14 functions are built in (value functions; `openUrl` is the one with an effect and goes through the URL policy). Any other name must be REGISTERED by the host (an action function: side effects, may be async) and passes the policy gate first: decide(policy, name) → allow | ask | deny. `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card). Patterns: an exact name or a prefix ending in `*` (`harness.*`). Order: deny wins, then allow, then ask, then `default`.",
+    "decisions": ["allow", "ask", "deny", "not_found"],
+    "defaultPolicy": { "allow": [], "ask": [], "deny": [], "default": "allow" }
+  },
+  "urls": {
+    "$comment": "openUrl / Link go through decideUrl(policy, url): the scheme (lower-cased) must be in `schemes` and, when `hosts` is set, an http(s) url's host must match one (exact or `*.example.com`). Relative urls resolve against `baseUrl` first; without one they are denied.",
+    "defaultSchemes": ["https", "http", "mailto", "tel"]
+  },
+  "media": {
+    "$comment": "The image/media loader: mediaRequest(url, {baseUrl, rules}) → {url, headers}. A relative url resolves against baseUrl; every rule whose `prefix` the absolute url starts with adds its headers (later rules win per header). How the Exponential app sends auth headers for /api/attachments.",
+    "ruleKeys": ["prefix", "headers"]
+  },
+  "sources": {
+    "$comment": "A binding source URI: `<scheme>:<name>[?k=v&…]`, scheme `[a-z][a-z0-9+.-]*` (lower-cased), name non-empty without `?`, params percent-decoded (`+` = space), the last value of a repeated key wins, keys sorted. The host registers one resolver per scheme (the Exponential app: `exp`); subscribe(source, emit) → cancel, every emit writes the value at the bound path.",
+    "pattern": "^([a-zA-Z][a-zA-Z0-9+.-]*):([^?]+)(?:\\?(.*))?$"
+  },
+  "transport": {
+    "$comment": "Adapters every SDK ships: in-memory, A2UI JSONL over a byte stream (one message per line; CRLF and blank lines tolerated; a bad line is an issue, never fatal), SSE (`data:` lines joined per event; an event's data is one message or JSONL; events named other than `message`/`a2ui` are ignored), WebSocket (one message or JSONL per frame), and the A2UI-over-MCP carrier (a tool result's `content[]` resources with one of `mcpMimeTypes`, text = JSONL / a JSON array / one message; or `structuredContent.a2ui` = an array). Actions out over MCP = tools/call `mcpActionTool` with `{message}`.",
+    "mcpMimeTypes": ["application/json+a2ui", "application/a2ui+json"],
+    "mcpActionTool": "a2ui_event",
+    "sseEvents": ["message", "a2ui"]
+  },
+  "negotiation": {
+    "$comment": "supportedCatalogIds = the core, the core lite, the A2UI basic catalog, then every registered extension id in registration order, de-duplicated. clientCapabilities = {\"v0.9\": {supportedCatalogIds}}. A createSurface whose catalogId is not in the list → UNSUPPORTED_CATALOG."
+  },
+  "package": {
+    "$comment": "A declarative vapp package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny.",
+    "required": ["id", "name", "version", "catalogId", "templates"]
+  }
+}

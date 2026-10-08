@@ -33,6 +33,8 @@ import { reduceNested, reduceSurface } from "../src/reducer"
 import { coreSchema } from "../src/schema"
 import { STYLE_KEYS, STYLE_STATES } from "../src/style"
 import { renderThemes } from "./generate-themes"
+import { renderHost } from "./generate-host"
+import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
 import type { ComponentDef, ExtensionDef, FlatComponent, NestedNode, PropSchema } from "../src/types"
 
@@ -455,6 +457,9 @@ export function render(): Record<string, string> {
     }),
     "fixtures/prompt-budget.json": json(promptBudget()),
     ...themeOutputs,
+    // VAPP-91: the host fixtures (inputs hand-written, expected filled).
+    ...renderHost(),
+    "conformance/manifest.json": json(conformanceManifest()),
   }
 }
 
