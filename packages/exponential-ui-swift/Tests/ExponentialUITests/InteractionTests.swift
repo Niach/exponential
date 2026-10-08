@@ -40,13 +40,17 @@ final class InteractionTests: XCTestCase {
         XCTAssertNil(m.boxStyle(i).opacity)
     }
 
-    func testUnboundControlsMirrorLocally() throws {
+    func testUnboundControlsKeepTheirValueInTheCore() throws {
+        // Round 1: the core keeps an unbound control's value (its local
+        // field state); the model fires the event and reads the props back.
         let m = try sink(RecordingHost())
         let box = m.index(of: "form-agree.box")!
         XCTAssertTrue(m.checked(box))
+        let before = m.style(box).background
         m.press(box)
         XCTAssertFalse(m.checked(box))
-        XCTAssertNotEqual(m.boxStyle(box).background, m.style(box).background, "the box re-resolves its recipe from the mirror")
+        XCTAssertNotEqual(m.style(box).background, before, "the core re-resolved the box's recipe for the new value")
+        XCTAssertEqual(m.boxStyle(box).background, m.style(box).background, "no painter-side override")
         let track = m.index(of: "nav-toggle.track")!
         XCTAssertTrue(m.checked(track))
         m.press(track)
@@ -106,10 +110,12 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(m.data["draft"]?["title"], .string("Hello"), "a bound value writes through")
         m.fieldEdited(field, text: "Hello!")
         m.fieldFocused(field, false)
-        XCTAssertEqual(host.inputs.count, 2)
-        XCTAssertEqual(host.inputs[1].kind, .commit)
-        XCTAssertEqual(host.inputs[1].revision, 6)
-        XCTAssertEqual(host.inputs[1].value, .string("Hello!"))
+        // Blur (gpui `flush_field`): the pending edit as `change`, then `commit`.
+        XCTAssertEqual(host.inputs.count, 3)
+        XCTAssertEqual(host.inputs[1].kind, .change)
+        XCTAssertEqual(host.inputs[2].kind, .commit)
+        XCTAssertEqual(host.inputs[2].revision, 6)
+        XCTAssertEqual(host.inputs[2].value, .string("Hello!"))
         // An echo of the host's own write never rewrites the field; a REAL
         // host change lands only while the field is idle and unfocused.
         m.setData(path: "/draft/title", value: .string("Hello!"))
@@ -159,8 +165,12 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(m.modalLayers.count, 1)
         let owner = m.modalLayers[0].owner
         XCTAssertEqual(m.layerReturn[owner], trigger.id)
+        let focusedInside = m.focusedId.flatMap { m.node(id: $0) }
+        XCTAssertNotNil(focusedInside, "opening a dialog moves focus into it")
+        XCTAssertGreaterThan(focusedInside?.layer ?? 0, 0)
         XCTAssertTrue(m.escape())
-        XCTAssertTrue(m.layers.isEmpty)
+        XCTAssertTrue(m.layers.filter(\.isInteractive).isEmpty, "the toast layer stays; no overlay")
+        XCTAssertEqual(m.focusedId, trigger.id, "closing returns focus to the trigger")
         // A tooltip paints in the surface in native mode; a dialog does not.
         if let tip = m.nodes.first(where: { $0.component == "Tooltip" }) {
             m.setOpen(tip.id, true)
@@ -205,10 +215,11 @@ final class InteractionTests: XCTestCase {
 
     func testAccessibilityOrderIsPreOrder() throws {
         let m = try sink(RecordingHost())
-        // The painter pins VoiceOver to node order: the sort priority of a
-        // node is `count - index`, strictly decreasing in pre-order.
-        let priorities = m.nodes.map { Double(m.nodes.count - $0.index) }
+        // The painter pins VoiceOver to PAINT order (slots are stable, not
+        // pre-order): the sort priority strictly decreases along `order`.
+        let priorities = m.order.map { m.accessibilityPriority($0) }
         XCTAssertEqual(priorities, priorities.sorted(by: >))
+        XCTAssertEqual(Set(priorities).count, priorities.count)
         // Labels: every focusable leaf has an accessible name.
         let unnamed = m.nodes.filter { $0.isFocusable && $0.isLeaf && !$0.isTextField && $0.component != "ToggleGroup" && $0.part != "box" && $0.part != "dot" && $0.part != "track" && $0.part != "field" && $0.part != "indicator" && $0.accessibilityLabel == nil }
         XCTAssertEqual(unnamed.map(\.id), [])

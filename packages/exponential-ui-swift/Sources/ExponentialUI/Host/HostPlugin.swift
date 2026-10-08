@@ -47,6 +47,37 @@ public struct SurfaceFunctionCall: Sendable, Equatable {
     }
 }
 
+/// One file picked for (or dropped on) a FileUpload: its name, size and
+/// MIME type (what the surface's `upload` event carries) plus the bytes and
+/// the URL the host uploads from.
+public struct SurfaceUploadFile: Sendable, Equatable {
+    public let name: String
+    public let size: Int
+    /// The MIME type (`image/png`; `application/octet-stream` when unknown).
+    public let type: String
+    public let url: URL?
+    public let data: Data?
+
+    public init(name: String, size: Int, type: String, url: URL? = nil, data: Data? = nil) {
+        self.name = name
+        self.size = size
+        self.type = type
+        self.url = url
+        self.data = data
+    }
+}
+
+/// Files for a FileUpload (gpui `UploadEvent`): the host uploads them; the
+/// surface already got `upload {files: [{name, size, type}]}`.
+public struct SurfaceUploadEvent: Sendable, Equatable {
+    public let surfaceId: String
+    /// The FileUpload's id.
+    public let componentId: String
+    /// Its `name` prop (the form field).
+    public let name: String
+    public let files: [SurfaceUploadFile]
+}
+
 /// What an EMBEDDING APP provides. The SDK knows no transport: actions and
 /// input edits are plain values the host forwards wherever it likes. Every
 /// requirement has a default (the `NoHost` behaviour), so a host implements
@@ -78,6 +109,18 @@ public protocol HostPlugin: AnyObject {
     func fontFamily(_ name: String) -> String?
     /// A richer markdown renderer than the built-in one (nil = built-in).
     func markdown(_ text: String, width: CGFloat) -> AnyView?
+    /// Files picked for / dropped on a FileUpload (read, with their bytes).
+    func onUpload(_ event: SurfaceUploadEvent)
+    /// A FileUpload asked for files. `true` = the host presents its own
+    /// picker (and later calls `SurfaceModel.filesPicked`); default `false`
+    /// = the surface presents `.fileImporter`.
+    func pickFiles(_ request: FilePickRequest) -> Bool
+    /// Something was announced (the model already posted it to VoiceOver):
+    /// a Form's `invalidFields`, CodeBlock's `copied`, an `announce` command.
+    func announce(text: String, live: String)
+    /// Text for the clipboard (a CodeBlock copy). `true` = the host wrote
+    /// it; default `false` = the general pasteboard.
+    func copy(_ text: String) -> Bool
 }
 
 public extension HostPlugin {
@@ -101,6 +144,10 @@ public extension HostPlugin {
     func onUnknown(component: String, catalogId: String?, id: String) {}
     func fontFamily(_ name: String) -> String? { nil }
     func markdown(_ text: String, width: CGFloat) -> AnyView? { nil }
+    func onUpload(_ event: SurfaceUploadEvent) {}
+    func pickFiles(_ request: FilePickRequest) -> Bool { false }
+    func announce(text: String, live: String) {}
+    func copy(_ text: String) -> Bool { false }
 }
 
 /// The host that does nothing (previews, tests).
@@ -117,20 +164,30 @@ public final class ClosureHost: HostPlugin {
     public var inputs: (SurfaceInputEvent) -> Void
     public var urls: ((String) -> Void)?
     public var unknowns: (String, String?, String) -> Void
+    /// Picked / dropped files (with their bytes).
+    public var uploads: (SurfaceUploadEvent) -> Void
+    public var announcements: (String, String) -> Void
 
     public init(
         icons: @escaping (String, CGFloat) -> AnyView? = { _, _ in nil },
         actions: @escaping (SurfaceActionEvent) -> Void = { _ in },
         inputs: @escaping (SurfaceInputEvent) -> Void = { _ in },
         urls: ((String) -> Void)? = nil,
-        unknowns: @escaping (String, String?, String) -> Void = { _, _, _ in }
+        unknowns: @escaping (String, String?, String) -> Void = { _, _, _ in },
+        uploads: @escaping (SurfaceUploadEvent) -> Void = { _ in },
+        announcements: @escaping (String, String) -> Void = { _, _ in }
     ) {
         self.icons = icons
         self.actions = actions
         self.inputs = inputs
         self.urls = urls
         self.unknowns = unknowns
+        self.uploads = uploads
+        self.announcements = announcements
     }
+
+    public func onUpload(_ event: SurfaceUploadEvent) { uploads(event) }
+    public func announce(text: String, live: String) { announcements(text, live) }
 
     public func icon(_ name: String, size: CGFloat) -> AnyView? { icons(name, size) }
     public func onAction(_ event: SurfaceActionEvent) { actions(event) }
