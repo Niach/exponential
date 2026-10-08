@@ -852,9 +852,11 @@ impl Surface {
             // Phase 2: taffy against the memo, guesses recorded.
             let guesses = std::cell::RefCell::new(Vec::<HeightRequest>::new());
             let hidden: Vec<bool> = self.nodes.iter().map(|n| n.hidden).collect();
-            // CSS parity (VAPP-91): the surface root is a block-level box, as
-            // wide as the surface unless its own style sets a width.
-            if let Some(&root) = self.taffy_ids.first() {
+            // CSS parity (VAPP-91): a block-level surface root is as wide as
+            // the surface unless its own style sets a width; the web's
+            // inline-flex natives (base-css.ts) keep their content width.
+            let inline_root = self.nodes.first().is_some_and(|n| matches!(n.component.as_str(), "Button" | "Toggle" | "Link" | "Icon" | "Ring" | "Spinner" | "ToggleGroup"));
+            if let (Some(&root), false) = (self.taffy_ids.first(), inline_root) {
                 if let Ok(style) = self.tree.style(root) {
                     if style.size.width == Dimension::auto() {
                         let mut style = style.clone();
