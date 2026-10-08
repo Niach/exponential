@@ -113,6 +113,9 @@ impl SurfaceView {
 
     /// One node and its subtree, at its frame relative to `origin`.
     pub(crate) fn paint_node(&self, index: u32, origin: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if let Some(t) = self.paint_trace.borrow_mut().as_mut() {
+            t.push(index);
+        }
         let i = index as usize;
         let n = &self.cache.nodes[i];
         let f = self.frames.get(i).copied().unwrap_or_default();

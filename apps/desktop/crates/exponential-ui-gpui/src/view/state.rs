@@ -39,9 +39,33 @@ pub(crate) struct NodeCache {
     pub markdown: HashMap<u32, Rc<Vec<Block>>>,
 }
 
+/// A node is in its parent's layer. The core tags a few synthesized parts
+/// with their OWNER's layer instead (a Dialog / Drawer content root's
+/// title, body, close… report layer 0 under a layer-1 root), which would
+/// leave an open modal's contents unpainted and outside its focus trap.
+/// Only a layer ROOT (no parent) starts a layer.
+pub(crate) fn normalize_layers(nodes: &mut [PlacedNode]) {
+    loop {
+        let mut changed = false;
+        for i in 0..nodes.len() {
+            if let Some(p) = nodes[i].parent {
+                let layer = nodes.get(p as usize).map(|n| n.layer).unwrap_or(nodes[i].layer);
+                if nodes[i].layer != layer {
+                    nodes[i].layer = layer;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
 impl NodeCache {
     pub fn build(surface: &mut Surface) -> NodeCache {
-        let nodes = surface.nodes();
+        let mut nodes = surface.nodes();
+        normalize_layers(&mut nodes);
         let version = surface.structure_version();
         let mut children = vec![Vec::new(); nodes.len()];
         let mut by_id = HashMap::with_capacity(nodes.len());

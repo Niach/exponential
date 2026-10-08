@@ -264,9 +264,8 @@ pub fn avatar(cx: &LeafCx) -> AnyElement {
     let src = cx.str("src");
     let mut out = div().size_full().rounded_full().overflow_hidden();
     if !src.is_empty() && is_remote(src) {
-        let url = cx.host.resolve_url(src);
         let fb = initials_el.clone();
-        out = out.child(img(SharedString::from(url)).size_full().object_fit(ObjectFit::Cover).with_fallback(fb).with_loading(initials_el));
+        out = out.child(img(crate::media::image_source(cx.host, src)).size_full().object_fit(ObjectFit::Cover).with_fallback(fb).with_loading(initials_el));
     } else {
         out = out.child(initials_el());
     }
@@ -307,12 +306,11 @@ pub fn image(cx: &LeafCx) -> AnyElement {
         "scaleDown" => ObjectFit::ScaleDown,
         _ => ObjectFit::Cover,
     };
-    let url = cx.host.resolve_url(src);
     let (a, b) = (alt.clone(), alt);
     div()
         .size_full()
         .overflow_hidden()
-        .child(img(SharedString::from(url)).size_full().object_fit(fit).with_fallback(move || image_placeholder(muted, &a)).with_loading(move || image_placeholder(muted, &b)))
+        .child(img(crate::media::image_source(cx.host, src)).size_full().object_fit(fit).with_fallback(move || image_placeholder(muted, &a)).with_loading(move || image_placeholder(muted, &b)))
         .into_any_element()
 }
 
@@ -332,7 +330,7 @@ pub fn video(cx: &LeafCx) -> AnyElement {
     let poster = cx.str("poster");
     let mut out = div().size_full().relative().overflow_hidden().bg(gpui::black().opacity(0.85));
     if !poster.is_empty() && is_remote(poster) {
-        out = out.child(img(SharedString::from(cx.host.resolve_url(poster))).absolute().size_full().object_fit(ObjectFit::Cover).with_fallback(|| div().into_any_element()));
+        out = out.child(img(crate::media::image_source(cx.host, poster)).absolute().size_full().object_fit(ObjectFit::Cover).with_fallback(|| div().into_any_element()));
     }
     let white = gpui::white();
     out = out.child(div().absolute().size_full().flex().items_center().justify_center().child(div().size(px(44.0)).rounded_full().bg(white.opacity(0.18)).flex().items_center().justify_center().child(icons::glyph(Glyph::Play, 20.0, white))));

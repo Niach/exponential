@@ -19,11 +19,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use exponential_ui::measure::TextStyle;
-use exponential_ui::surface::{ApplyOutcome, Frame, Layer, ListOutput, Surface, SurfaceOptions};
+use exponential_ui::measure::{Measure, TextStyle};
+use exponential_ui::surface::{ApplyOutcome, Frame, Layer, ListOutput, PlacedNode, Surface, SurfaceOptions};
 use exponential_ui::theme::{Mode, ResolvedTheme};
 use exponential_ui::themes::default_theme;
-use exponential_ui::{ExtensionDef, NestedNode, CORE_CATALOG_ID};
+use exponential_ui::{ExtensionDef, FlatComponent, NestedNode, CORE_CATALOG_ID};
 use gpui::{canvas, deferred, div, prelude::*, px, Bounds, Context, FocusHandle, Font, Hsla, Pixels, ScrollHandle, Subscription, Task, WeakEntity, Window};
 
 use crate::extension::ExtensionPainter;
@@ -153,11 +153,23 @@ pub struct SurfaceView {
     drag: Option<Drag>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     this: WeakEntity<SurfaceView>,
+    /// A measure replacing the gpui text system (conformance: the fixed
+    /// geometry measure); `None` = [`GpuiMeasure`].
+    measure_override: Option<Box<dyn Measure>>,
+    /// The node indices `paint_node` visited in the last render, in paint
+    /// order (only while [`SurfaceView::trace_paint`] is on).
+    paint_trace: RefCell<Option<Vec<u32>>>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SurfaceView {
     pub fn new(options: SurfaceViewOptions, _window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::without_window(options, cx)
+    }
+
+    /// [`SurfaceView::new`] outside a window update (a host runtime creating
+    /// a surface when its transport delivers `createSurface`).
+    pub fn without_window(options: SurfaceViewOptions, cx: &mut Context<Self>) -> Self {
         let surface = Surface::new(&options.surface_id, SurfaceOptions { catalog_id: options.catalog_id, theme: options.theme.clone(), mode: options.mode, extensions: options.extensions, rounding: options.rounding });
         let fonts = Fonts::new(options.host.clone(), options.theme.as_deref());
         SurfaceView {
@@ -199,6 +211,8 @@ impl SurfaceView {
             drag: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             this: cx.entity().downgrade(),
+            measure_override: None,
+            paint_trace: RefCell::new(None),
             _subscriptions: Vec::new(),
         }
     }
@@ -206,6 +220,15 @@ impl SurfaceView {
     /// Apply one A2UI server→client message.
     pub fn apply(&mut self, message: &serde_json::Value, cx: &mut Context<Self>) -> Result<ApplyOutcome, String> {
         let out = self.surface.apply(message);
+        self.nodes_dirty = true;
+        cx.notify();
+        out
+    }
+
+    /// Replace the flat component list (what a host's `components` op
+    /// carries, already merged by id).
+    pub fn set_components(&mut self, components: Vec<FlatComponent>, cx: &mut Context<Self>) -> ApplyOutcome {
+        let out = self.surface.set_components(components);
         self.nodes_dirty = true;
         cx.notify();
         out
@@ -244,6 +267,49 @@ impl SurfaceView {
     pub fn register_painter(&mut self, kind: impl Into<String>, painter: Box<dyn ExtensionPainter>) {
         self.painters.insert(kind.into(), Rc::from(painter));
         self.surface.invalidate_measures();
+    }
+
+    /// [`SurfaceView::register_painter`] with a painter shared between
+    /// views (a host runtime hands one painter to every surface).
+    pub fn register_painter_rc(&mut self, kind: impl Into<String>, painter: Rc<dyn ExtensionPainter>) {
+        self.painters.insert(kind.into(), painter);
+        self.surface.invalidate_measures();
+    }
+
+    /// Lay out with `measure` instead of the gpui text system (`None` =
+    /// back to [`GpuiMeasure`]). Conformance runs the fixed geometry measure
+    /// through the painter this way.
+    pub fn set_measure(&mut self, measure: Option<Box<dyn Measure>>, cx: &mut Context<Self>) {
+        self.measure_override = measure;
+        self.surface.invalidate_measures();
+        cx.notify();
+    }
+
+    /// The placed nodes of the last pass (index = layout node index).
+    pub fn placed_nodes(&self) -> &[PlacedNode] {
+        &self.cache.nodes
+    }
+
+    /// The frame (surface coordinates) the painter positions node `index`'s
+    /// div at, as of the last pass.
+    pub fn frame(&self, index: u32) -> Option<Frame> {
+        self.frames.get(index as usize).copied()
+    }
+
+    /// The content height of the last pass.
+    pub fn surface_height(&self) -> f32 {
+        self.surface_height
+    }
+
+    /// Record the order `render` paints nodes in ([`SurfaceView::paint_trace`]).
+    pub fn trace_paint(&mut self, on: bool) {
+        *self.paint_trace.borrow_mut() = on.then(Vec::new);
+    }
+
+    /// The node indices painted by the last render, in paint order (empty
+    /// unless [`SurfaceView::trace_paint`] is on).
+    pub fn paint_trace(&self) -> Vec<u32> {
+        self.paint_trace.borrow().clone().unwrap_or_default()
     }
 
     pub fn surface(&self) -> &Surface {
@@ -346,9 +412,14 @@ impl SurfaceView {
         let mut changed: HashSet<u32> = HashSet::new();
         let mut tries = 0;
         let out = loop {
-            let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds);
-            let out = self.surface.layout(&mut m);
-            calls += m.calls();
+            let out = if let Some(m) = self.measure_override.as_mut() {
+                self.surface.layout(m.as_mut())
+            } else {
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds);
+                let out = self.surface.layout(&mut m);
+                calls += m.calls();
+                out
+            };
             layout_ns += out.layout_ns;
             changed.extend(out.visual_changes.iter().copied());
             tries += 1;
@@ -459,14 +530,21 @@ impl SurfaceView {
 impl Render for SurfaceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.pass(window, cx);
+        if let Some(t) = self.paint_trace.borrow_mut().as_mut() {
+            t.clear();
+        }
         let theme = self.surface.theme().cloned();
         let ink = default_ink(theme.as_deref(), self.surface.mode());
         let this = self.this.clone();
         let probe = canvas(
             move |bounds, _, cx| {
                 let width = f32::from(bounds.size.width);
-                if let Some(this) = this.upgrade() {
-                    this.update(cx, |this, cx| this.set_width(width, cx));
+                let Some(this) = this.upgrade() else { return };
+                if (width - this.read(cx).width).abs() > 0.5 && width > 0.0 {
+                    // Deferred: a notify during prepaint does not schedule
+                    // the next frame, so an otherwise idle window would keep
+                    // the stale width until something else redraws it.
+                    cx.defer(move |cx| this.update(cx, |this, cx| this.set_width(width, cx)));
                 }
             },
             |_, _, _, _| {},

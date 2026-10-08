@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use super::state::{focus_order, is_text_field, next_focus};
 use super::{Drag, Mirror, SurfaceView};
-use crate::host::{ActionEvent, InputEvent, InputKind};
+use crate::host::{ActionEvent, FunctionCallEvent, InputEvent, InputKind};
 use crate::paint::date;
 
 /// The Tooltip open delay.
@@ -47,6 +47,7 @@ impl SurfaceView {
             match e {
                 OutEvent::Action { name, component_id, event, context, payload } => host.on_action(&ActionEvent { surface_id: surface_id.clone(), event, name, component_id, context, payload }, cx),
                 OutEvent::OpenUrl { url } => host.open_url(&url, cx),
+                OutEvent::FunctionCall { component_id, name, args } => host.on_function_call(&FunctionCallEvent { surface_id: surface_id.clone(), component_id, name, args }, cx),
                 OutEvent::Input { component_id, name, path, value, commit } => {
                     let revision = match input {
                         Some(r) => r,

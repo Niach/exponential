@@ -110,7 +110,8 @@ pass with nothing changed makes 0 measure calls.
 
 - **Presses.** On a pressable node, mouse down sets `pressed`; mouse up inside
   fires `event(index, "press")`. The returned OutEvents are dispatched:
-  `Action` → `on_action`, `OpenUrl` → `open_url`, `Input` → `on_input`.
+  `Action` → `on_action`, `OpenUrl` → `open_url`, `FunctionCall` →
+  `on_function_call`, `Input` → `on_input`.
   Hover sets `hover`. Disabled nodes ignore presses. `SurfaceView::press`
   is the same press from code.
 - **Unbound controls.** The core writes only BOUND values through. The painter
@@ -187,9 +188,117 @@ rows).
   frame div. `emit(event, payload, …)` routes through `event(index, …)` like
   a native.
 - An unregistered kind paints its name as a note.
+## The host API (VAPP-91)
+
+`runtime::ExponentialHost` is the gpui host runtime, the Rust mirror of the
+TS reference (`packages/exponential-ui/src/host/runtime.ts`) over the core's
+pure `exponential_ui::host` (router, decoders, policy, sources, packages).
+It is a gpui entity that owns:
+
+- the transport, with an observable `status()` (`connecting|open|closed|error`),
+  `status_detail()` and `has_transport()`;
+- the router, plus ONE `SurfaceView` entity per surface (`surface(id)`,
+  `surface_ids()`). Ops: `create` makes a fresh view with the host's theme,
+  mode, extensions and painters; `components` merges by id; `data` sets or
+  removes a path (`""` = the whole model); `bind` subscribes the scheme's
+  `SourceResolver`, or sends `VALIDATION_FAILED`; `delete` drops the view
+  and cancels its sources; `send` forwards and records `unsupported_catalog()`;
+- the function registry (`HostFunction` returns a gpui `Task`, so it may be
+  async; `sync_function` wraps a plain closure), the `HostPolicy`
+  (`functions`, the `on_function_call` consent hook returning `Task<bool>`,
+  `urls`, `open_url` (default `cx.open_url`), `media`), and installed
+  packages (a template's surface narrows the gate with its package's
+  `functions`).
+
+```rust
+let host = cx.new(|cx| ExponentialHost::new(HostOptions {
+    transport: Some(Box::new(JsonlStreamTransport::new(
+        HttpTransportOptions::new(format!("{server}/a2ui.jsonl")).post_url(format!("{server}/action")),
+    ))),
+    extensions: vec![parse_extension(&ext_json)?],
+    painters: vec![("Sparkline".into(), Rc::new(Sparkline))],
+    theme: Some(Arc::new(theme)),
+    mode: Mode::Light,
+    ..Default::default()
+}, cx));
+host.update(cx, |h, cx| h.connect(cx));
+// render: host.read(cx).surface("greenhouse") is an Entity<SurfaceView>.
+```
+
+- **Threading.** A transport or a source emits from any thread. One channel
+  lands everything on the main thread (the host's pump task); after `close`
+  or a re-`connect`, stale events are dropped.
+- **Painter events.** The painter's `HostPlugin` for host surfaces is
+  `ExponentialHost::plugin(base)` / `runtime::host_plugin`:
+  - `on_action` sends the A2UI `action` client message (and still calls
+    `base.on_action`);
+  - `on_function_call` (`OutEvent::FunctionCall`) runs `call_function`:
+    `not_found` sends `FUNCTION_NOT_FOUND`, `ask` asks the consent hook,
+    `deny` sends `FUNCTION_DENIED`, `allow` runs the handler;
+  - `open_url` goes through the URL policy;
+  - `media_request` applies the media rules.
+
+  Everything else comes from `base`. A plain `SurfaceView` (no host) gets
+  `HostPlugin::on_function_call` (a default no-op).
+- **Transports** (`transport`). `MemoryTransport` (`feed`, `feed_jsonl`,
+  `sent`) is always there. With the default `net` feature you also get:
+  - `JsonlStreamTransport` / `SseTransport`: a streamed GET on a std thread
+    (blocking reqwest, no tokio under gpui) plus ordered POSTs of client
+    messages to `post_url`, reconnecting after `reconnect_ms` (0 = never);
+  - `WebSocketTransport`: one message or JSONL per frame, on a private
+    current-thread tokio runtime;
+  - `McpTransport`: JSON-RPC `initialize` then `tools/call`; client messages
+    go back as `mcp_action_call`.
+
+  All decoding is the core's (`JsonlDecoder`, `SseDecoder`,
+  `messages_from_mcp_result`). A stream's `close` stops delivery at once;
+  its blocked read returns at the next chunk.
+- **Media** (`media`). `Image`, `Avatar` and `Video` posters load through
+  `HostPlugin::media_request`: the absolute url plus the media rules'
+  headers, fetched by `media::MediaLoader` (a gpui `Asset`, cached per url +
+  headers). gpui's own `img(url)` needs an app-installed `http_client` (the
+  IDE has none) and cannot carry headers. Without a `media_request` the
+  painter keeps `img(resolve_url(src))`.
+- **Tests.** `tests/host.rs` covers ops through the host, sources and
+  cancel, the gate, consent and package narrowing, the URL policy, media
+  headers, a MemoryTransport round trip, presses becoming client messages
+  and function calls, and unsupported catalogs.
+
+## Conformance
+
+`cargo test -p exponential-ui-gpui --test conformance` runs all 15 suites of
+`packages/exponential-ui/conformance/manifest.json` (1008 cases) and writes
+`<repo>/.conformance/exponential-ui-gpui.json` (or
+`$EXPONENTIAL_UI_CONFORMANCE_REPORT`). Check it with `bun run --filter
+@exponential-at/ui conformance:check <abs path>`.
+
+The painted suites go through a `SurfaceView` in a headless window:
+
+- catalog, extension, replay: every visible node is painted, nothing is
+  `Unknown`, and the paint order is the pre-order;
+- layout and overlay: `SurfaceView::set_measure` puts in the fixed geometry
+  measure, and the frames the divs are placed at are checked;
+- control-geometry: the measurer's border box (the frame) plus the painted
+  part visual.
+
+The headless window's NoopTextSystem shapes no text. So control-geometry
+checks only the ControlBox-derived box (fixed and minimum sizes, padding,
+border, radius) and never shaped label widths, and no suite checks text
+metrics against CoreText.
+
 ## Public API
 
-- `host`: `HostPlugin`, `NoHost`, `ActionEvent`, `InputEvent`, `InputKind`.
+- `host`: `HostPlugin`, `NoHost`, `ActionEvent`, `InputEvent`, `InputKind`,
+  `FunctionCallEvent`.
+- `runtime` (VAPP-91): `ExponentialHost`, `HostOptions`, `HostPolicy`,
+  `HostFunction` / `sync_function`, `FunctionCallInfo`, `FunctionOutcome`,
+  `SourceResolver` / `Emit` / `Cancel`, `ConsentHook`, `OpenUrlHandler`,
+  `host_plugin`, `now_iso`.
+- `transport`: `Transport`, `TransportSink`, `TransportEvent`,
+  `TransportStatus`, `MemoryTransport`; with `net`: `JsonlStreamTransport`,
+  `SseTransport`, `WebSocketTransport`, `McpTransport`,
+  `HttpTransportOptions`, `McpTransportOptions`.
+- `media`: `image_source`, `MediaLoader`, `MediaKey`, `sniff_format`.
 - `extension`: `ExtensionPainter`, `PaintContext`, `EmitFn`.
 - `view`:
   - Types: `SurfaceView`, `SurfaceViewOptions` (Default: core catalog,
@@ -201,6 +310,10 @@ rows).
   - Additions: `set_width`, `index_of`, `layout_now`, `layers`, `focused`,
     `focus_order`, `focus_next`, `press`, `fire`, `escape`, `flush_field`,
     `submit_composer`, `type_into`, `field_text`.
+  - VAPP-91: `without_window` (a host creating views outside a window
+    update), `set_components`, `register_painter_rc`, `set_measure`,
+    `placed_nodes`, `frame`, `surface_height`, `trace_paint` /
+    `paint_trace`.
 - `measure`: `GpuiMeasure` (built by the view per pass) and unit-free
   helpers: `border_box`, `inner_wrap`, `insets`, `len_of`, `select_label`,
   `date_label`, `chart_legend`.
@@ -238,8 +351,13 @@ takes 1.4 ms on the same tree.
 - The Carousel `indicator` leaf is the recipe's single 8×8 dot. The painter
   centres the whole dot strip on it, overflowing its frame.
 - Video and AudioPlayer are static placeholders: nothing plays.
-- Images load through gpui `img()` for http(s)/file sources, with a tinted
-  placeholder while loading and on failure.
+- Images load for http(s)/file sources (through the host's media request
+  when it has one, else gpui `img()`), with a tinted placeholder while
+  loading and on failure.
+- The core tags a Dialog/Drawer content root's synthesized parts (title,
+  body, close…) with the owner's layer. The painter re-derives every node's
+  layer from its parent, so an open modal paints its contents and traps
+  focus in them.
 - The DatePicker popup is its own month grid (Monday first, UTC "today"),
   not gpui-component's `Calendar`.
 - Overlays are positioned in surface coordinates (see Overlays).
