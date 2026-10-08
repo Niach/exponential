@@ -189,7 +189,7 @@ const STATUS_LABEL: Record<string, string> = { ok: `ok`, leftover: `leftover`, "
 function ParityRow({ row }: { row: AppParity }) {
   return (
     <div className="sdk-parity">
-      <h3>{row.title}</h3>
+      <h2 className="sdk-parity-title">{row.title}</h2>
       <p>{row.blurb}</p>
       <div className="sdk-parity-grid">
         {PLATFORM_ORDER.map((p) => (

@@ -498,6 +498,13 @@ textarea.sdk-input {
   color: var(--fg-muted);
   cursor: help;
 }
+/* h2s under the page's h1 (heading order), sized like the docs' h3. */
+.sdk-subhead,
+.sdk-parity-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
 .sdk-subhead {
   font-size: 14px !important;
   margin: 22px 0 4px !important;
@@ -572,8 +579,9 @@ textarea.sdk-input {
 .sdk-parity {
   margin: 0 0 22px;
 }
-.sdk-parity h3 {
-  margin-bottom: 4px !important;
+.sdk-parity-title {
+  font-size: 16px !important;
+  margin: 28px 0 4px !important;
 }
 .sdk-parity-grid {
   display: grid;

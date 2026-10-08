@@ -104,7 +104,7 @@ export function ComponentStudio({ doc, specimen, themes, backgrounds }: { doc: C
           ))}
         </div>
       )}
-      <h3 className="sdk-subhead">A2UI JSON</h3>
+      <h2 className="sdk-subhead">A2UI JSON</h2>
       <p className="sdk-note">
         The current state as the agent sends it: one A2UI v0.9 <code>updateComponents</code> message (after <code>createSurface</code> with the core catalog id).
       </p>
