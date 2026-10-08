@@ -1102,14 +1102,22 @@ pub(crate) fn review_runs_from<'a>(
 
 /// The Reviews page's unlinked-PR sections: keep only repos that have
 /// open pulls (the server returns every team repo, unreachable ones with
-/// an empty list — an empty section is noise, web parity).
+/// an empty list — an empty section is noise, web parity). EXP-1244: a pull
+/// whose URL a synced issue or run now carries (`linked`) is dropped — the
+/// fetch is taken once per team, so one taken before `pr_open` stamped the
+/// issue would list that PR as "not linked to an issue" for good.
 pub fn visible_pull_repos(
     repos: &[api::repositories::OpenPullsRepo],
+    linked: &HashSet<String>,
 ) -> Vec<api::repositories::OpenPullsRepo> {
     repos
         .iter()
+        .map(|repo| {
+            let mut repo = repo.clone();
+            repo.pulls.retain(|pull| !linked.contains(&pull.url));
+            repo
+        })
         .filter(|repo| !repo.pulls.is_empty())
-        .cloned()
         .collect()
 }
 
@@ -2965,9 +2973,24 @@ mod tests {
     #[test]
     fn visible_pull_repos_hides_empty_repos() {
         let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[])];
-        let visible = visible_pull_repos(&repos);
+        let visible = visible_pull_repos(&repos, &HashSet::new());
         assert_eq!(visible.len(), 1);
         assert_eq!(visible[0].repository_id, "repo-1");
+    }
+
+    #[test]
+    fn visible_pull_repos_drops_pulls_a_synced_row_links() {
+        let repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[3])];
+        let linked: HashSet<String> = ["https://github.com/acme/web/pull/1", "https://github.com/acme/web/pull/3"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let visible = visible_pull_repos(&repos, &linked);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(
+            visible[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
+            [2]
+        );
     }
 
     #[test]

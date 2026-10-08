@@ -260,6 +260,8 @@ vi.mock(`@/lib/trpc/repositories`, () => ({
   loadRepositoryForTeam: vi.fn(),
   // EXP-1139: the header-only chore path of exponential_pr_update.
   loadRepositoryByFullName: vi.fn(),
+  // EXP-1244: pr_open drops the team's cached openPulls.
+  invalidateOpenPulls: vi.fn(),
 }))
 vi.mock(`@/lib/coding-session-end`, () => ({ endSessionByAgent: vi.fn() }))
 // EXP-1146: the tree merge is exercised by its own test; here it is a fake

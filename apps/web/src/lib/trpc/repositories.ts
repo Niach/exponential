@@ -397,6 +397,11 @@ interface CachedOpenPulls {
 }
 const openPullsCache = new Map<string, CachedOpenPulls>()
 
+/** EXP-1244: drop a team's cached `openPulls` once one of its PRs gets linked. */
+export function invalidateOpenPulls(teamId: string): void {
+  openPullsCache.delete(teamId)
+}
+
 /** Pure: GitHub now names a DIFFERENT installation for the row's full name
  * than the one it was connected through (the repo was transferred, or deleted
  * and re-created under someone else's installation). The row's authorization

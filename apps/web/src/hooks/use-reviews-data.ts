@@ -263,14 +263,16 @@ export function useReviewsData(
       }))
       .filter((group) => group.entries.length > 0)
 
-    // The server already excludes run PRs from `openPulls`, but its 60 s
-    // cache can still hand back one that a run just claimed — drop it here so
-    // the same PR never renders twice.
-    const runUrls = new Set(sessionByUrl.keys())
+    // The server already excludes linked PRs from `openPulls`, but its 60 s
+    // cache (and a fetch taken before `pr_open` stamped the row, kept for as
+    // long as the page stays open, EXP-1244) can still hand back one an issue
+    // or a run just claimed — drop it here so the same PR never renders twice
+    // nor as "not linked to an issue".
+    const linkedUrls = new Set([...issuePrUrls, ...sessionByUrl.keys()])
     const externalPullGroups = externalGroups
       .map((group) => ({
         ...group,
-        pulls: group.pulls.filter((pull) => !runUrls.has(pull.url)),
+        pulls: group.pulls.filter((pull) => !linkedUrls.has(pull.url)),
       }))
       .filter((group) => group.pulls.length > 0)
 

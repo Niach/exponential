@@ -628,11 +628,21 @@ impl Render for ReviewsView {
             .as_deref()
             .map(|id| queries::review_runs(cx, id))
             .unwrap_or_default();
+        // EXP-1244: every PR a synced issue or run carries is linked (the
+        // server rule, regardless of `pr_state`) — never listed as unlinked,
+        // however old the openPulls fetch.
+        let linked_urls: HashSet<String> = collections
+            .issues
+            .read(cx)
+            .iter()
+            .filter_map(|issue| issue.pr_url.clone())
+            .chain(runs.iter().filter_map(|run| run.pr_url.clone()))
+            .collect();
         let pull_repos: Vec<api::repositories::OpenPullsRepo> = self
             .open_pulls
             .as_ref()
             .filter(|(ws, _)| Some(ws.as_str()) == team_id.as_deref())
-            .map(|(_, repos)| queries::visible_pull_repos(repos))
+            .map(|(_, repos)| queries::visible_pull_repos(repos, &linked_urls))
             .unwrap_or_default();
 
         // Unlinked pulls have no Electric echo — a pull merged elsewhere drops
