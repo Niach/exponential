@@ -120,7 +120,7 @@ describe(`components`, () => {
 
 describe(`tokens and icons`, () => {
   test(`the token groups the issue names, every name unique`, () => {
-    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`])
+    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`])
     for (const [group, names] of Object.entries(TOKEN_GROUPS)) {
       expect(names.length, group).toBeGreaterThan(0)
       expect(new Set(names).size, group).toBe(names.length)

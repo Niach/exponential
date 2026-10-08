@@ -2,7 +2,7 @@
   "name": "@exponential-at/ui",
   "version": "0.1.0",
   "private": true,
-  "description": "Exponential UI: the core A2UI catalog (components, macros, model descriptions, token names), the A2UI basic catalog map and the TypeScript reference reducer.",
+  "description": "Exponential UI: the core A2UI catalog (components, macros, model descriptions, token names), the A2UI basic catalog map, the TypeScript reference reducer, the runtime theme format with the built-in themes, and the theme builder.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -12,12 +12,16 @@
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
     "./docs/*": "./docs/*",
-    "./vendor/*": "./vendor/*"
+    "./vendor/*": "./vendor/*",
+    "./themes/*": "./themes/*",
+    "./generated/*": "./generated/*"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
     "test": "bun test ./src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm",
+    "dev:builder": "bun ./builder/serve.ts"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",

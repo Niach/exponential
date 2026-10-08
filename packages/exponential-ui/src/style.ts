@@ -102,7 +102,7 @@ export interface StyleProps {
   gridRow?: string
   backgroundColor?: Color
   color?: Color
-  borderWidth?: number
+  borderWidth?: number | `$border.${string}`
   borderColor?: Color
   borderRadius?: Len
   opacity?: number | `$opacity.${string}`
@@ -111,6 +111,7 @@ export interface StyleProps {
   fontWeight?: 400 | 500 | 600 | 700
   lineHeight?: Len
   textAlign?: `left` | `right` | `center`
+  fontFamily?: `$type.family.${string}`
 }
 
 export type MediaKey = `@media (min-width: ${number}px)`
@@ -129,6 +130,7 @@ const NUMERIC_TOKEN_GROUPS = new Set([
   `type.size`,
   `type.lineHeight`,
   `opacity`,
+  `border`,
 ])
 
 function tokenOk(value: unknown, groups: ReadonlySet<string>): boolean {

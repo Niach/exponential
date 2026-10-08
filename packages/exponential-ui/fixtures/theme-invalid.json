@@ -1,0 +1,979 @@
+{
+  "$comment": "VAPP-92: themes that must FAIL to load with a readable issue list, never a crash. The generator fills `issues` from the TS validator; every renderer's loader reports the same paths (the wording may differ on a native, the paths may not). A case's `theme` is any JSON value.",
+  "cases": [
+    {
+      "name": "not an object",
+      "theme": "neutral",
+      "issues": [
+        {
+          "path": "theme",
+          "message": "expected a theme object {id, name, modes, tokens, recipes}"
+        }
+      ]
+    },
+    {
+      "name": "missing id and name",
+      "theme": {
+        "modes": {}
+      },
+      "issues": [
+        {
+          "path": "id",
+          "message": "expected a kebab-case id"
+        },
+        {
+          "path": "name",
+          "message": "expected a name"
+        }
+      ]
+    },
+    {
+      "name": "unknown token name",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "tokens": {
+          "spacing": {
+            "huge": 64
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "tokens.spacing.huge",
+          "message": "unknown token; known: none|xxs|xs|sm|md|lg|xl|xl2|xl3"
+        }
+      ]
+    },
+    {
+      "name": "unknown token group",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "tokens": {
+          "elevation": {
+            "sm": 1
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "tokens.elevation",
+          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|type"
+        }
+      ]
+    },
+    {
+      "name": "colour not hex",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "modes": {
+          "light": {
+            "color": {
+              "primary": "oklch(0.5 0.2 260)"
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "modes.light.color.primary",
+          "message": "expected #rrggbb or #rrggbbaa (lowercase); the builder converts oklch/hsl on import"
+        }
+      ]
+    },
+    {
+      "name": "unknown mode",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "modes": {
+          "dim": {
+            "color": {}
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "modes.dim",
+          "message": "unknown mode; known: light|dark"
+        }
+      ]
+    },
+    {
+      "name": "colour under tokens",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "tokens": {
+          "color": {
+            "primary": "#000000"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "tokens.color",
+          "message": "color values live under modes.light / modes.dark"
+        }
+      ]
+    },
+    {
+      "name": "recipe key outside the whitelist",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "style": {
+                  "display": "flex",
+                  "backgroundColor": "$color.primary"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Button.root[0].style.display",
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderRadius|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|boxShadow|opacity|native"
+        }
+      ]
+    },
+    {
+      "name": "recipe for an unknown component",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Gauge": {
+            "root": []
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Gauge",
+          "message": "unknown component"
+        }
+      ]
+    },
+    {
+      "name": "recipe for an unknown part",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Switch": {
+            "knob": [
+              {
+                "style": {
+                  "backgroundColor": "$color.primary"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Switch.knob",
+          "message": "unknown part; known: root|track|thumb|label|description"
+        }
+      ]
+    },
+    {
+      "name": "when on a prop the part does not have",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "when": {
+                  "tone": "primary"
+                },
+                "style": {
+                  "color": "$color.primary"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Button.root[0].when.tone",
+          "message": "not a recipe prop of this part; known: state|variant|size|disabled|loading"
+        }
+      ]
+    },
+    {
+      "name": "unknown state",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "when": {
+                  "state": "active"
+                },
+                "style": {
+                  "opacity": 0.5
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Button.root[0].when.state",
+          "message": "unknown state; known: hover|pressed|focus|disabled|checked|open|selected"
+        }
+      ]
+    },
+    {
+      "name": "token of the wrong group",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "style": {
+                  "backgroundColor": "$spacing.md",
+                  "borderRadius": "$color.primary"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Button.root[0].style.backgroundColor",
+          "message": "expected a $color token, got $spacing"
+        },
+        {
+          "path": "recipes.Button.root[0].style.borderRadius",
+          "message": "expected a $radius|$spacing token, got $color"
+        }
+      ]
+    },
+    {
+      "name": "unknown token in a recipe",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "style": {
+                  "borderRadius": "$radius.pill"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "recipes.Button.root[0].style.borderRadius",
+          "message": "unknown token $radius.pill; known: none|sm|md|lg|xl|xl2|xl3|full"
+        }
+      ]
+    },
+    {
+      "name": "extends an unknown theme",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "material"
+      },
+      "issues": [
+        {
+          "path": "extends",
+          "message": "unknown theme \"material\"; known: neutral|exponential|playful"
+        }
+      ]
+    },
+    {
+      "name": "extends itself",
+      "theme": {
+        "id": "neutral",
+        "name": "Loop",
+        "extends": "neutral"
+      },
+      "issues": [
+        {
+          "path": "extends",
+          "message": "a theme cannot extend itself"
+        }
+      ]
+    },
+    {
+      "name": "a root theme missing values",
+      "theme": {
+        "id": "bare",
+        "name": "Bare",
+        "modes": {
+          "light": {
+            "color": {
+              "primary": "#000000"
+            }
+          }
+        },
+        "tokens": {
+          "spacing": {
+            "md": 12
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "modes.light.color.background",
+          "message": "missing value for $color.background"
+        },
+        {
+          "path": "modes.dark.color.background",
+          "message": "missing value for $color.background"
+        },
+        {
+          "path": "modes.light.color.foreground",
+          "message": "missing value for $color.foreground"
+        },
+        {
+          "path": "modes.dark.color.foreground",
+          "message": "missing value for $color.foreground"
+        },
+        {
+          "path": "modes.light.color.card",
+          "message": "missing value for $color.card"
+        },
+        {
+          "path": "modes.dark.color.card",
+          "message": "missing value for $color.card"
+        },
+        {
+          "path": "modes.light.color.cardForeground",
+          "message": "missing value for $color.cardForeground"
+        },
+        {
+          "path": "modes.dark.color.cardForeground",
+          "message": "missing value for $color.cardForeground"
+        },
+        {
+          "path": "modes.light.color.popover",
+          "message": "missing value for $color.popover"
+        },
+        {
+          "path": "modes.dark.color.popover",
+          "message": "missing value for $color.popover"
+        },
+        {
+          "path": "modes.light.color.popoverForeground",
+          "message": "missing value for $color.popoverForeground"
+        },
+        {
+          "path": "modes.dark.color.popoverForeground",
+          "message": "missing value for $color.popoverForeground"
+        },
+        {
+          "path": "modes.dark.color.primary",
+          "message": "missing value for $color.primary"
+        },
+        {
+          "path": "modes.light.color.primaryForeground",
+          "message": "missing value for $color.primaryForeground"
+        },
+        {
+          "path": "modes.dark.color.primaryForeground",
+          "message": "missing value for $color.primaryForeground"
+        },
+        {
+          "path": "modes.light.color.secondary",
+          "message": "missing value for $color.secondary"
+        },
+        {
+          "path": "modes.dark.color.secondary",
+          "message": "missing value for $color.secondary"
+        },
+        {
+          "path": "modes.light.color.secondaryForeground",
+          "message": "missing value for $color.secondaryForeground"
+        },
+        {
+          "path": "modes.dark.color.secondaryForeground",
+          "message": "missing value for $color.secondaryForeground"
+        },
+        {
+          "path": "modes.light.color.muted",
+          "message": "missing value for $color.muted"
+        },
+        {
+          "path": "modes.dark.color.muted",
+          "message": "missing value for $color.muted"
+        },
+        {
+          "path": "modes.light.color.mutedForeground",
+          "message": "missing value for $color.mutedForeground"
+        },
+        {
+          "path": "modes.dark.color.mutedForeground",
+          "message": "missing value for $color.mutedForeground"
+        },
+        {
+          "path": "modes.light.color.accent",
+          "message": "missing value for $color.accent"
+        },
+        {
+          "path": "modes.dark.color.accent",
+          "message": "missing value for $color.accent"
+        },
+        {
+          "path": "modes.light.color.accentForeground",
+          "message": "missing value for $color.accentForeground"
+        },
+        {
+          "path": "modes.dark.color.accentForeground",
+          "message": "missing value for $color.accentForeground"
+        },
+        {
+          "path": "modes.light.color.destructive",
+          "message": "missing value for $color.destructive"
+        },
+        {
+          "path": "modes.dark.color.destructive",
+          "message": "missing value for $color.destructive"
+        },
+        {
+          "path": "modes.light.color.destructiveForeground",
+          "message": "missing value for $color.destructiveForeground"
+        },
+        {
+          "path": "modes.dark.color.destructiveForeground",
+          "message": "missing value for $color.destructiveForeground"
+        },
+        {
+          "path": "modes.light.color.success",
+          "message": "missing value for $color.success"
+        },
+        {
+          "path": "modes.dark.color.success",
+          "message": "missing value for $color.success"
+        },
+        {
+          "path": "modes.light.color.successForeground",
+          "message": "missing value for $color.successForeground"
+        },
+        {
+          "path": "modes.dark.color.successForeground",
+          "message": "missing value for $color.successForeground"
+        },
+        {
+          "path": "modes.light.color.warning",
+          "message": "missing value for $color.warning"
+        },
+        {
+          "path": "modes.dark.color.warning",
+          "message": "missing value for $color.warning"
+        },
+        {
+          "path": "modes.light.color.warningForeground",
+          "message": "missing value for $color.warningForeground"
+        },
+        {
+          "path": "modes.dark.color.warningForeground",
+          "message": "missing value for $color.warningForeground"
+        },
+        {
+          "path": "modes.light.color.info",
+          "message": "missing value for $color.info"
+        },
+        {
+          "path": "modes.dark.color.info",
+          "message": "missing value for $color.info"
+        },
+        {
+          "path": "modes.light.color.infoForeground",
+          "message": "missing value for $color.infoForeground"
+        },
+        {
+          "path": "modes.dark.color.infoForeground",
+          "message": "missing value for $color.infoForeground"
+        },
+        {
+          "path": "modes.light.color.border",
+          "message": "missing value for $color.border"
+        },
+        {
+          "path": "modes.dark.color.border",
+          "message": "missing value for $color.border"
+        },
+        {
+          "path": "modes.light.color.input",
+          "message": "missing value for $color.input"
+        },
+        {
+          "path": "modes.dark.color.input",
+          "message": "missing value for $color.input"
+        },
+        {
+          "path": "modes.light.color.ring",
+          "message": "missing value for $color.ring"
+        },
+        {
+          "path": "modes.dark.color.ring",
+          "message": "missing value for $color.ring"
+        },
+        {
+          "path": "modes.light.color.chart1",
+          "message": "missing value for $color.chart1"
+        },
+        {
+          "path": "modes.dark.color.chart1",
+          "message": "missing value for $color.chart1"
+        },
+        {
+          "path": "modes.light.color.chart2",
+          "message": "missing value for $color.chart2"
+        },
+        {
+          "path": "modes.dark.color.chart2",
+          "message": "missing value for $color.chart2"
+        },
+        {
+          "path": "modes.light.color.chart3",
+          "message": "missing value for $color.chart3"
+        },
+        {
+          "path": "modes.dark.color.chart3",
+          "message": "missing value for $color.chart3"
+        },
+        {
+          "path": "modes.light.color.chart4",
+          "message": "missing value for $color.chart4"
+        },
+        {
+          "path": "modes.dark.color.chart4",
+          "message": "missing value for $color.chart4"
+        },
+        {
+          "path": "modes.light.color.chart5",
+          "message": "missing value for $color.chart5"
+        },
+        {
+          "path": "modes.dark.color.chart5",
+          "message": "missing value for $color.chart5"
+        },
+        {
+          "path": "tokens.spacing.none",
+          "message": "missing value for $spacing.none"
+        },
+        {
+          "path": "tokens.spacing.xxs",
+          "message": "missing value for $spacing.xxs"
+        },
+        {
+          "path": "tokens.spacing.xs",
+          "message": "missing value for $spacing.xs"
+        },
+        {
+          "path": "tokens.spacing.sm",
+          "message": "missing value for $spacing.sm"
+        },
+        {
+          "path": "tokens.spacing.lg",
+          "message": "missing value for $spacing.lg"
+        },
+        {
+          "path": "tokens.spacing.xl",
+          "message": "missing value for $spacing.xl"
+        },
+        {
+          "path": "tokens.spacing.xl2",
+          "message": "missing value for $spacing.xl2"
+        },
+        {
+          "path": "tokens.spacing.xl3",
+          "message": "missing value for $spacing.xl3"
+        },
+        {
+          "path": "tokens.radius.none",
+          "message": "missing value for $radius.none"
+        },
+        {
+          "path": "tokens.radius.sm",
+          "message": "missing value for $radius.sm"
+        },
+        {
+          "path": "tokens.radius.md",
+          "message": "missing value for $radius.md"
+        },
+        {
+          "path": "tokens.radius.lg",
+          "message": "missing value for $radius.lg"
+        },
+        {
+          "path": "tokens.radius.xl",
+          "message": "missing value for $radius.xl"
+        },
+        {
+          "path": "tokens.radius.xl2",
+          "message": "missing value for $radius.xl2"
+        },
+        {
+          "path": "tokens.radius.xl3",
+          "message": "missing value for $radius.xl3"
+        },
+        {
+          "path": "tokens.radius.full",
+          "message": "missing value for $radius.full"
+        },
+        {
+          "path": "tokens.type.size.xs",
+          "message": "missing value for $type.size.xs"
+        },
+        {
+          "path": "tokens.type.size.sm",
+          "message": "missing value for $type.size.sm"
+        },
+        {
+          "path": "tokens.type.size.base",
+          "message": "missing value for $type.size.base"
+        },
+        {
+          "path": "tokens.type.size.lg",
+          "message": "missing value for $type.size.lg"
+        },
+        {
+          "path": "tokens.type.size.xl",
+          "message": "missing value for $type.size.xl"
+        },
+        {
+          "path": "tokens.type.size.xl2",
+          "message": "missing value for $type.size.xl2"
+        },
+        {
+          "path": "tokens.type.size.xl3",
+          "message": "missing value for $type.size.xl3"
+        },
+        {
+          "path": "tokens.type.lineHeight.xs",
+          "message": "missing value for $type.lineHeight.xs"
+        },
+        {
+          "path": "tokens.type.lineHeight.sm",
+          "message": "missing value for $type.lineHeight.sm"
+        },
+        {
+          "path": "tokens.type.lineHeight.base",
+          "message": "missing value for $type.lineHeight.base"
+        },
+        {
+          "path": "tokens.type.lineHeight.lg",
+          "message": "missing value for $type.lineHeight.lg"
+        },
+        {
+          "path": "tokens.type.lineHeight.xl",
+          "message": "missing value for $type.lineHeight.xl"
+        },
+        {
+          "path": "tokens.type.lineHeight.xl2",
+          "message": "missing value for $type.lineHeight.xl2"
+        },
+        {
+          "path": "tokens.type.lineHeight.xl3",
+          "message": "missing value for $type.lineHeight.xl3"
+        },
+        {
+          "path": "tokens.type.weight.regular",
+          "message": "missing value for $type.weight.regular"
+        },
+        {
+          "path": "tokens.type.weight.medium",
+          "message": "missing value for $type.weight.medium"
+        },
+        {
+          "path": "tokens.type.weight.semibold",
+          "message": "missing value for $type.weight.semibold"
+        },
+        {
+          "path": "tokens.type.weight.bold",
+          "message": "missing value for $type.weight.bold"
+        },
+        {
+          "path": "tokens.type.family.sans",
+          "message": "missing value for $type.family.sans"
+        },
+        {
+          "path": "tokens.type.family.mono",
+          "message": "missing value for $type.family.mono"
+        },
+        {
+          "path": "tokens.control.buttonSm",
+          "message": "missing value for $control.buttonSm"
+        },
+        {
+          "path": "tokens.control.buttonMd",
+          "message": "missing value for $control.buttonMd"
+        },
+        {
+          "path": "tokens.control.buttonLg",
+          "message": "missing value for $control.buttonLg"
+        },
+        {
+          "path": "tokens.control.buttonIcon",
+          "message": "missing value for $control.buttonIcon"
+        },
+        {
+          "path": "tokens.control.input",
+          "message": "missing value for $control.input"
+        },
+        {
+          "path": "tokens.control.textarea",
+          "message": "missing value for $control.textarea"
+        },
+        {
+          "path": "tokens.control.row",
+          "message": "missing value for $control.row"
+        },
+        {
+          "path": "tokens.control.rowCompact",
+          "message": "missing value for $control.rowCompact"
+        },
+        {
+          "path": "tokens.control.pill",
+          "message": "missing value for $control.pill"
+        },
+        {
+          "path": "tokens.control.badge",
+          "message": "missing value for $control.badge"
+        },
+        {
+          "path": "tokens.control.chip",
+          "message": "missing value for $control.chip"
+        },
+        {
+          "path": "tokens.control.toggle",
+          "message": "missing value for $control.toggle"
+        },
+        {
+          "path": "tokens.control.switch",
+          "message": "missing value for $control.switch"
+        },
+        {
+          "path": "tokens.control.checkbox",
+          "message": "missing value for $control.checkbox"
+        },
+        {
+          "path": "tokens.control.slider",
+          "message": "missing value for $control.slider"
+        },
+        {
+          "path": "tokens.control.progress",
+          "message": "missing value for $control.progress"
+        },
+        {
+          "path": "tokens.control.meter",
+          "message": "missing value for $control.meter"
+        },
+        {
+          "path": "tokens.control.avatarSm",
+          "message": "missing value for $control.avatarSm"
+        },
+        {
+          "path": "tokens.control.avatarMd",
+          "message": "missing value for $control.avatarMd"
+        },
+        {
+          "path": "tokens.control.avatarLg",
+          "message": "missing value for $control.avatarLg"
+        },
+        {
+          "path": "tokens.control.iconSm",
+          "message": "missing value for $control.iconSm"
+        },
+        {
+          "path": "tokens.control.iconMd",
+          "message": "missing value for $control.iconMd"
+        },
+        {
+          "path": "tokens.control.iconLg",
+          "message": "missing value for $control.iconLg"
+        },
+        {
+          "path": "tokens.control.hairline",
+          "message": "missing value for $control.hairline"
+        },
+        {
+          "path": "modes.light.shadow.none",
+          "message": "missing value for $shadow.none"
+        },
+        {
+          "path": "modes.dark.shadow.none",
+          "message": "missing value for $shadow.none"
+        },
+        {
+          "path": "modes.light.shadow.sm",
+          "message": "missing value for $shadow.sm"
+        },
+        {
+          "path": "modes.dark.shadow.sm",
+          "message": "missing value for $shadow.sm"
+        },
+        {
+          "path": "modes.light.shadow.md",
+          "message": "missing value for $shadow.md"
+        },
+        {
+          "path": "modes.dark.shadow.md",
+          "message": "missing value for $shadow.md"
+        },
+        {
+          "path": "modes.light.shadow.lg",
+          "message": "missing value for $shadow.lg"
+        },
+        {
+          "path": "modes.dark.shadow.lg",
+          "message": "missing value for $shadow.lg"
+        },
+        {
+          "path": "tokens.opacity.primary",
+          "message": "missing value for $opacity.primary"
+        },
+        {
+          "path": "tokens.opacity.secondary",
+          "message": "missing value for $opacity.secondary"
+        },
+        {
+          "path": "tokens.opacity.tertiary",
+          "message": "missing value for $opacity.tertiary"
+        },
+        {
+          "path": "tokens.opacity.quaternary",
+          "message": "missing value for $opacity.quaternary"
+        },
+        {
+          "path": "tokens.opacity.disabled",
+          "message": "missing value for $opacity.disabled"
+        },
+        {
+          "path": "tokens.border.none",
+          "message": "missing value for $border.none"
+        },
+        {
+          "path": "tokens.border.hairline",
+          "message": "missing value for $border.hairline"
+        },
+        {
+          "path": "tokens.border.thick",
+          "message": "missing value for $border.thick"
+        },
+        {
+          "path": "tokens.motion.fast",
+          "message": "missing value for $motion.fast"
+        },
+        {
+          "path": "tokens.motion.standard",
+          "message": "missing value for $motion.standard"
+        },
+        {
+          "path": "tokens.motion.slow",
+          "message": "missing value for $motion.slow"
+        }
+      ]
+    },
+    {
+      "name": "a family without a fonts entry",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "tokens": {
+          "type": {
+            "family": {
+              "sans": "Comic Neue"
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "fonts.Comic Neue",
+          "message": "family named by tokens.type.family has no fonts entry"
+        }
+      ]
+    },
+    {
+      "name": "bad shadow layer",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "modes": {
+          "dark": {
+            "shadow": {
+              "sm": [
+                {
+                  "x": 0,
+                  "y": 1,
+                  "blur": "2px",
+                  "spread": 0,
+                  "color": "black"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "modes.dark.shadow.sm[0].blur",
+          "message": "expected a number"
+        },
+        {
+          "path": "modes.dark.shadow.sm[0].color",
+          "message": "expected #rrggbb or #rrggbbaa"
+        }
+      ]
+    },
+    {
+      "name": "unknown top-level key",
+      "theme": {
+        "id": "t",
+        "name": "T",
+        "extends": "neutral",
+        "components": {}
+      },
+      "issues": [
+        {
+          "path": "components",
+          "message": "unknown theme key; known: id|name|extends|modes|tokens|fonts|recipes"
+        }
+      ]
+    }
+  ]
+}

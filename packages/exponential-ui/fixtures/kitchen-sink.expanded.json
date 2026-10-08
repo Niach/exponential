@@ -226,8 +226,7 @@
                       "gap": "$spacing.sm",
                       "height": "$control.row",
                       "paddingHorizontal": "$spacing.md",
-                      "borderRadius": "$radius.md",
-                      "backgroundColor": "$color.muted"
+                      "borderRadius": "$radius.md"
                     },
                     "recipe": {
                       "macro": "Band",
@@ -580,8 +579,7 @@
                       "alignSelf": "stretch",
                       "flexShrink": 0,
                       "width": "auto",
-                      "height": 1,
-                      "backgroundColor": "$color.border"
+                      "height": 1
                     },
                     "recipe": {
                       "macro": "Separator",
@@ -621,9 +619,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden",
               "gridArea": "nav"
             },
@@ -742,8 +737,6 @@
                           "height": "$control.pill",
                           "paddingHorizontal": "$spacing.sm",
                           "borderRadius": "$radius.full",
-                          "borderWidth": 1,
-                          "borderColor": "$color.border",
                           "alignSelf": "flex-start",
                           "position": "absolute",
                           "top": 8,
@@ -827,7 +820,6 @@
                         "style": {
                           "height": "$control.progress",
                           "borderRadius": "$radius.full",
-                          "backgroundColor": "$color.muted",
                           "overflow": "hidden",
                           "width": "100%"
                         },
@@ -954,7 +946,6 @@
                           "flexDirection": "row",
                           "height": "$control.meter",
                           "borderRadius": "$radius.full",
-                          "backgroundColor": "$color.muted",
                           "overflow": "hidden",
                           "width": "100%"
                         },
@@ -995,9 +986,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden",
               "gridArea": "main",
               "minWidth": 0
@@ -1057,8 +1045,6 @@
                           "height": "$control.pill",
                           "paddingHorizontal": "$spacing.sm",
                           "borderRadius": "$radius.full",
-                          "borderWidth": 1,
-                          "borderColor": "$color.border",
                           "alignSelf": "flex-start"
                         },
                         "recipe": {
@@ -1114,8 +1100,6 @@
                           "height": "$control.pill",
                           "paddingHorizontal": "$spacing.sm",
                           "borderRadius": "$radius.full",
-                          "borderWidth": 1,
-                          "borderColor": "$color.border",
                           "alignSelf": "flex-start"
                         },
                         "recipe": {
@@ -1182,8 +1166,6 @@
                           "height": "$control.pill",
                           "paddingHorizontal": "$spacing.sm",
                           "borderRadius": "$radius.full",
-                          "borderWidth": 1,
-                          "borderColor": "$color.border",
                           "alignSelf": "flex-start"
                         },
                         "recipe": {
@@ -1246,8 +1228,6 @@
                           "height": "$control.pill",
                           "paddingHorizontal": "$spacing.sm",
                           "borderRadius": "$radius.full",
-                          "borderWidth": 1,
-                          "borderColor": "$color.border",
                           "alignSelf": "flex-start"
                         },
                         "recipe": {
@@ -1318,9 +1298,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden",
               "gridArea": "footer",
               "minWidth": 0
@@ -1623,9 +1600,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -1828,9 +1802,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden"
             },
             "recipe": {
@@ -1909,9 +1880,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden"
             },
             "recipe": {
@@ -1990,9 +1958,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.xl",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden"
             },
             "recipe": {
@@ -2445,9 +2410,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -2581,9 +2543,7 @@
                   "alignItems": "flex-start",
                   "gap": "$spacing.sm",
                   "padding": "$spacing.md",
-                  "borderRadius": "$radius.lg",
-                  "borderWidth": 1,
-                  "borderColor": "$color.border"
+                  "borderRadius": "$radius.lg"
                 },
                 "recipe": {
                   "macro": "Alert",
@@ -2659,9 +2619,7 @@
                   "alignItems": "flex-start",
                   "gap": "$spacing.sm",
                   "padding": "$spacing.md",
-                  "borderRadius": "$radius.lg",
-                  "borderWidth": 1,
-                  "borderColor": "$color.border"
+                  "borderRadius": "$radius.lg"
                 },
                 "recipe": {
                   "macro": "Alert",
@@ -3099,9 +3057,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -3543,9 +3498,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.lg",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden"
             },
             "recipe": {
@@ -3681,9 +3633,6 @@
               "gap": "$spacing.sm",
               "padding": "$spacing.md",
               "borderRadius": "$radius.lg",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "flexBasis": 240,
               "flexGrow": 1
             },
@@ -3776,9 +3725,6 @@
               "height": "$control.chip",
               "paddingHorizontal": "$spacing.sm",
               "borderRadius": "$radius.md",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "alignSelf": "flex-start"
             },
             "recipe": {
@@ -3845,9 +3791,6 @@
               "height": "$control.chip",
               "paddingHorizontal": "$spacing.sm",
               "borderRadius": "$radius.md",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "alignSelf": "flex-start"
             },
             "recipe": {
@@ -4125,9 +4068,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {

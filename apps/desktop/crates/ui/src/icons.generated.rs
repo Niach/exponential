@@ -222,6 +222,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "ellipsis-vertical" => ExpIcon::EllipsisVertical,
         "external-link" => ExpIcon::ExternalLink,
         "eye" => ExpIcon::Eye,
+        "eye-off" => ExpIcon::EyeOff,
+        "fast-forward" => ExpIcon::FastForward,
         "file" => ExpIcon::File,
         "file-diff" => ExpIcon::FileDiff,
         "file-pen-line" => ExpIcon::FilePenLine,
@@ -252,6 +254,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "heading-3" => ExpIcon::Heading3,
         "headphones" => ExpIcon::Headphones,
         "heart" => ExpIcon::Heart,
+        "heart-off" => ExpIcon::HeartOff,
         "history" => ExpIcon::History,
         "hourglass" => ExpIcon::Hourglass,
         "house" => ExpIcon::House,
@@ -277,6 +280,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "list-tree" => ExpIcon::ListTree,
         "loader-circle" => ExpIcon::LoaderCircle,
         "lock" => ExpIcon::Lock,
+        "lock-open" => ExpIcon::LockOpen,
         "log-in" => ExpIcon::LogIn,
         "log-out" => ExpIcon::LogOut,
         "mail" => ExpIcon::Mail,
@@ -284,6 +288,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "map-pin" => ExpIcon::MapPin,
         "maximize-2" => ExpIcon::Maximize2,
         "megaphone" => ExpIcon::Megaphone,
+        "menu" => ExpIcon::Menu,
         "message-circle" => ExpIcon::MessageCircle,
         "message-square" => ExpIcon::MessageSquare,
         "message-square-plus" => ExpIcon::MessageSquarePlus,
@@ -318,6 +323,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "play" => ExpIcon::Play,
         "plug" => ExpIcon::Plug,
         "plus" => ExpIcon::Plus,
+        "printer" => ExpIcon::Printer,
         "progress-1-4" => ExpIcon::Progress14,
         "progress-1-5" => ExpIcon::Progress15,
         "progress-2-4" => ExpIcon::Progress24,
@@ -330,6 +336,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "refresh-cw" => ExpIcon::RefreshCw,
         "remove-formatting" => ExpIcon::RemoveFormatting,
         "repeat" => ExpIcon::Repeat,
+        "rewind" => ExpIcon::Rewind,
         "rocket" => ExpIcon::Rocket,
         "rotate-ccw" => ExpIcon::RotateCcw,
         "scale" => ExpIcon::Scale,
@@ -347,6 +354,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "signal-high" => ExpIcon::SignalHigh,
         "signal-low" => ExpIcon::SignalLow,
         "signal-medium" => ExpIcon::SignalMedium,
+        "skip-back" => ExpIcon::SkipBack,
+        "skip-forward" => ExpIcon::SkipForward,
         "sliders-horizontal" => ExpIcon::SlidersHorizontal,
         "smartphone" => ExpIcon::Smartphone,
         "smile" => ExpIcon::Smile,
@@ -356,6 +365,8 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "square-slash" => ExpIcon::SquareSlash,
         "square-terminal" => ExpIcon::SquareTerminal,
         "star" => ExpIcon::Star,
+        "star-half" => ExpIcon::StarHalf,
+        "star-off" => ExpIcon::StarOff,
         "stethoscope" => ExpIcon::Stethoscope,
         "store" => ExpIcon::Store,
         "strikethrough" => ExpIcon::Strikethrough,
@@ -378,6 +389,10 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "user-x" => ExpIcon::UserX,
         "users" => ExpIcon::Users,
         "video" => ExpIcon::Video,
+        "volume-1" => ExpIcon::Volume1,
+        "volume-2" => ExpIcon::Volume2,
+        "volume-off" => ExpIcon::VolumeOff,
+        "volume-x" => ExpIcon::VolumeX,
         "wallet" => ExpIcon::Wallet,
         "wifi-off" => ExpIcon::WifiOff,
         "workflow" => ExpIcon::Workflow,
@@ -484,6 +499,22 @@ pub const EVENT_RELATION_ADDED: ExpIcon = ExpIcon::Link;
 pub const EVENT_RELATION_REMOVED: ExpIcon = ExpIcon::Unlink;
 /// Registry concept `event-status-changed` -> Lucide `circle-dot`.
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
+/// Registry concept `media-fast-forward` -> Lucide `fast-forward`.
+pub const MEDIA_FAST_FORWARD: ExpIcon = ExpIcon::FastForward;
+/// Registry concept `media-rewind` -> Lucide `rewind`.
+pub const MEDIA_REWIND: ExpIcon = ExpIcon::Rewind;
+/// Registry concept `media-skip-next` -> Lucide `skip-forward`.
+pub const MEDIA_SKIP_NEXT: ExpIcon = ExpIcon::SkipForward;
+/// Registry concept `media-skip-previous` -> Lucide `skip-back`.
+pub const MEDIA_SKIP_PREVIOUS: ExpIcon = ExpIcon::SkipBack;
+/// Registry concept `media-volume-down` -> Lucide `volume-1`.
+pub const MEDIA_VOLUME_DOWN: ExpIcon = ExpIcon::Volume1;
+/// Registry concept `media-volume-mute` -> Lucide `volume-x`.
+pub const MEDIA_VOLUME_MUTE: ExpIcon = ExpIcon::VolumeX;
+/// Registry concept `media-volume-off` -> Lucide `volume-off`.
+pub const MEDIA_VOLUME_OFF: ExpIcon = ExpIcon::VolumeOff;
+/// Registry concept `media-volume-up` -> Lucide `volume-2`.
+pub const MEDIA_VOLUME_UP: ExpIcon = ExpIcon::Volume2;
 /// Registry concept `nav-account` -> Lucide `circle-user`.
 pub const NAV_ACCOUNT: ExpIcon = ExpIcon::CircleUser;
 /// Registry concept `nav-actions` -> Lucide `rocket`.
@@ -742,6 +773,8 @@ pub const UI_ERROR: ExpIcon = ExpIcon::CircleX;
 pub const UI_ESTIMATE: ExpIcon = ExpIcon::Gauge;
 /// Registry concept `ui-external-link` -> Lucide `external-link`.
 pub const UI_EXTERNAL_LINK: ExpIcon = ExpIcon::ExternalLink;
+/// Registry concept `ui-favorite-off` -> Lucide `heart-off`.
+pub const UI_FAVORITE_OFF: ExpIcon = ExpIcon::HeartOff;
 /// Registry concept `ui-file` -> Lucide `file`.
 pub const UI_FILE: ExpIcon = ExpIcon::File;
 /// Registry concept `ui-folder` -> Lucide `folder`.
@@ -756,6 +789,8 @@ pub const UI_FULLSCREEN_EXIT: ExpIcon = ExpIcon::Minimize2;
 pub const UI_GITHUB: ExpIcon = ExpIcon::Github;
 /// Registry concept `ui-help` -> Lucide `circle-question-mark`.
 pub const UI_HELP: ExpIcon = ExpIcon::CircleQuestionMark;
+/// Registry concept `ui-hide` -> Lucide `eye-off`.
+pub const UI_HIDE: ExpIcon = ExpIcon::EyeOff;
 /// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
 pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
 /// Registry concept `ui-indeterminate` -> Lucide `circle-minus`.
@@ -776,6 +811,8 @@ pub const UI_MAIL: ExpIcon = ExpIcon::Mail;
 pub const UI_MCP: ExpIcon = ExpIcon::Plug;
 /// Registry concept `ui-member` -> Lucide `shield-check`.
 pub const UI_MEMBER: ExpIcon = ExpIcon::ShieldCheck;
+/// Registry concept `ui-menu` -> Lucide `menu`.
+pub const UI_MENU: ExpIcon = ExpIcon::Menu;
 /// Registry concept `ui-minus` -> Lucide `minus`.
 pub const UI_MINUS: ExpIcon = ExpIcon::Minus;
 /// Registry concept `ui-more` -> Lucide `ellipsis`.
@@ -792,6 +829,8 @@ pub const UI_OWNER: ExpIcon = ExpIcon::Crown;
 pub const UI_PERMISSION: ExpIcon = ExpIcon::ShieldQuestionMark;
 /// Registry concept `ui-pin` -> Lucide `pin`.
 pub const UI_PIN: ExpIcon = ExpIcon::Pin;
+/// Registry concept `ui-print` -> Lucide `printer`.
+pub const UI_PRINT: ExpIcon = ExpIcon::Printer;
 /// Registry concept `ui-private` -> Lucide `lock`.
 pub const UI_PRIVATE: ExpIcon = ExpIcon::Lock;
 /// Registry concept `ui-properties` -> Lucide `sliders-horizontal`.
@@ -824,6 +863,10 @@ pub const UI_SIGN_IN: ExpIcon = ExpIcon::LogIn;
 pub const UI_SIGN_OUT: ExpIcon = ExpIcon::LogOut;
 /// Registry concept `ui-staging` -> Lucide `flask-conical`.
 pub const UI_STAGING: ExpIcon = ExpIcon::FlaskConical;
+/// Registry concept `ui-star-half` -> Lucide `star-half`.
+pub const UI_STAR_HALF: ExpIcon = ExpIcon::StarHalf;
+/// Registry concept `ui-star-off` -> Lucide `star-off`.
+pub const UI_STAR_OFF: ExpIcon = ExpIcon::StarOff;
 /// Registry concept `ui-stop` -> Lucide `circle-stop`.
 pub const UI_STOP: ExpIcon = ExpIcon::CircleStop;
 /// Registry concept `ui-submit` -> Lucide `circle-arrow-up`.
@@ -842,6 +885,8 @@ pub const UI_UNASSIGNED: ExpIcon = ExpIcon::UserX;
 pub const UI_UNDO: ExpIcon = ExpIcon::Undo2;
 /// Registry concept `ui-undock` -> Lucide `arrow-up-right`.
 pub const UI_UNDOCK: ExpIcon = ExpIcon::ArrowUpRight;
+/// Registry concept `ui-unlock` -> Lucide `lock-open`.
+pub const UI_UNLOCK: ExpIcon = ExpIcon::LockOpen;
 /// Registry concept `ui-unpin` -> Lucide `pin-off`.
 pub const UI_UNPIN: ExpIcon = ExpIcon::PinOff;
 /// Registry concept `ui-unselected` -> Lucide `circle`.

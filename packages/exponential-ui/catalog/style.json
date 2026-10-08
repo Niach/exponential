@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the `Box` style whitelist, verbatim from the VAPP-4 spike (`vapp_spike::WHITELIST` + the logical inline properties the spike added) — ONE source for the TS keys (`src/style.ts`), the JSON Schema (`core.schema.json#/$defs/style`) and the Swift/Kotlin/Rust key lists. Numbers are px (≡ pt ≡ dp); `length` also takes `\"N%\"`, `\"Npx\"` and `\"auto\"`; every value may be a token reference `$<group>.<name>` from tokens.json (colours: `#rrggbb[aa]` or `$color.<name>`). `borderWidth` is the ONE visual key with layout effect. Conditions nest one level: `\"@media (min-width: Npx)\"` resolves against the SURFACE width on the client, `\":pressed\"` against its own press state. Not in v1 (confirmed by the spike): transitions, transforms, calc(), named grid lines, gridAutoFlow, justifyItems, order, zIndex (paint order = tree order, absolute nodes LAST among siblings), multi-value shorthands.",
+  "$comment": "VAPP-85: the `Box` style whitelist, verbatim from the VAPP-4 spike (`vapp_spike::WHITELIST` + the logical inline properties the spike added) — ONE source for the TS keys (`src/style.ts`), the JSON Schema (`core.schema.json#/$defs/style`) and the Swift/Kotlin/Rust key lists. Numbers are px (≡ pt ≡ dp); `length` also takes `\"N%\"`, `\"Npx\"` and `\"auto\"`; every value may be a token reference `$<group>.<name>` from tokens.json (colours: `#rrggbb[aa]` or `$color.<name>`). `borderWidth` is the ONE visual key with layout effect (a number or `$border.<name>`, VAPP-92); `fontFamily` (VAPP-92) takes only `$type.family.<name>`. Conditions nest one level: `\"@media (min-width: Npx)\"` resolves against the SURFACE width on the client, `\":pressed\"` against its own press state. Not in v1 (confirmed by the spike): transitions, transforms, calc(), named grid lines, gridAutoFlow, justifyItems, order, zIndex (paint order = tree order, absolute nodes LAST among siblings), multi-value shorthands.",
   "layout": {
     "display": { "enum": ["flex", "grid", "block", "none"] },
     "flexDirection": { "enum": ["row", "column", "row-reverse", "column-reverse"] },
@@ -68,7 +68,8 @@
     "fontSize": { "type": "length" },
     "fontWeight": { "enum": [400, 500, 600, 700] },
     "lineHeight": { "type": "length" },
-    "textAlign": { "enum": ["left", "right", "center"] }
+    "textAlign": { "enum": ["left", "right", "center"] },
+    "fontFamily": { "type": "token", "group": "type.family" }
   },
   "conditions": {
     "media": "^@media \\(min-width: \\d+(\\.\\d+)?px\\)$",

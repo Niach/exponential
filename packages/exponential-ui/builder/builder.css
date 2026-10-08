@@ -1,0 +1,49 @@
+/* VAPP-92: the builder's OWN chrome (toolbar, panel). The preview inside
+   #preview is painted from the theme alone and carries none of this. */
+:root { color-scheme: light dark; --bg: #0f0f11; --fg: #e8e8ea; --muted: #9a9aa3; --line: #26262b; --card: #17171a; --accent: #e5e5e5; --accent-fg: #171717; font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+body[data-mode="light"] { --bg: #f6f6f7; --fg: #141416; --muted: #6b6b73; --line: #dcdce0; --card: #ffffff; --accent: #171717; --accent-fg: #fafafa; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+.bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+.bar .muted, .muted { color: var(--muted); }
+.bar label { display: flex; align-items: center; gap: 6px; }
+.grow { flex: 1; }
+select, input[type="text"], input[type="number"], textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; }
+input[type="color"] { width: 28px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+button { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.layout { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 42px); }
+.panel { border-right: 1px solid var(--line); overflow: auto; height: calc(100vh - 42px); position: sticky; top: 42px; padding: 6px 0 40px; }
+.panel details { border-bottom: 1px solid var(--line); padding: 0 12px; }
+.panel summary { padding: 8px 0; cursor: pointer; font-weight: 600; }
+.rows { display: flex; flex-direction: column; gap: 4px; padding-bottom: 10px; }
+.row { display: grid; grid-template-columns: 120px auto 1fr; gap: 6px; align-items: center; }
+.row input[type="number"], .row input[type="text"] { grid-column: span 2; min-width: 0; }
+.row input[type="color"] + input { grid-column: auto; }
+.row .name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.bad { border-color: #e5484d; }
+.hint { color: var(--muted); font-size: 11px; }
+.error { color: #e5484d; font-size: 12px; white-space: pre-wrap; }
+.base-rules { max-height: 240px; overflow: auto; white-space: pre-wrap; }
+.stage { padding: 16px; overflow: auto; }
+.issues { background: #e5484d22; border: 1px solid #e5484d; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+.issue code { background: #0003; padding: 1px 4px; border-radius: 3px; }
+.export { width: 100%; margin-bottom: 12px; }
+.preview { border-radius: 12px; border: 1px solid var(--line); overflow: hidden; max-width: 100%; }
+.sheet { padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+.sheet h3, .sink h3 { margin: 0 0 8px; font: 600 11px/1.4 ui-sans-serif, system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; opacity: .55; }
+.sheet-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.sheet-col { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; align-items: center; max-width: 100%; }
+.sheet-row:has(.sheet-state) .sheet-col { flex-direction: column; align-items: flex-start; }
+.sheet-state { font-size: 11px; opacity: .55; }
+.sink { padding: 16px; border-top: 1px dashed currentColor; }
+.import { width: min(760px, 92vw); border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); padding: 16px; }
+.import textarea { width: 100%; }
+.import .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.import h2 { margin: 0 0 6px; font-size: 15px; }
+.import p { margin: 0 0 10px; color: var(--muted); }
+.import pre { white-space: pre-wrap; max-height: 120px; overflow: auto; color: var(--muted); }

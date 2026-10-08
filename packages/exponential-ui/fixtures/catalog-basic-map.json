@@ -360,7 +360,7 @@
               "id": "iu",
               "component": "Icon",
               "props": {
-                "name": "ui-icon-placeholder"
+                "name": "media-volume-up"
               },
               "children": []
             },
@@ -572,9 +572,6 @@
                 "display": "flex",
                 "flexDirection": "column",
                 "borderRadius": "$radius.xl",
-                "borderWidth": 1,
-                "borderColor": "$color.border",
-                "backgroundColor": "$color.card",
                 "overflow": "hidden"
               },
               "recipe": {
@@ -592,8 +589,7 @@
                 "alignSelf": "stretch",
                 "flexShrink": 0,
                 "width": 1,
-                "height": "auto",
-                "backgroundColor": "$color.border"
+                "height": "auto"
               },
               "recipe": {
                 "macro": "Separator",

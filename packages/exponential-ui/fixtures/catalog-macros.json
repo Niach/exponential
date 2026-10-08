@@ -1456,9 +1456,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -1571,9 +1568,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -1686,9 +1680,6 @@
           "display": "flex",
           "flexDirection": "column",
           "borderRadius": "$radius.xl",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "overflow": "hidden"
         },
         "recipe": {
@@ -1716,8 +1707,7 @@
           "alignSelf": "stretch",
           "flexShrink": 0,
           "width": "auto",
-          "height": 1,
-          "backgroundColor": "$color.border"
+          "height": 1
         },
         "recipe": {
           "macro": "Separator",
@@ -1744,8 +1734,7 @@
           "alignSelf": "stretch",
           "flexShrink": 0,
           "width": "auto",
-          "height": 1,
-          "backgroundColor": "$color.border"
+          "height": 1
         },
         "recipe": {
           "macro": "Separator",
@@ -1772,8 +1761,7 @@
           "alignSelf": "stretch",
           "flexShrink": 0,
           "width": 1,
-          "height": "auto",
-          "backgroundColor": "$color.border"
+          "height": "auto"
         },
         "recipe": {
           "macro": "Separator",
@@ -1843,8 +1831,7 @@
           "gap": "$spacing.sm",
           "height": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "borderRadius": "$radius.md",
-          "backgroundColor": "$color.muted"
+          "borderRadius": "$radius.md"
         },
         "recipe": {
           "macro": "Band",
@@ -1916,8 +1903,7 @@
           "gap": "$spacing.sm",
           "height": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "borderRadius": "$radius.md",
-          "backgroundColor": "$color.muted"
+          "borderRadius": "$radius.md"
         },
         "recipe": {
           "macro": "Band",
@@ -1989,8 +1975,7 @@
           "gap": "$spacing.sm",
           "height": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "borderRadius": "$radius.md",
-          "backgroundColor": "$color.muted"
+          "borderRadius": "$radius.md"
         },
         "recipe": {
           "macro": "Band",
@@ -2197,9 +2182,6 @@
               "display": "flex",
               "flexDirection": "column",
               "borderRadius": "$radius.lg",
-              "borderWidth": 1,
-              "borderColor": "$color.border",
-              "backgroundColor": "$color.card",
               "overflow": "hidden"
             },
             "recipe": {
@@ -3527,9 +3509,7 @@
           "alignItems": "flex-start",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "Alert",
@@ -3633,9 +3613,7 @@
           "alignItems": "flex-start",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "Alert",
@@ -3739,9 +3717,7 @@
           "alignItems": "flex-start",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "Alert",
@@ -3845,9 +3821,7 @@
           "alignItems": "flex-start",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "Alert",
@@ -3951,9 +3925,7 @@
           "alignItems": "flex-start",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "Alert",
@@ -4008,8 +3980,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4066,8 +4036,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4124,8 +4092,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4183,8 +4149,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4242,8 +4206,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4301,8 +4263,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4360,8 +4320,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4419,8 +4377,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4478,8 +4434,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4537,8 +4491,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4596,8 +4548,6 @@
           "height": "$control.pill",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.full",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -4745,7 +4695,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -4833,7 +4782,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -4921,7 +4869,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -5009,7 +4956,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -5097,7 +5043,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -5185,7 +5130,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -5273,7 +5217,6 @@
             "style": {
               "height": "$control.progress",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -5422,7 +5365,6 @@
               "flexDirection": "row",
               "height": "$control.meter",
               "borderRadius": "$radius.full",
-              "backgroundColor": "$color.muted",
               "overflow": "hidden",
               "width": "100%"
             },
@@ -6410,10 +6352,7 @@
           "alignItems": "center",
           "gap": "$spacing.sm",
           "padding": "$spacing.md",
-          "borderRadius": "$radius.lg",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card"
+          "borderRadius": "$radius.lg"
         },
         "recipe": {
           "macro": "CardRow",
@@ -6974,9 +6913,6 @@
           "height": "$control.chip",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.md",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -7058,9 +6994,6 @@
           "height": "$control.chip",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.md",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "alignSelf": "flex-start"
         },
         "recipe": {
@@ -7126,9 +7059,6 @@
           "height": "$control.chip",
           "paddingHorizontal": "$spacing.sm",
           "borderRadius": "$radius.md",
-          "borderWidth": 1,
-          "borderColor": "$color.border",
-          "backgroundColor": "$color.card",
           "alignSelf": "flex-start"
         },
         "recipe": {

@@ -330,9 +330,6 @@
                 "display": "flex",
                 "flexDirection": "column",
                 "borderRadius": "$radius.xl",
-                "borderWidth": 1,
-                "borderColor": "$color.border",
-                "backgroundColor": "$color.card",
                 "overflow": "hidden"
               },
               "recipe": {
@@ -447,9 +444,6 @@
                 "display": "flex",
                 "flexDirection": "column",
                 "borderRadius": "$radius.xl",
-                "borderWidth": 1,
-                "borderColor": "$color.border",
-                "backgroundColor": "$color.card",
                 "overflow": "hidden"
               },
               "recipe": {

@@ -1,0 +1,521 @@
+{
+  "$comment": "VAPP-92: `extends` cases — a theme that overrides only what it changes (the acceptance case: `extends: neutral`, a new primary and the button radius) and the chain they resolve through. The generator fills `expected` from the TS loader; the Rust core and the painters replay: load the theme over the built-ins, resolve each probe for its mode, compare byte for byte.",
+  "cases": [
+    {
+      "name": "extends neutral: primary + button radius only",
+      "theme": {
+        "id": "brand",
+        "name": "Brand",
+        "extends": "neutral",
+        "modes": {
+          "light": {
+            "color": {
+              "primary": "#2563eb",
+              "primaryForeground": "#ffffff",
+              "ring": "#2563eb"
+            }
+          },
+          "dark": {
+            "color": {
+              "primary": "#60a5fa",
+              "primaryForeground": "#0b1220",
+              "ring": "#60a5fa"
+            }
+          }
+        },
+        "recipes": {
+          "Button": {
+            "root": [
+              {
+                "style": {
+                  "borderRadius": "$radius.full"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "probes": [
+        {
+          "component": "Button",
+          "part": "root",
+          "props": {
+            "variant": "default",
+            "size": "default"
+          },
+          "mode": "light"
+        },
+        {
+          "component": "Button",
+          "part": "root",
+          "props": {
+            "variant": "default",
+            "size": "default"
+          },
+          "mode": "dark"
+        },
+        {
+          "component": "Button",
+          "part": "root",
+          "props": {
+            "variant": "outline",
+            "size": "sm"
+          },
+          "states": [
+            "hover"
+          ],
+          "mode": "light"
+        },
+        {
+          "component": "Badge",
+          "part": "root",
+          "props": {
+            "variant": "default"
+          },
+          "mode": "light"
+        },
+        {
+          "component": "Badge",
+          "part": "label",
+          "props": {
+            "variant": "default"
+          },
+          "mode": "dark"
+        },
+        {
+          "component": "Text",
+          "part": "root",
+          "props": {
+            "variant": "title"
+          },
+          "mode": "light"
+        },
+        {
+          "component": "Switch",
+          "part": "track",
+          "props": {
+            "checked": true,
+            "disabled": false
+          },
+          "mode": "dark"
+        },
+        {
+          "component": "Input",
+          "part": "field",
+          "props": {
+            "type": "text",
+            "disabled": false
+          },
+          "states": [
+            "focus"
+          ],
+          "mode": "light"
+        }
+      ],
+      "expected": {
+        "chain": [
+          "neutral",
+          "brand"
+        ],
+        "probes": [
+          {
+            "component": "Button",
+            "part": "root",
+            "props": {
+              "variant": "default",
+              "size": "default"
+            },
+            "mode": "light",
+            "style": {
+              "height": 36,
+              "paddingHorizontal": 16,
+              "gap": 8,
+              "borderRadius": 9999,
+              "borderWidth": 0,
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontWeight": 500,
+              "backgroundColor": "#2563eb",
+              "color": "#ffffff",
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 1,
+                  "blur": 2,
+                  "spread": 0,
+                  "color": "#0000000d"
+                }
+              ]
+            }
+          },
+          {
+            "component": "Button",
+            "part": "root",
+            "props": {
+              "variant": "default",
+              "size": "default"
+            },
+            "mode": "dark",
+            "style": {
+              "height": 36,
+              "paddingHorizontal": 16,
+              "gap": 8,
+              "borderRadius": 9999,
+              "borderWidth": 0,
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontWeight": 500,
+              "backgroundColor": "#60a5fa",
+              "color": "#0b1220",
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 1,
+                  "blur": 2,
+                  "spread": 0,
+                  "color": "#00000033"
+                }
+              ]
+            }
+          },
+          {
+            "component": "Button",
+            "part": "root",
+            "props": {
+              "variant": "outline",
+              "size": "sm"
+            },
+            "states": [
+              "hover"
+            ],
+            "mode": "light",
+            "style": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "gap": 4,
+              "borderRadius": 9999,
+              "borderWidth": 1,
+              "fontFamily": "Geist",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontWeight": 500,
+              "backgroundColor": "#f5f5f5",
+              "color": "#171717",
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 1,
+                  "blur": 2,
+                  "spread": 0,
+                  "color": "#0000000d"
+                }
+              ],
+              "borderColor": "#e5e5e5"
+            }
+          },
+          {
+            "component": "Badge",
+            "part": "root",
+            "props": {
+              "variant": "default"
+            },
+            "mode": "light",
+            "style": {
+              "backgroundColor": "#2563eb",
+              "borderWidth": 0
+            }
+          },
+          {
+            "component": "Badge",
+            "part": "label",
+            "props": {
+              "variant": "default"
+            },
+            "mode": "dark",
+            "style": {
+              "color": "#0b1220",
+              "fontWeight": 500
+            }
+          },
+          {
+            "component": "Text",
+            "part": "root",
+            "props": {
+              "variant": "title"
+            },
+            "mode": "light",
+            "style": {
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "lineHeight": 28,
+              "fontWeight": 600,
+              "color": "#0a0a0a"
+            }
+          },
+          {
+            "component": "Switch",
+            "part": "track",
+            "props": {
+              "checked": true,
+              "disabled": false
+            },
+            "mode": "dark",
+            "style": {
+              "width": 32,
+              "height": 20,
+              "borderRadius": 9999,
+              "backgroundColor": "#60a5fa",
+              "native": false
+            }
+          },
+          {
+            "component": "Input",
+            "part": "field",
+            "props": {
+              "type": "text",
+              "disabled": false
+            },
+            "states": [
+              "focus"
+            ],
+            "mode": "light",
+            "style": {
+              "height": 36,
+              "paddingHorizontal": 12,
+              "borderRadius": 8,
+              "borderWidth": 1,
+              "borderColor": "#2563eb",
+              "backgroundColor": "#ffffff",
+              "color": "#0a0a0a",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontFamily": "Geist",
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 1,
+                  "blur": 2,
+                  "spread": 0,
+                  "color": "#0000000d"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "extends exponential: a darker ground and a wider row",
+      "theme": {
+        "id": "midnight",
+        "name": "Midnight",
+        "extends": "exponential",
+        "modes": {
+          "dark": {
+            "color": {
+              "background": "#000000"
+            }
+          }
+        },
+        "tokens": {
+          "control": {
+            "row": 40
+          }
+        }
+      },
+      "probes": [
+        {
+          "component": "ListRow",
+          "part": "root",
+          "props": {
+            "selected": true,
+            "density": "default"
+          },
+          "mode": "dark"
+        },
+        {
+          "component": "Card",
+          "part": "root",
+          "props": {},
+          "mode": "dark"
+        },
+        {
+          "component": "Band",
+          "part": "root",
+          "props": {
+            "variant": "default"
+          },
+          "mode": "light"
+        }
+      ],
+      "expected": {
+        "chain": [
+          "neutral",
+          "exponential",
+          "midnight"
+        ],
+        "probes": [
+          {
+            "component": "ListRow",
+            "part": "root",
+            "props": {
+              "selected": true,
+              "density": "default"
+            },
+            "mode": "dark",
+            "style": {
+              "backgroundColor": "#ffffff1c"
+            }
+          },
+          {
+            "component": "Card",
+            "part": "root",
+            "props": {},
+            "mode": "dark",
+            "style": {
+              "backgroundColor": "#ffffff0f",
+              "borderWidth": 1,
+              "borderColor": "#ffffff1a",
+              "boxShadow": []
+            }
+          },
+          {
+            "component": "Band",
+            "part": "root",
+            "props": {
+              "variant": "default"
+            },
+            "mode": "light",
+            "style": {
+              "backgroundColor": "#f5f5f5"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "extends playful: the test theme itself extends neutral, so a grandchild sees the whole chain",
+      "theme": {
+        "id": "playful-mono",
+        "name": "Playful mono",
+        "extends": "playful",
+        "tokens": {
+          "type": {
+            "family": {
+              "sans": "Fira Code"
+            }
+          }
+        }
+      },
+      "probes": [
+        {
+          "component": "Text",
+          "part": "root",
+          "props": {
+            "variant": "body"
+          },
+          "mode": "light"
+        },
+        {
+          "component": "Button",
+          "part": "root",
+          "props": {
+            "variant": "default",
+            "size": "lg"
+          },
+          "mode": "dark"
+        },
+        {
+          "component": "Tabs",
+          "part": "tab",
+          "props": {
+            "fill": false
+          },
+          "states": [
+            "selected"
+          ],
+          "mode": "light"
+        }
+      ],
+      "expected": {
+        "chain": [
+          "neutral",
+          "playful",
+          "playful-mono"
+        ],
+        "probes": [
+          {
+            "component": "Text",
+            "part": "root",
+            "props": {
+              "variant": "body"
+            },
+            "mode": "light",
+            "style": {
+              "fontFamily": "Fira Code",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontWeight": 400,
+              "color": "#1f1235"
+            }
+          },
+          {
+            "component": "Button",
+            "part": "root",
+            "props": {
+              "variant": "default",
+              "size": "lg"
+            },
+            "mode": "dark",
+            "style": {
+              "height": 48,
+              "paddingHorizontal": 24,
+              "gap": 8,
+              "borderRadius": 9999,
+              "borderWidth": 0,
+              "fontFamily": "Fira Code",
+              "fontSize": 14,
+              "lineHeight": 20,
+              "fontWeight": 700,
+              "backgroundColor": "#c4b5fd",
+              "color": "#2e1065",
+              "boxShadow": [
+                {
+                  "x": 0,
+                  "y": 6,
+                  "blur": 12,
+                  "spread": -2,
+                  "color": "#00000059"
+                }
+              ]
+            }
+          },
+          {
+            "component": "Tabs",
+            "part": "tab",
+            "props": {
+              "fill": false
+            },
+            "states": [
+              "selected"
+            ],
+            "mode": "light",
+            "style": {
+              "height": 32,
+              "paddingHorizontal": 0,
+              "borderRadius": 0,
+              "fontSize": 14,
+              "fontWeight": 700,
+              "fontFamily": "Fira Code",
+              "color": "#7c3aed",
+              "backgroundColor": "#00000000",
+              "boxShadow": []
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
