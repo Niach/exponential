@@ -462,7 +462,17 @@ impl Surface {
         if let Some(update) = obj.get("updateComponents") {
             let components = update.get("components").ok_or("updateComponents.components is required")?;
             let list: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| format!("components: {e}"))?;
-            self.components = list;
+            // A2UI: a later update replaces components BY ID and keeps the
+            // rest (the TS reference's SurfaceStore does the same).
+            if self.nested.is_some() {
+                self.components.clear();
+            }
+            for c in list {
+                match self.components.iter_mut().find(|x| x.id == c.id) {
+                    Some(slot) => *slot = c,
+                    None => self.components.push(c),
+                }
+            }
             self.nested = None;
             self.template_cache.clear();
             self.reduce();
