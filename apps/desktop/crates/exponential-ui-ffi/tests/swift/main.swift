@@ -89,9 +89,77 @@ for c in extends["cases"] as! [[String: Any]] {
         equal(got, p["style"]!, "theme-extends \(c["name"]!) \(p["component"]!)/\(p["part"]!)")
     }
 }
+// --- raw JSON (order-preserving) --------------------------------------------
+// The validator reports issues in the theme's KEY order and
+// `JSONSerialization` dictionaries do not keep it: the theme-invalid cases
+// go in as the fixture's own text.
+
+/// Advance `i` past the JSON value at `i` (after whitespace).
+func skipJSON(_ s: [UInt8], _ i: inout Int) {
+    func ws() { while i < s.count, [0x20, 0x0A, 0x0D, 0x09].contains(s[i]) { i += 1 } }
+    ws()
+    guard i < s.count else { return }
+    switch s[i] {
+    case 0x22:
+        i += 1
+        while i < s.count, s[i] != 0x22 { i += s[i] == 0x5C ? 2 : 1 }
+        i += 1
+    case 0x7B, 0x5B:
+        i += 1
+        ws()
+        while i < s.count, s[i] != 0x7D, s[i] != 0x5D {
+            skipJSON(s, &i)
+            ws()
+            if s[i] == 0x3A { i += 1; skipJSON(s, &i); ws() }
+            if s[i] == 0x2C { i += 1; ws() }
+        }
+        i += 1
+    default:
+        while i < s.count, ![0x2C, 0x7D, 0x5D, 0x20, 0x0A, 0x0D, 0x09].contains(s[i]) { i += 1 }
+    }
+}
+
+/// The raw members of the object `json` is, or the raw elements of the
+/// array: `(key or nil, raw value)` in file order.
+func rawChildren(_ json: String) -> [(String?, String)] {
+    let s = Array(json.utf8)
+    var i = 0
+    while i < s.count, s[i] != 0x7B, s[i] != 0x5B { i += 1 }
+    guard i < s.count else { return [] }
+    let object = s[i] == 0x7B
+    i += 1
+    var out: [(String?, String)] = []
+    while true {
+        while i < s.count, [0x20, 0x0A, 0x0D, 0x09, 0x2C].contains(s[i]) { i += 1 }
+        if i >= s.count || s[i] == 0x7D || s[i] == 0x5D { break }
+        var key: String?
+        if object {
+            let ks = i
+            skipJSON(s, &i)
+            key = try? JSONSerialization.jsonObject(with: Data(s[ks..<i]), options: [.fragmentsAllowed]) as? String
+            while i < s.count, s[i] != 0x3A { i += 1 }
+            i += 1
+            while i < s.count, [0x20, 0x0A, 0x0D, 0x09].contains(s[i]) { i += 1 }
+        }
+        let vs = i
+        skipJSON(s, &i)
+        out.append((key, String(decoding: s[vs..<i], as: UTF8.self)))
+    }
+    return out
+}
+
+/// `cases[i].theme` of a fixture file, raw, in file order.
+func rawCaseThemes(_ name: String) -> [String] {
+    let file = String(decoding: FileManager.default.contents(atPath: "\(fixtures)/\(name)")!, as: UTF8.self)
+    guard let cases = rawChildren(file).first(where: { $0.0 == "cases" })?.1 else { return [] }
+    return rawChildren(cases).map { c in rawChildren(c.1).first { $0.0 == "theme" }?.1 ?? "null" }
+}
+
 let invalid = load("theme-invalid.json") as! [String: Any]
-for c in invalid["cases"] as! [[String: Any]] {
-    let issues = themeIssuesJson(themeJson: text(c["theme"]!), parentsJson: nil)
+let invalidThemes = rawCaseThemes("theme-invalid.json")
+check(invalidThemes.count == (invalid["cases"] as! [Any]).count, "theme-invalid: \(invalidThemes.count) raw themes")
+for (n, c) in (invalid["cases"] as! [[String: Any]]).enumerated() {
+    let issues = themeIssuesJson(themeJson: n < invalidThemes.count ? invalidThemes[n] : text(c["theme"]!), parentsJson: nil)
     equal(issues, c["issues"]!, "theme-invalid \(c["name"]!)")
 }
 let geometry = load("control-geometry.json") as! [String: Any]

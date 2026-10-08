@@ -60,8 +60,15 @@ final class GeometryTests: XCTestCase {
         let dialogs = m.nodes.filter { $0.component == "Dialog" }
         try XCTSkipIf(dialogs.isEmpty, "no dialog in the kitchen sink")
         let owner = dialogs[0]
+        // Round 1: a Toast is OPEN unless its `open` says false (the sink
+        // binds it to an unset `/ui/toastOpen`), so its TOAST layer is up
+        // from the start and stacks above every overlay (base < overlay <
+        // toast, contract "Toast").
+        let toasts = m.nodes.filter { $0.component == "Toast" }.map(\.id)
+        XCTAssertEqual(m.layers.map(\.owner), toasts)
+        XCTAssertEqual(m.layers.map(\.kind), toasts.map { _ in "Toast" })
         m.setOpen(owner.id, true)
-        XCTAssertEqual(m.layers.map(\.owner), [owner.id])
+        XCTAssertEqual(m.layers.map(\.owner), [owner.id] + toasts)
         let layer = m.layers[0]
         XCTAssertEqual(layer.kind, "Dialog")
         XCTAssertGreaterThan(layer.frame.width, 100)
@@ -69,7 +76,8 @@ final class GeometryTests: XCTestCase {
         // The layer's nodes have frames and the content root is in layer 1.
         XCTAssertEqual(m.node(layer.root)?.layer, 1)
         XCTAssertEqual(m.frame(layer.root), layer.frame)
+        XCTAssertGreaterThan(m.layers.last?.layer ?? 0, layer.layer, "the toast layer stacks above the dialog")
         m.dismissLayer(owner.id)
-        XCTAssertTrue(m.layers.isEmpty)
+        XCTAssertEqual(m.layers.map(\.owner), toasts)
     }
 }
