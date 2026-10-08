@@ -7,7 +7,7 @@ struct IconLeaf: View {
     var body: some View {
         let name = cx.props.str("name").isEmpty ? "ui-icon-placeholder" : cx.props.str("name")
         let color = cx.props.str("tone").isEmpty ? cx.ink : (cx.tone(cx.props.str("tone")) ?? cx.ink)
-        IconView(name: name, size: max(1, min(cx.inner.width, cx.inner.height)), color: color, model: cx.model)
+        ConceptIcon(name: name, size: max(1, min(cx.inner.width, cx.inner.height)), color: color, model: cx.model)
             .frame(width: cx.size.width, height: cx.size.height)
     }
 }
@@ -41,49 +41,73 @@ struct AvatarLeaf: View {
     }
 }
 
-/// The tinted placeholder an `Image` paints without a loadable source.
+/// The tinted placeholder an `Image` paints without a loadable source (or
+/// while loading / after an error): its `fallback` glyph (default
+/// `builtinIcons["Image.fallback"]`) over the alt text.
 struct ImagePlaceholder: View {
     let ink: Color
     let label: String
+    var icon: String = BuiltinIcons.name("Image.fallback")
+    let model: SurfaceModel
 
     var body: some View {
         VStack(spacing: 4) {
-            GlyphView(glyph: .image, size: 20, color: ink.opacity(0.6))
-            Text(label).font(.system(size: 12)).foregroundStyle(ink.opacity(0.6)).lineLimit(1)
+            ConceptIcon(name: icon, size: 20, color: ink.opacity(0.6), model: model)
+            if !label.isEmpty {
+                Text(label).font(.system(size: 12)).foregroundStyle(ink.opacity(0.6)).lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ink.opacity(0.08))
     }
 }
 
+/// `Image`: the host-loaded picture fitted by `fit`; `focalX` / `focalY`
+/// (0...1, 0.5 default) keep that point when the fit crops or letterboxes
+/// (CSS `object-position`, gpui `focal_bounds`); the fallback placeholder
+/// on no source, while loading and on error. `loading: lazy` loads when the
+/// leaf first appears (a SwiftUI view only exists on screen anyway).
 struct ImageLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let src = cx.props.str("src")
-        let alt = cx.props.str("alt").isEmpty ? "image" : cx.props.str("alt")
+        let alt = cx.props.str("alt")
         let muted = cx.themeColor("mutedForeground") ?? cx.ink
+        let fallback = cx.props.str("fallback").isEmpty ? BuiltinIcons.name("Image.fallback") : cx.props.str("fallback")
         let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
         let fit = cx.props.str("fit")
+        let fx = CGFloat(min(1, max(0, cx.props.num("focalX") ?? 0.5)))
+        let fy = CGFloat(min(1, max(0, cx.props.num("focalY") ?? 0.5)))
+        let w = cx.size.width, h = cx.size.height
         Group {
             if let request {
                 MediaImage(request: request) { image in
-                    if fit == "contain" || fit == "scaleDown" {
-                        image.resizable().scaledToFit()
-                    } else if fit == "fill" {
-                        image.resizable()
-                    } else {
-                        image.resizable().scaledToFill()
-                    }
+                    Self.fitted(image, fit: fit)
+                        .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
+                        .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
+                        .frame(width: w, height: h, alignment: .topLeading)
                 } placeholder: {
-                    ImagePlaceholder(ink: muted, label: alt)
+                    ImagePlaceholder(ink: muted, label: alt, icon: fallback, model: cx.model)
                 }
             } else {
-                ImagePlaceholder(ink: muted, label: alt)
+                ImagePlaceholder(ink: muted, label: alt, icon: fallback, model: cx.model)
             }
         }
-        .frame(width: cx.size.width, height: cx.size.height)
+        .frame(width: w, height: h)
         .clipped()
+    }
+
+    /// The image sized by `fit` (its own frame, before the focal placement).
+    @ViewBuilder
+    static func fitted(_ image: Image, fit: String) -> some View {
+        switch fit {
+        case "contain": image.resizable().scaledToFit()
+        case "fill": image.resizable()
+        case "none": image.fixedSize()
+        case "scaleDown": image.resizable().scaledToFit()
+        default: image.resizable().scaledToFill()
+        }
     }
 }
 
@@ -177,113 +201,6 @@ struct RingLeaf: View {
     }
 }
 
-/// `Chart`: bars / lines / areas / a pie, a title and a legend.
-struct ChartLeaf: View {
-    let cx: LeafContext
-
-    var body: some View {
-        let chart = ChartModel(cx.props)
-        let gap = cx.spacing("xs")
-        let legend = ChartModel.legend(cx.props)
-        let muted = cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.6)
-        let grid = cx.themeColor("border") ?? cx.ink.opacity(0.15)
-        VStack(alignment: .leading, spacing: gap) {
-            if !chart.title.isEmpty {
-                Text(chart.title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1).frame(height: cx.textStyle.lineHeight)
-            }
-            ChartCanvas(chart: chart, ink: cx.ink, grid: grid, colors: (0..<max(1, chart.series.count)).map { seriesColor($0, chart) })
-                .frame(height: chart.height)
-            if !legend.isEmpty {
-                HStack(spacing: 12) {
-                    ForEach(Array(legend.enumerated()), id: \.offset) { i, name in
-                        HStack(spacing: 4) {
-                            Circle().fill(seriesColor(i, chart)).frame(width: 8, height: 8)
-                            Text(name).font(.system(size: 12)).foregroundStyle(muted).lineLimit(1)
-                        }
-                    }
-                }
-                .frame(height: cx.part("Chart", "legend").px("lineHeight") ?? 16)
-            }
-        }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
-        .offset(x: cx.inner.minX, y: cx.inner.minY)
-    }
-
-    /// The palette colour of series/slice `i` (tone wins, then chart1..5).
-    private func seriesColor(_ i: Int, _ chart: ChartModel) -> Color {
-        let tone = chart.kind == "pie" ? nil : chart.series[safe: i]?.tone
-        if let tone, let c = cx.tone(tone) { return c }
-        if let c = cx.themeColor("chart\(i % 5 + 1)") { return c }
-        return RGBA(hue: AvatarFallback.seedHue(String(i)) * 7, saturation: 0.6, lightness: 0.55).color
-    }
-}
-
-private struct ChartCanvas: View {
-    let chart: ChartModel
-    let ink: Color
-    let grid: Color
-    let colors: [Color]
-
-    var body: some View {
-        Canvas { ctx, size in
-            let n = max(chart.categories.count, chart.series.map(\.values.count).max() ?? 0)
-            let maxV = chart.maxValue
-            if chart.kind == "pie" {
-                let values = chart.series.first?.values ?? []
-                let total = values.reduce(0, +)
-                let r = min(size.width, size.height) / 2 - 2
-                let c = CGPoint(x: size.width / 2, y: size.height / 2)
-                var start = -Double.pi / 2
-                for (i, v) in values.enumerated() where total > 0 {
-                    let sweep = v / total * 2 * .pi
-                    var p = Path()
-                    p.move(to: c)
-                    p.addArc(center: c, radius: r, startAngle: .radians(start), endAngle: .radians(start + sweep), clockwise: false)
-                    p.closeSubpath()
-                    ctx.fill(p, with: .color(colors[safe: i % max(colors.count, 1)] ?? ink))
-                    start += sweep
-                }
-                return
-            }
-            // Grid: 4 lines.
-            for i in 0...4 {
-                let y = size.height * CGFloat(i) / 4
-                ctx.stroke(Path { $0.move(to: CGPoint(x: 0, y: y)); $0.addLine(to: CGPoint(x: size.width, y: y)) }, with: .color(grid), lineWidth: 1)
-            }
-            guard n > 0 else { return }
-            let slot = size.width / CGFloat(n)
-            if chart.kind == "bar" {
-                let bars = max(chart.series.count, 1)
-                let bw = max(2, (slot * 0.6) / CGFloat(bars))
-                for (si, s) in chart.series.enumerated() {
-                    for (i, v) in s.values.enumerated() {
-                        let h = size.height * CGFloat(v / maxV)
-                        let x = slot * CGFloat(i) + slot * 0.2 + bw * CGFloat(si)
-                        ctx.fill(Path(roundedRect: CGRect(x: x, y: size.height - h, width: bw - 1, height: h), cornerRadius: 2), with: .color(colors[safe: si] ?? ink))
-                    }
-                }
-            } else {
-                for (si, s) in chart.series.enumerated() {
-                    var path = Path()
-                    for (i, v) in s.values.enumerated() {
-                        let pt = CGPoint(x: slot * (CGFloat(i) + 0.5), y: size.height - size.height * CGFloat(v / maxV))
-                        if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
-                    }
-                    let color = colors[safe: si] ?? ink
-                    if chart.kind == "area", let last = s.values.indices.last {
-                        var area = path
-                        area.addLine(to: CGPoint(x: slot * (CGFloat(last) + 0.5), y: size.height))
-                        area.addLine(to: CGPoint(x: slot * 0.5, y: size.height))
-                        area.closeSubpath()
-                        ctx.fill(area, with: .color(color.opacity(0.2)))
-                    }
-                    ctx.stroke(path, with: .color(color), lineWidth: 2)
-                }
-            }
-        }
-    }
-}
-
 /// `TreeGuides`: 16 px columns, 1 px lines at x = 7, the elbow at mid-height.
 struct TreeGuidesLeaf: View {
     let cx: LeafContext
@@ -331,7 +248,7 @@ struct CarouselIndicatorLeaf: View {
                     Circle().fill(i == page ? (dot.style.background ?? cx.ink) : (dot.style.background ?? cx.ink).opacity(0.35)).frame(width: size, height: size)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Page \(i + 1)")
+                .accessibilityLabel(cx.model.builtinString("pageOf", ["page": .number(Double(i + 1)), "total": .number(Double(count))]))
                 .accessibilityAddTraits(i == page ? [.isButton, .isSelected] : [.isButton])
             }
         }

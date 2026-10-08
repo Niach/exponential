@@ -2,10 +2,16 @@ import Foundation
 import ExponentialUICore
 import ExponentialUIPrimitives
 
-/// A control's box around its content (the core's `ControlBox`).
+/// A control's box around its content (the core's `ControlBox`): every side
+/// of the padding (logical keys already resolved by the direction), the
+/// border, the gap and the recipe's fixed / minimum sizes.
 struct ControlBox {
     var paddingHorizontal: CGFloat
     var paddingVertical: CGFloat
+    var paddingTop: CGFloat
+    var paddingRight: CGFloat
+    var paddingBottom: CGFloat
+    var paddingLeft: CGFloat
     var borderWidth: CGFloat
     var gap: CGFloat
     var minWidth: CGFloat?
@@ -16,17 +22,31 @@ struct ControlBox {
     init(_ c: FfiControlBox) {
         paddingHorizontal = CGFloat(c.paddingHorizontal)
         paddingVertical = CGFloat(c.paddingVertical)
+        paddingTop = CGFloat(c.paddingTop)
+        paddingRight = CGFloat(c.paddingRight)
+        paddingBottom = CGFloat(c.paddingBottom)
+        paddingLeft = CGFloat(c.paddingLeft)
         borderWidth = CGFloat(c.borderWidth)
         gap = CGFloat(c.gap)
         minWidth = c.minWidth.map { CGFloat($0) }
         minHeight = c.minHeight.map { CGFloat($0) }
         width = c.width.map { CGFloat($0) }
         height = c.height.map { CGFloat($0) }
+        // An older core sends only the averages: spread them over the sides.
+        if paddingTop + paddingRight + paddingBottom + paddingLeft == 0, paddingHorizontal + paddingVertical > 0 {
+            (paddingTop, paddingBottom) = (paddingVertical, paddingVertical)
+            (paddingLeft, paddingRight) = (paddingHorizontal, paddingHorizontal)
+        }
     }
 
+    /// Symmetric padding (each side = its axis' value).
     init(paddingHorizontal: CGFloat = 0, paddingVertical: CGFloat = 0, borderWidth: CGFloat = 0, gap: CGFloat = 0, minWidth: CGFloat? = nil, minHeight: CGFloat? = nil, width: CGFloat? = nil, height: CGFloat? = nil) {
         self.paddingHorizontal = paddingHorizontal
         self.paddingVertical = paddingVertical
+        paddingTop = paddingVertical
+        paddingBottom = paddingVertical
+        paddingLeft = paddingHorizontal
+        paddingRight = paddingHorizontal
         self.borderWidth = borderWidth
         self.gap = gap
         self.minWidth = minWidth
@@ -35,8 +55,14 @@ struct ControlBox {
         self.height = height
     }
 
-    /// The horizontal and vertical insets around the content.
-    var insets: (CGFloat, CGFloat) { (2 * (paddingHorizontal + borderWidth), 2 * (paddingVertical + borderWidth)) }
+    /// The horizontal and vertical insets around the content: the two
+    /// sides of each axis plus the border on both (gpui `measure::insets`).
+    var insets: (CGFloat, CGFloat) {
+        (paddingLeft + paddingRight + 2 * borderWidth, paddingTop + paddingBottom + 2 * borderWidth)
+    }
+
+    /// The top inset (padding + border): where a text leaf's first line starts.
+    var topInset: CGFloat { paddingTop + borderWidth }
 
     /// The content wrap width inside a border-box wrap (`0` stays min-content).
     func innerWrap(_ wrap: CGFloat?) -> CGFloat? {
@@ -76,16 +102,47 @@ public struct LeafRequest {
         control = ControlBox(l.control)
         lines = l.lines.map { Int($0) }
     }
+
+    init(index: Int = 0, id: String = "leaf", component: String, part: String? = nil, props: Props = [:], textStyle: TextStyle = .body, control: ControlBox = ControlBox(), lines: Int? = nil) {
+        self.index = index
+        self.id = id
+        self.component = component
+        self.part = part
+        self.props = props
+        text = props.str("text")
+        self.textStyle = textStyle
+        self.control = control
+        self.lines = lines
+    }
 }
 
 /// The identity the core keys its memo on (a font change = a new id).
 private let measureIdentity: UInt64 = 0x5377_6966_7455_4900
 
+/// Content size plus the first baseline from the CONTENT top (gpui `Content`).
+struct MeasuredContent {
+    var width: CGFloat
+    var height: CGFloat
+    var baseline: CGFloat?
+
+    init(_ w: CGFloat, _ h: CGFloat, _ baseline: CGFloat? = nil) {
+        width = w
+        height = h
+        self.baseline = baseline
+    }
+
+    init(_ s: CGSize) {
+        self.init(s.width, s.height)
+    }
+}
+
 /// The painter's `Measurer`: answers the core's BATCHED questions with the
 /// TextKit shaper, the recipe boxes and the extension painters. Every
 /// answer is the BORDER box of the control (the leaf's `ControlBox` padding
-/// and border added around the content; fixed/minimum sizes win), the gpui
-/// painter's rules.
+/// and border added around the content; fixed/minimum sizes win), and text
+/// leaves also answer their FIRST BASELINE (`alignItems: baseline`). The
+/// rules are gpui's `measure.rs`, rule for rule, so the frames match the
+/// desktop and the web.
 final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     let theme: ThemeHandle?
     let mode: Mode
@@ -110,10 +167,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let leaf = LeafRequest(raw)
             let maxC = answer(leaf, wrap: nil)
             let minC = answer(leaf, wrap: 0)
-            // Round 1 (VAPP-98) added the first line's `baseline`; this
-            // measurer reports none yet (Compose passes none either), so
-            // `alignItems: baseline` falls back to the core's default.
-            return FfiIntrinsics(minContentWidth: Float(min(minC.width, maxC.width)), maxContentWidth: Float(maxC.width), heightAtMaxContent: Float(maxC.height), baseline: nil)
+            return FfiIntrinsics(minContentWidth: Float(min(minC.width, maxC.width)), maxContentWidth: Float(maxC.width), heightAtMaxContent: Float(maxC.height), baseline: maxC.baseline.map { Float($0) })
         }
     }
 
@@ -126,7 +180,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         }
     }
 
-    // MARK: - rules
+    // MARK: - helpers
 
     private func part(_ component: String, _ part: String, _ props: Props, _ states: [String] = []) -> PartStyle {
         theme?.part(component, part, props: props, states: states, mode: mode) ?? .empty
@@ -144,62 +198,87 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         TextShaper.maxContent(text, ts)
     }
 
-    /// Text plus fixed-width chrome beside it, one line.
-    private func textWithChrome(_ text: String, _ ts: TextStyle, chrome: CGFloat, wrap: CGFloat?) -> CGSize {
-        let w = line(text, ts) + chrome
+    /// Where the first baseline sits inside a line box of the style's line
+    /// height: half-leading + ascent (CSS), what `TextLabel` paints.
+    static func baseline(_ ts: TextStyle) -> CGFloat {
+        let font = ExponentialUIFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize)
+        let ascent = font.ascender
+        let descent = abs(font.descender)
+        return max(0, (ts.lineHeight - (ascent + descent)) / 2 + ascent)
+    }
+
+    /// A one-line text with fixed chrome beside it (`lead`, `trail`).
+    private func row(_ text: String, _ ts: TextStyle, lead: CGFloat, trail: CGFloat, wrap: CGFloat?) -> MeasuredContent {
+        let w = lead + line(text, ts) + trail
         let used: CGFloat
         switch wrap {
         case .none: used = w
-        case .some(let x) where x <= 0: used = chrome
+        case .some(let x) where x <= 0: used = lead + trail
         case .some(let x): used = min(w, x)
         }
-        return CGSize(width: used, height: ts.lineHeight)
+        return MeasuredContent(used, ts.lineHeight, Self.baseline(ts))
     }
 
-    func answer(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
+    /// Plain text at an inner wrap width (with the `lines` clamp).
+    private func para(_ text: String, _ ts: TextStyle, wrap: CGFloat?, lines: Int?) -> MeasuredContent {
+        let s = TextShaper.measure(text, ts, wrap: wrap, lines: lines)
+        return MeasuredContent(s.width, s.height, Self.baseline(ts))
+    }
+
+    func answer(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
         calls += 1
         if leaf.component == "Extension" {
             // The pass runs on the main actor (the core calls back
             // synchronously from `layout`); the painters live there too.
-            return MainActor.assumeIsolated {
+            let size = MainActor.assumeIsolated { () -> CGSize in
                 guard let kind = kinds[leaf.id], let painter = extensions.painter(for: kind) else { return CGSize.zero }
                 return painter.measure(ExtensionLeaf(request: leaf, theme: theme, mode: mode), wrap: wrap) ?? .zero
             }
+            return MeasuredContent(size)
         }
         return measureLeaf(leaf, wrap: wrap)
     }
 
-    func measureLeaf(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
+    /// One leaf at one border-box wrap width: its border box and baseline.
+    func measureLeaf(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
         let c = leaf.control
         let inner = c.innerWrap(wrap)
         let props = leaf.props
         let ts = leaf.textStyle
-        let content: CGSize
+        let content: MeasuredContent
         switch (leaf.component, leaf.part) {
-        case ("Text", "tab"):
-            let icon: CGFloat = props["icon"]?.string != nil ? 16 + 4 : 0
-            let count = props["count"]?.displayText ?? ""
-            let countW: CGFloat = count.isEmpty ? 0 : 4 + line(count, ts) + 12
-            content = textWithChrome(props.str("text"), ts, chrome: icon + countW, wrap: inner)
-        case ("Text", "trigger"):
-            var text = props.str("text")
-            if let count = props["count"] { text += " · \(count.displayText)" }
-            content = textWithChrome(text, ts, chrome: 16 + max(c.gap, 8), wrap: inner)
-        case ("Text", "item"):
-            let icon: CGFloat = props["icon"]?.string != nil ? 16 + max(c.gap, 8) : 0
-            content = textWithChrome(props.str("text"), ts, chrome: icon, wrap: inner)
-        case ("Text", _):
-            content = TextShaper.measure(props.str("text"), ts, wrap: inner, lines: leaf.lines)
+        case _ where Self.isInlineField(leaf.component, leaf.part):
+            content = inlineField(leaf)
+        case ("Select", "trigger"), ("DatePicker", "trigger"), ("DateRangePicker", "trigger"), ("TimePicker", "trigger"):
+            content = trigger(leaf)
+        case ("Text", let part):
+            let count = props["count"].map(\.displayText) ?? ""
+            let countW = count.isEmpty ? 0 : line(count, ts)
+            let chrome = Self.textChrome(Self.textOwner(part, props), part, props, gap: c.gap, countWidth: countW)
+            let raw = props.str("text")
+            if chrome != (0, 0) {
+                content = row(raw, ts, lead: chrome.0, trail: chrome.1, wrap: inner)
+            } else if part == "cell", props.str("cellType") == "boolean" {
+                content = MeasuredContent(16, ts.lineHeight)
+            } else if part == "cell", props.str("cellType") == "badge" {
+                let badge = Self.badgeStyle(ts)
+                let m = para(raw, badge, wrap: nil, lines: 1)
+                content = MeasuredContent(m.width + 16, max(m.height, ts.lineHeight), m.baseline)
+            } else if part == "code", props["tokens"] != nil {
+                content = para(raw, Self.codeStyle(ts), wrap: inner, lines: leaf.lines)
+            } else {
+                content = para(raw, ts, wrap: inner, lines: leaf.lines)
+            }
         case ("Markdown", _):
             content = markdown(leaf, wrap: inner)
-        case ("Button", _), ("Toggle", _):
+        case ("Button", _), ("Toggle", _), ("DropdownMenu", _):
             content = button(leaf)
         case ("Link", _):
             let label = props.str("label").isEmpty ? props.str("href") : props.str("label")
-            content = CGSize(width: line(label, ts), height: ts.lineHeight)
-        case ("Icon", _): content = CGSize(width: 16, height: 16)
-        case ("Avatar", _): content = CGSize(width: 32, height: 32)
-        case ("Image", _), ("Video", _): content = media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180))
+            content = MeasuredContent(line(label, ts), ts.lineHeight, Self.baseline(ts))
+        case ("Icon", _): content = MeasuredContent(16, 16)
+        case ("Avatar", _): content = MeasuredContent(32, 32)
+        case ("Image", _), ("Video", _): content = MeasuredContent(media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180)))
         case ("AudioPlayer", _):
             let track: CGFloat = props.str("title").isEmpty ? 0 : ts.lineHeight + spacing("xs")
             let w: CGFloat
@@ -208,42 +287,123 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             case .some(let x) where x <= 0: w = 160
             case .some(let x): w = x
             }
-            content = CGSize(width: w, height: track + 40)
-        case ("Spinner", _): content = CGSize(width: 20, height: 20)
-        case ("Ring", _): content = CGSize(width: 32, height: 32)
-        case ("Skeleton", _): content = skeleton(props, wrap: inner)
-        case ("Chart", _): content = chart(leaf, wrap: inner)
-        case ("Composer", _): content = composer(leaf, wrap: inner)
+            content = MeasuredContent(w, track + 40)
+        case ("Spinner", _): content = MeasuredContent(20, 20)
+        case ("Ring", _): content = MeasuredContent(32, 32)
+        case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
+        case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
+        case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))
         case ("TreeGuides", _):
-            content = CGSize(width: max(props.num("depth") ?? 0, 0) * 16, height: ts.lineHeight)
-        case ("ToggleGroup", _): content = toggleGroup(leaf)
+            content = MeasuredContent(max(props.num("depth") ?? 0, 0) * 16, ts.lineHeight)
+        case ("ToggleGroup", _): content = MeasuredContent(toggleGroup(leaf))
         case ("Unknown", _):
             let label = part("Unknown", "label", props)
             let lts = TextStyle(fontSize: label.px("fontSize") ?? 12, fontWeight: 400, lineHeight: label.px("lineHeight") ?? 16, fontFamily: label.fontFamily)
-            content = TextShaper.measure(SurfaceMeasurer.unknownLabel(props, leaf.component), lts, wrap: inner, lines: nil)
+            content = para(SurfaceMeasurer.unknownLabel(props, leaf.component), lts, wrap: inner, lines: nil)
         case ("Box", "indicator"):
             let n = max(props.num("count") ?? 0, 0)
             let dot = part("Carousel", "indicator", props).width ?? 8
             let gap = spacing("xs")
-            content = CGSize(width: n * dot + max(n - 1, 0) * gap, height: dot + spacing("sm"))
-        case ("Input", "field"): content = CGSize(width: 160, height: ts.lineHeight)
+            content = MeasuredContent(n * dot + max(n - 1, 0) * gap, dot + spacing("sm"))
+        case ("Input", "field"):
+            content = MeasuredContent(160, ts.lineHeight, Self.baseline(ts))
         case ("Textarea", "field"):
-            content = CGSize(width: 160, height: max(props.num("rows") ?? 3, 1) * ts.lineHeight)
-        case ("Select", "field"), ("DatePicker", "field"):
-            return trigger(leaf, leaf.component)
-        case ("Checkbox", "box"), ("Radio", "dot"): content = CGSize(width: 16, height: 16)
-        case ("Switch", "track"): content = CGSize(width: 32, height: 20)
+            let s = textarea(leaf, inner: inner)
+            content = MeasuredContent(s.width, s.height, Self.baseline(ts))
+        case ("Checkbox", "box"), ("Checkbox", "checkbox"), ("Radio", "dot"): content = MeasuredContent(16, 16)
+        case ("Switch", "track"): content = MeasuredContent(32, 20)
         case ("Slider", "track"):
-            content = CGSize(width: 160, height: part("Slider", "thumb", props).height ?? control("slider", 16))
+            content = MeasuredContent(160, part("Slider", "thumb", props).height ?? control("slider", 16))
         // Geometry mode (no theme): every native is ONE measured leaf.
-        case ("Input", nil), ("Select", nil), ("DatePicker", nil): content = CGSize(width: 160, height: 36)
-        case ("Textarea", nil): content = CGSize(width: 160, height: 72)
-        case ("Switch", nil): content = CGSize(width: 44, height: 24)
-        case ("Checkbox", nil), ("Radio", nil): content = CGSize(width: 16, height: 16)
-        case ("Slider", nil): content = CGSize(width: 160, height: 16)
-        default: content = .zero
+        case ("Input", nil), ("Select", nil), ("DatePicker", nil), ("NumberField", nil), ("TimePicker", nil), ("DateRangePicker", nil), ("ChipInput", nil):
+            content = MeasuredContent(160, 36)
+        case ("Textarea", nil): content = MeasuredContent(160, 72)
+        case ("Switch", nil): content = MeasuredContent(44, 24)
+        case ("Checkbox", nil), ("Radio", nil): content = MeasuredContent(16, 16)
+        case ("Slider", nil): content = MeasuredContent(160, 16)
+        case ("Table", nil):
+            let rows = CGFloat(props.list("rows").count)
+            let w: CGFloat = inner.flatMap { $0 > 0 ? $0 : nil } ?? 320
+            content = MeasuredContent(w, (rows + 1) * 36)
+        case ("CodeBlock", nil):
+            var mono = ts
+            mono.fontFamily = "ui-monospace"
+            content = para(props.str("code"), mono, wrap: nil, lines: nil)
+        case ("FileUpload", nil): content = MeasuredContent(240, 96)
+        default: content = MeasuredContent(0, 0)
         }
-        return c.borderBox(content)
+        let box = c.borderBox(CGSize(width: content.width, height: content.height))
+        let baseline = content.baseline.map { b -> CGFloat in
+            let fixed = c.height.map { abs($0 - (content.height + c.insets.1)) > 0.5 } ?? false
+            let centred = fixed || ["trigger", "field", "input", "search"].contains(leaf.part ?? "") || leaf.component == "Button" || leaf.component == "Toggle"
+            // A control centres its line in its box.
+            return centred ? max(0, (box.height - content.height) / 2) + b : c.topInset + b
+        }
+        return MeasuredContent(box.width, box.height, baseline)
+    }
+
+    // MARK: - rules
+
+    /// Is a leaf a host-owned one-line field (a searchable Select's
+    /// `search`, NumberField / ChipInput `input`)?
+    static func isInlineField(_ component: String, _ part: String?) -> Bool {
+        switch (component, part) {
+        case ("Select", "search"), ("NumberField", "input"), ("ChipInput", "input"): true
+        default: false
+        }
+    }
+
+    /// The owner of a `Text` part (`FfiLeaf` carries none): the part names
+    /// are unique per owner; a `Select` option always carries `disabled`
+    /// (a TimePicker time does not).
+    static func textOwner(_ part: String?, _ props: Props) -> String {
+        switch part {
+        case "tab": "Tabs"
+        case "trigger": "Accordion"
+        case "item": props["disabled"] != nil ? "Select" : "TimePicker"
+        case "itemLabel": "DropdownMenu"
+        case "headerCell", "cell": "Table"
+        default: "Text"
+        }
+    }
+
+    /// A prop that is set (not null, not "").
+    static func has(_ props: Props, _ key: String) -> Bool {
+        guard let v = props[key] else { return false }
+        if v.isNull { return false }
+        if case .string(let s) = v, s.isEmpty { return false }
+        return true
+    }
+
+    /// The leading / trailing chrome a one-line text part carries beside its
+    /// text (an icon, a count, a chevron, a check, a sort arrow), in px.
+    static func textChrome(_ owner: String, _ part: String?, _ props: Props, gap: CGFloat, countWidth: CGFloat) -> (CGFloat, CGFloat) {
+        let icon: (String) -> CGFloat = { has(props, $0) ? 16 + max(gap, 4) : 0 }
+        switch (owner, part) {
+        case ("Tabs", "tab"): return (icon("icon"), has(props, "count") ? 4 + countWidth + 12 : 0)
+        case ("Accordion", "trigger"): return (0, 16 + max(gap, 8))
+        case ("Select", "item"): return (icon("icon"), 16 + max(gap, 8))
+        case ("DropdownMenu", "itemLabel"), ("ContextMenu", "itemLabel"): return (icon("icon"), 0)
+        case ("Table", "headerCell"): return (0, has(props, "sortIcon") || props.flag("sortable") ? 16 + 4 : 0)
+        default: return (0, 0)
+        }
+    }
+
+    /// A CodeBlock line's text style: the theme's mono family when the
+    /// platform has it, else the system monospace (gpui maps a mono family it
+    /// cannot load to the platform's mono, never to the sans).
+    static func codeStyle(_ ts: TextStyle) -> TextStyle {
+        var c = ts
+        if let f = ts.fontFamily, ExponentialUIFonts.isAvailable(f) { return c }
+        c.fontFamily = "ui-monospace"
+        return c
+    }
+
+    /// A badge cell's text: two px smaller, at least 10.
+    static func badgeStyle(_ ts: TextStyle) -> TextStyle {
+        var b = ts
+        b.fontSize = max(ts.fontSize - 2, 10)
+        return b
     }
 
     static func unknownLabel(_ props: Props, _ component: String) -> String {
@@ -251,36 +411,41 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return "Unknown component \(name)"
     }
 
-    private func markdown(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
+    /// The `lines` clamp of a Markdown leaf (nil = every line).
+    static func markdownClamp(_ props: Props) -> Int? {
+        guard let n = props.num("lines"), n > 0 else { return nil }
+        return Int(n)
+    }
+
+    private func markdown(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
         let blocks = Markdown.parse(leaf.props.str("text"))
         let ts = leaf.textStyle
         let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: leaf.props)
         let shaper = MarkdownShaper(mono: theme?.monoFamily)
-        let out: CGSize
+        let width: CGFloat
         switch wrap {
-        case .none:
-            let w = Markdown.maxContentWidth(blocks, styles, text: shaper)
-            out = CGSize(width: w, height: Markdown.layout(blocks, styles, width: w, text: shaper).height)
-        case .some(let w) where w <= 0:
-            let mw = Markdown.minContentWidth(blocks, styles, text: shaper)
-            out = CGSize(width: mw, height: Markdown.layout(blocks, styles, width: mw, text: shaper).height)
-        case .some(let w):
-            out = CGSize(width: w, height: Markdown.layout(blocks, styles, width: w, text: shaper).height)
+        case .none: width = Markdown.maxContentWidth(blocks, styles, text: shaper)
+        case .some(let w) where w <= 0: width = Markdown.minContentWidth(blocks, styles, text: shaper)
+        case .some(let w): width = w
         }
-        return CGSize(width: out.width, height: max(out.height, blocks.isEmpty ? 0 : ts.lineHeight))
+        var height = Markdown.layout(blocks, styles, width: width, text: shaper).height
+        // `lines`: the first n body lines (the web's -webkit-line-clamp).
+        if let n = Self.markdownClamp(leaf.props) { height = min(height, CGFloat(n) * ts.lineHeight) }
+        return MeasuredContent(width, max(height, blocks.isEmpty ? 0 : ts.lineHeight), Self.baseline(ts))
     }
 
-    private func button(_ leaf: LeafRequest) -> CGSize {
+    private func button(_ leaf: LeafRequest) -> MeasuredContent {
         let props = leaf.props
         let ts = leaf.textStyle
         let label = props.str("label")
-        let hasIcon = !props.str("icon").isEmpty || props.flag("loading")
+        let hasIcon = Self.has(props, "icon") || props.flag("loading")
         let iconOnly = props.str("size") == "icon"
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0
         let w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
-        return CGSize(width: w, height: max(ts.lineHeight, hasIcon ? icon : 0))
+        let h = max(ts.lineHeight, hasIcon ? icon : 0)
+        return MeasuredContent(w, h, labelW > 0 ? (h - ts.lineHeight) / 2 + Self.baseline(ts) : nil)
     }
 
     private func media(_ props: Props, wrap: CGFloat?, defaultSize: CGSize) -> CGSize {
@@ -314,15 +479,18 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return CGSize(width: w, height: props.px("height") ?? 16)
     }
 
+    /// A chart: the box's width (320 max-content, a sparkline 120), the
+    /// plot `height` (a sparkline 32) plus the title and legend rows.
     private func chart(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
         let props = leaf.props
+        let spark = props.str("kind") == "sparkline"
         let w: CGFloat
         switch wrap {
-        case .none: w = 320
+        case .none: w = spark ? 120 : 320
         case .some(let x) where x <= 0: w = 0
         case .some(let x): w = x
         }
-        var h = CGFloat(props.num("height") ?? 200)
+        var h = CGFloat(props.num("height") ?? (spark ? 32 : 200))
         let gap = spacing("xs")
         if !props.str("title").isEmpty { h += leaf.textStyle.lineHeight + gap }
         if !ChartModel.legend(props).isEmpty {
@@ -331,6 +499,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return CGSize(width: w, height: h)
     }
 
+    /// The composer: its text wrapped at the field width, clamped to the
+    /// field's min height and 200 px, plus the send bar.
     private func composer(_ leaf: LeafRequest, wrap: CGFloat?) -> CGSize {
         let props = leaf.props
         let ts = leaf.textStyle
@@ -341,7 +511,8 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let send = part("Composer", "send", props).height ?? control("buttonIcon", 36)
         let gap = leaf.control.gap
         var text = props.str("value").isEmpty ? props.str("placeholder") : props.str("value")
-        if text.isEmpty { text = "Message" }
+        // An empty field (no placeholder either) is one line tall.
+        if text.isEmpty { text = " " }
         let fieldTs = TextStyle(fontSize: fs, fontWeight: ts.fontWeight, lineHeight: lh, fontFamily: ts.fontFamily)
         let w: CGFloat
         switch wrap {
@@ -351,6 +522,34 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         }
         let th = TextShaper.measure(text, fieldTs, wrap: max(w, 1), lines: nil).height
         return CGSize(width: w, height: min(max(th, minH), 200) + gap + send)
+    }
+
+    /// A Textarea field: `rows` lines, or (`autosize`) its text's wrapped
+    /// lines clamped to `rows ... maxRows`.
+    private func textarea(_ leaf: LeafRequest, inner: CGFloat?) -> CGSize {
+        let props = leaf.props
+        let ts = leaf.textStyle
+        let rows = CGFloat(max(props.num("rows") ?? 3, 1).rounded(.down))
+        let w: CGFloat = 160
+        guard props.flag("autosize") else { return CGSize(width: w, height: rows * ts.lineHeight) }
+        let maxRows = props.num("maxRows").map { CGFloat($0) } ?? .infinity
+        let at = inner.flatMap { $0 > 0 ? $0 : nil } ?? w
+        let value = props.str("value")
+        let lines = value.isEmpty ? 1 : (TextShaper.wrappedHeight(TextShaper.attributed(value, ts), lineHeight: ts.lineHeight, wrap: at) / ts.lineHeight).rounded()
+        return CGSize(width: w, height: min(max(lines, rows), max(maxRows, rows)) * ts.lineHeight)
+    }
+
+    /// A host-owned one-line field: its text (or placeholder) and a caret
+    /// (the search field's glyph at the start).
+    private func inlineField(_ leaf: LeafRequest) -> MeasuredContent {
+        let props = leaf.props
+        let typed = props.str("text")
+        let value = typed.isEmpty ? (props["value"]?.displayText ?? "") : typed
+        let ph = props.str("placeholder")
+        let ts = leaf.textStyle
+        let w = max(line(value, ts), line(ph, ts)) + 2
+        let icon: CGFloat = leaf.part == "search" && Self.has(props, "icon") ? 16 + 8 : 0
+        return MeasuredContent(max(w, 24) + icon, ts.lineHeight, Self.baseline(ts))
     }
 
     private func toggleGroup(_ leaf: LeafRequest) -> CGSize {
@@ -375,19 +574,15 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return CGSize(width: w, height: h)
     }
 
-    /// Select / DatePicker `.field`: the TRIGGER recipe (the field has none).
-    private func trigger(_ leaf: LeafRequest, _ component: String) -> CGSize {
-        let props = leaf.props
-        let t = part(component, "trigger", props)
-        let fs = t.px("fontSize") ?? leaf.textStyle.fontSize
-        let lh = t.px("lineHeight") ?? leaf.textStyle.lineHeight
-        let pad = t.px("paddingHorizontal") ?? t.px("padding") ?? 12
-        let border = t.px("borderWidth") ?? 0
-        let h = t.height ?? (lh + 16)
-        let ts = TextStyle(fontSize: fs, fontWeight: 400, lineHeight: lh, fontFamily: t.fontFamily)
-        let label = component == "Select" ? SurfaceMeasurer.selectLabel(props) : (SurfaceMeasurer.dateLabel(props.str("value")) ?? (props.str("placeholder").isEmpty ? "Pick a date" : props.str("placeholder")))
-        let w = max(line(label, ts) + 2 * (pad + border) + 16 + spacing("sm"), 160)
-        return CGSize(width: w, height: h)
+    /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker
+    /// `trigger`): the core's `text` + its glyph, at least 160 wide like the
+    /// web (the recipe's padding and border come from the control box).
+    private func trigger(_ leaf: LeafRequest) -> MeasuredContent {
+        let ts = leaf.textStyle
+        let text = leaf.props.str("text").isEmpty ? leaf.props.str("placeholder") : leaf.props.str("text")
+        let gap = max(leaf.control.gap, spacing("sm"))
+        let w = line(text, ts) + gap + 16
+        return MeasuredContent(max(w, 160 - leaf.control.insets.0), ts.lineHeight, Self.baseline(ts))
     }
 
     /// A Select's trigger text: the chosen option labels or the placeholder.
@@ -396,6 +591,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let chosen: [String]
         switch props["value"] {
         case .some(.array(let vals)): chosen = vals.map(\.displayText)
+        case .some(.string(let s)) where s.contains(","): chosen = s.split(separator: ",").map(String.init)
         case .some(let v) where !v.isNull: chosen = [v.displayText]
         default: chosen = []
         }

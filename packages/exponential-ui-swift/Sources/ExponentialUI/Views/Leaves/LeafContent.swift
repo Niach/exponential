@@ -1,27 +1,49 @@
 import SwiftUI
 import ExponentialUIPrimitives
 
-/// The content of a measured leaf, dispatched by component and part.
+/// The content of a measured leaf, dispatched by component and part. The
+/// round-1 natives are the core's PARTS (a picker's `trigger`, a calendar's
+/// `day`, a NumberField's `input`, a Table's `headerCell` / `cell`, a
+/// CodeBlock's `code` line, a menu's `itemLabel`, a toast's `icon`): the
+/// core builds and lays them out; each is painted here.
 struct LeafContent: View {
     let context: LeafContext
 
     var body: some View {
+        content.modifier(NativeLeafHooks(cx: context))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         let cx = context
         let n = cx.node
+        let owner = n.recipeComponent
         switch (n.component, n.part) {
         case ("Extension", _):
             ExtensionLeafView(context: cx)
+        case _ where SurfaceMeasurer.isInlineField(owner, n.part):
+            InlineFieldLeaf(cx: cx)
+        case ("Select", "trigger"), ("DatePicker", "trigger"), ("DateRangePicker", "trigger"), ("TimePicker", "trigger"):
+            PickerTriggerLeaf(cx: cx)
         case ("Text", "tab"):
             TabLeaf(cx: cx)
         case ("Text", "trigger"):
             AccordionTriggerLeaf(cx: cx)
-        case ("Text", "item"):
-            MenuItemLeaf(cx: cx)
+        case ("Text", "cell") where owner == "Table":
+            TableCellLeaf(cx: cx)
+        case ("Text", "headerCell"):
+            TableHeaderCellLeaf(cx: cx)
+        case ("Text", "code") where owner == "CodeBlock" && n.props["tokens"] != nil:
+            CodeLineLeaf(cx: cx)
+        case ("Text", "item") where owner == "Select":
+            SelectItemLeaf(cx: cx)
+        case ("Text", "itemLabel"):
+            MenuItemLabelLeaf(cx: cx)
         case ("Text", _):
             TextLeaf(cx: cx)
         case ("Markdown", _):
             MarkdownLeaf(cx: cx)
-        case ("Button", _), ("Toggle", _):
+        case ("Button", _), ("Toggle", _), ("DropdownMenu", _):
             ButtonLeaf(cx: cx)
         case ("Link", _):
             LinkLeaf(cx: cx)
@@ -53,11 +75,7 @@ struct LeafContent: View {
             TextFieldLeaf(cx: cx, multiline: n.component == "Textarea")
         case ("Composer", _):
             ComposerLeaf(cx: cx)
-        case ("Select", "field"):
-            SelectFieldLeaf(cx: cx)
-        case ("DatePicker", "field"):
-            DateFieldLeaf(cx: cx)
-        case ("Checkbox", "box"):
+        case ("Checkbox", "box"), ("Checkbox", "checkbox"):
             CheckBoxLeaf(cx: cx)
         case ("Radio", "dot"):
             RadioDotLeaf(cx: cx)
@@ -67,7 +85,19 @@ struct LeafContent: View {
             SliderTrackLeaf(cx: cx)
         case ("ToggleGroup", _):
             ToggleGroupLeaf(cx: cx)
-        // Geometry mode (no theme): natives are bare boxes.
+        // Geometry mode (no theme): a field native is one leaf showing its
+        // value; a Table / CodeBlock / FileUpload its text. (Themed, the
+        // natives are containers of parts; a Table stays a leaf that carries
+        // its parts, which paint over it.)
+        case (let c, nil) where ["Input", "Select", "DatePicker", "Textarea", "NumberField", "TimePicker", "DateRangePicker", "ChipInput"].contains(c) && (cx.model.children[safe: n.index] ?? []).isEmpty:
+            let v = n.props["value"]?.displayText ?? ""
+            TextLabel(v.isEmpty ? n.props.str("placeholder") : v, cx.textStyle, color: cx.ink, lines: 1)
+                .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+                .offset(x: cx.inner.minX, y: cx.inner.minY)
+        case (let c, nil) where ["Table", "CodeBlock", "FileUpload"].contains(c) && (cx.model.children[safe: n.index] ?? []).isEmpty:
+            TextLabel(n.component == "CodeBlock" ? n.props.str("code") : n.component, cx.textStyle, color: cx.ink)
+                .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
+                .offset(x: cx.inner.minX, y: cx.inner.minY)
         default:
             Color.clear
         }
@@ -111,7 +141,7 @@ struct TabLeaf: View {
         ZStack(alignment: .bottom) {
             HStack(spacing: 4) {
                 if let icon = cx.props["icon"]?.string {
-                    IconView(name: icon, size: 16, color: cx.ink, model: cx.model)
+                    ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
                 }
                 Text(cx.props.str("text")).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
                 if let count = cx.props["count"] {
@@ -138,25 +168,7 @@ struct AccordionTriggerLeaf: View {
         return HStack(spacing: max(cx.style.gap, 8)) {
             Text(title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
             Spacer(minLength: 0)
-            GlyphView(glyph: .chevronDown, size: 16, color: cx.ink).rotationEffect(.degrees(cx.node.open ? 180 : 0))
-        }
-        .frame(width: cx.inner.width, height: cx.inner.height)
-        .offset(x: cx.inner.minX, y: cx.inner.minY)
-    }
-}
-
-/// A DropdownMenu `item`: icon + label (destructive tinted).
-struct MenuItemLeaf: View {
-    let cx: LeafContext
-
-    var body: some View {
-        let ink = cx.props.flag("destructive") ? (cx.themeColor("destructive") ?? cx.ink) : cx.ink
-        HStack(spacing: max(cx.style.gap, 8)) {
-            if let icon = cx.props["icon"]?.string {
-                IconView(name: icon, size: 16, color: ink, model: cx.model)
-            }
-            Text(cx.props.str("text")).font(cx.font).foregroundStyle(ink).lineLimit(1)
-            Spacer(minLength: 0)
+            ConceptIcon(name: BuiltinIcons.name("Accordion.trigger"), size: 16, color: cx.ink, model: cx.model).rotationEffect(.degrees(cx.node.open ? 180 : 0))
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
@@ -180,7 +192,9 @@ struct MarkdownLeaf: View {
     }
 }
 
-/// Button / Toggle content: spinner or icon, then the label, centred.
+/// Button / Toggle content: spinner or icon, then the label, centred. A
+/// CodeBlock `copy` part showing `copied` asks the core to reset it after
+/// 2 s (gpui `COPIED_RESET`).
 struct ButtonLeaf: View {
     let cx: LeafContext
 
@@ -190,13 +204,14 @@ struct ButtonLeaf: View {
         let loading = cx.props.flag("loading")
         let iconOnly = cx.props.str("size") == "icon"
         let iconSize = cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16)
+        let copied = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" && cx.props.flag("copied")
         HStack(spacing: cx.style.gap) {
             if loading {
                 SpinnerView(size: iconSize, color: cx.ink)
             } else if !icon.isEmpty {
-                IconView(name: icon, size: iconSize, color: cx.ink, model: cx.model)
+                ConceptIcon(name: icon, size: iconSize, color: cx.ink, model: cx.model)
             } else if iconOnly {
-                IconView(name: "", size: iconSize, color: cx.ink, model: cx.model)
+                ConceptIcon(name: "", size: iconSize, color: cx.ink, model: cx.model)
             }
             if !iconOnly, !label.isEmpty {
                 Text(label).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
@@ -204,6 +219,12 @@ struct ButtonLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .milliseconds(2000))
+            guard !Task.isCancelled, let i = cx.model.index(of: cx.node.id) else { return }
+            cx.model.fire(i, "reset")
+        }
     }
 }
 
