@@ -38,6 +38,13 @@ pub fn shadows(layers: &[ShadowLayer]) -> Vec<BoxShadow> {
         .collect()
 }
 
+/// `a` → `b` at `t` (0..1), blended in sRGB like a CSS colour transition.
+pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
+    let (x, y) = (Rgba::from(a), Rgba::from(b));
+    let l = |p: f32, q: f32| p + (q - p) * t.clamp(0.0, 1.0);
+    Rgba { r: l(x.r, y.r), g: l(x.g, y.g), b: l(x.b, y.b), a: l(x.a, y.a) }.into()
+}
+
 /// `hsl(h s% l%)` with an alpha, for the avatar seed tint.
 pub fn hsl(h: f32, s: f32, l: f32, a: f32) -> Hsla {
     Hsla { h: (h / 360.0).rem_euclid(1.0), s, l, a }

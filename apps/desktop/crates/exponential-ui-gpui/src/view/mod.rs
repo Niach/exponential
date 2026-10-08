@@ -1,42 +1,54 @@
 //! [`SurfaceView`]: the gpui entity that owns one Exponential UI surface.
 //!
-//! Each frame: interaction states are flushed into the core, the core lays
-//! the tree out against a [`GpuiMeasure`] (one pass; steady state = memo
-//! hits only), and every placed node is painted as ONE absolutely positioned
-//! div at its frame relative to its parent's frame — nested like the tree so
-//! clipping, opacity and text style inherit — never through gpui's `Styled`
-//! flex/grid layout. Open overlay layers paint above the tree as deferred
-//! elements at their surface-coordinate frames.
+//! The view renders a [`SurfaceElement`]: a gpui element whose LAYOUT asks
+//! the core (a measured gpui layout node: the available width in, the
+//! surface height out), so the very first frame lays out at the element's
+//! real width — no probe, no jump. Its PREPAINT knows the element's bounds
+//! and the host's clip, so it moves windowed lists and the visible region
+//! (Dialogs centre in what the user SEES) in the same frame, then builds the
+//! element tree: ONE absolutely positioned div per placed node at its frame
+//! relative to its parent's frame — nested like the tree so clipping,
+//! opacity and text style inherit — never through gpui's `Styled`
+//! flex/grid layout. Scroll containers translate their descendants by the
+//! core's offsets; open layers paint above the tree as deferred elements.
 
 mod events;
 mod input;
+mod motion;
 mod paint;
 pub(crate) mod state;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use exponential_ui::measure::TextStyle;
-use exponential_ui::surface::{ApplyOutcome, Frame, Layer, ListOutput, Surface, SurfaceOptions};
-use exponential_ui::theme::{Mode, ResolvedTheme};
+use exponential_ui::layout_tree::ToastSpec;
+use exponential_ui::measure::{FixedMeasure, TextStyle};
+use exponential_ui::surface::{ApplyOutcome, Frame, Layer, ListOutput, PlacedNode, ScrollOutput, Surface, SurfaceOptions, SurfaceSettings};
+use exponential_ui::theme::{Mode, ModeSetting, ResolvedTheme};
 use exponential_ui::themes::default_theme;
 use exponential_ui::{ExtensionDef, NestedNode, CORE_CATALOG_ID};
-use gpui::{canvas, deferred, div, prelude::*, px, Bounds, Context, FocusHandle, Font, Hsla, Pixels, ScrollHandle, Subscription, Task, WeakEntity, Window};
+use gpui::{
+    deferred, div, prelude::*, px, AnyElement, App, AvailableSpace, Bounds, Context, Element, ElementId, Entity, FocusHandle, Font, GlobalElementId, Hsla, InspectorElementId, LayoutId, Pixels, SharedString,
+    Size, Style, Subscription, Task, WeakEntity, Window, WindowAppearance,
+};
 
 use crate::extension::ExtensionPainter;
 use crate::host::{HostPlugin, NoHost};
 use crate::measure::{make_font, Fonts, GpuiMeasure};
+use crate::paint::markdown::Block;
 use crate::paint::parts::default_ink;
 use crate::paint::PaintStyle;
+use motion::Motion;
 use state::NodeCache;
 
-pub(crate) use input::{Field, Popup};
-pub use state::{focus_order, is_focusable, next_focus};
+pub(crate) use input::Field;
+pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 
-/// The surface width until the first paint reports the element's own width.
+/// The surface width before the element knows its own (no host width and
+/// no window yet).
 pub const DEFAULT_WIDTH: f32 = 900.0;
 
 /// How a [`SurfaceView`] is created.
@@ -49,11 +61,35 @@ pub struct SurfaceViewOptions {
     pub extensions: Vec<ExtensionDef>,
     pub host: Rc<dyn HostPlugin>,
     pub rounding: bool,
+    /// The width the surface lays out at before gpui's layout reports the
+    /// element's own (`None` = the window's width).
+    pub width: Option<f32>,
+    /// Locale, built-in string overrides, `system` mode, density, contrast,
+    /// font scale, hover, reduced motion, safe-area insets, today. `None` =
+    /// the core defaults with `mode` from above.
+    pub settings: Option<SurfaceSettings>,
+    /// Expand form controls into their parts (default: when themed).
+    pub expand_controls: Option<bool>,
+    /// Lay out with the core's FIXED measure instead of gpui's text system
+    /// (golden geometry: the shared `layout-geometry*.json` fixtures).
+    pub fixed_measure: Option<FixedMeasure>,
 }
 
 impl Default for SurfaceViewOptions {
     fn default() -> Self {
-        SurfaceViewOptions { surface_id: "surface".into(), catalog_id: CORE_CATALOG_ID.into(), theme: Some(default_theme()), mode: Mode::Dark, extensions: Vec::new(), host: Rc::new(NoHost), rounding: false }
+        SurfaceViewOptions {
+            surface_id: "surface".into(),
+            catalog_id: CORE_CATALOG_ID.into(),
+            theme: Some(default_theme()),
+            mode: Mode::Dark,
+            extensions: Vec::new(),
+            host: Rc::new(NoHost),
+            rounding: false,
+            width: None,
+            settings: None,
+            expand_controls: None,
+            fixed_measure: None,
+        }
     }
 }
 
@@ -72,6 +108,11 @@ pub struct PassStats {
     pub structure_version: u64,
     pub upcalls: u32,
     pub measure_rounds: u32,
+    /// Nodes the core restyled / built this pass.
+    pub restyled: u32,
+    pub built_nodes: u32,
+    /// The width the pass laid out at.
+    pub width: f32,
 }
 
 /// Hover / pressed / focus flags of one node (merged into `set_states`).
@@ -80,6 +121,9 @@ pub(crate) struct Interaction {
     pub hover: bool,
     pub pressed: bool,
     pub focus: bool,
+    /// Focus that arrived from the keyboard (`:focus-visible`).
+    pub focus_visible: bool,
+    pub dragover: bool,
 }
 
 impl Interaction {
@@ -94,16 +138,14 @@ impl Interaction {
         if self.focus {
             out.push("focus".to_string());
         }
+        if self.focus_visible {
+            out.push("focus-visible".to_string());
+        }
+        if self.dragover {
+            out.push("dragover".to_string());
+        }
         out
     }
-}
-
-/// A painter-local value of a control whose prop is not bound (the core only
-/// writes bound values through): shown until the external prop changes.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Mirror {
-    pub external: serde_json::Value,
-    pub local: serde_json::Value,
 }
 
 /// An in-flight Slider drag.
@@ -113,6 +155,94 @@ pub(crate) struct Drag {
     pub value: f64,
 }
 
+/// An in-flight scrollbar thumb drag.
+#[derive(Debug, Clone)]
+pub(crate) struct ScrollDrag {
+    pub id: String,
+    pub vertical: bool,
+    pub start_pointer: f32,
+    pub start_offset: f32,
+    /// Content px per pointer px.
+    pub ratio: f32,
+}
+
+/// An in-flight Drawer drag (toward its edge to dismiss).
+#[derive(Debug, Clone)]
+pub(crate) struct SheetDrag {
+    pub root: u32,
+    /// The edge the sheet hangs from (`bottom`, `right`…).
+    pub side: String,
+    pub start: (f32, f32),
+    pub offset: (f32, f32),
+}
+
+/// The part of the surface the host shows (surface coordinates): the
+/// visible top and height, from the element's clip.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct VisibleRegion {
+    pub top: f32,
+    pub height: f32,
+}
+
+/// A running toast timer.
+pub(crate) struct ToastTimer {
+    pub remaining_ms: f64,
+    pub started: Option<Instant>,
+    pub task: Option<Task<()>>,
+}
+
+/// Parsed markdown per Markdown leaf (by slot), keyed by its text.
+type MarkdownCache = HashMap<u32, (String, Rc<Vec<Block>>)>;
+
+/// What a closing layer last painted, renumbered into its own small slot
+/// space (`0..n`, root first) so nothing of the live caches (which a
+/// compaction may renumber the same pass) leaks into it: painting a ghost
+/// swaps this world in for the live one ([`SurfaceView::swap_world`]).
+#[derive(Default)]
+pub(crate) struct GhostWorld {
+    cache: NodeCache,
+    frames: Vec<Frame>,
+    styles: Vec<PaintStyle>,
+    texts: Vec<TextStyle>,
+    fonts: Vec<Font>,
+    inks: Vec<Hsla>,
+    scrolls: HashMap<u32, ScrollOutput>,
+    lists: HashMap<u32, ListOutput>,
+    chart_hover: HashMap<u32, usize>,
+}
+
+/// A layer that just closed: painted from its last state, fading (and
+/// sinking back) out over the theme's `motion.fast`, never interactive.
+/// `layer` is renumbered into `world`'s slots.
+pub(crate) struct ExitingLayer {
+    layer: Layer,
+    start: Instant,
+    duration_ms: f32,
+    world: GhostWorld,
+}
+
+/// The slot caches as they were before a pass rebuilt them (a compaction
+/// renumbered the slots, or the host touched `surface_mut`): the source of
+/// a closing layer's ghost.
+struct PrePass {
+    cache: NodeCache,
+    styles: Vec<PaintStyle>,
+    texts: Vec<TextStyle>,
+    fonts: Vec<Font>,
+    inks: Vec<Hsla>,
+}
+
+/// What a reader is told about one node (or one built-in sub-control).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccessibleInfo {
+    pub role: gpui::Role,
+    pub label: Option<SharedString>,
+    pub description: Option<SharedString>,
+}
+
+/// Painted window bounds by node id ([`SurfaceView::record_bounds`]).
+type BoundsLog = Rc<RefCell<HashMap<String, Bounds<Pixels>>>>;
+
 /// The gpui entity owning one surface.
 pub struct SurfaceView {
     surface: Surface,
@@ -121,10 +251,17 @@ pub struct SurfaceView {
     painters: HashMap<String, Rc<dyn ExtensionPainter>>,
     stats: PassStats,
     width: f32,
+    /// The host fixed the width (`set_width`): gpui's layout does not move it.
+    width_fixed: bool,
     viewport_height: f32,
+    visible: VisibleRegion,
+    origin: gpui::Point<Pixels>,
     nodes_dirty: bool,
     cache: NodeCache,
     frames: Vec<Frame>,
+    /// The main tree's paint order (= a11y order) and each layer's.
+    order: Vec<u32>,
+    layer_orders: Vec<Vec<u32>>,
     styles: Vec<PaintStyle>,
     texts: Vec<TextStyle>,
     node_fonts: Vec<Font>,
@@ -132,6 +269,9 @@ pub struct SurfaceView {
     ink_base: Option<Hsla>,
     layers: Vec<Layer>,
     lists: HashMap<u32, ListOutput>,
+    scrolls: HashMap<u32, ScrollOutput>,
+    toasts: Vec<ToastSpec>,
+    rtl: bool,
     surface_height: f32,
     interaction: HashMap<String, Interaction>,
     states_dirty: HashSet<String>,
@@ -139,38 +279,95 @@ pub struct SurfaceView {
     root_focus: FocusHandle,
     focus_handles: HashMap<String, FocusHandle>,
     focused: Option<u32>,
+    /// The last focus move came from the keyboard.
+    keyboard: bool,
+    pending_focus: Option<String>,
+    /// The hover-opened trigger keyboard focus sits in.
+    focus_trigger: Option<String>,
     fields: HashMap<String, Field>,
     revisions: HashMap<String, u64>,
-    mirrors: HashMap<String, Mirror>,
-    popup: Option<Popup>,
-    tooltip: Option<(String, Task<()>)>,
+    hover_timer: Option<(String, Task<()>)>,
+    /// The core's hover-overlay close delays (`OutEvent::HoverTimer`).
+    hover_close_timers: HashMap<String, Task<()>>,
     open_layers: Vec<String>,
     layer_return: HashMap<String, String>,
     just_dismissed: Option<String>,
     unknown_version: Option<u64>,
-    list_scrolls: HashMap<String, ScrollHandle>,
-    list_offsets: Rc<RefCell<HashMap<String, f32>>>,
+    list_offsets: HashMap<String, f32>,
     drag: Option<Drag>,
+    scroll_drag: Option<ScrollDrag>,
+    sheet_drag: Option<SheetDrag>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
+    motion: Motion,
+    toast_timers: HashMap<String, ToastTimer>,
+    toast_hover: HashSet<String>,
+    announcement: Option<(SharedString, String)>,
+    copy_resets: HashMap<String, Task<()>>,
+    /// ToggleGroup roving item (`group id` → item index).
+    group_focus: HashMap<String, usize>,
+    /// A calendar day to focus once its month is built (keyboard paging).
+    pending_day: Option<(String, String)>,
+    /// The category / slice under the pointer, per Chart.
+    chart_hover: HashMap<u32, usize>,
+    markdown: RefCell<MarkdownCache>,
+    /// Layers fading out after they closed.
+    exiting: Vec<ExitingLayer>,
+    /// Markdown text units: registered while building, committed once
+    /// painted (hit-testing needs laid-out text).
+    md_pending: crate::paint::markdown::MdUnits,
+    md_units: crate::paint::markdown::MdUnits,
+    md_selection: Option<crate::paint::markdown::MdSelection>,
+    /// The selected leaf's id + text hash when the selection was made: a
+    /// change of either (a streamed chunk, a reused slot) drops it.
+    md_selection_key: Option<(String, u64)>,
+    /// A pointer drag is extending the Markdown selection.
+    md_dragging: bool,
+    /// The element being built is an exiting layer (no listeners, no focus,
+    /// no a11y node).
+    ghosting: Cell<bool>,
+    /// Added to the motion clock ([`Self::advance_clock`]).
+    clock_skew: std::time::Duration,
+    debug_bounds: Option<BoundsLog>,
+    fixed_measure: Option<FixedMeasure>,
     this: WeakEntity<SurfaceView>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SurfaceView {
-    pub fn new(options: SurfaceViewOptions, _window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let surface = Surface::new(&options.surface_id, SurfaceOptions { catalog_id: options.catalog_id, theme: options.theme.clone(), mode: options.mode, extensions: options.extensions, rounding: options.rounding });
-        let fonts = Fonts::new(options.host.clone(), options.theme.as_deref());
+    pub fn new(options: SurfaceViewOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut surface = Surface::new(&options.surface_id, SurfaceOptions { catalog_id: options.catalog_id, theme: options.theme.clone(), mode: options.mode, extensions: options.extensions, rounding: options.rounding, expand_controls: options.expand_controls });
+        if let Some(settings) = options.settings.clone() {
+            surface.set_settings(settings);
+        } else {
+            surface.set_mode(options.mode);
+        }
+        let fonts = Fonts::new(options.host.clone(), options.theme.as_deref(), cx.text_system().clone());
+        let window_width = f32::from(window.viewport_size().width);
+        let width = options.width.filter(|w| *w > 0.0).unwrap_or(if window_width > 0.0 { window_width } else { DEFAULT_WIDTH });
+        let mut subscriptions = Vec::new();
+        subscriptions.push(cx.observe_window_appearance(window, |this: &mut SurfaceView, window, cx| {
+            if this.surface.settings().mode == ModeSetting::System {
+                this.sync_appearance(window);
+                cx.notify();
+            }
+        }));
         SurfaceView {
             surface,
             host: options.host,
             fonts,
             painters: HashMap::new(),
             stats: PassStats::default(),
-            width: DEFAULT_WIDTH,
+            width,
+            width_fixed: options.width.is_some(),
             viewport_height: 0.0,
+            // Until the first prepaint sees the clip: the window.
+            visible: VisibleRegion { top: 0.0, height: f32::from(window.viewport_size().height) },
+            origin: gpui::Point::default(),
             nodes_dirty: true,
             cache: NodeCache::default(),
             frames: Vec::new(),
+            order: Vec::new(),
+            layer_orders: Vec::new(),
             styles: Vec::new(),
             texts: Vec::new(),
             node_fonts: Vec::new(),
@@ -178,6 +375,9 @@ impl SurfaceView {
             ink_base: None,
             layers: Vec::new(),
             lists: HashMap::new(),
+            scrolls: HashMap::new(),
+            toasts: Vec::new(),
+            rtl: false,
             surface_height: 0.0,
             interaction: HashMap::new(),
             states_dirty: HashSet::new(),
@@ -185,28 +385,49 @@ impl SurfaceView {
             root_focus: cx.focus_handle(),
             focus_handles: HashMap::new(),
             focused: None,
+            keyboard: false,
+            pending_focus: None,
+            focus_trigger: None,
             fields: HashMap::new(),
             revisions: HashMap::new(),
-            mirrors: HashMap::new(),
-            popup: None,
-            tooltip: None,
+            hover_timer: None,
+            hover_close_timers: HashMap::new(),
             open_layers: Vec::new(),
             layer_return: HashMap::new(),
             just_dismissed: None,
             unknown_version: None,
-            list_scrolls: HashMap::new(),
-            list_offsets: Rc::new(RefCell::new(HashMap::new())),
+            list_offsets: HashMap::new(),
             drag: None,
+            scroll_drag: None,
+            sheet_drag: None,
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
+            motion: Motion::default(),
+            toast_timers: HashMap::new(),
+            toast_hover: HashSet::new(),
+            announcement: None,
+            copy_resets: HashMap::new(),
+            group_focus: HashMap::new(),
+            pending_day: None,
+            chart_hover: HashMap::new(),
+            markdown: RefCell::new(HashMap::new()),
+            exiting: Vec::new(),
+            md_pending: Rc::default(),
+            md_units: Rc::default(),
+            md_selection: None,
+            md_selection_key: None,
+            md_dragging: false,
+            ghosting: Cell::new(false),
+            clock_skew: std::time::Duration::ZERO,
+            debug_bounds: None,
+            fixed_measure: options.fixed_measure,
             this: cx.entity().downgrade(),
-            _subscriptions: Vec::new(),
+            _subscriptions: subscriptions,
         }
     }
 
     /// Apply one A2UI server→client message.
     pub fn apply(&mut self, message: &serde_json::Value, cx: &mut Context<Self>) -> Result<ApplyOutcome, String> {
         let out = self.surface.apply(message);
-        self.nodes_dirty = true;
         cx.notify();
         out
     }
@@ -214,7 +435,6 @@ impl SurfaceView {
     /// The nested authoring form (fixtures, templates).
     pub fn set_nested(&mut self, tree: NestedNode, cx: &mut Context<Self>) -> ApplyOutcome {
         let out = self.surface.set_nested(tree);
-        self.nodes_dirty = true;
         cx.notify();
         out
     }
@@ -222,21 +442,53 @@ impl SurfaceView {
     /// Write `value` at `path` of the data model (`None` removes).
     pub fn set_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) {
         self.surface.set_data(path, value);
-        self.nodes_dirty = true;
         cx.notify();
     }
 
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {
         self.fonts.set_theme(theme.as_deref());
         self.surface.set_theme(theme);
-        self.nodes_dirty = true;
         // Every cached font/visual re-reads (the default family moved).
         self.styles.clear();
         cx.notify();
     }
 
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        let mut s = self.surface.settings().clone();
+        s.mode = match mode {
+            Mode::Light => ModeSetting::Light,
+            Mode::Dark => ModeSetting::Dark,
+        };
+        self.surface.set_settings(s);
         self.surface.set_mode(mode);
+        cx.notify();
+    }
+
+    /// Locale, strings, `system` mode, density, contrast, font scale, hover,
+    /// reduced motion, insets, today (`mode: system` follows the window's
+    /// appearance live).
+    pub fn set_settings(&mut self, settings: SurfaceSettings, window: &mut Window, cx: &mut Context<Self>) {
+        self.surface.set_settings(settings);
+        self.sync_appearance(window);
+        cx.notify();
+    }
+
+    fn sync_appearance(&mut self, window: &Window) {
+        if self.surface.settings().mode != ModeSetting::System {
+            return;
+        }
+        let dark = matches!(window.appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark);
+        if self.surface.settings().system_dark != dark {
+            self.surface.set_mode_setting(ModeSetting::System, dark);
+        }
+    }
+
+    /// Fonts were registered with the text system after this view measured:
+    /// every family re-resolves and every leaf is measured again.
+    pub fn fonts_changed(&mut self, cx: &mut Context<Self>) {
+        self.fonts.invalidate(self.surface.theme().map(|t| t.as_ref()));
+        self.surface.invalidate_measures();
+        self.node_fonts.clear();
         cx.notify();
     }
 
@@ -262,7 +514,7 @@ impl SurfaceView {
     }
 
     /// The host's visible height (windowed lists size their range off it;
-    /// Dialogs centre in it). 0 = unknown.
+    /// Dialogs centre in it). 0 = the element's clip decides.
     pub fn set_viewport_height(&mut self, height: f32, cx: &mut Context<Self>) {
         if (height - self.viewport_height).abs() > 0.5 {
             self.viewport_height = height.max(0.0);
@@ -270,9 +522,9 @@ impl SurfaceView {
         }
     }
 
-    /// The surface width the next pass lays out at (normally probed from the
-    /// element's own bounds, one frame late).
+    /// Fix the surface width (gpui's layout no longer moves it).
     pub fn set_width(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.width_fixed = true;
         if width > 0.0 && (width - self.width).abs() > 0.5 {
             self.width = width;
             cx.notify();
@@ -300,43 +552,69 @@ impl SurfaceView {
         &self.layers
     }
 
-    fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.cache = NodeCache::build(&mut self.surface);
-        self.nodes_dirty = false;
-        if self.unknown_version != Some(self.cache.version) {
-            self.unknown_version = Some(self.cache.version);
-            for n in self.cache.nodes.iter().filter(|n| n.component == "Unknown") {
-                self.host.on_unknown(n);
-            }
-        }
-        // Focus handles for focusable non-field nodes, kept by id.
-        let mut handles = HashMap::new();
-        for n in &self.cache.nodes {
-            if state::is_focusable(n) && !state::is_text_field(n) {
-                let h = self.focus_handles.remove(&n.id).unwrap_or_else(|| cx.focus_handle());
-                handles.insert(n.id.clone(), h);
-            }
-            if n.component == "List" {
-                self.list_scrolls.entry(n.id.clone()).or_default();
-            }
-        }
-        self.focus_handles = handles;
-        self.sync_fields(window, cx);
-        if let Some(p) = &self.popup {
-            if self.cache.index_of(&p.field).is_none() {
-                self.popup = None;
-            }
-        }
+    /// The surface direction of the last pass.
+    pub fn is_rtl(&self) -> bool {
+        self.rtl
+    }
+
+    /// The visible region the last frame used (surface coordinates).
+    pub fn visible_region(&self) -> VisibleRegion {
+        self.visible
+    }
+
+    /// The last announcement (`announce`, a live region, a Form error):
+    /// `(text, politeness)`. It is also exposed as a `status` a11y node.
+    pub fn announcement(&self) -> Option<(SharedString, String)> {
+        self.announcement.clone()
+    }
+
+    /// The interaction states the painter set on a node (`hover`,
+    /// `pressed`, `focus`, `focus-visible`, `dragover`).
+    pub fn node_states(&self, id: &str) -> Vec<String> {
+        self.interaction.get(id).copied().unwrap_or_default().states()
+    }
+
+    /// Record every painted node's window bounds (a test and automation aid;
+    /// adds one probe per node while on).
+    pub fn record_bounds(&mut self, on: bool) {
+        self.debug_bounds = on.then(|| Rc::new(RefCell::new(HashMap::new())));
+    }
+
+    /// A painted node's window bounds (with [`Self::record_bounds`] on).
+    pub fn painted_bounds(&self, id: &str) -> Option<Bounds<Pixels>> {
+        self.debug_bounds.as_ref().and_then(|b| b.borrow().get(id).copied())
+    }
+
+    /// The surface's origin in window coordinates (as of the last frame).
+    pub fn origin(&self) -> gpui::Point<Pixels> {
+        self.origin
+    }
+
+    /// The text field values typed but maybe not yet flushed.
+    fn live_texts(&self, cx: &App) -> HashMap<String, String> {
+        self.fields.iter().map(|(id, f)| (id.clone(), f.value(cx))).collect()
     }
 
     /// One layout pass: states in, layout, caches refreshed.
-    fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let max_h = (self.viewport_height > 0.0).then_some(self.viewport_height);
+    pub(crate) fn pass(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let visible_h = if self.viewport_height > 0.0 { self.viewport_height } else { self.visible.height };
+        let max_h = (visible_h > 0.0).then_some(visible_h);
+        self.sync_appearance(window);
         self.surface.set_viewport(self.width, 0.0, max_h);
         self.track_focus(window, cx);
         self.flush_states();
-        if self.nodes_dirty || self.surface.structure_version() != self.cache.version || (self.cache.nodes.is_empty() && self.surface.root().is_some()) {
-            self.sync(window, cx);
+        // While a layer is open, keep what this pass replaces: a layer that
+        // closes paints it fading out. A rebuild (the host touched the
+        // surface, a compaction renumbered the slots) moves the whole
+        // previous cache aside; a delta patch keeps only the replaced layer
+        // nodes.
+        let keep_old = !self.layers.is_empty() && !self.surface.settings().reduced_motion;
+        let mut pre: Option<PrePass> = None;
+        let mut old_nodes: HashMap<u32, PlacedNode> = HashMap::new();
+        if self.nodes_dirty {
+            let fresh = NodeCache::build(&mut self.surface);
+            self.retire_caches(fresh, keep_old, &mut pre);
+            self.nodes_dirty = false;
         }
         let theme = self.surface.theme().cloned();
         let mode = self.surface.mode();
@@ -345,28 +623,106 @@ impl SurfaceView {
         let mut layout_ns = 0;
         let mut changed: HashSet<u32> = HashSet::new();
         let mut tries = 0;
+        let live = self.live_texts(cx);
         let out = loop {
-            let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds);
-            let out = self.surface.layout(&mut m);
-            calls += m.calls();
+            let (out, unknown) = if let Some(fixed) = self.fixed_measure.as_mut() {
+                (self.surface.layout(fixed), Vec::new())
+            } else {
+                let mut m = GpuiMeasure::new(window, cx, &self.fonts, theme.as_deref(), mode, &self.painters, &self.cache.kinds, &live);
+                let out = self.surface.layout(&mut m);
+                calls += m.calls();
+                (out, std::mem::take(&mut m.unknown_extensions))
+            };
             layout_ns += out.layout_ns;
             changed.extend(out.visual_changes.iter().copied());
+            changed.extend(out.delta.added.iter().copied());
+            changed.extend(out.delta.changed.iter().copied());
+            if self.cache.nodes.is_empty() || out.delta.renumbered {
+                let fresh = NodeCache::build(&mut self.surface);
+                self.retire_caches(fresh, keep_old, &mut pre);
+            } else {
+                // Old versions only in the numbering `pre` (if any) was
+                // taken in: never after a rebuild this pass.
+                self.cache.patch(&mut self.surface, &out.delta, (keep_old && pre.is_none()).then_some(&mut old_nodes));
+            }
             tries += 1;
-            if out.structure_version == self.cache.version || tries >= 3 {
+            // An extension leaf measured before its kind was known: measure
+            // it again now that the cache knows it.
+            if unknown.is_empty() || tries >= 3 {
                 break out;
             }
-            self.sync(window, cx);
+            for i in unknown {
+                self.surface.mark_dirty(i);
+            }
         };
         let wall_ns = started.elapsed().as_nanos() as u64;
+        self.after_layout(out, changed, old_nodes, pre, theme.as_deref(), mode, window, cx);
+        self.stats.measure_calls = calls;
+        self.stats.layout_ns = layout_ns;
+        self.stats.wall_ns = wall_ns;
+        self.stats.passes += 1;
+        self.stats.width = self.width;
+        if std::env::var_os("EXP_UI_TRACE").is_some() {
+            eprintln!(
+                "[exponential-ui gpui] {} pass {} width {:.0}: {} nodes · {} measure calls · {} upcalls · {} restyled · {} built · core {} µs · wall {} µs · layers {}",
+                self.surface.id,
+                self.stats.passes,
+                self.width,
+                self.stats.nodes,
+                calls,
+                self.stats.upcalls,
+                self.stats.restyled,
+                self.stats.built_nodes,
+                layout_ns / 1000,
+                wall_ns / 1000,
+                self.layers.len()
+            );
+        }
+    }
+
+    /// Install a rebuilt node cache. With `keep` (a layer is open) the
+    /// previous slot caches move into `pre` (the first rebuild of a pass
+    /// wins: it holds what was painted); else they are dropped.
+    fn retire_caches(&mut self, fresh: NodeCache, keep: bool, pre: &mut Option<PrePass>) {
+        let cache = std::mem::replace(&mut self.cache, fresh);
+        let styles = std::mem::take(&mut self.styles);
+        if keep && pre.is_none() {
+            *pre = Some(PrePass { cache, styles, texts: std::mem::take(&mut self.texts), fonts: std::mem::take(&mut self.node_fonts), inks: std::mem::take(&mut self.inks) });
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn after_layout(&mut self, out: exponential_ui::surface::LayoutOutput, changed: HashSet<u32>, old_nodes: HashMap<u32, PlacedNode>, pre: Option<PrePass>, theme: Option<&ResolvedTheme>, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
         let n = self.cache.nodes.len();
-        // Frames by index: the main tree, then every layer's.
-        self.frames.clear();
-        self.frames.resize(n, Frame::default());
+        // Layers that closed this pass keep painting, fading out (captured
+        // before the caches below move on); a reopened one drops its ghost.
+        self.exiting.retain(|g| !out.layers.iter().any(|l| l.owner == g.layer.owner && l.layer == g.layer.layer));
+        if !self.surface.settings().reduced_motion {
+            let exit_ms = self.surface.theme().and_then(|t| t.tokens.motion.get("fast").copied()).unwrap_or(120.0) as f32;
+            let closed: Vec<Layer> = self.layers.iter().filter(|l| !out.layers.iter().any(|o| o.owner == l.owner && o.layer == l.layer)).cloned().collect();
+            for layer in closed {
+                if let Some(ghost) = self.ghost_of(layer, &old_nodes, pre.as_ref(), exit_ms) {
+                    self.exiting.push(ghost);
+                }
+            }
+        }
+        if self.unknown_version != Some(self.cache.version) {
+            self.unknown_version = Some(self.cache.version);
+            for node in self.cache.nodes.iter().filter(|x| !x.removed && x.component == "Unknown") {
+                self.host.on_unknown(node);
+            }
+        }
+        self.sync_handles(window, cx);
+        // Frames by slot: the main tree, then every layer's.
+        let previous = std::mem::take(&mut self.frames);
+        self.frames = vec![Frame::default(); n];
+        self.order = out.frames.iter().map(|f| f.index).collect();
         for f in &out.frames {
             if let Some(slot) = self.frames.get_mut(f.index as usize) {
                 *slot = Frame { x: f.x, y: f.y, w: f.w, h: f.h };
             }
         }
+        self.layer_orders = out.layers.iter().map(|l| l.frames.iter().map(|f| f.index).collect()).collect();
         for l in &out.layers {
             for f in &l.frames {
                 if let Some(slot) = self.frames.get_mut(f.index as usize) {
@@ -374,60 +730,255 @@ impl SurfaceView {
                 }
             }
         }
-        // Visual caches: only what the core reports changed.
-        let all = self.styles.len() != n;
+        // Visual caches: only what the core reports changed (or new slots).
+        let all = self.styles.len() != n || self.node_fonts.len() != n;
         if all {
             self.styles = vec![PaintStyle::default(); n];
             self.texts = vec![TextStyle::default(); n];
             self.node_fonts = vec![make_font(self.fonts.default.clone(), 400); n];
         }
         let indices: Vec<u32> = if all { (0..n as u32).collect() } else { changed.iter().copied().filter(|i| (*i as usize) < n).collect() };
+        let reduced = self.surface.settings().reduced_motion;
+        let now = self.clock();
         for i in &indices {
             let i = *i as usize;
             if let Some(v) = self.surface.visual(i as u32) {
-                self.styles[i] = PaintStyle::from_visual(v);
+                let next = PaintStyle::from_visual(v);
+                if !all && !reduced {
+                    self.motion.style_changed(i as u32, &self.styles[i], &next, now);
+                }
+                self.styles[i] = next;
             }
             if let Some(t) = self.surface.text_style(i as u32) {
-                self.node_fonts[i] = self.fonts.font(t.font_family.as_deref(), t.font_weight);
+                self.node_fonts[i] = self.fonts.for_style(t);
                 self.texts[i] = t.clone();
             }
         }
-        let base = default_ink(theme.as_deref(), mode);
-        if all || !indices.is_empty() || self.inks.len() != n || self.ink_base != Some(base) {
-            self.ink_base = Some(base);
-            self.inks = Vec::with_capacity(n);
-            for i in 0..n {
-                let inherited = self.cache.nodes[i].parent.and_then(|p| self.inks.get(p as usize).copied()).unwrap_or(base);
-                let own = self.styles[i].color.unwrap_or(inherited);
-                self.inks.push(own);
+        if !reduced {
+            for (i, f) in self.frames.iter().enumerate() {
+                if let (Some(old), Some(style)) = (previous.get(i), self.styles.get(i)) {
+                    if let Some(t) = style.transition.filter(|_| old.w > 0.0 && (old.w != f.w || old.h != f.h)) {
+                        self.motion.frame_changed(i as u32, *old, *f, t, now);
+                    }
+                }
             }
         }
+        let base = default_ink(theme, mode);
+        self.compute_inks(base);
         self.lists = out.lists.iter().map(|l| (l.node, l.clone())).collect();
+        self.scrolls = out.scrolls.iter().map(|s| (s.index, *s)).collect();
+        self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;
-        self.layers_changed(&out.layers, window, cx);
-        self.layers = out.layers;
-        self.stats.nodes = n;
-        self.stats.measure_calls = calls;
-        self.stats.layout_ns = layout_ns;
-        self.stats.wall_ns = wall_ns;
-        self.stats.passes += 1;
+        self.sync_toasts(&out.toasts, window, cx);
+        self.toasts = out.toasts.clone();
+        let layers = out.layers;
+        self.layers_changed(&layers, now, window, cx);
+        self.layers = layers;
+        self.stats.nodes = self.cache.nodes.iter().filter(|x| !x.removed).count();
         self.stats.structure_version = out.structure_version;
         self.stats.upcalls = out.upcalls;
         self.stats.measure_rounds = out.measure_rounds;
-        if std::env::var_os("EXP_UI_TRACE").is_some() {
-            eprintln!(
-                "[exponential-ui gpui] {} pass {} width {:.0}: {} nodes · {} measure calls · {} upcalls · core {} µs · wall {} µs · layers {}",
-                self.surface.id,
-                self.stats.passes,
-                self.width,
-                n,
-                calls,
-                out.upcalls,
-                layout_ns / 1000,
-                wall_ns / 1000,
-                self.layers.len()
-            );
+        self.stats.restyled = out.restyled;
+        self.stats.built_nodes = out.built_nodes;
+        if let Some(id) = self.pending_focus.take() {
+            self.focus_id(&id, window, cx);
         }
+        // Only a rebuilt or changed slot can hold other text.
+        if self.md_selection.is_some_and(|sel| (all || changed.contains(&sel.node)) && self.md_text_key(sel.node) != self.md_selection_key) {
+            self.md_selection = None;
+            self.md_selection_key = None;
+            self.md_dragging = false;
+        }
+        let late = self.surface.take_events();
+        if !late.is_empty() {
+            self.dispatch(late, None, cx);
+        }
+    }
+
+    /// Text colour inheritance in TREE order (slots are not pre-order).
+    fn compute_inks(&mut self, base: Hsla) {
+        let n = self.cache.nodes.len();
+        self.ink_base = Some(base);
+        self.inks = vec![base; n];
+        let mut roots: Vec<u32> = self.order.first().copied().into_iter().collect();
+        roots.extend(self.layers_roots());
+        let mut stack: Vec<(u32, Hsla)> = roots.into_iter().map(|r| (r, base)).collect();
+        while let Some((i, inherited)) = stack.pop() {
+            let Some(node) = self.cache.nodes.get(i as usize) else { continue };
+            let own = self.styles.get(i as usize).and_then(|s| s.color).unwrap_or(inherited);
+            self.inks[i as usize] = own;
+            for c in &node.children {
+                stack.push((*c, own));
+            }
+        }
+    }
+
+    /// A closed layer's last painted state (`None` when nothing of it is
+    /// left to paint), renumbered into its own [`GhostWorld`]. The source is
+    /// the pre-pass caches: `pre` when this pass rebuilt them, else the live
+    /// ones with `old` (the node versions the delta replaced) over them.
+    /// Only nodes OF the layer are taken (plus the owners its parts name,
+    /// for their recipe props).
+    fn ghost_of(&self, layer: Layer, old: &HashMap<u32, PlacedNode>, pre: Option<&PrePass>, duration_ms: f32) -> Option<ExitingLayer> {
+        if duration_ms <= 0.0 {
+            return None;
+        }
+        let (cache, styles, texts, fonts, inks) = match pre {
+            Some(p) => (&p.cache, &p.styles, &p.texts, &p.fonts, &p.inks),
+            None => (&self.cache, &self.styles, &self.texts, &self.node_fonts, &self.inks),
+        };
+        let node_at = |i: u32| old.get(&i).or_else(|| cache.nodes.get(i as usize).filter(|n| !n.removed));
+        // Old slot → ghost slot, in the layer's paint order (root first).
+        let mut map: HashMap<u32, u32> = HashMap::new();
+        let mut taken: Vec<(u32, Frame)> = Vec::new();
+        for f in &layer.frames {
+            if node_at(f.index).is_some_and(|n| n.layer == layer.layer) && !map.contains_key(&f.index) {
+                map.insert(f.index, taken.len() as u32);
+                taken.push((f.index, Frame { x: f.x, y: f.y, w: f.w, h: f.h }));
+            }
+        }
+        if !map.contains_key(&layer.root) || taken.iter().all(|(i, _)| node_at(*i).is_none_or(|n| n.hidden)) {
+            return None;
+        }
+        // The owners the layer's parts name (a Dialog's content → the
+        // Dialog), so recipe lookups resolve: never painted (no parent).
+        let owners: Vec<u32> = taken
+            .iter()
+            .filter_map(|(i, _)| node_at(*i).and_then(|n| n.owner.as_deref()))
+            .chain(std::iter::once(layer.owner.as_str()))
+            .filter_map(|id| cache.by_id.get(id).copied())
+            .filter(|i| !map.contains_key(i))
+            .collect();
+        for i in owners {
+            if node_at(i).is_some() && !map.contains_key(&i) {
+                map.insert(i, taken.len() as u32);
+                taken.push((i, Frame::default()));
+            }
+        }
+        let mut world = GhostWorld::default();
+        for (k, (i, frame)) in taken.iter().enumerate() {
+            let slot = *i as usize;
+            let mut n = node_at(*i).cloned()?;
+            n.index = k as u32;
+            n.parent = n.parent.and_then(|p| map.get(&p).copied());
+            n.children = n.children.iter().filter_map(|c| map.get(c).copied()).collect();
+            world.cache.by_id.insert(n.id.clone(), k as u32);
+            if let Some(kind) = &n.extension_kind {
+                world.cache.kinds.insert(n.id.clone(), kind.clone());
+            }
+            world.cache.ids.push(SharedString::from(n.id.clone()));
+            world.cache.hover_styled.push(false);
+            world.cache.nodes.push(n);
+            world.frames.push(*frame);
+            world.styles.push(styles.get(slot).cloned().unwrap_or_default());
+            world.texts.push(texts.get(slot).cloned().unwrap_or_default());
+            world.fonts.push(fonts.get(slot).cloned().unwrap_or_else(|| self.default_font()));
+            world.inks.push(inks.get(slot).copied().unwrap_or(gpui::white()));
+            // Scroll offsets, list windows and a chart's tooltip as painted
+            // (these maps still hold the pre-pass state).
+            if let Some(s) = self.scrolls.get(i) {
+                world.scrolls.insert(k as u32, ScrollOutput { index: k as u32, ..*s });
+            }
+            if let Some(l) = self.lists.get(i) {
+                world.lists.insert(k as u32, ListOutput { node: k as u32, ..l.clone() });
+            }
+            if let Some(h) = self.chart_hover.get(i) {
+                world.chart_hover.insert(k as u32, *h);
+            }
+        }
+        let frames = layer.frames.iter().filter_map(|f| map.get(&f.index).map(|k| exponential_ui::surface::PlacedFrame { index: *k, ..*f })).collect();
+        let layer = Layer { root: map[&layer.root], frames, ..layer };
+        Some(ExitingLayer { layer, start: self.now_or_instant(), duration_ms, world })
+    }
+
+    fn now_or_instant(&self) -> Instant {
+        self.motion.now.unwrap_or_else(|| self.clock())
+    }
+
+    /// The motion clock: now, plus what [`Self::advance_clock`] added.
+    fn clock(&self) -> Instant {
+        Instant::now() + self.clock_skew
+    }
+
+    /// Move the motion clock forward (tests and automation: an exit fade
+    /// or a transition finishes without waiting in real time).
+    pub fn advance_clock(&mut self, by: std::time::Duration, cx: &mut Context<Self>) {
+        self.clock_skew += by;
+        cx.notify();
+    }
+
+    /// Swap a ghost's world in for the live slot caches (call again to swap
+    /// back).
+    fn swap_world(&mut self, w: &mut GhostWorld) {
+        std::mem::swap(&mut self.cache, &mut w.cache);
+        std::mem::swap(&mut self.frames, &mut w.frames);
+        std::mem::swap(&mut self.styles, &mut w.styles);
+        std::mem::swap(&mut self.texts, &mut w.texts);
+        std::mem::swap(&mut self.node_fonts, &mut w.fonts);
+        std::mem::swap(&mut self.inks, &mut w.inks);
+        std::mem::swap(&mut self.scrolls, &mut w.scrolls);
+        std::mem::swap(&mut self.lists, &mut w.lists);
+        std::mem::swap(&mut self.chart_hover, &mut w.chart_hover);
+    }
+
+    /// The layers still fading out after they closed (owner ids).
+    pub fn exiting_layers(&self) -> Vec<String> {
+        self.exiting.iter().map(|g| g.layer.owner.clone()).collect()
+    }
+
+    /// The accessibility a node is painted with (an inspection aid: the
+    /// platform tree is only built while a screen reader is on). Also
+    /// answers the built-in sub-controls: `<composer>.send`,
+    /// `<composer>.attach`, `<indicator>.dot.<i>`.
+    pub fn accessible_info(&self, id: &str) -> Option<AccessibleInfo> {
+        if let Some(n) = self.cache.index_of(id).and_then(|i| self.cache.node(i)) {
+            return self.node_a11y(n);
+        }
+        let (base, rest) = id.split_once('.')?;
+        let button = |label: String| AccessibleInfo { role: gpui::Role::Button, label: Some(label.into()), description: None };
+        if let Some(n) = self.cache.index_of(base).and_then(|i| self.cache.node(i)).filter(|n| n.component == "Composer") {
+            let (send, attach) = self.composer_labels(n);
+            return match rest {
+                "send" => Some(button(send)),
+                "attach" => Some(button(attach)),
+                _ => None,
+            };
+        }
+        // `<indicator id>.dot.<i>` (the indicator id holds dots itself).
+        let (owner, page) = id.rsplit_once(".dot.")?;
+        let page: usize = page.parse().ok()?;
+        let n = self.cache.index_of(owner).and_then(|i| self.cache.node(i))?;
+        let total = n.props.get("count").and_then(serde_json::Value::as_f64).unwrap_or(0.0).max(0.0) as usize;
+        (page < total).then(|| AccessibleInfo { role: gpui::Role::Tab, label: Some(self.carousel_dot_label(page, total).into()), description: None })
+    }
+
+    /// What a fading layer paints (an inspection aid): its nodes in paint
+    /// order (root first) as `(id, has a background)`.
+    pub fn exiting_nodes(&self, owner: &str) -> Vec<(String, bool)> {
+        let Some(g) = self.exiting.iter().find(|g| g.layer.owner == owner) else { return Vec::new() };
+        g.layer.frames.iter().filter_map(|f| g.world.cache.node(f.index).map(|n| (n.id.clone(), g.world.styles.get(f.index as usize).is_some_and(|s| s.bg.is_some())))).collect()
+    }
+
+    fn layers_roots(&self) -> Vec<u32> {
+        self.layer_orders.iter().filter_map(|o| o.first().copied()).collect()
+    }
+
+    /// Focus handles for focusable non-field nodes, kept by id; field states.
+    fn sync_handles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut handles = HashMap::new();
+        for n in self.cache.nodes.iter().filter(|n| !n.removed) {
+            if (state::is_focusable(n) || self.scroll_focusable(n.index)) && !state::is_text_field(n) {
+                let h = self.focus_handles.remove(&n.id).unwrap_or_else(|| cx.focus_handle());
+                handles.insert(n.id.clone(), h);
+            }
+        }
+        self.focus_handles = handles;
+        self.sync_fields(window, cx);
+    }
+
+    /// A scroll container that overflows takes keyboard focus (to scroll).
+    fn scroll_focusable(&self, index: u32) -> bool {
+        self.scrolls.get(&index).is_some_and(|s| (s.scroll_y && s.content_height > self.frames.get(index as usize).map(|f| f.h).unwrap_or(0.0) + 0.5) || (s.scroll_x && s.content_width > self.frames.get(index as usize).map(|f| f.w).unwrap_or(0.0) + 0.5))
     }
 
     fn flush_states(&mut self) {
@@ -452,58 +1003,224 @@ impl SurfaceView {
     }
 
     fn default_font(&self) -> Font {
-        make_font(self.fonts.default.clone(), 400)
+        self.fonts.font(None, 400, false)
+    }
+
+    /// The layout gpui asks for: a pass at `width` (the available width),
+    /// answering the surface's size.
+    fn measure_at(&mut self, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> Size<Pixels> {
+        match width.filter(|w| *w > 0.0 && w.is_finite()) {
+            Some(w) => {
+                if !self.width_fixed && (w - self.width).abs() > 0.25 {
+                    self.width = w;
+                }
+            }
+            // A content-size probe from the host's layout: answer the last
+            // pass (no layout at a width the element will not get).
+            None if self.stats.passes > 0 => return Size { width: px(self.width), height: px(self.surface_height) },
+            None => {}
+        }
+        self.pass(window, cx);
+        Size { width: px(self.width), height: px(self.surface_height) }
+    }
+
+    /// Prepaint: the element's bounds and clip are known. Move the visible
+    /// region and the windowed lists the host scrolls, re-laying out once
+    /// when they moved, then build the element tree.
+    fn build(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.origin = bounds.origin;
+        let mask = window.content_mask().bounds;
+        let top = (f32::from(mask.origin.y) - f32::from(bounds.origin.y)).max(0.0);
+        let bottom = f32::from(mask.origin.y + mask.size.height) - f32::from(bounds.origin.y);
+        let region = VisibleRegion { top, height: (bottom - top).max(0.0) };
+        let mut again = false;
+        if (region.height - self.visible.height).abs() > 0.5 && self.viewport_height <= 0.0 {
+            again = true;
+        }
+        self.visible = region;
+        // Windowed lists the HOST scrolls (no bounded height of their own).
+        for (node, list) in self.lists.clone() {
+            if !list.windowed {
+                continue;
+            }
+            let own = self.scrolls.get(&node).is_some_and(|s| s.scroll_y && s.content_height > self.frames.get(node as usize).map(|f| f.h).unwrap_or(0.0) + 0.5);
+            if own {
+                continue;
+            }
+            let f = self.frames.get(node as usize).copied().unwrap_or_default();
+            let offset = (region.top - f.y).max(0.0);
+            let last = self.list_offsets.get(&list.id).copied();
+            if last.is_none_or(|l| (l - offset).abs() >= 1.0) {
+                self.list_offsets.insert(list.id.clone(), offset);
+                if self.surface.scroll(&list.id, offset) {
+                    again = true;
+                }
+            }
+        }
+        if !self.width_fixed && (f32::from(bounds.size.width) - self.width).abs() > 0.5 {
+            self.width = f32::from(bounds.size.width);
+            again = true;
+        }
+        if again {
+            self.pass(window, cx);
+        }
+        let now = self.clock();
+        self.motion.now = Some(now);
+        self.exiting.retain(|g| now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 < g.duration_ms);
+        if self.motion.active(now) || !self.exiting.is_empty() {
+            window.request_animation_frame();
+        }
+        self.paint_root(window, cx)
+    }
+
+    /// The element tree: the main tree, the layers (deferred), the a11y
+    /// status node for announcements.
+    fn paint_root(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let theme = self.surface.theme().cloned();
+        let ink = default_ink(theme.as_deref(), self.surface.mode());
+        let mut root = div()
+            .id("exponential-ui-surface")
+            .relative()
+            .w(px(self.width))
+            .h(px(self.surface_height))
+            .track_focus(&self.root_focus)
+            .key_context("ExponentialUiSurface")
+            .on_key_down(cx.listener(Self::on_key))
+            // Any pointer press ends keyboard mode (no `:focus-visible`) and
+            // drops a Markdown selection (a press in Markdown starts anew).
+            .capture_any_mouse_down(cx.listener(|this, _, _, cx| {
+                this.keyboard = false;
+                if this.md_selection.take().is_some_and(|s| !s.is_empty()) {
+                    cx.notify();
+                }
+            }))
+            .on_mouse_move(cx.listener(Self::on_pointer_move))
+            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::on_pointer_up))
+            .font(self.default_font())
+            .text_size(px(14.0))
+            .line_height(px(20.0))
+            .text_color(ink);
+        // A drag in flight (slider, scrollbar, sheet, text selection) follows the pointer
+        // anywhere in the window, over layers and outside the surface too.
+        if self.drag.is_some() || self.scroll_drag.is_some() || self.sheet_drag.is_some() || self.md_dragging {
+            let this = self.this.clone();
+            root = root.child(
+                gpui::canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        let (a, b) = (this.clone(), this.clone());
+                        window.on_mouse_event(move |ev: &gpui::MouseMoveEvent, phase, window, cx| {
+                            if phase == gpui::DispatchPhase::Capture {
+                                let _ = a.update(cx, |v, cx| v.on_pointer_move(ev, window, cx));
+                            }
+                        });
+                        window.on_mouse_event(move |ev: &gpui::MouseUpEvent, phase, window, cx| {
+                            if phase == gpui::DispatchPhase::Capture && ev.button == gpui::MouseButton::Left {
+                                let _ = b.update(cx, |v, cx| v.on_pointer_up(ev, window, cx));
+                            }
+                        });
+                    },
+                )
+                .absolute()
+                .size_0(),
+            );
+        }
+        if let Some(&main) = self.order.first() {
+            if let Some(el) = self.paint_node(main, paint::Place { origin: (0.0, 0.0), abs: (0.0, 0.0), clip: None }, window, cx) {
+                root = root.child(el);
+            }
+        }
+        // Closed layers fade out under the open ones (toasts under toasts).
+        let mut ghosts = std::mem::take(&mut self.exiting);
+        let now = self.now_or_instant();
+        for (k, g) in ghosts.iter_mut().enumerate() {
+            let t = now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 / g.duration_ms;
+            let fade = 1.0 - crate::paint::cubic_bezier(motion::ENTER_EASING, t.clamp(0.0, 1.0));
+            self.swap_world(&mut g.world);
+            self.ghosting.set(true);
+            let el = self.paint_layer_at(k, &g.layer, Some(fade), window, cx);
+            self.ghosting.set(false);
+            self.swap_world(&mut g.world);
+            let priority = match g.layer.class {
+                exponential_ui::layout_tree::LayerClass::Toast => 1000,
+                _ => 0,
+            };
+            root = root.child(deferred(el).with_priority(priority));
+        }
+        self.exiting = ghosts;
+        for k in 0..self.layers.len() {
+            let layer = self.layers[k].clone();
+            let el = self.paint_layer(k, &layer, window, cx);
+            let priority = match layer.class {
+                exponential_ui::layout_tree::LayerClass::Toast => 1000 + k,
+                _ => k + 1,
+            };
+            root = root.child(deferred(el).with_priority(priority));
+        }
+        if let Some((text, _)) = self.announcement.clone() {
+            root = root.child(div().id("exponential-ui-announcement").absolute().size(px(1.0)).overflow_hidden().opacity(0.0).role(gpui::Role::Status).aria_label(text));
+        }
+        root.into_any_element()
+    }
+}
+
+/// The element a [`SurfaceView`] renders (see the module docs).
+pub struct SurfaceElement {
+    view: Entity<SurfaceView>,
+}
+
+impl IntoElement for SurfaceElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for SurfaceElement {
+    type RequestLayoutState = ();
+    type PrepaintState = Option<AnyElement>;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, _cx: &mut App) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = gpui::relative(1.0).into();
+        let view = self.view.clone();
+        let id = window.request_measured_layout(style, move |known, available, window, cx| {
+            if std::env::var_os("EXP_UI_TRACE").is_some() {
+                eprintln!("[exponential-ui gpui] measure known {known:?} available {available:?}");
+            }
+            let width = known.width.map(f32::from).or(match available.width {
+                AvailableSpace::Definite(w) => Some(f32::from(w)),
+                _ => None,
+            });
+            view.update(cx, |v, cx| v.measure_at(width, window, cx))
+        });
+        (id, ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Option<AnyElement> {
+        let mut el = self.view.update(cx, |v, cx| v.build(bounds, window, cx));
+        el.prepaint_as_root(bounds.origin, bounds.size.map(AvailableSpace::Definite), window, cx);
+        Some(el)
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), prepaint: &mut Option<AnyElement>, window: &mut Window, cx: &mut App) {
+        if let Some(el) = prepaint {
+            el.paint(window, cx);
+        }
     }
 }
 
 impl Render for SurfaceView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.pass(window, cx);
-        let theme = self.surface.theme().cloned();
-        let ink = default_ink(theme.as_deref(), self.surface.mode());
-        let this = self.this.clone();
-        let probe = canvas(
-            move |bounds, _, cx| {
-                let width = f32::from(bounds.size.width);
-                if let Some(this) = this.upgrade() {
-                    this.update(cx, |this, cx| this.set_width(width, cx));
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .w_full()
-        .h(px(1.0));
-        let mut root = div()
-            .id("exponential-ui-surface")
-            .relative()
-            .w_full()
-            .h(px(self.surface_height))
-            .track_focus(&self.root_focus)
-            .on_key_down(cx.listener(Self::on_key))
-            .on_mouse_move(cx.listener(Self::on_drag_move))
-            .on_mouse_up(gpui::MouseButton::Left, cx.listener(Self::on_drag_end))
-            .font(self.default_font())
-            .text_size(px(14.0))
-            .line_height(px(20.0))
-            .text_color(ink)
-            .child(probe);
-        if let Some(root_node) = self.cache.nodes.first() {
-            if !root_node.hidden && root_node.layer == 0 {
-                root = root.child(self.paint_node(0, (0.0, 0.0), window, cx));
-            }
-        }
-        for (k, layer) in self.layers.iter().enumerate() {
-            let el = self.paint_layer(layer, window, cx);
-            root = root.child(deferred(el).with_priority(k + 1));
-        }
-        if self.popup.is_some() {
-            if let Some(el) = self.paint_popup(window, cx) {
-                root = root.child(deferred(el).with_priority(self.layers.len() + 10));
-            }
-        }
-        root
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        SurfaceElement { view: cx.entity() }
     }
 }

@@ -15,6 +15,7 @@
 //! - [`paint`]: the native painters, one per catalog kind + the overlays and
 //!   the windowed list.
 //! - [`extension`]: the painter trait registered per extension kind.
+//! - [`text`]: web-aligned line breaking shared by the measurer and painter.
 //! - [`chrome`] + [`controls`]: the generic glass controls the IDE and the SDK
 //!   share, keyed on a host-installed [`chrome::Chrome`].
 
@@ -26,6 +27,7 @@ pub mod extension;
 pub mod host;
 pub mod measure;
 pub mod paint;
+pub mod text;
 pub mod view;
 
 pub use exponential_ui;

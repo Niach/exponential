@@ -1,58 +1,173 @@
 //! The in-process measure (the VAPP-4 verdict): taffy's leaf questions are
-//! answered per request through gpui's text system — widths with
-//! `shape_line`, wrapped heights with `shape_text(.., Some(wrap))` — and
-//! gpui's line-layout cache absorbs the repeats. `None` wrap = max-content,
-//! `Some(0.0)` = min-content (the widest word). Every answer is the BORDER
-//! box of the control: the leaf's `ControlBox` padding/border are added
-//! around the shaped content and its fixed/minimum sizes win.
+//! answered per request through gpui's text system and gpui's line-layout
+//! cache absorbs the repeats. `None` wrap = max-content, `Some(0.0)` =
+//! min-content. Every answer is the BORDER box of the control: the leaf's
+//! `ControlBox` padding/border are added around the shaped content and its
+//! fixed/minimum sizes win; text leaves also answer their FIRST BASELINE.
+//!
+//! Plain text breaks where the web breaks ([`crate::text`]: UAX #14
+//! opportunities, hanging spaces) and the painter draws the very lines the
+//! measurer counted, so the reserved height is the painted height. Fonts
+//! resolve through the host's mapping, the CSS generic names
+//! (`ui-monospace`, `system-ui`…) and an availability check (a family the
+//! text system cannot load becomes the platform's own sans / mono instead of
+//! gpui's last-resort stack), with a glyph fallback chain for CJK and emoji.
+//! The measurer's identity hashes the resolved fonts, the font epoch
+//! ([`crate::view::SurfaceView::fonts_changed`]) and the theme scale, so a
+//! late font registration re-measures everything.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use exponential_ui::measure::{ControlBox, HeightRequest, Intrinsics, LeafRequest, Measure, TextStyle};
 use exponential_ui::theme::{Mode, ResolvedTheme};
-use gpui::{px, App, Font, FontStyle, FontWeight, SharedString, TextRun, Window};
+use gpui::{px, App, Font, FontFallbacks, FontStyle, FontWeight, SharedString, TextRun, TextSystem, Window};
 use serde_json::{Map, Value};
 
 use crate::extension::ExtensionPainter;
 use crate::host::HostPlugin;
 use crate::paint::markdown::{self, Inline, MdStyles, MdText, TextSpec};
 use crate::paint::parts::{control, default_family, mono_family, part_props, px_prop, spacing};
+use crate::text;
 
-/// The identity the core keys its memo on (a font change = a new id).
-const GPUI_MEASURE_ID: u64 = 0x6770_7569;
+/// The base of the identity the core keys its memo on.
+const GPUI_MEASURE_BASE: u64 = 0x6770_7569;
 
-/// Font family NAMES → the families gpui loads (`HostPlugin::font_family`),
-/// memoized; plus the surface's default (`sans`) and `mono` families.
+/// Glyph fallbacks (CJK, emoji, symbols) after a sans family.
+const SANS_FALLBACKS: [&str; 12] = [
+    ".SystemUIFont",
+    "Noto Sans",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "PingFang SC",
+    "Hiragino Sans",
+    "Microsoft YaHei",
+    "Segoe UI",
+    "DejaVu Sans",
+    "Apple Color Emoji",
+    "Noto Color Emoji",
+    "Segoe UI Emoji",
+];
+
+/// Mono families tried, in order, when the theme's mono cannot load.
+const MONO_CANDIDATES: [&str; 9] = ["SF Mono", "Menlo", "Monaco", "Consolas", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono", "Courier New"];
+
+/// Is a family name a monospace one (the fallback chain it gets)?
+fn looks_mono(family: &str) -> bool {
+    let f = family.to_ascii_lowercase();
+    f.contains("mono") || f.contains("code") || f.contains("consol") || f.contains("menlo") || f.contains("courier")
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct WrapKey {
+    text: String,
+    family: SharedString,
+    weight: u16,
+    italic: bool,
+    size: u32,
+    tracking: u32,
+    wrap: Option<i64>,
+}
+
+/// Font family NAMES → the families gpui loads, memoized; the surface's
+/// default (`sans`) and `mono` families; the wrapped-lines cache the
+/// measurer and the painter share.
 pub(crate) struct Fonts {
     host: Rc<dyn HostPlugin>,
+    text_system: Arc<TextSystem>,
     map: RefCell<HashMap<String, SharedString>>,
+    available: RefCell<HashMap<SharedString, bool>>,
+    wraps: RefCell<HashMap<WrapKey, Rc<Vec<String>>>>,
     pub default: SharedString,
     pub mono: SharedString,
+    sans_fallbacks: FontFallbacks,
+    mono_fallbacks: FontFallbacks,
+    epoch: Cell<u64>,
 }
 
 impl Fonts {
-    pub fn new(host: Rc<dyn HostPlugin>, theme: Option<&ResolvedTheme>) -> Fonts {
-        let mut f = Fonts { host, map: RefCell::new(HashMap::new()), default: SharedString::default(), mono: SharedString::default() };
+    pub fn new(host: Rc<dyn HostPlugin>, theme: Option<&ResolvedTheme>, text_system: Arc<TextSystem>) -> Fonts {
+        let mut f = Fonts {
+            host,
+            text_system,
+            map: RefCell::new(HashMap::new()),
+            available: RefCell::new(HashMap::new()),
+            wraps: RefCell::new(HashMap::new()),
+            default: SharedString::default(),
+            mono: SharedString::default(),
+            sans_fallbacks: FontFallbacks::from_fonts(SANS_FALLBACKS.iter().map(|s| s.to_string()).collect()),
+            mono_fallbacks: FontFallbacks::from_fonts(MONO_CANDIDATES.iter().chain(SANS_FALLBACKS.iter()).map(|s| s.to_string()).collect()),
+            epoch: Cell::new(0),
+        };
         f.set_theme(theme);
         f
     }
 
     pub fn set_theme(&mut self, theme: Option<&ResolvedTheme>) {
         let default = default_family(theme).unwrap_or_else(|| "Inter".to_string());
-        let mono = mono_family(theme).unwrap_or_else(|| "Menlo".to_string());
+        let mono = mono_family(theme).unwrap_or_else(|| "ui-monospace".to_string());
         self.default = self.map(&default);
         self.mono = self.map(&mono);
+    }
+
+    /// Fonts were registered (or removed): every mapping and measurement
+    /// is re-derived.
+    pub fn invalidate(&mut self, theme: Option<&ResolvedTheme>) {
+        self.epoch.set(self.epoch.get() + 1);
+        self.map.borrow_mut().clear();
+        self.available.borrow_mut().clear();
+        self.wraps.borrow_mut().clear();
+        self.set_theme(theme);
+    }
+
+    /// Whether the text system loads `family` itself (not a stand-in).
+    fn loads(&self, family: &SharedString) -> bool {
+        if family.starts_with('.') {
+            return true;
+        }
+        if let Some(hit) = self.available.borrow().get(family) {
+            return *hit;
+        }
+        let font = plain_font(family.clone(), 400, false, None);
+        let id = self.text_system.resolve_font(&font);
+        let ok = self.text_system.get_font_for_id(id).is_some_and(|f| f.family == *family);
+        self.available.borrow_mut().insert(family.clone(), ok);
+        ok
     }
 
     fn map(&self, name: &str) -> SharedString {
         if let Some(hit) = self.map.borrow().get(name) {
             return hit.clone();
         }
-        let mapped = self.host.font_family(name);
+        let generic = match name.trim() {
+            "ui-monospace" | "monospace" | "ui-mono" => Some(true),
+            "system-ui" | "sans-serif" | "ui-sans-serif" | "-apple-system" => Some(false),
+            _ => None,
+        };
+        let mapped = match generic {
+            Some(false) => SharedString::from(".SystemUIFont"),
+            Some(true) => self.first_mono(),
+            None => {
+                let m = self.host.font_family(name);
+                if self.loads(&m) {
+                    m
+                } else if looks_mono(&m) {
+                    self.first_mono()
+                } else {
+                    SharedString::from(".SystemUIFont")
+                }
+            }
+        };
         self.map.borrow_mut().insert(name.to_string(), mapped.clone());
         mapped
+    }
+
+    fn first_mono(&self) -> SharedString {
+        MONO_CANDIDATES.iter().map(|m| SharedString::from(*m)).find(|m| self.loads(m)).unwrap_or_else(|| SharedString::from(".SystemUIFont"))
     }
 
     /// The family for an optional name (`None` = the surface default).
@@ -63,15 +178,53 @@ impl Fonts {
         }
     }
 
-    /// The gpui font a text style paints with.
-    pub fn font(&self, family: Option<&str>, weight: u16) -> Font {
-        make_font(self.family(family), weight)
+    /// The gpui font a family / weight / style paints with (with the glyph
+    /// fallback chain).
+    pub fn font(&self, family: Option<&str>, weight: u16, italic: bool) -> Font {
+        let fam = self.family(family);
+        let mono = fam == self.mono || looks_mono(&fam);
+        let fallbacks = if mono { self.mono_fallbacks.clone() } else { self.sans_fallbacks.clone() };
+        plain_font(fam, weight, italic, Some(fallbacks))
+    }
+
+    /// The font of a resolved text style.
+    pub fn for_style(&self, ts: &TextStyle) -> Font {
+        self.font(ts.font_family.as_deref(), ts.font_weight, ts.font_style.as_deref() == Some("italic"))
+    }
+
+    /// The measurer identity: the resolved fonts and the font epoch.
+    pub fn identity(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        GPUI_MEASURE_BASE.hash(&mut h);
+        self.default.hash(&mut h);
+        self.mono.hash(&mut h);
+        self.epoch.get().hash(&mut h);
+        let mut fams: Vec<(String, SharedString)> = self.map.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        fams.sort();
+        fams.hash(&mut h);
+        h.finish()
+    }
+
+    fn cached_lines(&self, key: &WrapKey) -> Option<Rc<Vec<String>>> {
+        self.wraps.borrow().get(key).cloned()
+    }
+
+    fn store_lines(&self, key: WrapKey, lines: Rc<Vec<String>>) {
+        let mut w = self.wraps.borrow_mut();
+        if w.len() > 4096 {
+            w.clear();
+        }
+        w.insert(key, lines);
     }
 }
 
-/// A plain font of `family` at `weight`.
+/// A font of `family` at `weight` (italic when asked).
 pub fn make_font(family: SharedString, weight: u16) -> Font {
-    Font { family, features: Default::default(), fallbacks: None, weight: FontWeight(weight as f32), style: FontStyle::Normal }
+    plain_font(family, weight, false, None)
+}
+
+fn plain_font(family: SharedString, weight: u16, italic: bool, fallbacks: Option<FontFallbacks>) -> Font {
+    Font { family, features: Default::default(), fallbacks, weight: FontWeight(weight as f32), style: if italic { FontStyle::Italic } else { FontStyle::Normal } }
 }
 
 fn run(text: &str, font: Font) -> TextRun {
@@ -83,46 +236,70 @@ pub(crate) struct Shaper<'w> {
     pub window: &'w Window,
     pub fonts: &'w Fonts,
     pub calls: u64,
+    /// CSS `letter-spacing` (px after every character; 0 = none).
+    pub tracking: f32,
 }
 
-impl Shaper<'_> {
-    /// Max-content width of ONE line (no newlines).
+/// The extra width `letter-spacing` adds to a line (one `ls` per
+/// character, the last one included, as browsers do).
+pub fn tracking_width(text: &str, ls: f32) -> f32 {
+    if ls == 0.0 {
+        0.0
+    } else {
+        ls * text.chars().count() as f32
+    }
+}
+
+impl<'w> Shaper<'w> {
+    pub fn new(window: &'w Window, fonts: &'w Fonts) -> Self {
+        Shaper { window, fonts, calls: 0, tracking: 0.0 }
+    }
+
+    /// The same shaper with a text style's `letterSpacing`.
+    pub fn tracked(mut self, ts: &TextStyle) -> Self {
+        self.tracking = ts.letter_spacing.unwrap_or(0.0);
+        self
+    }
+
+    /// Width of ONE line (no newlines), `letter-spacing` included.
     pub fn line_width(&mut self, text: &str, font: &Font, size: f32) -> f32 {
         if text.is_empty() {
             return 0.0;
         }
         self.calls += 1;
         let line = self.window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &[run(text, font.clone())], None);
-        f32::from(line.width).ceil()
+        f32::from(line.width) + tracking_width(text, self.tracking)
     }
 
     pub fn max_content(&mut self, text: &str, font: &Font, size: f32) -> f32 {
-        text.split('\n').map(|l| self.line_width(l, font, size)).fold(0.0, f32::max)
+        text::max_content(text, &mut |s| self.line_width(s, font, size))
     }
 
-    /// Min-content: the widest single word.
+    /// Min-content: the widest unbreakable segment (UAX #14).
     pub fn min_content(&mut self, text: &str, font: &Font, size: f32) -> f32 {
-        text.split_whitespace().map(|w| self.line_width(w, font, size)).fold(0.0, f32::max)
+        text::min_content(text, &mut |s| self.line_width(s, font, size))
     }
 
-    /// Height of `text` wrapped at `wrap` (all wrapped lines, `clamp` lines max).
-    pub fn wrapped_height(&mut self, text: &str, font: &Font, size: f32, line_height: f32, wrap: Option<f32>, clamp: Option<u32>) -> f32 {
-        if text.is_empty() {
-            return line_height;
+    /// The lines `text` breaks into at `wrap` (`None` = the hard breaks
+    /// only) — the lines the painter draws.
+    pub fn lines(&mut self, text: &str, font: &Font, size: f32, wrap: Option<f32>) -> Rc<Vec<String>> {
+        let key = WrapKey { text: text.to_string(), family: font.family.clone(), weight: font.weight.0 as u16, italic: font.style == FontStyle::Italic, size: size.to_bits(), tracking: self.tracking.to_bits(), wrap: wrap.map(|w| (w * 4.0).round() as i64) };
+        if let Some(hit) = self.fonts.cached_lines(&key) {
+            return hit;
         }
-        self.calls += 1;
-        let clamp = clamp.filter(|n| *n > 0).map(|n| n as usize);
-        match self.window.text_system().shape_text(SharedString::from(text.to_string()), px(size), &[run(text, font.clone())], wrap.map(|w| px(w.max(1.0))), clamp) {
-            Ok(lines) => {
-                let h: f32 = lines.iter().map(|l| f32::from(l.size(px(line_height)).height)).sum();
-                match clamp {
-                    Some(n) => h.min(n as f32 * line_height),
-                    None => h,
-                }
-                .max(line_height)
-            }
-            Err(_) => line_height,
-        }
+        let lines = Rc::new(text::wrap(text, wrap, &mut |s| self.line_width(s, font, size)));
+        self.fonts.store_lines(key, lines.clone());
+        lines
+    }
+
+    /// Where the first baseline sits inside a line box of `line_height`
+    /// (half-leading + ascent, CSS).
+    pub fn baseline(&mut self, font: &Font, size: f32, line_height: f32) -> f32 {
+        let ts = self.window.text_system();
+        let id = ts.resolve_font(font);
+        let ascent = f32::from(ts.ascent(id, px(size)));
+        let descent = f32::from(ts.descent(id, px(size))).abs();
+        ((line_height - (ascent + descent)) / 2.0 + ascent).max(0.0)
     }
 
     /// Rich spans (markdown) wrapped at `wrap`.
@@ -147,13 +324,13 @@ impl MdText for Shaper<'_> {
     }
 
     fn width(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
-        let font = self.fonts.font(spec.family.as_deref(), spec.weight);
+        let font = self.fonts.font(spec.family.as_deref(), spec.weight, false);
         let text = markdown::plain(inlines);
         self.max_content(&text, &font, spec.size)
     }
 
     fn widest_word(&mut self, inlines: &[Inline], spec: &TextSpec) -> f32 {
-        let font = self.fonts.font(spec.family.as_deref(), spec.weight);
+        let font = self.fonts.font(spec.family.as_deref(), spec.weight, false);
         let text = markdown::plain(inlines);
         self.min_content(&text, &font, spec.size)
     }
@@ -165,7 +342,18 @@ impl MdText for Shaper<'_> {
 
 /// The horizontal and vertical insets a control box adds around its content.
 pub fn insets(c: &ControlBox) -> (f32, f32) {
-    (2.0 * (c.padding_horizontal + c.border_width), 2.0 * (c.padding_vertical + c.border_width))
+    let p = c.padding;
+    if p == [0.0; 4] {
+        (2.0 * (c.padding_horizontal + c.border_width), 2.0 * (c.padding_vertical + c.border_width))
+    } else {
+        (p[1] + p[3] + 2.0 * c.border_width, p[0] + p[2] + 2.0 * c.border_width)
+    }
+}
+
+/// The top inset (padding + border) of a control box.
+pub fn top_inset(c: &ControlBox) -> f32 {
+    let p = c.padding;
+    (if p == [0.0; 4] { c.padding_vertical } else { p[0] }) + c.border_width
 }
 
 /// The content wrap width inside a border-box wrap width (`Some(0)` stays
@@ -218,6 +406,10 @@ fn num_prop(props: &Map<String, Value>, key: &str) -> Option<f64> {
     }
 }
 
+fn has(props: &Map<String, Value>, key: &str) -> bool {
+    props.get(key).is_some_and(|v| !v.is_null() && v.as_str() != Some(""))
+}
+
 /// A JSON scalar as display text (`3` → "3").
 pub fn display_text(v: Option<&Value>) -> String {
     match v {
@@ -227,11 +419,16 @@ pub fn display_text(v: Option<&Value>) -> String {
     }
 }
 
-/// The chart's legend entries (pie: categories; else series names when > 1).
+/// The chart's legend entries (pie/donut: categories; else series names
+/// when > 1). The core's `chart.legend` flag decides whether it shows.
 pub fn chart_legend(props: &Map<String, Value>) -> Vec<String> {
     let kind = str_prop(props, "kind");
     let series = props.get("series").and_then(Value::as_array).cloned().unwrap_or_default();
-    if kind == "pie" {
+    let shows = props.get("chart").and_then(|c| c.get("legend")).and_then(Value::as_bool).unwrap_or(true) && props.get("showLegend").and_then(Value::as_bool) != Some(false);
+    if !shows || kind == "sparkline" {
+        return Vec::new();
+    }
+    if matches!(kind, "pie" | "donut") {
         props.get("categories").and_then(Value::as_array).map(|c| c.iter().map(|v| display_text(Some(v))).collect()).unwrap_or_default()
     } else if series.len() > 1 {
         series.iter().map(|s| display_text(s.get("name"))).collect()
@@ -240,12 +437,31 @@ pub fn chart_legend(props: &Map<String, Value>) -> Vec<String> {
     }
 }
 
+/// The leading/trailing chrome a one-line text part carries beside its text
+/// (an icon, a count, a chevron, a check, a sort arrow): `(lead, trail)` px.
+pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String, Value>, gap: f32, count_w: f32) -> (f32, f32) {
+    let icon = |key: &str| if has(props, key) { 16.0 + gap.max(4.0) } else { 0.0 };
+    match (owner_component, part) {
+        ("Tabs", Some("tab")) => (icon("icon"), if has(props, "count") { 4.0 + count_w + 12.0 } else { 0.0 }),
+        ("Accordion", Some("trigger")) => (0.0, 16.0 + gap.max(8.0)),
+        ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0)),
+        ("DropdownMenu" | "ContextMenu", Some("itemLabel")) => (icon("icon"), 0.0),
+        ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
+        _ => (0.0, 0.0),
+    }
+}
+
+/// Is a leaf a host-owned one-line field (`search`, NumberField/ChipInput `input`)?
+pub fn is_inline_field(component: &str, part: Option<&str>) -> bool {
+    matches!((component, part), ("Select", Some("search")) | ("NumberField", Some("input")) | ("ChipInput", Some("input")))
+}
+
 // ---------------------------------------------------------------------------
 // The measure
 // ---------------------------------------------------------------------------
 
 /// The painter's `Measure`: built per pass from the window, the host's font
-/// mapping and the extension painters.
+/// mapping, the extension painters and the live text of host-owned fields.
 pub struct GpuiMeasure<'a> {
     window: &'a mut Window,
     cx: &'a mut App,
@@ -255,11 +471,20 @@ pub struct GpuiMeasure<'a> {
     painters: &'a HashMap<String, Rc<dyn ExtensionPainter>>,
     /// Extension node id → its kind (`LeafRequest` carries no kind).
     kinds: &'a HashMap<String, String>,
+    /// Field id → the text the user typed (not yet in the props).
+    live: &'a HashMap<String, String>,
+    identity: u64,
     calls: u64,
     shaped: u64,
+    /// Extension leaves measured before their kind was known.
+    pub(crate) unknown_extensions: Vec<u32>,
 }
 
+/// Content size and the first baseline from the CONTENT top.
+type Content = (f32, f32, Option<f32>);
+
 impl<'a> GpuiMeasure<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         window: &'a mut Window,
         cx: &'a mut App,
@@ -268,8 +493,10 @@ impl<'a> GpuiMeasure<'a> {
         mode: Mode,
         painters: &'a HashMap<String, Rc<dyn ExtensionPainter>>,
         kinds: &'a HashMap<String, String>,
+        live: &'a HashMap<String, String>,
     ) -> Self {
-        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, calls: 0, shaped: 0 }
+        let identity = fonts.identity();
+        GpuiMeasure { window, cx, fonts, theme, mode, painters, kinds, live, identity, calls: 0, shaped: 0, unknown_extensions: Vec::new() }
     }
 
     /// Per-request measure calls answered this pass.
@@ -283,91 +510,116 @@ impl<'a> GpuiMeasure<'a> {
     }
 
     fn shaper(&self) -> Shaper<'_> {
-        Shaper { window: self.window, fonts: self.fonts, calls: 0 }
-    }
-
-    fn font(&self, ts: &TextStyle) -> Font {
-        self.fonts.font(ts.font_family.as_deref(), ts.font_weight)
+        Shaper::new(self.window, self.fonts)
     }
 
     fn part(&self, component: &str, part: &str, props: &Map<String, Value>, states: &[String]) -> Map<String, Value> {
         part_props(self.theme, self.mode, component, part, props, states)
     }
 
-    /// Plain text content `(w, h)` at an inner wrap width.
-    fn text(&mut self, text: &str, ts: &TextStyle, wrap: Option<f32>, lines: Option<u32>) -> (f32, f32) {
-        let font = self.font(ts);
-        let mut s = self.shaper();
+    /// Plain text content at an inner wrap width, with `lines` truncation.
+    fn para(&mut self, raw: &str, ts: &TextStyle, wrap: Option<f32>, lines: Option<u32>) -> Content {
+        let font = self.fonts.for_style(ts);
+        let shown = text::transform(raw, ts.text_transform.as_deref());
         let single = lines == Some(1);
+        let clamp = lines.filter(|n| *n > 0).map(|n| n as usize);
+        let mut s = self.shaper().tracked(ts);
+        let baseline = Some(s.baseline(&font, ts.font_size, ts.line_height));
+        let lh = ts.line_height;
         let out = match wrap {
-            None => (s.max_content(text, &font, ts.font_size), s.wrapped_height(text, &font, ts.font_size, ts.line_height, None, lines)),
+            None => {
+                let w = s.max_content(&shown, &font, ts.font_size);
+                let n = if single { 1 } else { s.lines(&shown, &font, ts.font_size, None).len() };
+                (w, lh * clamp.map_or(n, |c| n.min(c)).max(1) as f32)
+            }
             // A one-line (ellipsized) text shrinks to nothing, like CSS
             // `white-space: nowrap; min-width: 0`.
-            Some(w) if w <= 0.0 => (if single { 0.0 } else { s.min_content(text, &font, ts.font_size) }, ts.line_height),
+            Some(w) if w <= 0.0 => {
+                if single {
+                    (0.0, lh)
+                } else {
+                    let m = s.min_content(&shown, &font, ts.font_size);
+                    let n = s.lines(&shown, &font, ts.font_size, Some(m)).len();
+                    (m, lh * clamp.map_or(n, |c| n.min(c)).max(1) as f32)
+                }
+            }
             Some(w) => {
-                let max = s.max_content(text, &font, ts.font_size);
-                let used = if single { max.min(w) } else { max.min(w.max(s.min_content(text, &font, ts.font_size))) };
-                let h = if single { ts.line_height } else { s.wrapped_height(text, &font, ts.font_size, ts.line_height, Some(used.max(1.0)), lines) };
-                (used, h)
+                let max = s.max_content(&shown, &font, ts.font_size);
+                if single {
+                    (max.min(w), lh)
+                } else {
+                    let used = max.min(w.max(s.min_content(&shown, &font, ts.font_size)));
+                    let n = s.lines(&shown, &font, ts.font_size, Some(w.max(used))).len();
+                    (used, lh * clamp.map_or(n, |c| n.min(c)).max(1) as f32)
+                }
             }
         };
         self.shaped += s.calls;
-        out
+        (out.0, out.1, baseline)
     }
 
-    fn line(&mut self, text: &str, ts: &TextStyle) -> f32 {
-        let font = self.font(ts);
-        let mut s = self.shaper();
-        let w = s.max_content(text, &font, ts.font_size);
+    fn line(&mut self, raw: &str, ts: &TextStyle) -> f32 {
+        let font = self.fonts.for_style(ts);
+        let shown = text::transform(raw, ts.text_transform.as_deref());
+        let mut s = self.shaper().tracked(ts);
+        let w = s.max_content(&shown, &font, ts.font_size);
         self.shaped += s.calls;
         w
     }
 
-    /// Text plus fixed-width chrome beside it (tab icon/count, accordion
-    /// chevron, menu icon), one line.
-    fn text_with_chrome(&mut self, text: &str, ts: &TextStyle, chrome: f32, wrap: Option<f32>) -> (f32, f32) {
-        let w = self.line(text, ts) + chrome;
-        let used = match wrap {
-            None => w,
-            Some(x) if x <= 0.0 => chrome,
-            Some(x) => w.min(x),
-        };
-        (used, ts.line_height)
+    fn line_baseline(&mut self, ts: &TextStyle) -> f32 {
+        let font = self.fonts.for_style(ts);
+        self.shaper().baseline(&font, ts.font_size, ts.line_height)
     }
 
-    fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32) {
+    /// A one-line text with fixed chrome beside it.
+    fn row(&mut self, raw: &str, ts: &TextStyle, (lead, trail): (f32, f32), wrap: Option<f32>) -> Content {
+        let w = lead + self.line(raw, ts) + trail;
+        let used = match wrap {
+            None => w,
+            Some(x) if x <= 0.0 => lead + trail,
+            Some(x) => w.min(x),
+        };
+        (used, ts.line_height, Some(self.line_baseline(ts)))
+    }
+
+    fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
         let blocks = markdown::parse(text);
         let ts = leaf.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(self.theme, self.mode, body, leaf.props);
+        let clamp = num_prop(leaf.props, "lines").filter(|n| *n > 0.0).map(|n| n as usize);
         let mut s = self.shaper();
         let out = match wrap {
             None => {
                 let w = markdown::max_content_width(&blocks, &styles, &mut s);
-                (w, markdown::layout(&blocks, &styles, w, &mut s).height)
+                (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height))
             }
             Some(w) if w <= 0.0 => {
                 let w = markdown::min_content_width(&blocks, &styles, &mut s);
-                (w, markdown::layout(&blocks, &styles, w, &mut s).height)
+                (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height))
             }
-            Some(w) => (w, markdown::layout(&blocks, &styles, w, &mut s).height),
+            Some(w) => (w, markdown::layout(&blocks, &styles, w, &mut s).clamped_height(clamp, ts.line_height)),
         };
         self.shaped += s.calls;
-        (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { ts.line_height }))
+        let baseline = Some(self.line_baseline(ts));
+        (out.0, out.1.max(if blocks.is_empty() { 0.0 } else { ts.line_height }), baseline)
     }
 
-    fn button(&mut self, leaf: &LeafRequest, component: &str) -> (f32, f32) {
+    fn button(&mut self, leaf: &LeafRequest, component: &str) -> Content {
         let props = leaf.props;
         let ts = leaf.text_style;
         let label = str_prop(props, "label");
-        let has_icon = !str_prop(props, "icon").is_empty() || props.get("loading").and_then(Value::as_bool) == Some(true);
+        let has_icon = has(props, "icon") || props.get("loading").and_then(Value::as_bool) == Some(true);
         let icon_only = str_prop(props, "size") == "icon";
         let icon = if has_icon || icon_only { px_prop(&self.part(component, "icon", props, &[]), "width").unwrap_or_else(|| control(self.theme, "iconSm", 16.0)) } else { 0.0 };
         let label_w = if icon_only || label.is_empty() { 0.0 } else { self.line(label, ts) };
         let gap = if has_icon && label_w > 0.0 { leaf.control.gap } else { 0.0 };
         let w = if has_icon || icon_only { icon } else { 0.0 } + gap + label_w;
-        (w, ts.line_height.max(if has_icon { icon } else { 0.0 }))
+        let h = ts.line_height.max(if has_icon { icon } else { 0.0 });
+        let baseline = (label_w > 0.0).then(|| (h - ts.line_height) / 2.0 + self.line_baseline(ts));
+        (w, h, baseline)
     }
 
     fn media(&self, props: &Map<String, Value>, wrap: Option<f32>, default: (f32, f32)) -> (f32, f32) {
@@ -409,12 +661,14 @@ impl<'a> GpuiMeasure<'a> {
     fn chart(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32) {
         let props = leaf.props;
         let ts = leaf.text_style;
+        let kind = str_prop(props, "kind");
         let w = match wrap {
+            None if kind == "sparkline" => 120.0,
             None => 320.0,
             Some(x) if x <= 0.0 => 0.0,
             Some(x) => x,
         };
-        let mut h = num_prop(props, "height").unwrap_or(200.0) as f32;
+        let mut h = num_prop(props, "height").unwrap_or(if kind == "sparkline" { 32.0 } else { 200.0 }) as f32;
         let gap = spacing(self.theme, "xs");
         if !str_prop(props, "title").is_empty() {
             h += ts.line_height + gap;
@@ -426,6 +680,8 @@ impl<'a> GpuiMeasure<'a> {
         (w, h)
     }
 
+    /// The composer: its LIVE text wrapped at the field width, clamped to
+    /// the field's min height and 200 px, plus the send bar.
     fn composer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32) {
         let props = leaf.props;
         let ts = leaf.text_style;
@@ -435,17 +691,56 @@ impl<'a> GpuiMeasure<'a> {
         let min_h = px_prop(&field, "minHeight").unwrap_or(lh);
         let send = px_prop(&self.part("Composer", "send", props, &[]), "height").unwrap_or_else(|| control(self.theme, "buttonIcon", 36.0));
         let gap = leaf.control.gap;
-        let value = str_prop(props, "value");
-        let text = if value.is_empty() { str_prop(props, "placeholder") } else { value };
-        let text = if text.is_empty() { "Message" } else { text };
-        let field_ts = TextStyle { font_size: fs, line_height: lh, font_weight: ts.font_weight, font_family: ts.font_family.clone() };
+        let live = self.live.get(leaf.id).cloned();
+        let value = live.unwrap_or_else(|| str_prop(props, "value").to_string());
+        let text = if value.is_empty() { str_prop(props, "placeholder").to_string() } else { value };
+        // An empty field (no placeholder either) is one line tall.
+        let text = if text.is_empty() { " ".to_string() } else { text };
+        let field_ts = TextStyle { font_size: fs, line_height: lh, ..ts.clone() };
         let w = match wrap {
             None => 320.0,
             Some(x) if x <= 0.0 => 120.0,
             Some(x) => x,
         };
-        let (_, th) = self.text(text, &field_ts, Some(w.max(1.0)), None);
+        let (_, th, _) = self.para(&text, &field_ts, Some(w.max(1.0)), None);
         (w, th.clamp(min_h, 200.0) + gap + send)
+    }
+
+    /// A Textarea field: `rows` lines, or (autosize) its live text's
+    /// wrapped lines clamped to `rows..maxRows`.
+    fn textarea(&mut self, leaf: &LeafRequest, inner: Option<f32>) -> (f32, f32) {
+        let props = leaf.props;
+        let ts = leaf.text_style;
+        let rows = num_prop(props, "rows").unwrap_or(3.0).max(1.0) as f32;
+        let w = 160.0;
+        if props.get("autosize").and_then(Value::as_bool) != Some(true) {
+            return (w, rows * ts.line_height);
+        }
+        let value = self.live.get(leaf.id).cloned().unwrap_or_else(|| str_prop(props, "value").to_string());
+        let max = num_prop(props, "maxRows").map(|m| m as f32).unwrap_or(f32::INFINITY);
+        let at = match inner {
+            Some(x) if x > 0.0 => x,
+            _ => w,
+        };
+        let font = self.fonts.for_style(ts);
+        let mut s = self.shaper();
+        let lines = s.lines(&value, &font, ts.font_size, Some(at)).len() as f32;
+        self.shaped += s.calls;
+        (w, lines.max(rows).min(max.max(rows)) * ts.line_height)
+    }
+
+    /// A host-owned one-line field: its text (or placeholder) + a caret.
+    fn inline_field(&mut self, leaf: &LeafRequest) -> Content {
+        let props = leaf.props;
+        let typed = self.live.get(leaf.id).cloned().unwrap_or_else(|| str_prop(props, "text").to_string());
+        let value = if typed.is_empty() { display_text(props.get("value")) } else { typed };
+        let ph = str_prop(props, "placeholder").to_string();
+        // The host's text input paints without tracking (an editable field
+        // has no per-glyph spacing): measured the same.
+        let ts = &TextStyle { letter_spacing: None, ..leaf.text_style.clone() };
+        let w = self.line(&value, ts).max(self.line(&ph, ts)) + 2.0;
+        let icon = if leaf.part == Some("search") && has(props, "icon") { 16.0 + 8.0 } else { 0.0 };
+        (w.max(24.0) + icon, ts.line_height, Some(self.line_baseline(ts)))
     }
 
     fn toggle_group(&mut self, leaf: &LeafRequest) -> (f32, f32) {
@@ -456,7 +751,16 @@ impl<'a> GpuiMeasure<'a> {
         let border = px_prop(&item, "borderWidth").unwrap_or(0.0);
         let h = px_prop(&item, "height").unwrap_or(36.0);
         let fs = px_prop(&item, "fontSize").unwrap_or(leaf.text_style.font_size);
-        let ts = TextStyle { font_size: fs, font_weight: item.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500), line_height: leaf.text_style.line_height, font_family: item.get("fontFamily").and_then(Value::as_str).map(str::to_string) };
+        let ts = TextStyle {
+            font_size: fs,
+            font_weight: item.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500),
+            line_height: leaf.text_style.line_height,
+            font_family: item.get("fontFamily").and_then(Value::as_str).map(str::to_string),
+            // Items inherit the group's tracking and case (painted so).
+            letter_spacing: leaf.text_style.letter_spacing,
+            text_transform: leaf.text_style.text_transform.clone(),
+            ..Default::default()
+        };
         let gap = leaf.control.gap;
         let mut w = 0.0;
         for (i, it) in items.iter().enumerate() {
@@ -473,64 +777,57 @@ impl<'a> GpuiMeasure<'a> {
         (w, h)
     }
 
-    /// Select / DatePicker `.field`: the TRIGGER recipe (the field has none).
-    fn trigger(&mut self, leaf: &LeafRequest, component: &str) -> (f32, f32) {
-        let props = leaf.props;
-        let t = self.part(component, "trigger", props, &[]);
-        let fs = px_prop(&t, "fontSize").unwrap_or(leaf.text_style.font_size);
-        let lh = px_prop(&t, "lineHeight").unwrap_or(leaf.text_style.line_height);
-        let pad = px_prop(&t, "paddingHorizontal").or_else(|| px_prop(&t, "padding")).unwrap_or(12.0);
-        let border = px_prop(&t, "borderWidth").unwrap_or(0.0);
-        let h = px_prop(&t, "height").unwrap_or(lh + 16.0);
-        let ts = TextStyle { font_size: fs, line_height: lh, font_weight: 400, font_family: t.get("fontFamily").and_then(Value::as_str).map(str::to_string) };
-        let label = if component == "Select" { select_label(props) } else { date_label(str_prop(props, "value")).unwrap_or_else(|| str_or(props, "placeholder", "Pick a date")) };
-        let text_w = self.line(&label, &ts);
-        let w = (text_w + 2.0 * (pad + border) + 16.0 + spacing(self.theme, "sm")).max(160.0);
-        (w, h)
+    /// A picker trigger (Select / DatePicker / DateRangePicker / TimePicker):
+    /// the core's `text` + its glyph, at least 160 wide like the web.
+    fn trigger(&mut self, leaf: &LeafRequest) -> Content {
+        let ts = leaf.text_style;
+        let text = str_prop(leaf.props, "text");
+        let text = if text.is_empty() { str_prop(leaf.props, "placeholder") } else { text };
+        let gap = leaf.control.gap.max(spacing(self.theme, "sm"));
+        let w = self.line(text, ts) + gap + 16.0;
+        let (ih, _) = insets(&leaf.control);
+        (w.max(160.0 - ih), ts.line_height, Some(self.line_baseline(ts)))
     }
 
-    /// One leaf at one border-box wrap width.
-    pub fn measure_leaf(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32) {
+    /// One leaf at one border-box wrap width: `(width, height, baseline)`.
+    pub fn measure_leaf(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32, Option<f32>) {
         self.calls += 1;
         let c = leaf.control;
         let inner = inner_wrap(wrap, &c);
         let props = leaf.props;
         let ts = leaf.text_style;
-        let owner_component = leaf.component;
-        let content = match (leaf.component, leaf.part) {
-            ("Extension", _) => return (0.0, 0.0),
-            ("Text", Some("tab")) => {
-                let icon = if props.get("icon").and_then(Value::as_str).is_some() { 16.0 + 4.0 } else { 0.0 };
-                let count = props.get("count").map(|v| display_text(Some(v)));
-                let count_w = match count {
-                    Some(c) if !c.is_empty() => 4.0 + self.line(&c, ts) + 12.0,
-                    _ => 0.0,
-                };
-                self.text_with_chrome(str_prop(props, "text"), ts, icon + count_w, inner)
-            }
-            ("Text", Some("trigger")) => {
-                let mut text = str_prop(props, "text").to_string();
-                if let Some(count) = props.get("count") {
-                    text.push_str(&format!(" · {}", display_text(Some(count))));
+        let owner = leaf.component;
+        let plain = |(w, h): (f32, f32)| (w, h, None);
+        let content: Content = match (leaf.component, leaf.part) {
+            ("Extension", _) => return (0.0, 0.0, None),
+            _ if is_inline_field(leaf.component, leaf.part) => self.inline_field(leaf),
+            ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => self.trigger(leaf),
+            ("Text", part) => {
+                let count_w = props.get("count").map(|v| display_text(Some(v))).filter(|s| !s.is_empty()).map(|s| self.line(&s, ts)).unwrap_or(0.0);
+                let chrome = text_chrome(leaf.owner_component.unwrap_or(owner), part, props, c.gap, count_w);
+                let raw = str_prop(props, "text");
+                if chrome != (0.0, 0.0) {
+                    self.row(raw, ts, chrome, inner)
+                } else if part == Some("cell") && str_prop(props, "cellType") == "boolean" {
+                    (16.0, ts.line_height, None)
+                } else if part == Some("cell") && str_prop(props, "cellType") == "badge" {
+                    let (w, h, b) = self.para(raw, &TextStyle { font_size: (ts.font_size - 2.0).max(10.0), ..ts.clone() }, None, Some(1));
+                    (w + 16.0, h.max(ts.line_height), b)
+                } else {
+                    self.para(raw, ts, inner, leaf.lines)
                 }
-                let chrome = 16.0 + c.gap.max(8.0);
-                self.text_with_chrome(&text, ts, chrome, inner)
             }
-            ("Text", Some("item")) => {
-                let icon = if props.get("icon").and_then(Value::as_str).is_some() { 16.0 + c.gap.max(8.0) } else { 0.0 };
-                self.text_with_chrome(str_prop(props, "text"), ts, icon, inner)
-            }
-            ("Text", _) => self.text(str_prop(props, "text"), ts, inner, leaf.lines),
             ("Markdown", _) => self.markdown(leaf, inner),
-            ("Button" | "Toggle", _) => self.button(leaf, owner_component),
+            ("Button" | "Toggle" | "DropdownMenu", _) => self.button(leaf, owner),
             ("Link", _) => {
                 let label = str_or(props, "label", str_prop(props, "href"));
-                (self.line(&label, ts), ts.line_height)
+                let w = self.line(&label, ts);
+                (w, ts.line_height, Some(self.line_baseline(ts)))
             }
-            ("Icon", _) => (16.0, 16.0),
-            ("Avatar", _) => (32.0, 32.0),
-            ("Image", _) => self.media(props, inner, (320.0, 180.0)),
-            ("Video", _) => self.media(props, inner, (320.0, 180.0)),
+            ("Icon", _) => plain((16.0, 16.0)),
+            ("Avatar", _) => plain((32.0, 32.0)),
+            ("Image", _) => plain(self.media(props, inner, (320.0, 180.0))),
+            ("Video", _) => plain(self.media(props, inner, (320.0, 180.0))),
             ("AudioPlayer", _) => {
                 let title = str_prop(props, "title");
                 let track = if title.is_empty() { 0.0 } else { ts.line_height + spacing(self.theme, "xs") };
@@ -539,18 +836,18 @@ impl<'a> GpuiMeasure<'a> {
                     Some(x) if x <= 0.0 => 160.0,
                     Some(x) => x,
                 };
-                (w, track + 40.0)
+                plain((w, track + 40.0))
             }
-            ("Spinner", _) => (20.0, 20.0),
-            ("Ring", _) => (32.0, 32.0),
-            ("Skeleton", _) => self.skeleton(props, inner),
-            ("Chart", _) => self.chart(leaf, inner),
-            ("Composer", _) => self.composer(leaf, inner),
+            ("Spinner", _) => plain((20.0, 20.0)),
+            ("Ring", _) => plain((32.0, 32.0)),
+            ("Skeleton", _) => plain(self.skeleton(props, inner)),
+            ("Chart", _) => plain(self.chart(leaf, inner)),
+            ("Composer", _) => plain(self.composer(leaf, inner)),
             ("TreeGuides", _) => {
                 let depth = num_prop(props, "depth").unwrap_or(0.0).max(0.0) as f32;
-                (depth * 16.0, ts.line_height)
+                plain((depth * 16.0, ts.line_height))
             }
-            ("ToggleGroup", _) => self.toggle_group(leaf),
+            ("ToggleGroup", _) => plain(self.toggle_group(leaf)),
             ("Unknown", _) => {
                 let label = self.part("Unknown", "label", props, &[]);
                 let lts = TextStyle {
@@ -558,53 +855,73 @@ impl<'a> GpuiMeasure<'a> {
                     line_height: px_prop(&label, "lineHeight").unwrap_or(16.0),
                     font_weight: 400,
                     font_family: label.get("fontFamily").and_then(Value::as_str).map(str::to_string),
+                    ..Default::default()
                 };
                 let text = unknown_label(props, leaf.component);
-                self.text(&text, &lts, inner, None)
+                self.para(&text, &lts, inner, None)
             }
             ("Box", Some("indicator")) => {
                 let n = num_prop(props, "count").unwrap_or(0.0).max(0.0) as f32;
                 let dot = px_prop(&self.part("Carousel", "indicator", props, &[]), "width").unwrap_or(8.0);
                 let gap = spacing(self.theme, "xs");
-                (n * dot + (n - 1.0).max(0.0) * gap, dot + spacing(self.theme, "sm"))
+                plain((n * dot + (n - 1.0).max(0.0) * gap, dot + spacing(self.theme, "sm")))
             }
-            ("Input", Some("field")) => (160.0, ts.line_height),
+            ("Input", Some("field")) => (160.0, ts.line_height, Some(self.line_baseline(ts))),
             ("Textarea", Some("field")) => {
-                let rows = num_prop(props, "rows").unwrap_or(3.0).max(1.0) as f32;
-                (160.0, rows * ts.line_height)
+                let (w, h) = self.textarea(leaf, inner);
+                (w, h, Some(self.line_baseline(ts)))
             }
-            ("Select" | "DatePicker", Some("field")) => return self.trigger(leaf, leaf.component),
-            ("Checkbox", Some("box")) | ("Radio", Some("dot")) => (16.0, 16.0),
-            ("Switch", Some("track")) => (32.0, 20.0),
+            ("Checkbox", Some("box" | "checkbox")) | ("Radio", Some("dot")) => plain((16.0, 16.0)),
+            ("Switch", Some("track")) => plain((32.0, 20.0)),
             ("Slider", Some("track")) => {
                 let thumb = px_prop(&self.part("Slider", "thumb", props, &[]), "height").unwrap_or_else(|| control(self.theme, "slider", 16.0));
-                (160.0, thumb)
+                plain((160.0, thumb))
             }
             // Geometry mode (no theme): every native is ONE measured leaf.
-            ("Input" | "Select" | "DatePicker", None) => (160.0, 36.0),
-            ("Textarea", None) => (160.0, 72.0),
-            ("Switch", None) => (44.0, 24.0),
-            ("Checkbox" | "Radio", None) => (16.0, 16.0),
-            ("Slider", None) => (160.0, 16.0),
-            _ => (0.0, 0.0),
+            ("Input" | "Select" | "DatePicker" | "NumberField" | "TimePicker" | "DateRangePicker" | "ChipInput", None) => (160.0, 36.0, None),
+            ("Textarea", None) => plain((160.0, 72.0)),
+            ("Switch", None) => plain((44.0, 24.0)),
+            ("Checkbox" | "Radio", None) => plain((16.0, 16.0)),
+            ("Slider", None) => plain((160.0, 16.0)),
+            ("Table", None) => {
+                let rows = props.get("rows").and_then(Value::as_array).map(Vec::len).unwrap_or(0) as f32;
+                plain((inner.filter(|w| *w > 0.0).unwrap_or(320.0), (rows + 1.0) * 36.0))
+            }
+            ("CodeBlock", None) => {
+                let code = str_prop(props, "code");
+                let mono = TextStyle { font_family: Some("ui-monospace".into()), ..ts.clone() };
+                self.para(code, &mono, None, None)
+            }
+            ("FileUpload", None) => plain((240.0, 96.0)),
+            _ => plain((0.0, 0.0)),
         };
-        border_box(content, &c)
+        let (w, h) = border_box((content.0, content.1), &c);
+        let baseline = content.2.map(|b| {
+            let fixed = c.height.is_some_and(|fh| (fh - (content.1 + insets(&c).1)).abs() > 0.5);
+            if fixed || matches!(leaf.part, Some("trigger" | "field" | "input" | "search")) || matches!(leaf.component, "Button" | "Toggle") {
+                // A control centres its line in its box.
+                ((h - content.1) / 2.0).max(0.0) + b
+            } else {
+                top_inset(&c) + b
+            }
+        });
+        (w, h, baseline)
     }
 
     fn extension(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Option<(f32, f32)> {
-        let kind = self.painter_kind(leaf)?;
+        let Some(kind) = self.kinds.get(leaf.id).cloned() else {
+            self.unknown_extensions.push(leaf.index);
+            return None;
+        };
         let painter = self.painters.get(&kind)?.clone();
         painter.measure(leaf, wrap, self.window, self.cx)
     }
 
-    fn painter_kind(&self, leaf: &LeafRequest) -> Option<String> {
-        self.kinds.get(leaf.id).cloned()
-    }
-
-    fn answer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32) {
+    fn answer(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> (f32, f32, Option<f32>) {
         if leaf.component == "Extension" {
             self.calls += 1;
-            return self.extension(leaf, wrap).unwrap_or((0.0, 0.0));
+            let (w, h) = self.extension(leaf, wrap).unwrap_or((0.0, 0.0));
+            return (w, h, None);
         }
         self.measure_leaf(leaf, wrap)
     }
@@ -627,6 +944,7 @@ pub fn select_label(props: &Map<String, Value>) -> String {
     let options = props.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
     let chosen: Vec<String> = match props.get("value") {
         Some(Value::Array(vals)) => vals.iter().map(|v| display_text(Some(v))).collect(),
+        Some(Value::String(s)) if s.contains(',') => s.split(',').map(str::to_string).collect(),
         Some(v) if !v.is_null() => vec![display_text(Some(v))],
         _ => Vec::new(),
     };
@@ -647,16 +965,16 @@ pub fn date_label(value: &str) -> Option<String> {
 
 impl Measure for GpuiMeasure<'_> {
     fn measure_id(&self) -> u64 {
-        GPUI_MEASURE_ID
+        self.identity
     }
 
     fn measure_intrinsics(&mut self, leaves: &[LeafRequest]) -> Vec<Intrinsics> {
         leaves
             .iter()
             .map(|leaf| {
-                let (max_w, h) = self.answer(leaf, None);
-                let (min_w, _) = self.answer(leaf, Some(0.0));
-                Intrinsics { min_content_width: min_w.min(max_w), max_content_width: max_w, height_at_max_content: h }
+                let (max_w, h, baseline) = self.answer(leaf, None);
+                let (min_w, _, _) = self.answer(leaf, Some(0.0));
+                Intrinsics { min_content_width: min_w.min(max_w), max_content_width: max_w, height_at_max_content: h, baseline }
             })
             .collect()
     }
@@ -673,7 +991,7 @@ mod tests {
 
     #[test]
     fn control_boxes_wrap_the_content() {
-        let c = ControlBox { padding_horizontal: 16.0, padding_vertical: 0.0, border_width: 1.0, gap: 8.0, min_width: Some(80.0), min_height: None, width: None, height: Some(36.0) };
+        let c = ControlBox { padding_horizontal: 16.0, padding_vertical: 0.0, padding: [0.0, 16.0, 0.0, 16.0], border_width: 1.0, gap: 8.0, min_width: Some(80.0), min_height: None, width: None, height: Some(36.0) };
         assert_eq!(insets(&c), (34.0, 2.0));
         assert_eq!(border_box((20.0, 20.0), &c), (80.0, 36.0));
         assert_eq!(border_box((100.0, 20.0), &c), (134.0, 36.0));
@@ -681,6 +999,9 @@ mod tests {
         assert_eq!(inner_wrap(Some(0.0), &c), Some(0.0));
         assert_eq!(inner_wrap(None, &c), None);
         assert_eq!(border_box((10.0, 10.0), &ControlBox::default()), (10.0, 10.0));
+        let uneven = ControlBox { padding: [2.0, 4.0, 6.0, 8.0], padding_horizontal: 6.0, padding_vertical: 4.0, ..Default::default() };
+        assert_eq!(insets(&uneven), (12.0, 8.0));
+        assert_eq!(top_inset(&uneven), 2.0);
     }
 
     #[test]
@@ -700,6 +1021,8 @@ mod tests {
         assert_eq!(select_label(&none), "Pick");
         let multi = json!({"options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": ["a", "b"]}).as_object().unwrap().clone();
         assert_eq!(select_label(&multi), "A, B");
+        let joined = json!({"options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b"}], "value": "a,b"}).as_object().unwrap().clone();
+        assert_eq!(select_label(&joined), "A, B");
         assert_eq!(date_label("2026-10-14").as_deref(), Some("Oct 14, 2026"));
         assert_eq!(date_label("nope"), None);
     }
@@ -710,7 +1033,22 @@ mod tests {
         assert_eq!(chart_legend(&bar), ["Runs", "Fails"]);
         let single = json!({"kind": "line", "series": [{"name": "Runs"}]}).as_object().unwrap().clone();
         assert!(chart_legend(&single).is_empty());
-        let pie = json!({"kind": "pie", "categories": ["a", "b"], "series": [{"values": [1, 2]}]}).as_object().unwrap().clone();
+        let pie = json!({"kind": "donut", "categories": ["a", "b"], "series": [{"values": [1, 2]}]}).as_object().unwrap().clone();
         assert_eq!(chart_legend(&pie), ["a", "b"]);
+        let hidden = json!({"kind": "bar", "showLegend": false, "series": [{"name": "Runs"}, {"name": "Fails"}]}).as_object().unwrap().clone();
+        assert!(chart_legend(&hidden).is_empty());
+        let spark = json!({"kind": "sparkline", "series": [{"name": "a"}, {"name": "b"}]}).as_object().unwrap().clone();
+        assert!(chart_legend(&spark).is_empty());
+    }
+
+    #[test]
+    fn text_parts_reserve_their_chrome() {
+        let tab = json!({"text": "Inbox", "icon": "nav-inbox", "count": 3}).as_object().unwrap().clone();
+        assert_eq!(text_chrome("Tabs", Some("tab"), &tab, 4.0, 8.0), (20.0, 24.0));
+        let item = json!({"text": "Open"}).as_object().unwrap().clone();
+        assert_eq!(text_chrome("Select", Some("item"), &item, 8.0, 0.0), (0.0, 24.0), "the check slot is always reserved");
+        assert_eq!(text_chrome("Text", None, &item, 8.0, 0.0), (0.0, 0.0));
+        assert!(is_inline_field("NumberField", Some("input")));
+        assert!(!is_inline_field("Input", Some("field")));
     }
 }

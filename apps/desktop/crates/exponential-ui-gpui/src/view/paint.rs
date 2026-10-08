@@ -1,238 +1,389 @@
 //! Building the element tree: one absolutely positioned div per placed node
-//! at its frame relative to the parent's frame, the box from the node's
-//! cached `PaintStyle`, the leaf content inside, children nested; layers as
-//! surface-coordinate overlays (with a scrim for Dialog / Drawer).
+//! at its frame relative to its parent's (scrolled) frame, the box from the
+//! node's cached `PaintStyle` (animated by [`super::motion`]), the leaf
+//! content inside, children nested in PAINT order; scroll containers clip,
+//! translate their descendants by the core's offsets and draw scrollbars;
+//! layers paint as surface-coordinate overlays (a scrim for modal ones),
+//! the non-anchored ones moved into the region the host shows.
 
 use std::rc::Rc;
+use std::time::Instant;
 
-use exponential_ui::layout_tree::NodeKind;
+use exponential_ui::layout_tree::{LayerClass, NodeKind};
 use exponential_ui::surface::{Layer, PlacedNode};
-use gpui::{canvas, div, prelude::*, px, AnyElement, Context, Div, Hsla, MouseButton, SharedString, Stateful, Window};
+use gpui::{canvas, div, linear_color_stop, linear_gradient, prelude::*, px, AnyElement, Context, Div, ExternalPaths, Hsla, MouseButton, SharedString, Stateful, Window};
 use serde_json::{json, Value};
 
-use super::state::is_text_field;
+use super::state::{a11y_description, a11y_label, is_text_field, role_of, NodeFlags};
 use super::SurfaceView;
 use crate::extension::PaintContext;
-use crate::measure::{date_label, display_text, select_label};
-use crate::paint::icons::{self, Glyph};
+use crate::measure::{display_text, text_chrome, Shaper};
+use crate::paint::icons;
 use crate::paint::markdown::{self, MdPaint, MdStyles, TextSpec};
-use crate::paint::natives::{self, styled_box, LeafCx};
-use crate::paint::parts::{part_visual, spacing};
+use crate::paint::natives::{self, aligned, styled_box, LeafCx};
+use crate::paint::parts::{part_props, part_visual, px_prop, spacing, theme_color};
 use crate::paint::PaintStyle;
-use crate::measure::Shaper;
+use crate::text;
+
+/// The nearest clipping ancestor with rounded corners, in PAINTED surface
+/// coordinates: descendants touching its corners round theirs to match
+/// (gpui's content masks are rectangular).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Clip {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub radii: [f32; 4],
+}
+
+/// A child's corner radii after a rounded clipping ancestor: a corner that
+/// lies inside the ancestor's rounded corner square takes the ancestor's
+/// radius minus the inset (so an image flush with a card's corner clips).
+pub fn inherit_radii(own: [f32; 4], (x, y, w, h): (f32, f32, f32, f32), clip: &Clip) -> [f32; 4] {
+    let (l, t) = (x - clip.x, y - clip.y);
+    let (r, b) = ((clip.x + clip.w) - (x + w), (clip.y + clip.h) - (y + h));
+    let corner = |own: f32, cr: f32, dx: f32, dy: f32| {
+        if cr <= 0.0 || dx >= cr || dy >= cr {
+            own
+        } else {
+            own.max(cr - dx.max(dy).max(0.0))
+        }
+    };
+    [corner(own[0], clip.radii[0], l, t), corner(own[1], clip.radii[1], r, t), corner(own[2], clip.radii[2], r, b), corner(own[3], clip.radii[3], l, b)]
+}
+
+/// Where a node's parent puts it: the parent's content origin (its frame
+/// plus its scroll offset, surface coordinates), where that origin is
+/// painted, and the rounded clip in force.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Place {
+    pub origin: (f32, f32),
+    pub abs: (f32, f32),
+    pub clip: Option<Clip>,
+}
+
+fn rounded<E: Styled>(e: E, r: [f32; 4]) -> E {
+    e.rounded_tl(px(r[0])).rounded_tr(px(r[1])).rounded_br(px(r[2])).rounded_bl(px(r[3]))
+}
+
+/// The scrollbar thumb `(offset, length)` along a track `len` long.
+pub fn thumb_geometry(viewport: f32, content: f32, offset: f32, len: f32) -> Option<(f32, f32)> {
+    if content <= viewport + 0.5 || viewport <= 0.0 {
+        return None;
+    }
+    let thumb = (len * viewport / content).clamp(20.0_f32.min(len), len);
+    let travel = (len - thumb).max(0.0);
+    let at = if content > viewport { travel * (offset / (content - viewport)).clamp(0.0, 1.0) } else { 0.0 };
+    Some((at, thumb))
+}
 
 impl SurfaceView {
+    fn now(&self) -> Instant {
+        self.now_or_instant()
+    }
+
+    /// The style node `index` shows now (mid-transition when one runs; a
+    /// ghost's slots are its own, so it shows its last style as is).
+    pub(crate) fn shown_style(&self, index: u32) -> PaintStyle {
+        let target = self.styles.get(index as usize).cloned().unwrap_or_default();
+        if self.ghosting.get() {
+            return target;
+        }
+        self.motion.style(index, &target, self.now())
+    }
+
     fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
         let o = self.cache.owner_of(index);
         self.cache.node(o).map(|n| n.props.clone()).unwrap_or_default()
     }
 
-    /// The box style a node paints with; mirrored controls (unbound
-    /// checkboxes, switches, radios, toggles) re-resolve theirs.
-    fn box_style(&self, index: u32, n: &PlacedNode) -> PaintStyle {
-        let base = self.styles.get(index as usize).cloned().unwrap_or_default();
-        let owner_component = n.owner_component.as_deref().unwrap_or(&n.component);
-        let theme = self.surface.theme().cloned();
-        let mode = self.surface.mode();
-        let states = self.interaction.get(&n.id).copied().unwrap_or_default().states();
-        match (owner_component, n.part.as_deref()) {
-            ("Checkbox", Some("box")) | ("Switch", Some("track")) => {
-                let (checked, external) = self.checked_of(index);
-                if checked == external {
-                    return base;
-                }
-                let mut props = self.owner_props(index);
-                props.insert("checked".into(), Value::Bool(checked));
-                let mut st = states.clone();
-                if checked {
-                    st.push("checked".into());
-                }
-                PaintStyle::from_visual(&part_visual(theme.as_deref(), mode, owner_component, n.part.as_deref().unwrap_or("box"), &props, &st))
-            }
-            // The ROW is a plain option row; the `.dot` leaf wears the
-            // `Radio/item` circle recipe (checked = the primary border) and
-            // paints the centred inner dot when checked.
-            ("Radio", Some("item")) => base,
-            ("Radio", Some("dot")) => {
-                let mut st = states;
-                if self.radio_checked(index) {
-                    st.push("checked".into());
-                }
-                PaintStyle::from_visual(&part_visual(theme.as_deref(), mode, "Radio", "item", &self.owner_props(index), &st))
-            }
-            ("Toggle", None) => {
-                let external = n.props.get("pressed").cloned().unwrap_or(Value::Bool(false));
-                let pressed = self.mirrored(&n.id, &external);
-                if pressed == external {
-                    return base;
-                }
-                let mut props = n.props.clone();
-                props.insert("pressed".into(), pressed);
-                PaintStyle::from_visual(&part_visual(theme.as_deref(), mode, "Toggle", "root", &props, &states))
-            }
-            ("Select" | "DatePicker", Some("field")) => {
-                let mut st = states;
-                if self.popup.as_ref().is_some_and(|p| p.field == n.id) {
-                    st.push("open".into());
-                }
-                PaintStyle::from_visual(&part_visual(theme.as_deref(), mode, owner_component, "trigger", &self.owner_props(index), &st))
-            }
-            _ => base,
-        }
+    /// A built-in UI string (`catalog/strings.json` id) from the surface's
+    /// table: the host's override, else the English default.
+    pub(crate) fn builtin_string(&self, id: &str) -> String {
+        self.surface.strings().get(id).cloned().or_else(|| exponential_ui::strings::default_string(id).map(str::to_string)).unwrap_or_else(|| id.to_string())
     }
 
-    /// (shown, external) checked state of a Checkbox / Switch part.
-    fn checked_of(&self, index: u32) -> (bool, bool) {
-        let o = self.cache.owner_of(index);
-        let Some(owner) = self.cache.node(o) else { return (false, false) };
-        let external = owner.props.get("checked").cloned().unwrap_or(Value::Bool(false));
-        (self.mirrored(&owner.id, &external).as_bool().unwrap_or(false), external.as_bool().unwrap_or(false))
+    fn states_of(&self, n: &PlacedNode) -> Vec<String> {
+        let mut s = n.states.clone();
+        s.extend(self.interaction.get(&n.id).copied().unwrap_or_default().states());
+        s
     }
 
-    fn radio_checked(&self, index: u32) -> bool {
-        let Some(n) = self.cache.node(index) else { return false };
-        let o = self.cache.owner_of(index);
-        let Some(owner) = self.cache.node(o) else { return false };
-        let external = owner.props.get("value").cloned().unwrap_or(Value::Null);
-        let value = self.mirrored(&owner.id, &external);
-        let suffix = n.id.rsplit('.').next().unwrap_or_default();
-        let row = self.cache.index_of(&format!("{}.item.{suffix}", owner.id)).and_then(|r| self.cache.node(r));
-        row.and_then(|r| r.props.get("value")).is_some_and(|v| display_text(Some(v)) == display_text(Some(&value)))
+    fn checked(&self, n: &PlacedNode) -> bool {
+        n.states.iter().any(|s| s == "checked") || matches!(n.props.get("checked"), Some(Value::Bool(true)))
     }
 
-    /// The checked dot of a Radio row, centred in the row's circle.
-    fn radio_dot(&self, index: u32, w: f32, h: f32) -> AnyElement {
-        let theme = self.surface.theme().cloned();
-        let props = crate::paint::parts::part_props(theme.as_deref(), self.surface.mode(), "Radio", "dot", &self.owner_props(index), &["checked".to_string()]);
-        let dot = PaintStyle::from_visual(&exponential_ui::style::visual(&props, exponential_ui::style::BoxKind::Leaf));
-        let d = crate::paint::parts::px_prop(&props, "width").unwrap_or(w.min(h) / 2.0);
-        let ink = self.inks.get(index as usize).copied().unwrap_or(gpui::white());
-        let st = PaintStyle { bg: dot.bg.or(Some(ink)), radius: d / 2.0, ..dot };
-        styled_box(div().absolute().left(px((w - d) / 2.0)).top(px((h - d) / 2.0)).size(px(d)), &st, d, d).into_any_element()
-    }
-
-    /// One node and its subtree, at its frame relative to `origin`.
-    pub(crate) fn paint_node(&self, index: u32, origin: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// One node and its subtree (`None` = hidden).
+    pub(crate) fn paint_node(&self, index: u32, place: Place, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let i = index as usize;
-        let n = &self.cache.nodes[i];
-        let f = self.frames.get(i).copied().unwrap_or_default();
-        let style = self.box_style(index, n);
+        let n = self.cache.node(index)?;
+        if n.hidden {
+            return None;
+        }
+        let style = self.shown_style(index);
+        if style.invisible {
+            // `visibility: hidden`: the box keeps its place, nothing paints.
+            return None;
+        }
+        let target = self.frames.get(i).copied().unwrap_or_default();
+        let f = if self.ghosting.get() { target } else { self.motion.frame(index, target, self.now()) };
+        let tf = style.transform;
+        let leaf = n.kind == NodeKind::Leaf;
+        // Paint-only transform: the translate moves the box; a leaf's scale
+        // grows it about its centre (containers keep their size).
+        let (mut x, mut y, mut w, mut h) = (f.x - place.origin.0 + tf.tx, f.y - place.origin.1 + tf.ty, f.w, f.h);
+        if leaf && (tf.scale - 1.0).abs() > 1e-3 && tf.scale > 0.0 {
+            let (nw, nh) = (w * tf.scale, h * tf.scale);
+            x -= (nw - w) / 2.0;
+            y -= (nh - h) / 2.0;
+            w = nw;
+            h = nh;
+        }
+        let abs = (place.abs.0 + x, place.abs.1 + y);
+        let mut radii = style.radii.map(|r| r.min(w.min(h) / 2.0).max(0.0));
+        if let Some(clip) = &place.clip {
+            radii = inherit_radii(radii, (abs.0, abs.1, w, h), clip);
+        }
         let id = self.cache.ids[i].clone();
-        let mut el = div().id(id.clone()).absolute().left(px(f.x - origin.0)).top(px(f.y - origin.1)).w(px(f.w)).h(px(f.h));
-        let r = style.radius.min(f.w.min(f.h) / 2.0).max(0.0);
-        el = el.when_some(style.bg, |d, bg| d.bg(bg)).rounded(px(r));
+        let mut el = div().id(id.clone()).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
+        // `native: true`: the platform control paints the part itself.
+        let native = style.native && leaf && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
+        let style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
+        el = el.when_some(style.bg, |d, bg| d.bg(bg));
+        el = rounded(el, radii);
         if !style.shadows.is_empty() {
             el = el.shadow(style.shadows.clone());
         }
         if let Some(o) = style.opacity {
             el = el.opacity(o);
         }
-        if style.overflow_hidden {
+        if style.clip_x && style.clip_y {
             el = el.overflow_hidden();
+        } else if style.clip_x {
+            el = el.overflow_x_hidden();
+        } else if style.clip_y {
+            el = el.overflow_y_hidden();
         }
         if let Some(c) = style.color {
             el = el.text_color(c);
         }
-        if let Some(role) = self.cache.roles[i] {
-            el = el.role(role);
-            if let Some(label) = self.cache.labels[i].clone() {
-                el = el.aria_label(label);
-            }
-            let flags = &self.cache.flags[i];
-            if role == gpui::Role::Tab {
-                el = el.aria_selected(flags.selected);
-            }
-            if n.part.as_deref() == Some("trigger") && n.owner_component.as_deref() == Some("Accordion") {
-                el = el.aria_expanded(flags.open);
+        let ghost = self.ghosting.get();
+        if !ghost {
+            el = self.accessible(el, n);
+            if let Some(h) = self.focus_handles.get(&n.id) {
+                el = el.track_focus(h);
             }
         }
-        if let Some(h) = self.focus_handles.get(&n.id) {
-            el = el.track_focus(h);
+        if !style.pointer_none && !ghost {
+            el = self.interactive(el, index, n, &style, cx);
+            if let Some(c) = style.cursor {
+                el = el.cursor(c);
+            }
         }
-        el = self.interactive(el, index, n, cx);
+        if let Some(g) = &style.gradient {
+            el = el.child(gradient(g, w, h, radii));
+        }
         // The border paints over the background, under the children, and
         // never offsets them (an overlay, not gpui's box border).
-        if style.border_width > 0.0 {
-            if let Some(bc) = style.border_color {
-                el = el.child(div().absolute().top_0().left_0().w(px(f.w)).h(px(f.h)).border(px(style.border_width)).border_color(bc).rounded(px(r)));
+        if style.has_border() {
+            let mut b = div().absolute().top_0().left_0().w(px(w)).h(px(h)).border_color(style.border_color.unwrap_or_default());
+            b = b.border_t(px(style.border[0])).border_r(px(style.border[1])).border_b(px(style.border[2])).border_l(px(style.border[3]));
+            if style.dashed {
+                b = b.border_dashed();
             }
+            el = el.child(rounded(b, radii));
         }
-        if n.owner_component.as_deref() == Some("Radio") && n.part.as_deref() == Some("dot") && self.radio_checked(index) {
-            el = el.child(self.radio_dot(index, f.w, f.h));
+        if let Some(bounds) = self.debug_bounds.as_ref().filter(|_| !ghost) {
+            let (map, key) = (bounds.clone(), n.id.clone());
+            el = el.child(canvas(move |b, _, _| {
+                map.borrow_mut().insert(key.clone(), b);
+            }, |_, _, _, _| {}).absolute().size_full());
         }
         let ink = self.inks.get(i).copied().unwrap_or(gpui::white());
         if n.component == "Extension" {
-            return self.paint_extension(el, index, n, &style, f.w, f.h, window, cx);
+            return Some(self.paint_extension(el, index, n, w, h, place, abs, window, cx));
         }
-        if n.kind == NodeKind::Leaf {
-            if let Some(content) = self.paint_leaf(index, n, &style, ink, f.w, f.h, window, cx) {
+        if leaf {
+            if let Some(content) = self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx) {
                 el = el.child(content);
             }
         }
-        let kids = self.children_elements(index, (f.x, f.y), window, cx);
-        if let Some(list) = self.lists.get(&index).filter(|l| l.windowed).cloned() {
-            return self.paint_windowed_list(el, n, f, list.content_height, kids).into_any_element();
+        // Children: the content origin shifts by the scroll offset.
+        let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
+        let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
+        let child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip };
+        let kids = self.children_elements(index, child_place, window, cx);
+        el = el.children(kids);
+        if let Some(s) = self.scrolls.get(&index).copied() {
+            el = self.scroll_container(el, index, n, s, w, h, ink, cx);
         }
-        el.children(kids).into_any_element()
+        if self.interaction.get(&n.id).is_some_and(|s| s.focus_visible) && style.shadows.is_empty() {
+            let ring = theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "ring").unwrap_or(ink.opacity(0.5));
+            el = el.child(rounded(div().absolute().top(px(-2.0)).left(px(-2.0)).w(px(w + 4.0)).h(px(h + 4.0)).border_2().border_color(ring), radii.map(|r| r + 2.0)));
+        }
+        Some(el.into_any_element())
     }
 
-    fn children_elements(&self, index: u32, origin: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let mut out = Vec::new();
-        for c in &self.cache.children[index as usize] {
-            let child = &self.cache.nodes[*c as usize];
-            if child.hidden || child.layer != self.cache.nodes[index as usize].layer {
+    /// A node's role, name and description (`None` = no a11y node).
+    pub(crate) fn node_a11y(&self, n: &PlacedNode) -> Option<super::AccessibleInfo> {
+        let parent = n.parent.and_then(|p| self.cache.node(p)).map(|p| p.component.as_str());
+        let macro_root = self.cache.macro_root(n.index);
+        let role = role_of(n, parent, macro_root)?;
+        // A macro root is labelled by its title (a Group described by its
+        // footer), unless the author named it.
+        let title = macro_root.and_then(|_| self.cache.macro_part_text(n.index, "title"));
+        let footer = macro_root.filter(|m| m.name == "Group").and_then(|_| self.cache.macro_part_text(n.index, "footer"));
+        Some(super::AccessibleInfo { role, label: a11y_label(n, self.surface.strings()).or(title), description: a11y_description(n).or(footer) })
+    }
+
+    /// The Composer's built-in button names: `(send or stop, attach)`.
+    pub(crate) fn composer_labels(&self, n: &PlacedNode) -> (String, String) {
+        let busy = n.props.get("busy").and_then(Value::as_bool) == Some(true);
+        let submit = n.props.get("submitLabel").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let send = if busy { self.builtin_string("stop") } else { submit.map(str::to_string).unwrap_or_else(|| self.builtin_string("send")) };
+        (send, self.builtin_string("browse"))
+    }
+
+    /// A Carousel dot's name (`pageOf`, 1-based).
+    pub(crate) fn carousel_dot_label(&self, page: usize, total: usize) -> String {
+        exponential_ui::strings::format_string(&self.builtin_string("pageOf"), json!({"page": page + 1, "total": total}).as_object().expect("object"))
+    }
+
+    /// Role, name, description and the part states a reader announces.
+    fn accessible(&self, mut el: Stateful<Div>, n: &PlacedNode) -> Stateful<Div> {
+        let Some(info) = self.node_a11y(n) else { return el };
+        let role = info.role;
+        let flags = NodeFlags::of(n);
+        el = el.role(role);
+        if let Some(label) = info.label {
+            el = el.aria_label(label);
+        }
+        if let Some(d) = info.description {
+            el = el.aria_description(d);
+        }
+        match role {
+            gpui::Role::Tab | gpui::Role::ListBoxOption | gpui::Role::GridCell | gpui::Role::Row => el = el.aria_selected(flags.selected),
+            gpui::Role::CheckBox | gpui::Role::Switch | gpui::Role::RadioButton | gpui::Role::MenuItemCheckBox => {
+                el = el.aria_toggled(if self.checked(n) { gpui::Toggled::True } else { gpui::Toggled::False });
+            }
+            gpui::Role::ComboBox | gpui::Role::DateInput => el = el.aria_expanded(flags.open),
+            gpui::Role::Slider => {
+                let num = |k: &str| n.props.get(k).and_then(Value::as_f64);
+                if let Some(v) = num("value") {
+                    el = el.aria_numeric_value(v);
+                }
+                el = el.aria_min_numeric_value(num("min").unwrap_or(0.0)).aria_max_numeric_value(num("max").unwrap_or(100.0));
+            }
+            gpui::Role::Button if n.component == "Toggle" => {
+                el = el.aria_toggled(if flags.selected || n.props.get("pressed").and_then(Value::as_bool) == Some(true) { gpui::Toggled::True } else { gpui::Toggled::False });
+            }
+            gpui::Role::Button if n.part.as_deref() == Some("trigger") => el = el.aria_expanded(flags.open),
+            _ => {}
+        }
+        el
+    }
+
+    fn children_elements(&self, index: u32, place: Place, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(n) = self.cache.node(index) else { return Vec::new() };
+        let layer = n.layer;
+        let kids = n.children.clone();
+        let mut out = Vec::with_capacity(kids.len());
+        for c in kids {
+            let Some(child) = self.cache.node(c) else { continue };
+            if child.hidden || child.layer != layer {
                 continue;
             }
-            out.push(self.paint_node(*c, origin, window, cx));
+            if let Some(el) = self.paint_node(c, place, window, cx) {
+                out.push(el);
+            }
         }
         out
     }
 
-    /// A windowed list: its rows sit at CONTENT offsets; a probe reports the
-    /// visible offset (the host scroller's clip or the list's own) so the
-    /// core moves the window.
-    fn paint_windowed_list(&self, el: Stateful<Div>, n: &PlacedNode, f: exponential_ui::surface::Frame, content_height: f32, kids: Vec<AnyElement>) -> Stateful<Div> {
-        let this = self.this.clone();
-        let list_id = n.id.clone();
-        let offsets = self.list_offsets.clone();
-        let probe = canvas(
-            move |bounds, window, cx| {
-                let mask = window.content_mask().bounds;
-                let offset = (f32::from(mask.origin.y) - f32::from(bounds.origin.y)).max(0.0);
-                let last = offsets.borrow().get(&list_id).copied();
-                if last.is_none_or(|l| (l - offset).abs() >= 1.0) {
-                    offsets.borrow_mut().insert(list_id.clone(), offset);
-                    if let Some(this) = this.upgrade() {
-                        this.update(cx, |this, cx| {
-                            if this.surface.scroll(&list_id, offset) {
-                                this.nodes_dirty = true;
-                                cx.notify();
-                            }
-                        });
-                    }
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .w_full()
-        .h(px(content_height.max(f.h)));
-        let inner = div().relative().w(px(f.w)).h(px(content_height.max(f.h))).child(probe).children(kids);
-        let scrolls = content_height > f.h + 0.5;
-        match (scrolls, self.list_scrolls.get(&n.id)) {
-            (true, Some(handle)) => el.overflow_y_scroll().track_scroll(handle).child(inner),
-            _ => el.child(inner),
+    /// A scroll container: wheel / trackpad scroll the core's offset (a
+    /// scroll at an edge chains to the host), overlay scrollbars show the
+    /// position and drag.
+    #[allow(clippy::too_many_arguments)]
+    fn scroll_container(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, s: exponential_ui::surface::ScrollOutput, w: f32, h: f32, ink: Hsla, cx: &mut Context<Self>) -> Stateful<Div> {
+        let overflows_y = s.scroll_y && s.content_height > h + 0.5;
+        let overflows_x = s.scroll_x && s.content_width > w + 0.5;
+        if !overflows_x && !overflows_y {
+            return el;
         }
+        let id = n.id.clone();
+        el = el.on_scroll_wheel(cx.listener(move |this, ev: &gpui::ScrollWheelEvent, _window, cx| this.wheel(index, &id, ev, cx)));
+        let color = ink.opacity(0.28);
+        if let Some((at, len)) = overflows_y.then(|| thumb_geometry(h, s.content_height, s.offset_y, h - 4.0)).flatten() {
+            let (sid, ratio) = (n.id.clone(), (s.content_height - h) / (h - 4.0 - len).max(1.0));
+            let start = s.offset_y;
+            let bar = div()
+                .id(SharedString::from(format!("{}.scrollbar-y", n.id)))
+                .absolute()
+                .top(px(2.0 + at))
+                .w(px(6.0))
+                .h(px(len))
+                .rounded_full()
+                .bg(color)
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    this.scroll_drag_start(&sid, true, f32::from(ev.position.y), start, ratio, cx);
+                }));
+            el = el.child(if self.rtl { bar.left(px(2.0)) } else { bar.right(px(2.0)) });
+        }
+        if let Some((at, len)) = overflows_x.then(|| thumb_geometry(w, s.content_width, s.offset_x, w - 4.0)).flatten() {
+            let (sid, ratio) = (n.id.clone(), (s.content_width - w) / (w - 4.0 - len).max(1.0));
+            let start = s.offset_x;
+            el = el.child(
+                div()
+                    .id(SharedString::from(format!("{}.scrollbar-x", n.id)))
+                    .absolute()
+                    .bottom(px(2.0))
+                    .left(px(2.0 + at))
+                    .h(px(6.0))
+                    .w(px(len))
+                    .rounded_full()
+                    .bg(color)
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.scroll_drag_start(&sid, false, f32::from(ev.position.x), start, ratio, cx);
+                    })),
+            );
+        }
+        el
     }
 
     /// Pointer / hover handlers of a node.
-    fn interactive(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn interactive(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, style: &PaintStyle, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = n.id.clone();
-        let tooltip_owner = n.trigger_for.clone().filter(|_| n.owner_component.as_deref() == Some("Tooltip") || n.part.as_deref() == Some("anchor"));
-        if let Some(owner) = tooltip_owner {
-            return el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.tooltip_hover(&owner, *hovered, window, cx)));
+        let owner = n.owner_component.as_deref().unwrap_or("");
+        // A ContextMenu opens at the pointer (right click on anything in it).
+        if n.component == "ContextMenu" {
+            el = el.on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
+                cx.stop_propagation();
+                this.context_menu(index, ev.position, cx);
+            }));
+        }
+        // FileUpload: OS file drops (the `dragover` state while over it).
+        if owner == "FileUpload" && n.part.as_deref() == Some("dropzone") {
+            let (drop_id, move_id) = (id.clone(), id.clone());
+            el = el
+                .on_drag_move::<ExternalPaths>(cx.listener(move |this, ev: &gpui::DragMoveEvent<ExternalPaths>, _, cx| {
+                    let inside = ev.bounds.contains(&ev.event.position);
+                    if this.set_interaction(&move_id, |s| s.dragover = inside) {
+                        cx.notify();
+                    }
+                }))
+                .on_drop(cx.listener(move |this, paths: &ExternalPaths, _, cx| {
+                    this.set_interaction(&drop_id, |s| s.dragover = false);
+                    this.files_dropped(&drop_id, paths.paths().to_vec(), cx);
+                }));
+        }
+        // A trigger that opens on hover (Tooltip, HoverCard): its hover
+        // state is set after the platform delay; the core opens it.
+        if let Some(target) = n.trigger_for.clone().filter(|t| self.opens_on_hover(t)) {
+            let hid = id.clone();
+            el = el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.hover_trigger(&hid, &target, *hovered, window, cx)));
         }
         let is_slider = n.component == "Slider" && n.part.as_deref() == Some("track");
         if is_slider {
@@ -247,22 +398,40 @@ impl SurfaceView {
                         this.drag_start(&down_id, f32::from(ev.position.x), cx)
                     }),
                 )
-                .child(canvas(move |b, _, _| {
-                    bounds.borrow_mut().insert(probe_id.clone(), b);
-                }, |_, _, _, _| {}).absolute().size_full());
+                .child(
+                    canvas(
+                        move |b, _, _| {
+                            bounds.borrow_mut().insert(probe_id.clone(), b);
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                );
         }
-        let hoverable = n.pressable || matches!(n.component.as_str(), "Button" | "Link" | "Toggle") || is_text_field(n);
-        if hoverable {
+        // A Drawer's handle (or its sheet) drags toward its edge to dismiss.
+        if owner == "Drawer" && matches!(n.part.as_deref(), Some("handle" | "content")) {
+            let root = if n.part.as_deref() == Some("content") { Some(index) } else { n.owner.as_deref().and_then(|o| self.layers.iter().find(|l| l.owner == o)).map(|l| l.root) };
+            if let Some(root) = root {
+                el = el.on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| this.sheet_drag_start(root, ev.position, cx)));
+            }
+        }
+        let toast_root = owner == "Toast" && n.part.as_deref() == Some("root");
+        let hoverable = n.pressable || self.cache.hover_styled.get(index as usize).copied().unwrap_or(false) || is_text_field(n) || toast_root || style.transition.is_some();
+        if hoverable && n.trigger_for.as_deref().is_none_or(|t| !self.opens_on_hover(t)) {
             let hid = id.clone();
-            el = el.on_hover(cx.listener(move |this, hovered: &bool, _, cx| this.hover(&hid, *hovered, cx)));
+            let toast = toast_root.then(|| n.owner.clone()).flatten();
+            el = el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                this.hover(&hid, *hovered, cx);
+                if let Some(t) = &toast {
+                    this.toast_hovered(t, *hovered, window, cx);
+                }
+            }));
         }
-        let radio_label = n.owner_component.as_deref() == Some("Radio") && matches!(n.part.as_deref(), Some("label" | "dot")) && n.id.rsplit('.').next().is_some_and(|s| s.parse::<u32>().is_ok());
-        let pressable = n.pressable || radio_label || matches!(n.component.as_str(), "Button" | "Link" | "Toggle");
-        if pressable && !is_text_field(n) {
+        if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);
-            let disabled = matches!(n.props.get("disabled"), Some(Value::Bool(true)));
             el = el
-                .when(!disabled, |d| d.cursor_pointer())
+                .when(style.cursor.is_none(), |d| d.cursor_pointer())
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
@@ -281,14 +450,13 @@ impl SurfaceView {
                 )
                 .on_mouse_up_out(MouseButton::Left, cx.listener(move |this, _, _, cx| this.press_cancel(&out, cx)));
         }
-        let _ = index;
         el
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn paint_extension(&self, el: Stateful<Div>, index: u32, n: &PlacedNode, style: &PaintStyle, w: f32, h: f32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn paint_extension(&self, el: Stateful<Div>, index: u32, n: &PlacedNode, w: f32, h: f32, place: Place, abs: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
-        let children = self.children_elements(index, (f.x, f.y), window, cx);
+        let children = self.children_elements(index, Place { origin: (f.x, f.y), abs, clip: place.clip }, window, cx);
         let kind = n.extension_kind.clone().unwrap_or_default();
         let Some(painter) = self.painters.get(&kind).cloned() else {
             // No painter registered: the placeholder note, children kept.
@@ -308,25 +476,25 @@ impl SurfaceView {
             children,
             theme: theme.as_ref(),
             mode: self.surface.mode(),
-            emit: Box::new(move |event, payload, _window, cx| {
+            emit: Box::new(move |event, payload, window, cx| {
                 if let Some(this) = this.upgrade() {
                     let event = event.to_string();
                     this.update(cx, |this, cx| this.fire(index, &event, payload, cx));
+                    let _ = window;
                 }
             }),
         };
-        let _ = style;
         let painted = painter.paint(ctx, window, cx);
         el.child(painted).into_any_element()
     }
 
     /// The content of a measured leaf.
     #[allow(clippy::too_many_arguments)]
-    fn paint_leaf(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, w: f32, h: f32, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn paint_leaf(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, w: f32, h: f32, radii: [f32; 4], window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let i = index as usize;
         let theme = self.surface.theme().cloned();
         let owner_props = self.owner_props(index);
-        let states = self.interaction.get(&n.id).copied().unwrap_or_default().states();
+        let states = self.states_of(n);
         let text_style = self.texts.get(i).cloned().unwrap_or_default();
         let lcx = LeafCx {
             node: n,
@@ -341,77 +509,234 @@ impl SurfaceView {
             host: self.host.as_ref(),
             states: &states,
             owner_props: &owner_props,
+            rtl: self.rtl,
+            reduced_motion: self.surface.settings().reduced_motion,
+            radii,
         };
-        let owner_component = n.owner_component.as_deref().unwrap_or("");
-        let flags = &self.cache.flags[i];
-        Some(match (n.component.as_str(), n.part.as_deref()) {
-            ("Text", Some("tab")) => natives::tab(&lcx, flags.selected),
-            ("Text", Some("trigger")) if owner_component == "Accordion" => natives::accordion_trigger(&lcx, flags.open),
-            ("Text", Some("item")) if owner_component == "DropdownMenu" => natives::menu_item(&lcx),
-            ("Text", _) => natives::text(&lcx, lcx.str("text"), n.lines),
+        let part = n.part.as_deref();
+        Some(match (n.component.as_str(), part) {
+            // An exiting layer's field paints its text (the live input
+            // belongs to the open surface).
+            _ if is_text_field(n) && self.ghosting.get() => {
+                let v = display_text(n.props.get("value"));
+                let shown = if v.is_empty() { lcx.str("placeholder").to_string() } else { v };
+                natives::text_lines(&lcx, &[shown], Some(1))
+            }
+            _ if is_text_field(n) => {
+                if n.component == "Composer" {
+                    self.paint_composer(&lcx, cx)
+                } else {
+                    self.field_element(&lcx)?
+                }
+            }
+            ("Select" | "DatePicker" | "DateRangePicker" | "TimePicker", Some("trigger")) => {
+                let text = lcx.str("text");
+                let ph = lcx.str("placeholder");
+                let is_placeholder = text.is_empty() || (!ph.is_empty() && text == ph && !has_value(n));
+                natives::trigger_content(&lcx, if text.is_empty() { ph } else { text }, is_placeholder, lcx.str("icon"))
+            }
+            ("Text", _) => self.paint_text(&lcx, window),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
-            ("Button" | "Toggle", _) => natives::button(&lcx, &n.component),
+            ("Button" | "Toggle" | "DropdownMenu", _) => natives::button(&lcx, &n.component, window),
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
-            ("Image", _) => natives::image(&lcx),
+            ("Image", _) => natives::image(&lcx, window, cx),
             ("Video", _) => natives::video(&lcx),
             ("AudioPlayer", _) => natives::audio(&lcx),
             ("Spinner", _) => natives::spinner(&lcx),
             ("Ring", _) => natives::ring(&lcx),
             ("Skeleton", _) => natives::skeleton(&lcx),
-            ("Chart", _) => natives::chart(&lcx),
+            ("Chart", _) => crate::paint::chart::paint(&lcx, self.chart_hover(index), cx.listener(move |this, hovered: &Option<usize>, _, cx| this.chart_hovered(index, *hovered, cx))),
             ("TreeGuides", _) => natives::tree_guides(&lcx),
             ("Unknown", _) => natives::unknown(&lcx),
-            ("Checkbox", Some("box")) => natives::check_box(&lcx, self.checked_of(index).0),
-            ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked_of(index).0),
-            ("Radio", Some("dot")) => return None,
+            ("Checkbox", Some("box" | "checkbox")) if style.native => gpui_component::checkbox::Checkbox::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).tab_stop(false).into_any_element(),
+            ("Switch", Some("track")) if style.native => gpui_component::switch::Switch::new(SharedString::from(format!("{}.native", n.id))).checked(self.checked(n)).into_any_element(),
+            ("Checkbox", Some("box" | "checkbox")) => natives::check_box(&lcx, self.checked(n)),
+            ("Switch", Some("track")) => natives::switch_thumb(&lcx, self.checked(n)),
+            ("Radio", Some("dot")) => {
+                if self.checked(n) {
+                    self.radio_dot(&lcx)
+                } else {
+                    return None;
+                }
+            }
             ("Slider", Some("track")) => {
                 let (min, max) = (lcx.num("min").unwrap_or(0.0), lcx.num("max").unwrap_or(100.0));
                 let v = self.slider_value(index);
                 let frac = if max > min { ((v - min) / (max - min)) as f32 } else { 0.0 };
                 natives::slider(&lcx, frac)
             }
-            ("Select", Some("field")) => {
-                let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-                let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-                let mut props = n.props.clone();
-                props.insert("value".into(), self.mirrored(&owner, &external));
-                let chosen = !matches!(props.get("value"), None | Some(Value::Null)) && !matches!(props.get("value"), Some(Value::Array(a)) if a.is_empty());
-                natives::trigger_content(&lcx, &select_label(&props), !chosen, Glyph::ChevronDown)
-            }
-            ("DatePicker", Some("field")) => {
-                let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-                let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-                let value = display_text(Some(&self.mirrored(&owner, &external)));
-                match date_label(&value) {
-                    Some(label) => natives::trigger_content(&lcx, &label, false, Glyph::Calendar),
-                    None => {
-                        let ph = if lcx.str("placeholder").is_empty() { "Pick a date" } else { lcx.str("placeholder") };
-                        natives::trigger_content(&lcx, ph, true, Glyph::Calendar)
-                    }
-                }
-            }
-            ("Input" | "Textarea", Some("field")) => self.field_element(&lcx)?,
-            ("Composer", _) => self.paint_composer(&lcx, cx),
-            ("ToggleGroup", _) => self.paint_toggle_group(&lcx, index, cx),
+            ("ToggleGroup", _) => self.paint_toggle_group(&lcx, index, window, cx),
             ("Box", Some("indicator")) => self.paint_indicator(&lcx, index, cx),
-            ("Input" | "Select" | "DatePicker" | "Textarea", None) => natives::text(&lcx, &placeholder_or_value(n), Some(1)),
+            ("Input" | "Select" | "DatePicker" | "Textarea" | "NumberField" | "TimePicker" | "DateRangePicker" | "ChipInput", None) => {
+                let v = display_text(n.props.get("value"));
+                let shown = if v.is_empty() { lcx.str("placeholder").to_string() } else { v };
+                natives::text_lines(&lcx, &[shown], Some(1))
+            }
+            ("Table" | "CodeBlock" | "FileUpload", None) => {
+                let label = if n.component == "CodeBlock" { lcx.str("code").to_string() } else { n.component.clone() };
+                natives::text_lines(&lcx, &label.split('\n').map(str::to_string).collect::<Vec<_>>(), None)
+            }
             _ => return None,
         })
     }
 
+    /// The checked dot of a Radio, centred in its circle.
+    fn radio_dot(&self, lcx: &LeafCx) -> AnyElement {
+        let props = lcx.part_props("Radio", "dot", &["checked".to_string()]);
+        let dot = PaintStyle::from_visual(&exponential_ui::style::visual(&props, exponential_ui::style::BoxKind::Leaf));
+        let (w, h) = (lcx.w, lcx.h);
+        let d = px_prop(&props, "width").filter(|d| *d < w.min(h)).unwrap_or(w.min(h) / 2.0);
+        let st = PaintStyle { bg: dot.bg.or(lcx.style.color).or(Some(lcx.ink)), radii: [d / 2.0; 4], border: [0.0; 4], ..dot };
+        styled_box(div().absolute().left(px((w - d) / 2.0)).top(px((h - d) / 2.0)).size(px(d)), &st, d, d).into_any_element()
+    }
+
+    /// Any `Text` leaf: its lines broken exactly as measured, with the
+    /// chrome its part carries (a tab's icon and count, an accordion
+    /// chevron, an option's check, a sort arrow), typed table cells and the
+    /// CodeBlock's tokens.
+    fn paint_text(&self, lcx: &LeafCx, window: &mut Window) -> AnyElement {
+        let n = lcx.node;
+        let owner = n.owner_component.as_deref().unwrap_or("");
+        let part = n.part.as_deref();
+        let raw = lcx.str("text");
+        let ts = lcx.text_style;
+        let (x, y, w, h) = lcx.inner();
+        if owner == "Table" && part == Some("cell") {
+            match lcx.str("cellType") {
+                "boolean" => return natives::bool_cell(lcx, crate::paint::natives::cell_text(n.props.get("value")) == "true"),
+                "badge" if !raw.is_empty() => return natives::badge_cell(lcx, raw),
+                _ => {}
+            }
+        }
+        if owner == "CodeBlock" && part == Some("code") {
+            if let Some(tokens) = n.props.get("tokens").and_then(Value::as_array) {
+                return self.paint_code(lcx, tokens);
+            }
+        }
+        let count = n.props.get("count").map(|v| display_text(Some(v))).filter(|s| !s.is_empty());
+        let mut shaper = Shaper::new(window, &self.fonts);
+        let count_w = count.as_ref().map(|c| shaper.line_width(c, &lcx.font, ts.font_size)).unwrap_or(0.0);
+        let (lead, trail) = text_chrome(owner, part, &n.props, lcx.style.gap, count_w);
+        let shown = text::transform(raw, lcx.style.text_transform.as_deref()).into_owned();
+        // The lines break with the measurer's `letterSpacing`.
+        shaper.tracking = ts.letter_spacing.unwrap_or(0.0);
+        if lead == 0.0 && trail == 0.0 {
+            let clamp = n.lines.filter(|l| *l > 0).map(|l| l as usize);
+            let lines = if clamp == Some(1) { Rc::new(vec![shown.replace('\n', " ")]) } else { shaper.lines(&shown, &lcx.font, ts.font_size, Some(w.max(1.0))) };
+            return natives::text_lines(lcx, &lines, clamp);
+        }
+        // A one-line text with chrome: [lead] text [trail], mirrored in RTL.
+        let gap = lcx.style.gap.max(4.0);
+        let mut row = lcx.row(lcx.typed(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)))).items_center().gap(px(gap)).whitespace_nowrap();
+        if lead > 0.0 {
+            if let Some(icon) = n.props.get("icon").and_then(Value::as_str) {
+                row = row.child(div().flex_none().child(icons::concept_mirrored(lcx.host, icon, 16.0, lcx.ink, lcx.rtl)));
+            }
+        }
+        let align = if owner == "Tabs" { "center" } else { lcx.align() };
+        if lcx.style.letter_spacing != 0.0 {
+            row = row.child(natives::tracked_text(lcx.tracked(vec![shown], align, true)).min_w_0().flex_1().h(px(ts.line_height)));
+        } else {
+            row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(shown)));
+        }
+        match (owner, part) {
+            ("Tabs", Some("tab")) => {
+                if let Some(c) = count {
+                    let muted = lcx.theme_color("mutedForeground").unwrap_or(lcx.ink);
+                    row = row.child(div().flex_none().px(px(6.0)).rounded_full().text_size(px(12.0)).text_color(muted).child(SharedString::from(c)));
+                }
+                let selected = NodeFlags::of(n).selected;
+                let states: Vec<String> = if selected { vec!["selected".into()] } else { vec![] };
+                let ind_props = lcx.part_props("Tabs", "indicator", &states);
+                let ind = PaintStyle::from_visual(&exponential_ui::style::visual(&ind_props, exponential_ui::style::BoxKind::Leaf));
+                let ind_h = px_prop(&ind_props, "height").unwrap_or(0.0);
+                let mut out = div().size_full().child(row.justify_center());
+                if selected && ind_h > 0.0 {
+                    if let Some(bg) = ind.bg {
+                        out = out.child(div().absolute().left_0().bottom_0().w_full().h(px(ind_h)).bg(bg).rounded(px(ind.radius())));
+                    }
+                }
+                return out.into_any_element();
+            }
+            ("Accordion", Some("trigger")) => {
+                let open = NodeFlags::of(n).open;
+                let chevron = icons::concept_rotated(lcx.host, "ui-chevron-down", 16.0, lcx.ink, if open { std::f32::consts::PI } else { 0.0 });
+                row = row.child(div().flex_none().child(chevron));
+            }
+            ("Select", Some("item")) => {
+                let check = lcx.str("check");
+                let selected = NodeFlags::of(n).selected || lcx.bool("selected");
+                row = row.child(div().flex_none().size(px(16.0)).when(selected, |d| d.child(icons::concept(lcx.host, if check.is_empty() { "ui-check" } else { check }, 16.0, lcx.ink))));
+            }
+            ("Table", Some("headerCell")) => {
+                let icon = lcx.str("sortIcon");
+                row = row.child(div().flex_none().size(px(16.0)).when(!icon.is_empty(), |d| d.child(icons::concept(lcx.host, icon, 16.0, lcx.ink))));
+            }
+            _ => {}
+        }
+        row.into_any_element()
+    }
+
+    /// A CodeBlock line: the core tokenizer's tokens, each coloured by the
+    /// `CodeBlock/token {kind}` recipe.
+    fn paint_code(&self, lcx: &LeafCx, tokens: &[Value]) -> AnyElement {
+        let mut text = String::new();
+        let mut runs = Vec::with_capacity(tokens.len());
+        let mut cache: std::collections::HashMap<String, (Option<Hsla>, Option<u16>, bool)> = std::collections::HashMap::new();
+        let theme = self.surface.theme().cloned();
+        let mode = self.surface.mode();
+        for t in tokens {
+            let kind = t.get("kind").and_then(Value::as_str).unwrap_or("plain").to_string();
+            let s = t.get("text").and_then(Value::as_str).unwrap_or("");
+            if s.is_empty() {
+                continue;
+            }
+            let (color, weight, italic) = cache
+                .entry(kind.clone())
+                .or_insert_with(|| {
+                    let mut props = lcx.owner_props.clone();
+                    props.insert("kind".into(), Value::String(kind.clone()));
+                    let p = part_props(theme.as_deref(), mode, "CodeBlock", "token", &props, &[]);
+                    let v = exponential_ui::style::visual(&p, exponential_ui::style::BoxKind::Leaf);
+                    (crate::paint::color::color_of(v.color.as_deref()), v.font_weight, v.font_style.as_deref() == Some("italic"))
+                })
+                .to_owned();
+            text.push_str(s);
+            let mut font = lcx.font.clone();
+            if let Some(w) = weight {
+                font.weight = gpui::FontWeight(w as f32);
+            }
+            if italic {
+                font.style = gpui::FontStyle::Italic;
+            }
+            runs.push(gpui::TextRun { len: s.len(), font, color: color.unwrap_or(lcx.ink), background_color: None, underline: None, strikethrough: None });
+        }
+        lcx.content().whitespace_nowrap().child(gpui::StyledText::new(text).with_runs(runs)).into_any_element()
+    }
+
     fn paint_markdown(&self, lcx: &LeafCx, index: u32, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let (x, y, w, _) = lcx.inner();
+        let (x, y, w, h) = lcx.inner();
         let text = lcx.str("text").to_string();
         if let Some(el) = self.host.markdown(&text, lcx.text_style, w, window, cx) {
             return div().absolute().left(px(x)).top(px(y)).w(px(w)).child(el).into_any_element();
         }
-        let blocks = self.cache.markdown.get(&index).cloned().unwrap_or_else(|| Rc::new(markdown::parse(&text)));
+        let blocks = {
+            let mut cache = self.markdown.borrow_mut();
+            match cache.get(&index) {
+                Some((t, b)) if *t == text => b.clone(),
+                _ => {
+                    let b = Rc::new(markdown::parse(&text));
+                    cache.insert(index, (text.clone(), b.clone()));
+                    b
+                }
+            }
+        };
         let ts = lcx.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(lcx.theme, lcx.mode, body, &lcx.node.props);
-        let mut shaper = Shaper { window, fonts: &self.fonts, calls: 0 };
+        let mut shaper = Shaper::new(window, &self.fonts);
         let lay = markdown::layout(&blocks, &styles, w, &mut shaper);
         let (colors, muted, border, code_block_bg) = MdPaint::colors(lcx.theme, lcx.mode, lcx.ink, &lcx.node.props);
         let host = self.host.clone();
@@ -424,20 +749,43 @@ impl SurfaceView {
             muted,
             border,
             code_block_bg,
+            rtl: lcx.rtl,
             on_link: Rc::new(move |href, _window, cx| host.open_url(&host.resolve_url(href), cx)),
+            node: index,
+            units: (!self.ghosting.get()).then(|| self.md_pending.clone()),
+            selection: self.md_selection,
+            selection_bg: lcx.theme_color("ring").or_else(|| lcx.theme_color("primary")).unwrap_or(gpui::blue()).opacity(0.3),
         };
-        div().absolute().left(px(x)).top(px(y)).child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint)).into_any_element()
+        // Units commit once painted (their text layouts can hit-test then).
+        let (pending, committed) = (self.md_pending.clone(), self.md_units.clone());
+        let commit = canvas(|_, _, _| {}, move |_, _, _, _| {
+            if let Some(units) = pending.borrow_mut().remove(&index) {
+                committed.borrow_mut().insert(index, units);
+            }
+        })
+        .absolute()
+        .size_0();
+        let mut el = div().id(SharedString::from(format!("{}.md", lcx.node.id))).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).overflow_hidden().child(markdown::paint(&lcx.node.id, &blocks, &lay, w, &paint)).child(commit);
+        if !self.ghosting.get() {
+            // Selectable text: press-drag selects (the drag follows the
+            // pointer anywhere in the window), Shift extends, the platform
+            // copy shortcut copies (`copy_selection`).
+            el = el
+                .cursor_text()
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| this.md_press(index, ev.position, ev.modifiers.shift, window, cx)));
+        }
+        el.into_any_element()
     }
 
     fn paint_composer(&self, lcx: &LeafCx, cx: &mut Context<Self>) -> AnyElement {
         let n = lcx.node;
         let (x, y, w, h) = lcx.inner();
         let send_props = lcx.part_props("Composer", "send", &[]);
-        let send = crate::paint::parts::px_prop(&send_props, "height").unwrap_or(36.0);
+        let send = px_prop(&send_props, "height").unwrap_or(36.0);
         let busy = lcx.bool("busy");
         let send_style = lcx.part("Composer", "send", &[]);
         let field_props = lcx.part_props("Composer", "field", &[]);
-        let fs = crate::paint::parts::px_prop(&field_props, "fontSize").unwrap_or(lcx.text_style.font_size);
+        let fs = px_prop(&field_props, "fontSize").unwrap_or(lcx.text_style.font_size);
         let field_ink = crate::paint::color::color_of(field_props.get("color").and_then(Value::as_str)).unwrap_or(lcx.ink);
         let gap = lcx.style.gap;
         let field_h = (h - send - gap).max(0.0);
@@ -450,20 +798,20 @@ impl SurfaceView {
             };
             out = out.child(div().absolute().left_0().top_0().w(px(w)).h(px(field_h)).child(el));
         }
-        let mut bar = div().absolute().left_0().bottom_0().w(px(w)).h(px(send)).flex().flex_row().items_center().justify_end().gap(px(spacing(lcx.theme, "xs")));
+        let mut bar = lcx.row(div().absolute().left_0().bottom_0().w(px(w)).h(px(send))).items_center().justify_end().gap(px(spacing(lcx.theme, "xs")));
+        let idx = self.cache.index_of(&n.id).unwrap_or(0);
         if lcx.bool("attachments") {
             let att = lcx.part("Composer", "attachment", &[]);
-            let idx = self.cache.index_of(&n.id).unwrap_or(0);
             bar = bar.child(
                 styled_box(div().id(SharedString::from(format!("{}.attach", n.id))).h(px(send.min(28.0))).px(px(8.0)).flex().items_center().justify_center().cursor_pointer(), &att, 28.0, 28.0)
                     .role(gpui::Role::Button)
-                    .aria_label("Attach")
+                    .aria_label(self.composer_labels(n).1)
                     .on_click(cx.listener(move |this, _, _, cx| this.fire(idx, "attach", None, cx)))
-                    .child(icons::glyph(Glyph::Attach, 16.0, att.color.unwrap_or(lcx.ink))),
+                    .child(icons::concept(lcx.host, "ui-attach", 16.0, att.color.unwrap_or(lcx.ink))),
             );
         }
         let send_ink = send_style.color.unwrap_or(lcx.ink);
-        let label = if busy { "Stop".to_string() } else if lcx.str("submitLabel").is_empty() { "Send".to_string() } else { lcx.str("submitLabel").to_string() };
+        let label = self.composer_labels(n).0;
         let fid = n.id.clone();
         let disabled = !busy && empty;
         bar = bar.child(
@@ -473,27 +821,28 @@ impl SurfaceView {
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(label))
                 .on_click(cx.listener(move |this, _, window, cx| this.submit_composer(&fid, window, cx)))
-                .child(icons::glyph(if busy { Glyph::Stop } else { Glyph::Send }, 16.0, send_ink)),
+                .child(icons::concept(lcx.host, if busy { "ui-stop" } else { "ui-send" }, 16.0, send_ink)),
         );
         out.child(bar).into_any_element()
     }
 
-    fn paint_toggle_group(&self, lcx: &LeafCx, index: u32, cx: &mut Context<Self>) -> AnyElement {
+    fn paint_toggle_group(&self, lcx: &LeafCx, index: u32, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let n = lcx.node;
         let items = n.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
         let fill = lcx.bool("fill");
-        let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-        let current = self.mirrored(&n.id, &external);
+        let current = n.props.get("value").cloned().unwrap_or(Value::Null);
         let chosen: Vec<String> = match &current {
             Value::Array(a) => a.iter().map(|v| display_text(Some(v))).collect(),
-            Value::String(s) if lcx.str("type") == "multiple" => s.split(',').map(str::to_string).collect(),
+            Value::String(s) if lcx.str("type") == "multiple" || s.contains(',') => s.split(',').map(str::to_string).collect(),
             v => vec![display_text(Some(v))],
         };
         let item_props = lcx.part_props("ToggleGroup", "item", &[]);
-        let ih = crate::paint::parts::px_prop(&item_props, "height").unwrap_or(lcx.h);
-        let pad = crate::paint::parts::px_prop(&item_props, "paddingHorizontal").or_else(|| crate::paint::parts::px_prop(&item_props, "padding")).unwrap_or(12.0);
+        let ih = px_prop(&item_props, "height").unwrap_or(lcx.h);
+        let pad = px_prop(&item_props, "paddingHorizontal").or_else(|| px_prop(&item_props, "padding")).unwrap_or(12.0);
         let (x, y, w, h) = lcx.inner();
-        let mut row = div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).flex().flex_row().items_center().gap(px(lcx.style.gap));
+        let focused_item = self.focused == Some(index) && self.keyboard;
+        let roving = self.group_index(n);
+        let mut row = lcx.row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))).items_center().gap(px(lcx.style.gap));
         for (k, it) in items.iter().enumerate() {
             let value = it.get("value").cloned().unwrap_or(Value::Null);
             let selected = chosen.contains(&display_text(Some(&value)));
@@ -510,26 +859,45 @@ impl SurfaceView {
             if hovered {
                 st.push("hover".into());
             }
+            let ring = focused_item && roving == k;
+            if ring {
+                st.push("focus-visible".into());
+            }
             let s = lcx.part("ToggleGroup", "item", &st);
             let color = s.color.unwrap_or(lcx.ink);
             let label = display_text(it.get("label"));
-            let mut item = styled_box(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad)).flex().flex_row().items_center().justify_center().gap(px(6.0)).whitespace_nowrap().text_color(color), &s, 80.0, ih)
+            let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(6.0)).whitespace_nowrap().text_color(color), &s, 80.0, ih)
                 .when(fill, |d| d.flex_1())
                 .role(gpui::Role::RadioButton)
                 .aria_label(SharedString::from(label.clone()))
                 .aria_selected(selected);
+            if ring && s.shadows.is_empty() {
+                let rc = lcx.theme_color("ring").unwrap_or(lcx.ink.opacity(0.5));
+                item = item.border_2().border_color(rc);
+            }
             if !disabled {
                 let hid = item_id.clone();
                 item = item
                     .cursor_pointer()
                     .on_hover(cx.listener(move |this, h: &bool, _, cx| this.hover(&hid, *h, cx)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_group_select(index, value.clone(), cx)));
+                    .on_click(cx.listener(move |this, _, window, cx| this.toggle_group_select(index, value.clone(), window, cx)));
             }
             if let Some(icon) = it.get("icon").and_then(Value::as_str) {
                 item = item.child(icons::concept(self.host.as_ref(), icon, 16.0, color));
             }
             if !label.is_empty() {
-                item = item.child(SharedString::from(label));
+                let shown = crate::text::transform(&label, lcx.style.text_transform.as_deref()).into_owned();
+                if lcx.style.letter_spacing != 0.0 {
+                    // Tracked as measured: the item's size and weight.
+                    let size = px_prop(&item_props, "fontSize").unwrap_or(lcx.text_style.font_size);
+                    let weight = item_props.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(500);
+                    let font = crate::measure::make_font(lcx.font.family.clone(), weight);
+                    let tw = natives::tracked_width(window, &font, size, &shown, lcx.style.letter_spacing);
+                    let t = natives::Tracked { font, size, ink: color, ..lcx.tracked(vec![shown], "left", false) };
+                    item = item.child(natives::tracked_text(t).flex_none().w(px(tw)).h(px(lcx.text_style.line_height)));
+                } else {
+                    item = item.child(SharedString::from(shown));
+                }
             }
             row = row.child(item);
         }
@@ -541,19 +909,19 @@ impl SurfaceView {
         let page = lcx.num("page").unwrap_or(0.0).max(0.0) as usize;
         let owner = self.cache.owner_of(index);
         let gap = spacing(lcx.theme, "xs");
-        let mut row = div().absolute().left_0().bottom_0().w(px(lcx.w)).flex().flex_row().justify_center().gap(px(gap));
+        let mut row = lcx.row(div().absolute().left_0().bottom_0().w(px(lcx.w)).h(px(lcx.h))).items_center().justify_center().gap(px(gap)).overflow_hidden();
         for i in 0..count {
             let states: Vec<String> = if i == page { vec!["selected".into()] } else { vec![] };
             let s = lcx.part("Carousel", "indicator", &states);
             let props = lcx.part_props("Carousel", "indicator", &states);
-            let size = crate::paint::parts::px_prop(&props, "width").unwrap_or(8.0);
+            let size = px_prop(&props, "width").unwrap_or(8.0).min(lcx.h.max(1.0));
             let fallback = if i == page { lcx.theme_color("primary") } else { lcx.theme_color("border") };
-            let s = PaintStyle { bg: s.bg.or(fallback), radius: size / 2.0, ..s };
+            let s = PaintStyle { bg: s.bg.or(fallback), radii: [size / 2.0; 4], ..s };
             row = row.child(
-                styled_box(div().id(SharedString::from(format!("{}.dot.{i}", lcx.node.id))).size(px(size)), &s, size, size)
+                styled_box(div().id(SharedString::from(format!("{}.dot.{i}", lcx.node.id))).flex_none().size(px(size)), &s, size, size)
                     .cursor_pointer()
                     .role(gpui::Role::Tab)
-                    .aria_label(SharedString::from(format!("Page {}", i + 1)))
+                    .aria_label(SharedString::from(self.carousel_dot_label(i, count)))
                     .aria_selected(i == page)
                     .on_click(cx.listener(move |this, _, _, cx| this.fire(owner, "change", Some(json!({"page": i})), cx))),
             );
@@ -561,48 +929,72 @@ impl SurfaceView {
         row.into_any_element()
     }
 
-    /// An open layer: the scrim (Dialog / Drawer) and the content root at its
-    /// surface-coordinate frame.
-    pub(crate) fn paint_layer(&self, layer: &Layer, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// Whether a layer is placed against the viewport (not an anchor).
+    fn viewport_layer(layer: &Layer) -> bool {
+        layer.placement.is_none() && layer.position != "point"
+    }
+
+    /// An open layer: the scrim (modal ones), the content root at its
+    /// surface-coordinate frame (viewport-placed ones moved into the region
+    /// the host shows), the enter animation, outside-press dismissal.
+    pub(crate) fn paint_layer(&mut self, k: usize, layer: &Layer, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.paint_layer_at(k, layer, None, window, cx)
+    }
+
+    /// A layer at an explicit progress (`exit` = an exiting ghost's 1 → 0
+    /// fade: not hit-tested, no dismissal), else its enter animation's.
+    pub(crate) fn paint_layer_at(&mut self, k: usize, layer: &Layer, exit: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let root = layer.root;
-        let modal = matches!(layer.kind.as_str(), "Dialog" | "Drawer");
-        let owner_index = self.cache.index_of(&layer.owner);
-        let owner_props = owner_index.and_then(|o| self.cache.node(o)).map(|o| o.props.clone()).unwrap_or_default();
-        let mut container = div().absolute().left_0().top_0();
-        if modal {
+        let ghost = exit.is_some();
+        let shift = if Self::viewport_layer(layer) { self.visible.top } else { 0.0 };
+        let progress = exit.or_else(|| self.motion.layer_progress(&layer.owner, self.now()));
+        let mut container = div().absolute().left_0().top(px(shift));
+        if layer.modal {
             let theme = self.surface.theme().cloned();
+            let owner_props = self.cache.index_of(&layer.owner).and_then(|o| self.cache.node(o)).map(|o| o.props.clone()).unwrap_or_default();
             let overlay = PaintStyle::from_visual(&part_visual(theme.as_deref(), self.surface.mode(), &layer.kind, "overlay", &owner_props, &["open".to_string()]));
             let scrim = overlay.bg.unwrap_or(gpui::black().opacity(0.5));
-            let dismissible = !matches!(owner_props.get("dismissible"), Some(Value::Bool(false)));
-            let height = self.surface_height.max(self.viewport_height);
-            let owner = layer.owner.clone();
-            container = container.child(
-                div()
-                    .id(SharedString::from(format!("{}.overlay", layer.owner)))
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .w(px(self.width))
-                    .h(px(height))
-                    .bg(scrim)
-                    .occlude()
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            if dismissible {
-                                this.dismiss_layer(&owner, cx);
-                            }
-                        }),
-                    ),
-            );
+            let height = if self.visible.height > 0.0 { self.visible.height } else { self.surface_height.max(self.viewport_height) };
+            let scrim_el = div()
+                .id(SharedString::from(format!("{}.overlay{}", layer.owner, if ghost { ".exit" } else { "" })))
+                .absolute()
+                .left_0()
+                .top_0()
+                .w(px(self.width))
+                .h(px(height))
+                .bg(scrim)
+                .when_some(progress, |d, p| d.opacity(p));
+            container = container.child(if ghost {
+                scrim_el
+            } else {
+                scrim_el.occlude().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.dismiss_layer_at(root, window, cx);
+                }))
+            });
         }
         if self.cache.node(root).is_some_and(|n| !n.hidden) {
             let f = self.frames.get(root as usize).copied().unwrap_or_default();
-            let el = self.paint_node(root, (f.x, f.y), window, cx);
-            let owner = layer.owner.clone();
-            let mut wrap = div().id(SharedString::from(format!("{}.layer", layer.owner))).absolute().left(px(f.x)).top(px(f.y)).w(px(f.w)).h(px(f.h)).occlude().child(el);
-            if matches!(layer.kind.as_str(), "Popover" | "DropdownMenu") {
-                wrap = wrap.on_mouse_down_out(cx.listener(move |this, _, _, cx| this.dismiss_layer(&owner, cx)));
+            let place = Place { origin: (f.x, f.y), abs: (f.x, f.y + shift), clip: None };
+            let inner = self.paint_node(root, Place { origin: (f.x, f.y), ..place }, window, cx);
+            // The root div sits at its own frame inside a wrapper at (0,0);
+            // the wrapper owns the occlusion and the outside press.
+            let rise = progress.map(|p| (1.0 - p) * if layer.position == "top" { -8.0 } else { 8.0 }).unwrap_or(0.0);
+            let (dx, dy) = self.sheet_drag.as_ref().filter(|d| d.root == root && !ghost).map(|d| d.offset).unwrap_or((0.0, 0.0));
+            let mut wrap = div().id(SharedString::from(format!("{}.{}.{k}", layer.owner, if ghost { "exit" } else { "layer" }))).absolute().left(px(f.x + dx)).top(px(f.y + rise + dy)).w(px(f.w)).h(px(f.h)).when(!ghost, |d| d.occlude()).when_some(progress, |d, p| d.opacity(p));
+            if let Some(el) = inner {
+                wrap = wrap.child(el);
+            }
+            if ghost {
+                return container.child(wrap).into_any_element();
+            }
+            if self.opens_on_hover(&layer.owner) {
+                let owner = layer.owner.clone();
+                wrap = wrap.on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.hover_card(&owner, *hovered, window, cx)));
+            }
+            let outside = !layer.modal && layer.class == LayerClass::Overlay && layer.kind != "Tooltip";
+            if outside {
+                wrap = wrap.on_mouse_down_out(cx.listener(move |this, ev: &gpui::MouseDownEvent, window, cx| this.outside_press(root, ev.position, window, cx)));
             }
             container = container.child(wrap);
         }
@@ -610,11 +1002,64 @@ impl SurfaceView {
     }
 }
 
-fn placeholder_or_value(n: &PlacedNode) -> String {
-    let v = display_text(n.props.get("value"));
-    if v.is_empty() {
-        n.props.get("placeholder").and_then(Value::as_str).unwrap_or("").to_string()
-    } else {
-        v
+/// Did the user pick something (the trigger shows a value, not the
+/// placeholder)?
+fn has_value(n: &PlacedNode) -> bool {
+    let set = |k: &str| match n.props.get(k) {
+        None | Some(Value::Null) => false,
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        _ => true,
+    };
+    set("value") || set("start") || set("end")
+}
+
+/// A linear gradient over the box: gpui paints two stops; more stops are
+/// chained as segments along an axis-aligned angle (others use the end
+/// stops).
+fn gradient(g: &crate::paint::GradientPaint, w: f32, h: f32, radii: [f32; 4]) -> AnyElement {
+    let first = g.stops[0];
+    let last = *g.stops.last().unwrap_or(&first);
+    if g.stops.len() == 2 || (g.angle % 90.0).abs() > 0.01 {
+        return rounded(div().absolute().top_0().left_0().w(px(w)).h(px(h)).bg(linear_gradient(g.angle, linear_color_stop(first.0, first.1), linear_color_stop(last.0, last.1))), radii).into_any_element();
+    }
+    // Axis-aligned, 3+ stops: one 2-stop segment per pair.
+    let a = g.angle.rem_euclid(360.0);
+    let horizontal = (a - 90.0).abs() < 0.01 || (a - 270.0).abs() < 0.01;
+    let reversed = (a - 270.0).abs() < 0.01 || a.abs() < 0.01;
+    let len = if horizontal { w } else { h };
+    let mut out = rounded(div().absolute().top_0().left_0().w(px(w)).h(px(h)).overflow_hidden(), radii);
+    for pair in g.stops.windows(2) {
+        let (s0, s1) = (pair[0], pair[1]);
+        let (o0, o1) = if reversed { (1.0 - s1.1, 1.0 - s0.1) } else { (s0.1, s1.1) };
+        let (c0, c1) = if reversed { (s1.0, s0.0) } else { (s0.0, s1.0) };
+        let start = o0 * len;
+        let size = ((o1 - o0) * len).max(0.0);
+        let seg = div().absolute().bg(linear_gradient(if horizontal { 90.0 } else { 180.0 }, linear_color_stop(c0, 0.0), linear_color_stop(c1, 1.0)));
+        out = out.child(if horizontal { seg.top_0().h(px(h)).left(px(start)).w(px(size)) } else { seg.left_0().w(px(w)).top(px(start)).h(px(size)) });
+    }
+    out.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rounded_clips_pass_to_children_in_their_corners() {
+        let card = Clip { x: 0.0, y: 0.0, w: 200.0, h: 100.0, radii: [12.0; 4] };
+        assert_eq!(inherit_radii([0.0; 4], (0.0, 0.0, 200.0, 60.0), &card), [12.0, 12.0, 0.0, 0.0], "a flush header image rounds its top corners");
+        assert_eq!(inherit_radii([0.0; 4], (4.0, 4.0, 192.0, 92.0), &card), [8.0; 4], "an inset child takes the radius minus the inset");
+        assert_eq!(inherit_radii([0.0; 4], (20.0, 20.0, 20.0, 20.0), &card), [0.0; 4], "a child away from the corners keeps square ones");
+        assert_eq!(inherit_radii([16.0, 0.0, 0.0, 0.0], (0.0, 0.0, 10.0, 10.0), &card)[0], 16.0, "its own larger radius wins");
+    }
+
+    #[test]
+    fn scrollbar_thumbs_track_the_offset() {
+        assert_eq!(thumb_geometry(100.0, 100.0, 0.0, 96.0), None);
+        let (at, len) = thumb_geometry(100.0, 400.0, 0.0, 96.0).unwrap();
+        assert_eq!((at, len), (0.0, 24.0));
+        let (at, _) = thumb_geometry(100.0, 400.0, 300.0, 96.0).unwrap();
+        assert_eq!(at, 72.0);
     }
 }

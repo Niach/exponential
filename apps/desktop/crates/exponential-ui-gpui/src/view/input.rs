@@ -1,31 +1,30 @@
-//! Host-owned text fields (Input / Textarea `.field`, Composer) on
-//! gpui-component input states, and the Select / DatePicker popups.
+//! Host-owned text fields on gpui-component input states: the Input /
+//! Textarea `.field`, the Composer, a NumberField's and a ChipInput's
+//! `input`, a searchable Select's `search`.
 //!
 //! The gpui state OWNS the text. Every edit bumps the field's revision and
 //! (re)schedules a 150 ms debounce; the debounce sends the core
 //! `event(change, {value})` (bound values write through) and the host an
 //! `InputEvent::Change` with that revision. Blur / Enter flush and send a
-//! `Commit`. An echo (a changed prop value) is written into the field only
-//! when it is not focused and no newer edit is outstanding.
+//! `Commit` / `submit`. An echo (a changed prop value) is written into the
+//! field only when it is not focused and no newer edit is outstanding. A
+//! growing field (Composer, autosize Textarea) is re-measured on every edit
+//! from its LIVE text.
 
 use std::collections::HashSet;
 use std::time::Duration;
 
 use exponential_ui::surface::PlacedNode;
-use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, SharedString, Subscription, Task, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Context, Entity, FocusHandle, Focusable as _, Subscription, Task, Window};
 use gpui_component::input::{Input, InputEvent, InputState, TextareaState};
 use serde_json::{json, Value};
 
 use super::state::is_text_field;
 use super::SurfaceView;
 use crate::measure::display_text;
-use crate::paint::date;
-use crate::paint::icons::{self, Glyph};
-use crate::paint::natives::styled_box;
-use crate::paint::parts::{part_props, part_visual, px_prop, spacing, theme_color};
-use crate::paint::PaintStyle;
+use crate::paint::icons;
 
-/// The debounce of `InputEvent::Change`.
+/// The debounce of `InputEvent::Change` (and a Select's `search`).
 pub const INPUT_DEBOUNCE: Duration = Duration::from_millis(150);
 
 pub(crate) enum FieldInput {
@@ -33,9 +32,47 @@ pub(crate) enum FieldInput {
     Multi(Entity<TextareaState>),
 }
 
+/// Which host field a node is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FieldKind {
+    Input,
+    Textarea,
+    Composer,
+    Number,
+    Chips,
+    Search,
+}
+
+impl FieldKind {
+    fn of(n: &PlacedNode) -> FieldKind {
+        match (n.component.as_str(), n.owner_component.as_deref()) {
+            ("Composer", _) => FieldKind::Composer,
+            ("Textarea", _) => FieldKind::Textarea,
+            (_, Some("NumberField")) => FieldKind::Number,
+            (_, Some("ChipInput")) => FieldKind::Chips,
+            (_, Some("Select")) => FieldKind::Search,
+            _ => FieldKind::Input,
+        }
+    }
+
+    /// The prop the core echoes the field's text in.
+    fn echo_prop(self) -> &'static str {
+        match self {
+            FieldKind::Number | FieldKind::Chips => "text",
+            _ => "value",
+        }
+    }
+
+    /// The field grows with its text (re-measure on every edit).
+    fn grows(self, n: &PlacedNode) -> bool {
+        self == FieldKind::Composer || (self == FieldKind::Textarea && n.props.get("autosize").and_then(Value::as_bool) == Some(true))
+    }
+}
+
 /// One host-owned text field.
 pub(crate) struct Field {
     pub input: FieldInput,
+    pub kind: FieldKind,
     /// Bumped per local edit.
     pub revision: u64,
     /// The revision last sent to the core/host.
@@ -47,7 +84,7 @@ pub(crate) struct Field {
     /// The text last sent or echoed in (an edit not yet seen by the
     /// subscription still counts as outstanding).
     pub synced: String,
-    pub composer: bool,
+    pub grows: bool,
     _subscription: Subscription,
 }
 
@@ -86,34 +123,20 @@ impl Field {
     }
 }
 
-/// The open Select / DatePicker popup.
-pub(crate) struct Popup {
-    pub field: String,
-    pub kind: PopupKind,
-}
-
-pub(crate) enum PopupKind {
-    Select { search: Option<(Entity<InputState>, Subscription)> },
-    Date { year: i32, month: u32 },
-}
-
+/// The author's placeholder (none = none: the web shows no built-in one).
 fn placeholder_of(n: &PlacedNode) -> String {
-    let p = n.props.get("placeholder").and_then(Value::as_str).unwrap_or("");
-    if p.is_empty() && n.component == "Composer" {
-        "Message".to_string()
-    } else {
-        p.to_string()
-    }
+    n.props.get("placeholder").and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 impl SurfaceView {
     /// Create states for new fields, apply echoes, drop stale fields.
     pub(crate) fn sync_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut keep = HashSet::new();
-        let fields: Vec<PlacedNode> = self.cache.nodes.iter().filter(|n| is_text_field(n)).cloned().collect();
+        let fields: Vec<PlacedNode> = self.cache.nodes.iter().filter(|n| !n.removed && is_text_field(n)).cloned().collect();
         for n in fields {
             keep.insert(n.id.clone());
-            let external = display_text(n.props.get("value"));
+            let kind = FieldKind::of(&n);
+            let external = display_text(n.props.get(kind.echo_prop()));
             let placeholder = placeholder_of(&n);
             if let Some(f) = self.fields.get_mut(&n.id) {
                 if f.placeholder != placeholder {
@@ -130,9 +153,9 @@ impl SurfaceView {
                 }
                 continue;
             }
-            let composer = n.component == "Composer";
             let id = n.id.clone();
-            let (input, sub) = if n.component == "Input" {
+            let multi = matches!(kind, FieldKind::Textarea | FieldKind::Composer);
+            let (input, sub) = if !multi {
                 let (ph, v) = (placeholder.clone(), external.clone());
                 let state = cx.new(|cx| InputState::new(window, cx).placeholder(ph).default_value(v));
                 let fid = id.clone();
@@ -141,6 +164,7 @@ impl SurfaceView {
             } else {
                 let (ph, v) = (placeholder.clone(), external.clone());
                 let rows = n.props.get("rows").and_then(Value::as_u64).unwrap_or(3).max(1) as usize;
+                let composer = kind == FieldKind::Composer;
                 let state = cx.new(|cx| {
                     let s = TextareaState::new(window, cx).placeholder(ph).default_value(v).submit_on_enter(composer);
                     if composer {
@@ -153,7 +177,8 @@ impl SurfaceView {
                 let sub = cx.subscribe_in(&state, window, move |this, _, ev: &InputEvent, window, cx| this.on_field_event(&fid, ev, window, cx));
                 (FieldInput::Multi(state), sub)
             };
-            self.fields.insert(id, Field { input, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, placeholder, composer, _subscription: sub });
+            let grows = kind.grows(&n);
+            self.fields.insert(id, Field { input, kind, revision: 0, flushed: 0, pending: None, synced: external.clone(), external, placeholder, grows, _subscription: sub });
         }
         self.fields.retain(|id, _| keep.contains(id));
     }
@@ -163,28 +188,58 @@ impl SurfaceView {
             InputEvent::Change => {
                 let Some(f) = self.fields.get_mut(id) else { return };
                 f.revision += 1;
+                let grows = f.grows;
                 let fid = id.to_string();
                 f.pending = Some(cx.spawn_in(window, async move |this, cx| {
                     cx.background_executor().timer(INPUT_DEBOUNCE).await;
                     let _ = this.update_in(cx, |this, window, cx| this.flush_field(&fid, None, window, cx));
                 }));
-            }
-            InputEvent::PressEnter { shift, .. } => {
-                let composer = self.fields.get(id).is_some_and(|f| f.composer);
-                let multi = self.fields.get(id).is_some_and(|f| matches!(f.input, FieldInput::Multi(_)));
-                if composer && !shift {
-                    self.submit_composer(id, window, cx);
-                } else if !multi {
-                    self.flush_field(id, Some("submit"), window, cx);
+                if grows {
+                    // The live text decides the height: measure again now.
+                    if let Some(i) = self.cache.index_of(id) {
+                        self.surface.mark_dirty(i);
+                    }
+                    cx.notify();
                 }
             }
-            InputEvent::Blur => self.flush_field(id, Some("commit"), window, cx),
-            InputEvent::Focus => cx.notify(),
+            InputEvent::PressEnter { shift, .. } => {
+                let kind = self.fields.get(id).map(|f| f.kind);
+                match kind {
+                    Some(FieldKind::Composer) if !shift => self.submit_composer(id, window, cx),
+                    Some(FieldKind::Textarea | FieldKind::Composer) | None => {}
+                    Some(FieldKind::Chips) => {
+                        self.flush_field(id, Some("submit"), window, cx);
+                        self.clear_field(id, window, cx);
+                    }
+                    Some(_) => self.flush_field(id, Some("submit"), window, cx),
+                }
+            }
+            InputEvent::Blur => {
+                self.flush_field(id, Some("commit"), window, cx);
+                if let Some(i) = self.cache.index_of(id) {
+                    self.fire(i, "blur", None, cx);
+                }
+            }
+            InputEvent::Focus => {
+                self.track_focus(window, cx);
+                cx.notify();
+            }
         }
     }
 
-    /// Send the outstanding edit (and a commit event) of field `id`.
-    pub fn flush_field(&mut self, id: &str, commit: Option<&str>, _window: &mut Window, cx: &mut Context<Self>) {
+    /// Empty a field without an echo (a ChipInput after a chip was added).
+    fn clear_field(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(f) = self.fields.get_mut(id) {
+            f.set_value(String::new(), window, cx);
+            f.synced.clear();
+            f.revision += 1;
+            f.flushed = f.revision;
+            f.external.clear();
+        }
+    }
+
+    /// Send the outstanding edit (and a commit/submit event) of field `id`.
+    pub fn flush_field(&mut self, id: &str, commit: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(index) = self.cache.index_of(id) else { return };
         let Some(f) = self.fields.get_mut(id) else { return };
         f.pending = None;
@@ -193,9 +248,14 @@ impl SurfaceView {
         let needs_change = f.flushed < f.revision;
         f.flushed = f.revision;
         let rev = f.revision;
+        let kind = f.kind;
         if needs_change {
             let events = self.surface.event(index, "change", Some(json!({"value": value})));
             self.dispatch(events, Some(rev), cx);
+            // A comma ends a chip: the core added it, the field empties.
+            if kind == FieldKind::Chips && value.ends_with(',') {
+                self.clear_field(id, window, cx);
+            }
         }
         if let Some(e) = commit {
             let events = self.surface.event(index, e, Some(json!({"value": value})));
@@ -238,284 +298,36 @@ impl SurfaceView {
         let rev = self.fields.get(id).map(|f| f.revision).unwrap_or(0);
         let events = self.surface.event(index, "submit", Some(json!({"value": text})));
         self.dispatch(events, Some(rev), cx);
-        if let Some(f) = self.fields.get_mut(id) {
-            f.set_value(String::new(), window, cx);
-            f.synced.clear();
-            f.revision += 1;
-            f.flushed = f.revision;
-            f.external.clear();
-            let rev = f.revision;
-            let events = self.surface.event(index, "change", Some(json!({"value": ""})));
-            self.dispatch(events, Some(rev), cx);
-        }
+        self.clear_field(id, window, cx);
+        let rev = self.fields.get(id).map(|f| f.revision).unwrap_or(0);
+        let events = self.surface.event(index, "change", Some(json!({"value": ""})));
+        self.dispatch(events, Some(rev), cx);
+        self.surface.mark_dirty(index);
     }
 
-    /// The gpui-component input of a field leaf, styled from the `.field`
-    /// visual (the frame div paints the recipe chrome; the input draws none).
+    /// The gpui-component input of a field leaf inside its content box (the
+    /// frame div paints the recipe chrome; the input draws none). A Select
+    /// search field shows its glyph at the start.
     pub(crate) fn field_element(&self, lcx: &crate::paint::natives::LeafCx) -> Option<AnyElement> {
-        let (n, style, w, h, font, size, ink) = (lcx.node, lcx.style, lcx.w, lcx.h, lcx.font.clone(), lcx.text_style.font_size, lcx.ink);
+        let n = lcx.node;
         let f = self.fields.get(&n.id)?;
-        let disabled = matches!(n.props.get("disabled"), Some(Value::Bool(true)));
-        let border = style.border_width;
+        let (x, y, w, h) = lcx.inner();
+        let [_, _, _, _] = lcx.style.insets();
+        let disabled = matches!(n.props.get("disabled"), Some(Value::Bool(true))) || n.states.iter().any(|s| s == "disabled");
+        let font = lcx.font.clone();
+        let size = lcx.text_style.font_size;
+        let ink = lcx.ink;
+        let icon = (f.kind == FieldKind::Search).then(|| n.props.get("icon").and_then(Value::as_str).unwrap_or("search").to_string());
+        let icon_w = if icon.is_some() { 16.0 + 8.0 } else { 0.0 };
+        let field_w = (w - icon_w).max(0.0);
         let el = match &f.input {
-            FieldInput::Line(s) => Input::new(s)
-                .appearance(false)
-                .disabled(disabled)
-                .font(font)
-                .text_size(px(size))
-                .text_color(ink)
-                .px(px(style.pad_h))
-                .w(px((w - 2.0 * border).max(0.0)))
-                .h(px((h - 2.0 * border).max(0.0)))
-                .into_any_element(),
-            FieldInput::Multi(s) => gpui_component::input::Textarea::new(s)
-                .appearance(false)
-                .disabled(disabled)
-                .font(font)
-                .text_size(px(size))
-                .text_color(ink)
-                .w(px((w - 2.0 * border).max(0.0)))
-                .h(px((h - 2.0 * border).max(0.0)))
-                .into_any_element(),
+            FieldInput::Line(s) => Input::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
+            FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
         };
-        Some(div().absolute().left(px(border)).top(px(border)).child(el).into_any_element())
-    }
-
-    // -- Select / DatePicker popups ---------------------------------------------
-
-    pub(crate) fn toggle_popup(&mut self, index: u32, date_picker: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(n) = self.cache.node(index).cloned() else { return };
-        if self.popup.as_ref().is_some_and(|p| p.field == n.id) {
-            self.popup = None;
-            cx.notify();
-            return;
+        let mut row = lcx.row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))).items_center().gap(px(if icon.is_some() { 8.0 } else { 0.0 }));
+        if let Some(name) = icon {
+            row = row.child(div().flex_none().opacity(0.6).child(icons::concept(lcx.host, &name, 16.0, ink)));
         }
-        if self.just_dismissed.take().as_deref() == Some(n.id.as_str()) {
-            cx.notify();
-            return;
-        }
-        let kind = if date_picker {
-            let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-            let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-            let value = display_text(Some(&self.mirrored(&owner, &external)));
-            let (year, month, _) = date::parse_iso(&value).unwrap_or_else(date::today);
-            PopupKind::Date { year, month }
-        } else {
-            let searchable = matches!(n.props.get("searchable"), Some(Value::Bool(true)));
-            let search = searchable.then(|| {
-                let state = cx.new(|cx| InputState::new(window, cx).placeholder("Search…"));
-                let sub = cx.subscribe_in(&state, window, |_, _, _: &InputEvent, _, cx| cx.notify());
-                (state, sub)
-            });
-            PopupKind::Select { search }
-        };
-        self.popup = Some(Popup { field: n.id.clone(), kind });
-        cx.notify();
-    }
-
-    pub(crate) fn select_option(&mut self, index: u32, value: Value, cx: &mut Context<Self>) {
-        let Some(n) = self.cache.node(index).cloned() else { return };
-        let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-        let multiple = matches!(n.props.get("multiple"), Some(Value::Bool(true)));
-        let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-        let next = if multiple {
-            let mut set: Vec<Value> = match self.mirrored(&owner, &external) {
-                Value::Array(a) => a,
-                Value::Null => Vec::new(),
-                v => vec![v],
-            };
-            match set.iter().position(|v| *v == value) {
-                Some(p) => {
-                    set.remove(p);
-                }
-                None => set.push(value),
-            }
-            Value::Array(set)
-        } else {
-            self.popup = None;
-            value
-        };
-        self.set_mirror(&owner, external, next.clone());
-        self.fire(index, "change", Some(json!({"value": next})), cx);
-    }
-
-    fn close_popup_outside(&mut self, cx: &mut Context<Self>) {
-        if let Some(p) = self.popup.take() {
-            self.just_dismissed = Some(p.field);
-            cx.notify();
-        }
-    }
-
-    /// The open popup, positioned under its field (surface coordinates).
-    pub(crate) fn paint_popup(&self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let p = self.popup.as_ref()?;
-        let index = self.cache.index_of(&p.field)?;
-        let n = self.cache.node(index)?;
-        let f = *self.frames.get(index as usize)?;
-        let theme = self.surface.theme().cloned();
-        let theme = theme.as_deref();
-        let mode = self.surface.mode();
-        let component = n.owner_component.clone().unwrap_or_else(|| n.component.clone());
-        let owner_index = self.cache.owner_of(index);
-        let owner_props = self.cache.node(owner_index).map(|o| o.props.clone()).unwrap_or_default();
-        let ink = self.inks.get(index as usize).copied().unwrap_or(gpui::white());
-        let open = vec!["open".to_string()];
-        let content_part = if matches!(p.kind, PopupKind::Date { .. }) { "calendar" } else { "content" };
-        let cstyle = PaintStyle::from_visual(&part_visual(theme, mode, &component, content_part, &owner_props, &open));
-        let cprops = part_props(theme, mode, &component, content_part, &owner_props, &open);
-        let pad = px_prop(&cprops, "padding").unwrap_or(4.0);
-        let fg = cstyle.color.unwrap_or(ink);
-        let fallback_bg = theme_color(theme, mode, "popover").unwrap_or(gpui::black());
-        let cstyle = PaintStyle { bg: cstyle.bg.or(Some(fallback_bg)), ..cstyle };
-        let accent = theme_color(theme, mode, "accent").unwrap_or(fg.opacity(0.1));
-        let gap = 4.0;
-        let x = f.x;
-        let y = f.y + f.h + gap;
-        let field_index = index;
-        let body: AnyElement = match &p.kind {
-            PopupKind::Select { search } => {
-                let item_props = part_props(theme, mode, &component, "item", &owner_props, &[]);
-                let item_h = px_prop(&item_props, "height").unwrap_or(32.0);
-                let item_pad = px_prop(&item_props, "paddingHorizontal").unwrap_or(8.0);
-                let item_style = PaintStyle::from_visual(&part_visual(theme, mode, &component, "item", &owner_props, &[]));
-                let selected_style = PaintStyle::from_visual(&part_visual(theme, mode, &component, "item", &owner_props, &["selected".to_string()]));
-                let query = search.as_ref().map(|(s, _)| s.read(cx).value().to_lowercase()).unwrap_or_default();
-                let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-                let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-                let chosen: Vec<String> = match self.mirrored(&owner, &external) {
-                    Value::Array(a) => a.iter().map(|v| display_text(Some(v))).collect(),
-                    Value::Null => Vec::new(),
-                    v => vec![display_text(Some(&v))],
-                };
-                let options = n.props.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-                let mut col = div().flex().flex_col();
-                if let Some((s, _)) = search {
-                    col = col.child(div().pb(px(4.0)).mb(px(4.0)).border_b_1().border_color(fg.opacity(0.15)).child(Input::new(s).appearance(false).text_size(px(14.0))));
-                }
-                for (i, o) in options.iter().enumerate() {
-                    let label = display_text(o.get("label"));
-                    if !query.is_empty() && !label.to_lowercase().contains(&query) {
-                        continue;
-                    }
-                    let value = o.get("value").cloned().unwrap_or(Value::Null);
-                    let selected = chosen.contains(&display_text(Some(&value)));
-                    let disabled = matches!(o.get("disabled"), Some(Value::Bool(true)));
-                    let st = if selected { &selected_style } else { &item_style };
-                    let color = st.color.unwrap_or(fg);
-                    let mut row = div()
-                        .id(SharedString::from(format!("{}.option.{i}", n.id)))
-                        .h(px(item_h))
-                        .px(px(item_pad))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.0))
-                        .rounded(px(st.radius))
-                        .text_color(color)
-                        .when_some(st.bg, |d, bg| d.bg(bg))
-                        .role(gpui::Role::ListBoxOption)
-                        .aria_label(SharedString::from(label.clone()))
-                        .aria_selected(selected)
-                        .when(disabled, |d| d.opacity(0.5));
-                    if !disabled {
-                        row = row.cursor_pointer().hover(move |s| s.bg(accent)).on_click(cx.listener(move |this, _, _, cx| this.select_option(field_index, value.clone(), cx)));
-                    }
-                    if let Some(icon) = o.get("icon").and_then(Value::as_str) {
-                        row = row.child(icons::concept(self.host.as_ref(), icon, 16.0, color));
-                    }
-                    row = row.child(div().flex_1().whitespace_nowrap().child(SharedString::from(label)));
-                    if selected {
-                        row = row.child(icons::glyph(Glyph::Check, 16.0, color));
-                    }
-                    col = col.child(row);
-                }
-                col.into_any_element()
-            }
-            PopupKind::Date { year, month } => {
-                let (year, month) = (*year, *month);
-                let external = n.props.get("value").cloned().unwrap_or(Value::Null);
-                let owner = n.owner.clone().unwrap_or_else(|| n.id.clone());
-                let selected = date::parse_iso(&display_text(Some(&self.mirrored(&owner, &external))));
-                let min = n.props.get("min").and_then(Value::as_str).and_then(date::parse_iso).map(|(y, m, d)| date::days_from_civil(y, m, d));
-                let max = n.props.get("max").and_then(Value::as_str).and_then(date::parse_iso).map(|(y, m, d)| date::days_from_civil(y, m, d));
-                let day_props = part_props(theme, mode, &component, "day", &owner_props, &[]);
-                let cell = px_prop(&day_props, "width").unwrap_or(32.0);
-                let day_style = PaintStyle::from_visual(&part_visual(theme, mode, &component, "day", &owner_props, &[]));
-                let sel_style = PaintStyle::from_visual(&part_visual(theme, mode, &component, "day", &owner_props, &["selected".to_string()]));
-                let muted = theme_color(theme, mode, "mutedForeground").unwrap_or(fg.opacity(0.6));
-                let nav = |id: &str, glyph: Glyph, delta: i32| {
-                    div()
-                        .id(SharedString::from(format!("{}.{id}", n.id)))
-                        .size(px(28.0))
-                        .rounded(px(6.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(accent))
-                        .role(gpui::Role::Button)
-                        .aria_label(if delta < 0 { "Previous month" } else { "Next month" })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(Popup { kind: PopupKind::Date { year, month }, .. }) = this.popup.as_mut() {
-                                let (y, m) = date::add_months(*year, *month, delta);
-                                *year = y;
-                                *month = m;
-                                cx.notify();
-                            }
-                        }))
-                        .child(icons::glyph(glyph, 16.0, fg))
-                };
-                let head = div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(8.0))
-                    .child(nav("prev", Glyph::ChevronLeft, -1))
-                    .child(div().font_weight(gpui::FontWeight(500.0)).child(SharedString::from(format!("{} {}", date::MONTH_NAMES[(month - 1) as usize], year))))
-                    .child(nav("next", Glyph::ChevronRight, 1));
-                let mut grid = div().flex().flex_row().flex_wrap().w(px(7.0 * cell + 6.0 * 2.0)).gap(px(2.0));
-                for w in date::WEEKDAYS {
-                    grid = grid.child(div().w(px(cell)).h(px(24.0)).flex().items_center().justify_center().text_size(px(12.0)).text_color(muted).child(w));
-                }
-                for (i, (y, m, d, inside)) in date::month_grid(year, month).into_iter().enumerate() {
-                    let z = date::days_from_civil(y, m, d);
-                    let out_of_range = min.is_some_and(|lo| z < lo) || max.is_some_and(|hi| z > hi);
-                    let is_sel = selected == Some((y, m, d));
-                    let st = if is_sel { &sel_style } else { &day_style };
-                    let color = st.color.unwrap_or(fg);
-                    let mut cellel = div()
-                        .id(SharedString::from(format!("{}.day.{i}", n.id)))
-                        .size(px(cell))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(st.radius.min(cell / 2.0)))
-                        .text_size(px(14.0))
-                        .text_color(color)
-                        .when_some(st.bg, |d, bg| d.bg(bg))
-                        .when(!inside, |d| d.opacity(0.4))
-                        .role(gpui::Role::Button)
-                        .aria_label(SharedString::from(date::iso(y, m, d)))
-                        .aria_selected(is_sel)
-                        .child(SharedString::from(d.to_string()));
-                    if out_of_range {
-                        cellel = cellel.opacity(0.3);
-                    } else {
-                        cellel = cellel.cursor_pointer().when(!is_sel, |c| c.hover(move |s| s.bg(accent))).on_click(cx.listener(move |this, _, _, cx| this.pick_date(field_index, (y, m, d), cx)));
-                    }
-                    grid = grid.child(cellel);
-                }
-                div().flex().flex_col().gap(px(spacing(theme, "sm"))).child(head).child(grid).into_any_element()
-            }
-        };
-        let min_w = if matches!(p.kind, PopupKind::Date { .. }) { 0.0 } else { f.w.max(160.0) };
-        let panel = styled_box(div().id(SharedString::from(format!("{}.popup", n.id))).absolute().left(px(x)).top(px(y)).min_w(px(min_w)).p(px(pad)).text_color(fg).text_size(px(14.0)).line_height(px(20.0)), &cstyle, 1000.0, 1000.0)
-            .rounded(px(cstyle.radius))
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_popup_outside(cx)))
-            .role(if matches!(p.kind, PopupKind::Date { .. }) { gpui::Role::Dialog } else { gpui::Role::ListBox })
-            .child(body);
-        Some(div().absolute().left_0().top_0().child(panel).into_any_element())
+        Some(row.child(el).into_any_element())
     }
 }

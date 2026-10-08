@@ -2957,6 +2957,7 @@ name = "exponential-ui-ffi"
 version = "0.1.0"
 dependencies = [
  "exponential-ui",
+ "indexmap 2.14.0",
  "serde",
  "serde_json",
  "uniffi",
@@ -2969,8 +2970,12 @@ dependencies = [
  "exponential-ui",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "gpui_wgpu",
  "serde",
  "serde_json",
+ "unicode-linebreak",
 ]
 
 [[package]]

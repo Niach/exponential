@@ -76,6 +76,27 @@ pub trait HostPlugin: 'static {
         family.to_string().into()
     }
 
+    /// Speak `text` through the platform screen reader (`live` = `polite`
+    /// or `assertive`): Form errors, CodeBlock `copied`, `announce`
+    /// commands, live regions. The painter also exposes the latest
+    /// announcement as a `status` node; gpui has no live-region API.
+    fn announce(&self, _text: &str, _live: &str, _cx: &mut gpui::App) {}
+
+    /// A client function the core does not run (an A2UI `functionCall`
+    /// naming a host function).
+    fn on_call(&self, _name: &str, _args: &serde_json::Value, _cx: &mut gpui::App) {}
+
+    /// Open a file picker for a FileUpload. Return `true` when the host
+    /// handles it (and later calls `SurfaceView::files_picked`); `false` =
+    /// the painter opens the platform picker itself.
+    fn pick_files(&self, _request: &FilePickRequest, _cx: &mut gpui::App) -> bool {
+        false
+    }
+
+    /// Picked or dropped files reached a FileUpload: read and upload the
+    /// bytes (the surface's `upload` event carries only name/size/type).
+    fn on_upload(&self, _event: &UploadEvent, _cx: &mut gpui::App) {}
+
     /// A richer markdown renderer for `Markdown` leaves; `None` = the
     /// built-in block painter (whose height the measurer predicts exactly).
     fn markdown(
@@ -88,6 +109,28 @@ pub trait HostPlugin: 'static {
     ) -> Option<gpui::AnyElement> {
         None
     }
+}
+
+/// A FileUpload's request for the platform file picker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilePickRequest {
+    pub surface_id: String,
+    pub component_id: String,
+    /// The `accept` filter (`image/*,.pdf`), when set.
+    pub accept: Option<String>,
+    pub multiple: bool,
+}
+
+/// Files the user picked or dropped on a FileUpload: the paths (the BYTES
+/// stay with the host, never in an event) and the metadata the surface's
+/// `upload {files}` event carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UploadEvent {
+    pub surface_id: String,
+    pub component_id: String,
+    /// The field's `name`.
+    pub name: String,
+    pub paths: Vec<std::path::PathBuf>,
 }
 
 /// The silent default host.

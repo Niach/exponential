@@ -20,8 +20,27 @@ gpui.workspace = true
 gpui-component.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# CSS-aligned break opportunities (UAX #14) for min-content and the
+# painter's own line wrapping; already in the lock via cosmic-text.
+unicode-linebreak = "0.1.5"
 
 [dev-dependencies]
 # `#[gpui::test]` needs test-support; it only widens the TEST build's gpui
 # variant (same package id — a compile-time cost, not an identity split).
 gpui = { workspace = true, features = ["test-support"] }
+# `examples/kitchen_sink.rs` (a real window: the platform backend and
+# gpui-component's icon assets, the same crates the IDE links).
+gpui_platform.workspace = true
+gpui-component-assets.workspace = true
+
+# The conformance harness (packages/exponential-ui/conformance): the painter's
+# frames under gpui's REAL Linux text system (cosmic-text), headless, loaded
+# with ONLY the conformance font files (no system fonts) so the dump is
+# deterministic. Already in the lock (gpui_linux's text system).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
+gpui_wgpu = { git = "https://github.com/zed-industries/zed" }
+
+[[example]]
+name = "conformance_dump"
+path = "examples/conformance_dump.rs"
+
