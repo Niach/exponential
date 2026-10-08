@@ -46,6 +46,7 @@ let symbolIcons: [String: String] = [
     "ui-chevron-right": "chevron.right", "ui-chevron-left": "chevron.left", "ui-chevron-down": "chevron.down", "ui-chevron-up": "chevron.up",
     "ui-selector": "chevron.up.chevron.down", "ui-check": "checkmark", "ui-search": "magnifyingglass", "ui-calendar": "calendar",
     "ui-image": "photo", "ui-link": "link", "ui-external": "arrow.up.right", "ui-copy": "doc.on.doc", "ui-trash": "trash",
+    "nav-issues": "list.bullet", "nav-settings": "gearshape", "ui-edit": "pencil", "ui-properties": "slider.horizontal.3",
 ]
 
 @MainActor
@@ -72,7 +73,7 @@ final class SinkState: ObservableObject {
         let host = ClosureHost(
             icons: { name, size in
                 guard let symbol = symbolIcons[name] else { return nil }
-                return AnyView(Image(systemName: symbol).resizable().scaledToFit().frame(width: size * 0.8, height: size * 0.8).frame(width: size, height: size))
+                return AnyView(Image(systemName: symbol).font(.system(size: size * 0.8, weight: .medium)).frame(width: size, height: size))
             },
             actions: { e in print("[exponential-ui] action \(e.name) \(e.componentId) \(e.context) \(e.payload.map { "\($0)" } ?? "")") },
             inputs: { [weak self] e in

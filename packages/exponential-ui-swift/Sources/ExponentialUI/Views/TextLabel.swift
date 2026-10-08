@@ -16,12 +16,15 @@ struct TextLabel: UIViewRepresentable {
 
     final class Label: UILabel {
         var halfLeading: CGFloat = 0
+        var rtl = false
 
         override func drawText(in rect: CGRect) {
             // TextKit sits the glyphs at the BOTTOM of a pinned line (the
             // extra height goes above the ascender); CSS centres them
             // (half-leading). Shift the text up by half the leading.
-            super.drawText(in: rect.offsetBy(dx: 0, dy: -halfLeading))
+            let scale = window?.screen.scale ?? traitCollection.displayScale
+            let box = TextLabel.paintRect(rect, alignment: textAlignment, rtl: rtl, scale: scale)
+            super.drawText(in: box.offsetBy(dx: 0, dy: -halfLeading))
         }
     }
 
@@ -40,6 +43,7 @@ struct TextLabel: UIViewRepresentable {
         let shaped = TextLabel.shaped(attributed, context.environment.xuiTextPaint, rtl: rtl)
         label.attributedText = shaped
         label.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+        label.rtl = rtl
         label.numberOfLines = wraps ? (lines ?? 0) : 1
         label.lineBreakMode = wraps ? ((lines ?? 0) > 0 ? .byTruncatingTail : .byWordWrapping) : .byClipping
         label.halfLeading = shaped.length > 0 ? (shaped.attribute(.init("ExponentialUI.halfLeading"), at: 0, effectiveRange: nil) as? CGFloat ?? 0) : 0
@@ -63,6 +67,20 @@ struct TextLabel: NSViewRepresentable {
     final class Label: NSTextField {
         var halfLeading: CGFloat = 0
         override var isFlipped: Bool { true }
+        override class var cellClass: AnyClass? {
+            get { Cell.self }
+            set {}
+        }
+    }
+
+    /// Draws in `TextLabel.paintRect` (see there).
+    final class Cell: NSTextFieldCell {
+        override func drawingRect(forBounds rect: NSRect) -> NSRect {
+            let inner = super.drawingRect(forBounds: rect)
+            let scale = controlView?.window?.backingScaleFactor ?? 2
+            let rtl = (controlView as? NSTextField)?.baseWritingDirection == .rightToLeft
+            return TextLabel.paintRect(inner, alignment: alignment, rtl: rtl, scale: scale)
+        }
     }
 
     func makeNSView(context: Context) -> Label {
@@ -105,6 +123,32 @@ struct TextLabel: NSViewRepresentable {
 #endif
 
 extension TextLabel {
+    /// The rect a label lays its text out in: its bounds WIDENED by two
+    /// device pixels on the side(s) the text grows towards. The frame is the
+    /// measurer's width (1/64 px), but the view system snaps it to the
+    /// pixel grid (54.781 → 54.667 at 3x) and TextKit ceils the text's own
+    /// width to a pixel (54.770 → 55.000) before it decides to truncate or
+    /// wrap, so a line that FITS as measured lost its tail ("Accou…").
+    /// The slack only absorbs that rounding (≤ 2 px); a line genuinely wider
+    /// than its box (a `lines` clamp, a shrunk native) still truncates.
+    /// Labels never clip to bounds, so the slack paints like gpui, unclipped.
+    static func paintRect(_ rect: CGRect, alignment: NSTextAlignment, rtl: Bool, scale: CGFloat) -> CGRect {
+        let slack = 2 / max(scale, 1)
+        var r = rect
+        switch alignment {
+        case .center:
+            r.origin.x -= slack / 2
+        case .right:
+            r.origin.x -= slack
+        case .natural where rtl, .justified where rtl:
+            r.origin.x -= slack
+        default:
+            break
+        }
+        r.size.width += slack
+        return r
+    }
+
     /// Plain text in a text style. `align` is PHYSICAL (the core resolved
     /// `start`/`end`; `end` is still read as the trailing edge of the
     /// surface for older callers).

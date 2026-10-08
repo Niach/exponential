@@ -58,7 +58,7 @@ enum BuiltinIcons {
         case "ui-error", "circle-x": "xmark.circle"
         case "ui-back", "arrow-left": "arrow.left"
         case "ui-arrow-right", "arrow-right": "arrow.right"
-        case "ui-star", "star": "star.fill"
+        case "ui-star", "star": "star"
         case "ui-image", "image": "photo"
         case "ui-external-link", "external-link": "arrow.up.right"
         case "ui-undo", "undo-2": "arrow.uturn.backward"

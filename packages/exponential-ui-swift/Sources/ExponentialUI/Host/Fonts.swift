@@ -78,9 +78,20 @@ public enum ExponentialUIFonts {
     /// The system font at a CSS weight (`TextFonts`' fallback).
     static func systemFont(weight: Int, size: CGFloat, italic: Bool) -> PlatformFont {
         let font = PlatformFont.systemFont(ofSize: size, weight: platformWeight(weight))
-        guard italic else { return font }
+        return italic ? italicized(font, size: size) : font
+    }
+
+    /// The system monospaced font at a CSS weight (`ui-monospace`), italic
+    /// by the trait (a CodeBlock comment token is `fontStyle: italic`).
+    static func monospacedFont(weight: Int, size: CGFloat, italic: Bool) -> PlatformFont {
+        let font = PlatformFont.monospacedSystemFont(ofSize: size, weight: platformWeight(weight))
+        return italic ? italicized(font, size: size) : font
+    }
+
+    /// `font` with the italic trait (unchanged when the family has none).
+    static func italicized(_ font: PlatformFont, size: CGFloat) -> PlatformFont {
         #if canImport(UIKit)
-        return font.fontDescriptor.withSymbolicTraits([.traitItalic]).map { UIFont(descriptor: $0, size: size) } ?? font
+        return font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)).map { UIFont(descriptor: $0, size: size) } ?? font
         #else
         return NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
         #endif

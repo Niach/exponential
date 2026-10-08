@@ -54,6 +54,7 @@ struct InlineFieldLeaf: View {
         let font = ExponentialUIFonts.font(family: cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: cx.textStyle.fontSize)
         let icon: String? = kind == .search ? (cx.props["icon"]?.string ?? BuiltinIcons.name("Select.search")) : nil
         let label = owner.str("label").isEmpty ? cx.props.str("placeholder") : owner.str("label")
+        let disabled = model.isDisabled(cx.index) || cx.props.flag("disabled")
         HStack(spacing: icon == nil ? 0 : 8) {
             if let icon {
                 ConceptIcon(name: icon, size: 16, color: cx.ink, model: model).opacity(0.6)
@@ -64,10 +65,13 @@ struct InlineFieldLeaf: View {
                 multiline: false,
                 placeholder: cx.props.str("placeholder"),
                 font: font,
-                color: platformColor(cx.ink),
+                // No recipe dims an inline field's box (its owner's `field`
+                // has no disabled state); a disabled one reads muted, as
+                // gpui's disabled input draws it.
+                color: platformColor(disabled ? cx.muted : cx.ink),
                 placeholderColor: platformColor(ph.color ?? cx.muted),
                 lineHeight: cx.textStyle.lineHeight,
-                disabled: model.isDisabled(cx.index) || cx.props.flag("disabled"),
+                disabled: disabled,
                 submitsOnReturn: false,
                 accessibilityLabel: label,
                 secure: false

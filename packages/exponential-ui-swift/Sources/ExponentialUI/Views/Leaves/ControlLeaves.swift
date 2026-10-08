@@ -52,7 +52,7 @@ struct ComposerLeaf: View {
         let fs = field.px("fontSize") ?? cx.textStyle.fontSize
         let lh = field.px("lineHeight") ?? cx.textStyle.lineHeight
         let font = ExponentialUIFonts.font(family: field.fontFamily ?? cx.textStyle.fontFamily, weight: cx.textStyle.fontWeight, size: fs)
-        let attachments = cx.props.list("attachments")
+        let attachments = cx.props.flag("attachments")
         VStack(alignment: .leading, spacing: gap) {
             OwnedTextField(
                 index: cx.index,
@@ -69,24 +69,32 @@ struct ComposerLeaf: View {
                 secure: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            HStack(spacing: 8) {
-                ForEach(Array(attachments.enumerated()), id: \.offset) { _, a in
-                    let chip = cx.part("Composer", "attachment")
-                    HStack(spacing: 4) {
-                        ConceptIcon(name: BuiltinIcons.name("Composer.attachment"), size: 12, color: chip.color ?? cx.ink, model: cx.model)
-                        Text(a["name"]?.displayText ?? a.displayText).font(.system(size: 12)).foregroundStyle(chip.color ?? cx.ink).lineLimit(1)
-                    }
-                    .padding(.horizontal, 8)
-                    .frame(height: chip.height ?? 24)
-                    .background(chip.style.background ?? cx.ink.opacity(0.08), in: Capsule())
-                }
+            HStack(spacing: cx.model.spacing("xs")) {
                 Spacer(minLength: 0)
+                // `attachments: true` = the attach control (catalog: "Shows
+                // the attach control"; gpui `paint.rs` composer bar), firing
+                // `attach`; the files themselves are the host's business.
+                if attachments {
+                    let att = cx.part("Composer", "attachment")
+                    let attH = min(sendSize, att.height ?? 28)
+                    Button {
+                        cx.model.fire(cx.index, "attach")
+                    } label: {
+                        ConceptIcon(name: BuiltinIcons.name("Composer.attachment"), size: 16, color: att.color ?? cx.ink, model: cx.model)
+                            .padding(.horizontal, 8)
+                            .frame(minWidth: att.width ?? 28, minHeight: attH, maxHeight: attH)
+                            .background(att.style.background ?? .clear, in: att.style.shape(CGSize(width: att.width ?? 28, height: attH)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(cx.model.builtinString("browse"))
+                }
+                let sendW = send.width ?? sendSize
                 Button {
                     cx.model.composerSubmit(cx.index)
                 } label: {
-                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 18, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
-                        .frame(width: send.width ?? sendSize, height: sendSize)
-                        .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: Circle())
+                    ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 16, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
+                        .frame(width: sendW, height: sendSize)
+                        .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: send.style.radius > 0 ? AnyShape(send.style.shape(CGSize(width: sendW, height: sendSize))) : AnyShape(Circle()))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(busy ? cx.model.builtinString("stop") : (cx.props.str("submitLabel").isEmpty ? cx.model.builtinString("send") : cx.props.str("submitLabel")))
@@ -242,8 +250,12 @@ struct ToggleGroupLeaf: View {
         let box = item.toggleItemBox
         let pad = box.paddingHorizontal
         let h = box.height
-        let fs = item.px("fontSize") ?? cx.textStyle.fontSize
-        let weight = ExponentialUIFonts.swiftUIWeight(Int(item.props.num("fontWeight") ?? 500))
+        // The measurer's text style (`SurfaceMeasurer.toggleGroup`): the
+        // label is drawn by the shaper at its measured width, so the item
+        // painted is the item measured (a SwiftUI `Text` sized itself in
+        // its own font and truncated "Board" to "Boa…").
+        let ts = TextStyle(fontSize: item.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: cx.textStyle.lineHeight, fontFamily: item.fontFamily)
+        let border = item.px("borderWidth") ?? 0
         let fill = props.flag("fill")
         let disabledAll = cx.model.isDisabled(cx.index)
         let roving = cx.model.focusVisible(cx.node.id) ? cx.model.toggleGroupFocusIndex(cx.index) : nil
@@ -262,10 +274,11 @@ struct ToggleGroupLeaf: View {
                             ConceptIcon(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
                         }
                         if let label = it["label"]?.displayText, !label.isEmpty {
-                            Text(label).font(.system(size: fs, weight: weight)).foregroundStyle(st.color ?? cx.ink).lineLimit(1)
+                            TextLabel(label, ts, color: st.color ?? cx.ink, lines: 1)
+                                .frame(width: TextShaper.width(label, ts), height: ts.lineHeight)
                         }
                     }
-                    .padding(.horizontal, pad)
+                    .padding(.horizontal, pad + border)
                     .frame(maxWidth: fill ? .infinity : nil)
                     .frame(height: h)
                     .paintedBox(st.style, size: CGSize(width: 0, height: h))

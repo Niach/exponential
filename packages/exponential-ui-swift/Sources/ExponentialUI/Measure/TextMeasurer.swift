@@ -176,7 +176,7 @@ public enum TextFonts {
         if let resolved, let face = match(faces(of: resolved), weight: weight, italic: italic) {
             font = CTFontCreateWithFontDescriptor(face.descriptor, size, nil)
         } else if mono {
-            font = PlatformFont.monospacedSystemFont(ofSize: size, weight: ExponentialUIFonts.platformWeight(weight)) as CTFont
+            font = ExponentialUIFonts.monospacedFont(weight: weight, size: size, italic: italic) as CTFont
         } else {
             font = ExponentialUIFonts.systemFont(weight: weight, size: size, italic: italic) as CTFont
         }
