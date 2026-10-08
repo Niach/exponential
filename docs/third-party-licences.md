@@ -320,6 +320,34 @@ add to the notices. The pinned digests are an integrity check, not a
 licence determination. Bumping the pin = the version, the tag and the six
 digests in that one file.
 
+### Exponential UI: the vendored A2UI basic catalog and the json-render wording (VAPP-85, 2026-10-07)
+
+`packages/exponential-ui` (the `@exponential-at/ui` catalog package, private,
+unpublished until VAPP-91) carries two Apache-2.0 sources:
+
+- **A2UI** (google/A2UI, Apache-2.0, Google LLC): the v0.9 specification's
+  JSON schemas, copied byte-for-byte into
+  `packages/exponential-ui/vendor/a2ui/v0_9/` from git tag `v0.9`, commit
+  `19919ef4c8ad3185867f70386fa4669284d7714c`, with the repository `LICENSE`
+  beside them and every file's sha256 pinned by `vendor.test.ts`. They are
+  never edited: the basic catalog is MAPPED onto ours (`catalog/basic-map.json`),
+  not modified, so Apache-2.0 section 4(b) (a statement of changes) does not
+  apply; 4(a)/4(c) are met by the vendored licence and the untouched headers.
+- **json-render** (vercel-labs/json-render, Apache-2.0, Vercel, Inc.): the
+  model-facing descriptions and the prop vocabulary of the 36 shadcn-named
+  components in `catalog/core.catalog.json` were DERIVED from
+  `packages/shadcn/src/catalog.ts` (`@json-render/shadcn` 0.21.0, commit
+  `fc2a696a50a30cb30c878ab1eb65e102487eea0f`): rewritten into our schema
+  format and re-edited sentence by sentence, no code copied. The attribution
+  is kept anyway (`packages/exponential-ui/vendor/json-render/`, licence
+  verbatim) because the wording is a derivative.
+
+Neither reaches a client build today: the package is consumed by nothing that
+ships. **When a renderer run (VAPP-87 React, VAPP-88/89/90 natives) bundles the
+catalog JSON into a client, add a `VENDORED` row per source in
+`packages/licenses/curated/supplement.ts` for that client and regenerate the
+notices** — the same rule as the desktop's vendored crates above.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

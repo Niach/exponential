@@ -1,0 +1,812 @@
+{
+  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (no overlays, media or Chart) for small prompts. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (`#hex` or `$color.*`) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here.",
+  "id": "https://ui.exponential.at/catalogs/core/v1",
+  "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
+  "name": "Exponential UI core",
+  "version": "1",
+  "unknownComponent": "Unknown",
+  "enums": {
+    "variant": ["default", "secondary", "outline", "ghost", "destructive", "link"],
+    "size": ["sm", "default", "lg", "icon"],
+    "tone": ["neutral", "primary", "success", "warning", "danger", "info"],
+    "gap": ["none", "xs", "sm", "md", "lg", "xl"],
+    "align": ["start", "center", "end", "stretch"],
+    "justify": ["start", "center", "end", "between", "around", "evenly"],
+    "textVariant": ["body", "caption", "muted", "lead", "code", "label", "title"],
+    "headingLevel": ["h1", "h2", "h3", "h4"],
+    "imageFit": ["contain", "cover", "fill", "none", "scaleDown"],
+    "orientation": ["horizontal", "vertical"],
+    "side": ["top", "right", "bottom", "left"],
+    "inputType": ["text", "email", "password", "number", "search", "url", "tel"],
+    "validateOn": ["change", "blur", "submit"],
+    "alertType": ["info", "success", "warning", "error"],
+    "controlSize": ["sm", "default", "lg"],
+    "groupType": ["single", "multiple"],
+    "bandVariant": ["default", "group"],
+    "density": ["default", "compact"],
+    "listDirection": ["vertical", "horizontal"],
+    "chartKind": ["bar", "line", "area", "pie"],
+    "toggleVariant": ["default", "outline", "segmented"],
+    "liveTone": ["live", "attention", "done", "unread", "idle", "muted"]
+  },
+  "defs": {
+    "option": {
+      "description": "One selectable option.",
+      "properties": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The text shown for the option." },
+        "value": { "type": "string", "required": true, "description": "The stable value the selection reports." },
+        "icon": { "type": "icon", "description": "An icon shown before the label." },
+        "disabled": { "type": "boolean", "description": "Shows the option but refuses it." }
+      }
+    },
+    "check": {
+      "description": "A client-side validation rule.",
+      "properties": {
+        "condition": { "type": "boolean", "required": true, "bindable": true, "description": "A function call or binding that must be true for the input to be valid." },
+        "message": { "type": "string", "required": true, "description": "The error shown when the condition is false." }
+      }
+    },
+    "tab": {
+      "description": "One tab header.",
+      "properties": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The tab title." },
+        "value": { "type": "string", "required": true, "description": "The value reported when the tab is active." },
+        "icon": { "type": "icon", "description": "An icon before the title." },
+        "count": { "type": "number", "description": "A count badge after the title." }
+      }
+    },
+    "menuItem": {
+      "description": "One menu entry.",
+      "properties": {
+        "label": { "type": "string", "required": true, "description": "The entry text." },
+        "value": { "type": "string", "required": true, "description": "The value reported on select." },
+        "icon": { "type": "icon", "description": "An icon before the text." },
+        "destructive": { "type": "boolean", "description": "Styles the entry as a destructive action." },
+        "disabled": { "type": "boolean", "description": "Shows the entry greyed and inert." }
+      }
+    },
+    "accordionItem": {
+      "description": "One collapsible section header; its body is the child at the same index.",
+      "properties": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The section title." },
+        "value": { "type": "string", "required": true, "description": "The value reported when the section is open." },
+        "count": { "type": "number", "description": "A count shown in the header." }
+      }
+    },
+    "segment": {
+      "description": "One slice of a meter.",
+      "properties": {
+        "value": { "type": "number", "required": true, "description": "The slice's share of max." },
+        "tone": { "type": "enum", "enum": "tone", "description": "The slice's colour tone." },
+        "label": { "type": "string", "description": "What the slice stands for." }
+      }
+    },
+    "series": {
+      "description": "One chart series.",
+      "properties": {
+        "name": { "type": "string", "required": true, "description": "The legend label." },
+        "values": { "type": "array", "items": { "type": "number" }, "required": true, "description": "One number per category." },
+        "tone": { "type": "enum", "enum": "tone", "description": "The series' colour tone; charts default to the chart hues in order." }
+      }
+    },
+    "pageItem": {
+      "description": "One page of a carousel.",
+      "properties": {
+        "title": { "type": "string", "description": "A caption over the page." }
+      }
+    }
+  },
+  "functions": {
+    "$comment": "The core catalog exposes exactly the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions); a basic surface calls them unchanged.",
+    "names": ["required", "regex", "length", "numeric", "email", "formatString", "formatNumber", "formatCurrency", "formatDate", "pluralize", "openUrl", "and", "or", "not"]
+  },
+  "components": {
+    "Box": {
+      "kind": "native", "group": "layout", "lite": true, "children": "many",
+      "description": "A styled container laid out by the whitelisted style object; the primitive every macro expands into.",
+      "props": {
+        "style": { "type": "style", "description": "Layout and visual properties from the Box whitelist (flex, grid, sizes, spacing, colours)." },
+        "pressable": { "type": "boolean", "description": "Makes the box a press target that fires `press`." }
+      },
+      "events": ["press"],
+      "example": { "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg" } }
+    },
+    "Stack": {
+      "kind": "macro", "group": "layout", "lite": true, "children": "many",
+      "description": "A flex container that lays its children out in one direction with a gap.",
+      "props": {
+        "direction": { "type": "enum", "enum": "orientation", "default": "vertical", "description": "Horizontal (a row) or vertical (a column)." },
+        "gap": { "type": "enum", "enum": "gap", "default": "md", "description": "The space between children." },
+        "align": { "type": "enum", "enum": "align", "default": "stretch", "description": "Cross-axis alignment of the children." },
+        "justify": { "type": "enum", "enum": "justify", "default": "start", "description": "Main-axis distribution of the children." },
+        "wrap": { "type": "boolean", "default": false, "description": "Lets children wrap onto new lines." },
+        "style": { "type": "style", "description": "Extra Box styles merged over the stack's own." }
+      },
+      "example": { "direction": "horizontal", "gap": "sm", "align": "center" }
+    },
+    "Grid": {
+      "kind": "macro", "group": "layout", "lite": true, "children": "many",
+      "description": "An equal-column grid for cards and tiles.",
+      "props": {
+        "columns": { "type": "number", "default": 2, "description": "How many equal columns (1 to 6)." },
+        "gap": { "type": "enum", "enum": "gap", "default": "md", "description": "The space between cells." },
+        "style": { "type": "style", "description": "Extra Box styles merged over the grid's own." }
+      },
+      "example": { "columns": 3, "gap": "md" }
+    },
+    "Card": {
+      "kind": "macro", "group": "layout", "lite": true, "children": "many",
+      "description": "A bordered content card with an optional title and description; use it for grouped content, not page headers.",
+      "props": {
+        "title": { "type": "string", "description": "The card heading." },
+        "description": { "type": "string", "description": "A muted line under the heading." },
+        "padded": { "type": "boolean", "default": true, "description": "Pads the body; off for edge-to-edge rows." },
+        "style": { "type": "style", "description": "Extra Box styles merged over the card's own." }
+      },
+      "example": { "title": "Overview", "description": "Your account summary" }
+    },
+    "Separator": {
+      "kind": "macro", "group": "layout", "lite": true, "children": "none",
+      "description": "A hairline that divides content.",
+      "props": {
+        "orientation": { "type": "enum", "enum": "orientation", "default": "horizontal", "description": "A horizontal rule or a vertical bar." }
+      },
+      "example": { "orientation": "horizontal" }
+    },
+    "List": {
+      "kind": "native", "group": "layout", "lite": true, "children": "many",
+      "description": "A windowed scrolling list; required for anything longer than a screen, children may come from a data template.",
+      "props": {
+        "direction": { "type": "enum", "enum": "listDirection", "default": "vertical", "description": "Scroll axis." },
+        "gap": { "type": "enum", "enum": "gap", "default": "none", "description": "The space between items." },
+        "divided": { "type": "boolean", "default": false, "description": "Draws a hairline between items." },
+        "style": { "type": "style", "description": "Extra Box styles for the list frame." }
+      },
+      "example": { "direction": "vertical", "divided": true }
+    },
+    "Band": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A filled header strip over a run of flat rows, with a title and an optional count.",
+      "props": {
+        "title": { "type": "string", "required": true, "description": "The band's label." },
+        "count": { "type": "number", "description": "A count shown after the title." },
+        "variant": { "type": "enum", "enum": "bandVariant", "default": "default", "description": "`group` is the issue-list status group header with its glyph slot." },
+        "icon": { "type": "icon", "description": "A glyph before the title." }
+      },
+      "example": { "title": "In progress", "count": 4, "variant": "group" }
+    },
+    "RowList": {
+      "kind": "macro", "group": "list", "lite": true, "children": "many",
+      "description": "The flat list language: hairline-divided rows under a band, optionally with tree guides.",
+      "props": {
+        "guides": { "type": "boolean", "default": false, "description": "Reserves the gutter for nested rows' tree connectors." },
+        "style": { "type": "style", "description": "Extra Box styles for the list frame." }
+      },
+      "example": { "guides": false }
+    },
+    "Group": {
+      "kind": "macro", "group": "list", "lite": true, "children": "many",
+      "description": "A form-field container: a rounded group of rows with an optional title and footnote.",
+      "props": {
+        "title": { "type": "string", "description": "A caption above the group." },
+        "footer": { "type": "string", "description": "A muted note under the group." }
+      },
+      "example": { "title": "Notifications" }
+    },
+    "Text": {
+      "kind": "native", "group": "text", "lite": true, "children": "none",
+      "description": "A run of text in one of the type styles; prefer dedicated components over inline markdown.",
+      "props": {
+        "text": { "type": "string", "required": true, "bindable": true, "description": "The text to show." },
+        "variant": { "type": "enum", "enum": "textVariant", "default": "body", "description": "The type style." },
+        "align": { "type": "enum", "values": ["start", "center", "end"], "description": "Horizontal alignment inside its box." },
+        "lines": { "type": "number", "description": "Truncates to this many lines with an ellipsis." },
+        "tone": { "type": "enum", "enum": "tone", "description": "A colour tone instead of the default foreground." },
+        "style": { "type": "style", "description": "Extra Box styles for the text box." }
+      },
+      "example": { "text": "Hello, world!", "variant": "body" }
+    },
+    "Heading": {
+      "kind": "macro", "group": "text", "lite": true, "children": "none",
+      "description": "A section or page heading at one of four levels.",
+      "props": {
+        "text": { "type": "string", "required": true, "bindable": true, "description": "The heading text." },
+        "level": { "type": "enum", "enum": "headingLevel", "default": "h2", "description": "h1 is the page title, h4 the smallest." }
+      },
+      "example": { "text": "Welcome", "level": "h1" }
+    },
+    "Markdown": {
+      "kind": "native", "group": "text", "lite": true, "children": "none",
+      "description": "Rendered GitHub-flavoured markdown (paragraphs, lists, code, tables, images), the one interchange every platform shares.",
+      "props": {
+        "text": { "type": "markdown", "required": true, "bindable": true, "description": "The GFM source." }
+      },
+      "example": { "text": "**Bold** and a list:\n\n- one\n- two" }
+    },
+    "Image": {
+      "kind": "native", "group": "media", "lite": false, "children": "none",
+      "description": "A picture from a URL, or a placeholder box when it has none.",
+      "props": {
+        "src": { "type": "url", "bindable": true, "description": "The image URL; omit for a placeholder." },
+        "alt": { "type": "string", "required": true, "description": "The accessibility description." },
+        "fit": { "type": "enum", "enum": "imageFit", "default": "cover", "description": "How the picture fills its box." },
+        "width": { "type": "number", "description": "Fixed width in px; otherwise the box decides." },
+        "height": { "type": "number", "description": "Fixed height in px." },
+        "aspectRatio": { "type": "number", "description": "Width over height when only one side is known." },
+        "style": { "type": "style", "description": "Extra Box styles for the image box." }
+      },
+      "example": { "src": "https://example.com/cover.jpg", "alt": "Cover", "fit": "cover", "aspectRatio": 1.7777778 }
+    },
+    "Icon": {
+      "kind": "native", "group": "media", "lite": true, "children": "none",
+      "description": "One icon from the shared Lucide registry, by name.",
+      "props": {
+        "name": { "type": "icon", "required": true, "description": "The icon name (an icons.json concept or Lucide name)." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Glyph size." },
+        "tone": { "type": "enum", "enum": "tone", "description": "A colour tone instead of the current text colour." },
+        "label": { "type": "string", "description": "An accessibility label when the icon stands alone." }
+      },
+      "example": { "name": "ui-check", "size": "default" }
+    },
+    "Video": {
+      "kind": "native", "group": "media", "lite": false, "children": "none",
+      "description": "An inline video player with native controls.",
+      "props": {
+        "src": { "type": "url", "required": true, "bindable": true, "description": "The video URL (H.264 + AAC MP4 plays everywhere)." },
+        "poster": { "type": "url", "description": "A still shown before playback." },
+        "durationMs": { "type": "number", "description": "Known length, for the scrubber before metadata loads." },
+        "autoplay": { "type": "boolean", "default": false, "description": "Starts muted playback on appear." },
+        "style": { "type": "style", "description": "Extra Box styles for the player box." }
+      },
+      "example": { "src": "https://example.com/clip.mp4", "durationMs": 12000 }
+    },
+    "AudioPlayer": {
+      "kind": "native", "group": "media", "lite": false, "children": "none",
+      "description": "An inline audio player with a title and native controls.",
+      "props": {
+        "src": { "type": "url", "required": true, "bindable": true, "description": "The audio URL." },
+        "title": { "type": "string", "description": "What is playing." },
+        "durationMs": { "type": "number", "description": "Known length, for the scrubber before metadata loads." }
+      },
+      "example": { "src": "https://example.com/track.mp3", "title": "Episode 12" }
+    },
+    "Avatar": {
+      "kind": "native", "group": "media", "lite": true, "children": "none",
+      "description": "A round user picture that falls back to initials on a stable hue.",
+      "props": {
+        "name": { "type": "string", "required": true, "bindable": true, "description": "The person's name; initials come from it." },
+        "src": { "type": "url", "bindable": true, "description": "The picture URL." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Diameter class." },
+        "seed": { "type": "string", "description": "A stable id the fallback hue is hashed from; defaults to the name." }
+      },
+      "example": { "name": "Jane Doe", "size": "default" }
+    },
+    "Carousel": {
+      "kind": "native", "group": "media", "lite": false, "children": "many",
+      "description": "A horizontally paging scroller; each child is one page.",
+      "props": {
+        "page": { "type": "number", "default": 0, "bindable": true, "description": "The active page index." },
+        "loop": { "type": "boolean", "default": false, "description": "Wraps from the last page to the first." },
+        "indicators": { "type": "boolean", "default": true, "description": "Shows the page dots." }
+      },
+      "events": ["change"],
+      "example": { "page": 0, "indicators": true }
+    },
+    "Tabs": {
+      "kind": "native", "group": "navigation", "lite": true, "children": "many",
+      "description": "Tab navigation; the child at index i is the panel of tab i.",
+      "props": {
+        "tabs": { "type": "array", "items": { "type": "object", "shape": "tab" }, "required": true, "description": "The tab headers in order." },
+        "value": { "type": "string", "bindable": true, "description": "The active tab's value; bind it for two-way state." },
+        "fill": { "type": "boolean", "default": false, "description": "Stretches the headers across the width." }
+      },
+      "events": ["change"],
+      "example": { "tabs": [{ "label": "Issue", "value": "issue" }, { "label": "Run", "value": "run" }], "value": "issue" }
+    },
+    "ToggleGroup": {
+      "kind": "native", "group": "navigation", "lite": true, "children": "none",
+      "description": "A row of toggle buttons selecting one or many values; `segmented` is the pill-shaped segmented control.",
+      "props": {
+        "items": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The toggles in order." },
+        "type": { "type": "enum", "enum": "groupType", "default": "single", "description": "One active value or several." },
+        "value": { "type": "string", "bindable": true, "description": "The selected value (comma-joined when multiple); bind it." },
+        "variant": { "type": "enum", "enum": "toggleVariant", "default": "default", "description": "Button look, outlined, or the segmented control." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Control height class." },
+        "fill": { "type": "boolean", "default": false, "description": "Stretches the items across the width." }
+      },
+      "events": ["change"],
+      "example": { "items": [{ "label": "List", "value": "list" }, { "label": "Board", "value": "board" }], "value": "list", "variant": "segmented" }
+    },
+    "Accordion": {
+      "kind": "native", "group": "navigation", "lite": true, "children": "many",
+      "description": "Collapsible sections; the child at index i is the body of item i.",
+      "props": {
+        "items": { "type": "array", "items": { "type": "object", "shape": "accordionItem" }, "required": true, "description": "The section headers in order." },
+        "type": { "type": "enum", "enum": "groupType", "default": "single", "description": "One section open at a time, or any number." },
+        "value": { "type": "string", "bindable": true, "description": "The open section's value (comma-joined when multiple); bind it." }
+      },
+      "events": ["change"],
+      "example": { "items": [{ "title": "Details", "value": "details" }], "type": "single", "value": "details" }
+    },
+    "Collapsible": {
+      "kind": "macro", "group": "navigation", "lite": true, "children": "many",
+      "description": "One disclosure section with a title row that shows or hides its children.",
+      "props": {
+        "title": { "type": "string", "required": true, "description": "The header text." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether the body shows; bind it." },
+        "count": { "type": "number", "description": "A count shown in the header." }
+      },
+      "events": ["change"],
+      "example": { "title": "Advanced", "open": false }
+    },
+    "Pagination": {
+      "kind": "macro", "group": "navigation", "lite": true, "children": "none",
+      "description": "Previous, next and the current page out of a total.",
+      "props": {
+        "totalPages": { "type": "number", "required": true, "description": "How many pages there are." },
+        "page": { "type": "number", "default": 1, "bindable": true, "description": "The current 1-based page; bind it." }
+      },
+      "events": ["change"],
+      "example": { "totalPages": 5, "page": 2 }
+    },
+    "ButtonGroup": {
+      "kind": "macro", "group": "navigation", "lite": true, "children": "none",
+      "description": "Attached buttons with one selected value.",
+      "props": {
+        "buttons": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The buttons in order." },
+        "selected": { "type": "string", "bindable": true, "description": "The selected button's value; bind it." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Control height class." }
+      },
+      "events": ["change"],
+      "example": { "buttons": [{ "label": "Day", "value": "day" }, { "label": "Week", "value": "week" }], "selected": "day" }
+    },
+    "Dialog": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "many", "slots": ["trigger", "footer"],
+      "description": "A centred modal over the surface, opened by its trigger slot or by binding `open`.",
+      "props": {
+        "title": { "type": "string", "description": "The dialog heading." },
+        "description": { "type": "string", "description": "A muted line under the heading." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it to a boolean path." },
+        "dismissible": { "type": "boolean", "default": true, "description": "Closes on the backdrop or Escape." }
+      },
+      "events": ["change"],
+      "example": { "title": "Delete board?", "description": "This cannot be undone.", "open": false }
+    },
+    "Drawer": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "many", "slots": ["trigger", "footer"],
+      "description": "A panel sliding in from an edge (a bottom sheet on phones).",
+      "props": {
+        "title": { "type": "string", "description": "The drawer heading." },
+        "description": { "type": "string", "description": "A muted line under the heading." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it to a boolean path." },
+        "side": { "type": "enum", "enum": "side", "default": "bottom", "description": "The edge it slides from." }
+      },
+      "events": ["change"],
+      "example": { "title": "Filters", "side": "bottom", "open": false }
+    },
+    "Sheet": {
+      "kind": "macro", "group": "overlay", "lite": false, "children": "many", "slots": ["trigger", "footer"],
+      "description": "A side sheet: a drawer from the trailing edge.",
+      "props": {
+        "title": { "type": "string", "description": "The sheet heading." },
+        "description": { "type": "string", "description": "A muted line under the heading." },
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it." }
+      },
+      "events": ["change"],
+      "example": { "title": "Details", "open": false }
+    },
+    "Popover": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "many", "slots": ["trigger"],
+      "description": "A small panel anchored to its trigger, opened on press.",
+      "props": {
+        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it." },
+        "side": { "type": "enum", "enum": "side", "default": "bottom", "description": "Preferred side of the trigger." }
+      },
+      "events": ["change"],
+      "example": { "side": "bottom" }
+    },
+    "Tooltip": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "many",
+      "description": "A short hint shown on hover or long-press over its children.",
+      "props": {
+        "content": { "type": "string", "required": true, "description": "The hint text." },
+        "side": { "type": "enum", "enum": "side", "default": "top", "description": "Preferred side of the anchor." }
+      },
+      "example": { "content": "Copy link" }
+    },
+    "DropdownMenu": {
+      "kind": "native", "group": "overlay", "lite": false, "children": "none", "slots": ["trigger"],
+      "description": "A menu of actions behind a trigger; the default trigger is a button with the label.",
+      "props": {
+        "label": { "type": "string", "description": "The default trigger's text when no trigger slot is given." },
+        "icon": { "type": "icon", "description": "The default trigger's icon." },
+        "items": { "type": "array", "items": { "type": "object", "shape": "menuItem" }, "required": true, "description": "The entries in order." }
+      },
+      "events": ["select"],
+      "example": { "label": "More", "items": [{ "label": "Rename", "value": "rename" }, { "label": "Delete", "value": "delete", "destructive": true }] }
+    },
+    "Badge": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "A small status label or count.",
+      "props": {
+        "text": { "type": "string", "required": true, "bindable": true, "description": "The label or number." },
+        "variant": { "type": "enum", "enum": "variant", "default": "default", "description": "Filled, secondary, outlined or destructive." },
+        "icon": { "type": "icon", "description": "An icon before the text." }
+      },
+      "example": { "text": "Active", "variant": "default" }
+    },
+    "Alert": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "An inline banner with an icon, a title and a message.",
+      "props": {
+        "title": { "type": "string", "required": true, "description": "The banner heading." },
+        "message": { "type": "string", "description": "The detail under the heading." },
+        "type": { "type": "enum", "enum": "alertType", "default": "info", "description": "The severity, which picks the icon and tone." }
+      },
+      "example": { "title": "Saved", "message": "Your changes have been saved.", "type": "success" }
+    },
+    "Pill": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "A rounded chip for a filter, a label or a state; optionally selected, with a colour dot or an icon.",
+      "props": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The chip text." },
+        "selected": { "type": "boolean", "default": false, "description": "Draws it as the active choice." },
+        "tone": { "type": "enum", "enum": "tone", "default": "neutral", "description": "Colour tone of the chip." },
+        "dot": { "type": "color", "description": "A colour dot before the text (a label chip)." },
+        "icon": { "type": "icon", "description": "An icon before the text." },
+        "pressable": { "type": "boolean", "default": false, "description": "Makes it a press target that fires `press`." }
+      },
+      "events": ["press"],
+      "example": { "label": "Drafts", "selected": true }
+    },
+    "EmptyState": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "A centred icon, title and explanation for an empty list, with an optional action.",
+      "props": {
+        "icon": { "type": "icon", "required": true, "description": "The large glyph." },
+        "title": { "type": "string", "required": true, "description": "What is empty." },
+        "description": { "type": "string", "description": "Why, or what to do next." },
+        "actionLabel": { "type": "string", "description": "A button label; pressing it fires `press`." }
+      },
+      "events": ["press"],
+      "example": { "icon": "nav-inbox", "title": "No notifications", "description": "You are all caught up." }
+    },
+    "Progress": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "A horizontal progress bar with an optional label.",
+      "props": {
+        "value": { "type": "number", "required": true, "bindable": true, "description": "The current amount, 0 to max." },
+        "max": { "type": "number", "default": 100, "description": "The full amount." },
+        "label": { "type": "string", "description": "A caption above the bar." },
+        "tone": { "type": "enum", "enum": "tone", "default": "primary", "description": "The fill colour tone." }
+      },
+      "example": { "value": 65, "max": 100, "label": "Upload" }
+    },
+    "Meter": {
+      "kind": "macro", "group": "feedback", "lite": true, "children": "none",
+      "description": "A usage track: a bar of coloured segments against a maximum, with a caption and a value.",
+      "props": {
+        "segments": { "type": "array", "items": { "type": "object", "shape": "segment" }, "required": true, "description": "The slices in order." },
+        "max": { "type": "number", "default": 100, "description": "The full amount." },
+        "label": { "type": "string", "description": "A caption before the track." },
+        "value": { "type": "string", "description": "A formatted value after the track." }
+      },
+      "example": { "segments": [{ "value": 40, "tone": "primary" }, { "value": 25, "tone": "warning" }], "max": 100, "label": "Storage", "value": "650 MB of 1 GB" }
+    },
+    "Ring": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "A circular progress ring for a fraction, sized like an icon.",
+      "props": {
+        "value": { "type": "number", "required": true, "bindable": true, "description": "The fraction 0 to 1." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Diameter class." },
+        "tone": { "type": "enum", "enum": "tone", "default": "primary", "description": "The arc colour tone." },
+        "label": { "type": "string", "description": "An accessibility label." }
+      },
+      "example": { "value": 0.62, "tone": "primary" }
+    },
+    "Spinner": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "An indeterminate activity indicator.",
+      "props": {
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Diameter class." },
+        "label": { "type": "string", "description": "A caption or accessibility label." }
+      },
+      "example": { "size": "default" }
+    },
+    "Skeleton": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none",
+      "description": "A shimmering placeholder block while content loads.",
+      "props": {
+        "width": { "type": "string", "description": "A length (px or %); defaults to the full width." },
+        "height": { "type": "string", "description": "A length (px); defaults to one text line." },
+        "rounded": { "type": "boolean", "default": false, "description": "A circle instead of a bar." }
+      },
+      "example": { "width": "60%", "height": "16px" }
+    },
+    "Table": {
+      "kind": "macro", "group": "data", "lite": true, "children": "none",
+      "description": "A small data table from header labels and rows of cell strings; v1 lays it out as a grid without sorting.",
+      "props": {
+        "columns": { "type": "array", "items": { "type": "string" }, "required": true, "description": "The header labels." },
+        "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } }, "required": true, "description": "One array of cell strings per row." },
+        "caption": { "type": "string", "description": "A caption under the table." }
+      },
+      "example": { "columns": ["Name", "Role"], "rows": [["Alice", "Admin"], ["Bob", "User"]] }
+    },
+    "Chart": {
+      "kind": "native", "group": "data", "lite": false, "children": "none", "status": "planned",
+      "description": "A bar, line, area or pie chart from categories and series (VAPP-50; painters land later).",
+      "props": {
+        "kind": { "type": "enum", "enum": "chartKind", "required": true, "description": "The chart form." },
+        "categories": { "type": "array", "items": { "type": "string" }, "required": true, "description": "The x-axis labels, or the pie slices." },
+        "series": { "type": "array", "items": { "type": "object", "shape": "series" }, "required": true, "description": "One series per line, bar group or pie ring." },
+        "title": { "type": "string", "description": "A title above the chart." },
+        "height": { "type": "number", "default": 200, "description": "The chart height in px." }
+      },
+      "example": { "kind": "bar", "categories": ["Mon", "Tue"], "series": [{ "name": "Runs", "values": [3, 5] }] }
+    },
+    "Button": {
+      "kind": "native", "group": "action", "lite": true, "children": "one",
+      "description": "A press target with a label and optional icon (or one custom child); bind `press` for the handler.",
+      "props": {
+        "label": { "type": "string", "bindable": true, "description": "The button text (omit for an icon-only button)." },
+        "icon": { "type": "icon", "description": "An icon before the label, or alone with size `icon`." },
+        "variant": { "type": "enum", "enum": "variant", "default": "default", "description": "`default` is the primary action, `destructive` a dangerous one, `ghost` and `link` quiet ones." },
+        "size": { "type": "enum", "enum": "size", "default": "default", "description": "Control height class; `icon` is a square icon-only button." },
+        "disabled": { "type": "boolean", "default": false, "bindable": true, "description": "Shows it inert." },
+        "loading": { "type": "boolean", "default": false, "description": "Shows a spinner and refuses presses." }
+      },
+      "events": ["press"],
+      "example": { "label": "Submit", "variant": "default" }
+    },
+    "Link": {
+      "kind": "native", "group": "action", "lite": true, "children": "none",
+      "description": "Inline link text that opens a URL or fires `press`.",
+      "props": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The link text." },
+        "href": { "type": "url", "description": "The URL to open; omit to handle `press` yourself." },
+        "external": { "type": "boolean", "default": false, "description": "Marks it as leaving the app." }
+      },
+      "events": ["press"],
+      "example": { "label": "Open docs", "href": "https://ui.exponential.at" }
+    },
+    "Toggle": {
+      "kind": "native", "group": "action", "lite": true, "children": "none",
+      "description": "A two-state button that stays pressed.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The button text or accessibility label." },
+        "icon": { "type": "icon", "description": "An icon before or instead of the label." },
+        "pressed": { "type": "boolean", "default": false, "bindable": true, "description": "The state; bind it." },
+        "variant": { "type": "enum", "values": ["default", "outline"], "default": "default", "description": "Plain or outlined." },
+        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Control height class." }
+      },
+      "events": ["change"],
+      "example": { "label": "Bold", "icon": "editor-bold", "pressed": false }
+    },
+    "Input": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A single-line text field the host owns; bind `value` for two-way state and add `checks` for validation.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The field label." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "type": { "type": "enum", "enum": "inputType", "default": "text", "description": "The keyboard and masking kind." },
+        "placeholder": { "type": "string", "description": "Hint text while empty." },
+        "value": { "type": "string", "bindable": true, "description": "The text; bind it to a data path." },
+        "disabled": { "type": "boolean", "default": false, "description": "Shows it inert." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules (required, email, length, regex, numeric)." },
+        "validateOn": { "type": "enum", "enum": "validateOn", "default": "blur", "description": "When the checks run." }
+      },
+      "events": ["change", "submit", "focus", "blur"],
+      "example": { "label": "Email", "name": "email", "type": "email", "placeholder": "you@example.com" }
+    },
+    "Textarea": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A multi-line text field the host owns; bind `value` for two-way state.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The field label." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "placeholder": { "type": "string", "description": "Hint text while empty." },
+        "rows": { "type": "number", "default": 3, "description": "Visible lines before it scrolls." },
+        "value": { "type": "string", "bindable": true, "description": "The text; bind it to a data path." },
+        "disabled": { "type": "boolean", "default": false, "description": "Shows it inert." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules." },
+        "validateOn": { "type": "enum", "enum": "validateOn", "default": "blur", "description": "When the checks run." }
+      },
+      "events": ["change", "focus", "blur"],
+      "example": { "label": "Notes", "name": "notes", "rows": 4 }
+    },
+    "Checkbox": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A labelled checkbox; bind `checked`.",
+      "props": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The text beside the box." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "checked": { "type": "boolean", "default": false, "bindable": true, "description": "The state; bind it." },
+        "disabled": { "type": "boolean", "default": false, "description": "Shows it inert." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules." }
+      },
+      "events": ["change"],
+      "example": { "label": "I agree", "name": "agree", "checked": false }
+    },
+    "Radio": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A labelled group of radio options choosing one value; bind `value`.",
+      "props": {
+        "label": { "type": "string", "description": "The group label." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "options": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The choices in order." },
+        "value": { "type": "string", "bindable": true, "description": "The chosen value; bind it." },
+        "orientation": { "type": "enum", "enum": "orientation", "default": "vertical", "description": "Stacked or in a row." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules." }
+      },
+      "events": ["change"],
+      "example": { "label": "Plan", "name": "plan", "options": [{ "label": "Free", "value": "free" }, { "label": "Team", "value": "team" }], "value": "free" }
+    },
+    "Switch": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A labelled on/off switch; bind `checked`.",
+      "props": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The text beside the switch." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "checked": { "type": "boolean", "default": false, "bindable": true, "description": "The state; bind it." },
+        "description": { "type": "string", "description": "A muted line under the label." },
+        "disabled": { "type": "boolean", "default": false, "description": "Shows it inert." }
+      },
+      "events": ["change"],
+      "example": { "label": "Auto-scan", "name": "autoScan", "checked": true }
+    },
+    "Slider": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A range slider between min and max; bind `value`.",
+      "props": {
+        "label": { "type": "string", "description": "The field label." },
+        "min": { "type": "number", "default": 0, "description": "The lowest value." },
+        "max": { "type": "number", "required": true, "description": "The highest value." },
+        "step": { "type": "number", "default": 1, "description": "The increment." },
+        "value": { "type": "number", "bindable": true, "description": "The current value; bind it." }
+      },
+      "events": ["change"],
+      "example": { "label": "Volume", "min": 0, "max": 100, "value": 40 }
+    },
+    "Select": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A picker of one (or many) options in a dropdown; searchable, and `source` binds the host's own lists (statuses, members) instead of inline options.",
+      "props": {
+        "label": { "type": "string", "description": "The field label." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "options": { "type": "array", "items": { "type": "object", "shape": "option" }, "description": "Inline choices; omit when `source` is set." },
+        "source": { "type": "string", "description": "A host list id (e.g. `exp:statuses`) that supplies the options." },
+        "placeholder": { "type": "string", "description": "Shown while nothing is chosen." },
+        "value": { "type": "string", "bindable": true, "description": "The chosen value (comma-joined when multiple); bind it." },
+        "multiple": { "type": "boolean", "default": false, "description": "Allows several values." },
+        "searchable": { "type": "boolean", "default": false, "description": "Adds a filter field to the list." },
+        "disabled": { "type": "boolean", "default": false, "description": "Shows it inert." },
+        "checks": { "type": "array", "items": { "type": "object", "shape": "check" }, "description": "Validation rules." },
+        "validateOn": { "type": "enum", "enum": "validateOn", "default": "change", "description": "When the checks run." }
+      },
+      "events": ["change"],
+      "example": { "label": "Board", "name": "board", "options": [{ "label": "Backlog", "value": "backlog" }, { "label": "Sprint", "value": "sprint" }], "value": "sprint" }
+    },
+    "DatePicker": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "A calendar date field (date only in v1); bind `value` as an ISO date.",
+      "props": {
+        "label": { "type": "string", "description": "The field label." },
+        "name": { "type": "string", "required": true, "description": "The field's key in the submitted data." },
+        "value": { "type": "date", "bindable": true, "description": "The chosen day as yyyy-mm-dd, or empty." },
+        "min": { "type": "date", "description": "The earliest allowed day." },
+        "max": { "type": "date", "description": "The latest allowed day." },
+        "placeholder": { "type": "string", "description": "Shown while empty." }
+      },
+      "events": ["change"],
+      "example": { "label": "Due", "name": "due", "value": "2026-10-14" }
+    },
+    "Composer": {
+      "kind": "native", "group": "input", "lite": true, "children": "none",
+      "description": "The chat input box: a growing text field with a submit button and optional attachments.",
+      "props": {
+        "placeholder": { "type": "string", "description": "Hint text while empty." },
+        "value": { "type": "string", "bindable": true, "description": "The draft text; bind it." },
+        "submitLabel": { "type": "string", "default": "Send", "description": "The submit button's accessibility label." },
+        "attachments": { "type": "boolean", "default": false, "description": "Shows the attach control." },
+        "busy": { "type": "boolean", "default": false, "description": "Turns submit into a stop while a reply streams." }
+      },
+      "events": ["submit", "change", "stop"],
+      "example": { "placeholder": "Ask anything" }
+    },
+    "ListRow": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A flat list row: an optional leading icon, a title with a subtitle, trailing meta text.",
+      "props": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The main text." },
+        "subtitle": { "type": "string", "bindable": true, "description": "A muted second line." },
+        "meta": { "type": "string", "bindable": true, "description": "Trailing muted text (a count, a time)." },
+        "icon": { "type": "icon", "description": "A leading glyph." },
+        "selected": { "type": "boolean", "default": false, "description": "Draws it as the active row." },
+        "density": { "type": "enum", "enum": "density", "default": "default", "description": "Row height class." },
+        "chevron": { "type": "boolean", "default": false, "description": "A trailing disclosure chevron." }
+      },
+      "events": ["press"],
+      "example": { "title": "r/selfhosted", "meta": "312 posts" }
+    },
+    "CardRow": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A gapped card-shaped row with a title, a subtitle and an optional leading icon.",
+      "props": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The main text." },
+        "subtitle": { "type": "string", "bindable": true, "description": "A muted second line." },
+        "icon": { "type": "icon", "description": "A leading glyph." },
+        "meta": { "type": "string", "description": "Trailing muted text." }
+      },
+      "events": ["press"],
+      "example": { "title": "MacBook Pro", "subtitle": "Online · 2 runs", "icon": "ui-device" }
+    },
+    "PropertyRow": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A label on the left and a value on the right, for read-only properties.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The property name." },
+        "value": { "type": "string", "required": true, "bindable": true, "description": "The property value." },
+        "icon": { "type": "icon", "description": "A glyph before the label." }
+      },
+      "example": { "label": "Assignee", "value": "Alex Chen" }
+    },
+    "PickerRow": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A form row that shows a chosen value and opens a picker on press.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The field name." },
+        "value": { "type": "string", "bindable": true, "description": "The current choice's text." },
+        "placeholder": { "type": "string", "default": "Choose", "description": "Shown while nothing is chosen." },
+        "icon": { "type": "icon", "description": "A glyph before the label." }
+      },
+      "events": ["press"],
+      "example": { "label": "Status", "value": "In progress" }
+    },
+    "NavRow": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A sidebar or drawer navigation row with an icon, a label, a count and a selected state.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "The destination name." },
+        "icon": { "type": "icon", "required": true, "description": "The leading glyph." },
+        "selected": { "type": "boolean", "default": false, "description": "Draws it as the current destination." },
+        "count": { "type": "number", "description": "A trailing count badge." }
+      },
+      "events": ["press"],
+      "example": { "label": "Inbox", "icon": "nav-inbox", "count": 3, "selected": true }
+    },
+    "EntityChip": {
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A compact chip naming an entity with an icon or picture, optionally removable.",
+      "props": {
+        "label": { "type": "string", "required": true, "bindable": true, "description": "The entity name." },
+        "icon": { "type": "icon", "description": "The leading glyph." },
+        "image": { "type": "url", "description": "A leading picture instead of the icon." },
+        "detail": { "type": "string", "description": "Muted text after the name." },
+        "removable": { "type": "boolean", "default": false, "description": "Shows a remove control that fires `remove`." }
+      },
+      "events": ["press", "remove"],
+      "example": { "label": "Sprint 12", "icon": "nav-boards" }
+    },
+    "TreeGuides": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "The tree connector gutter beside a nested row: an elbow at its depth and pass-through lines for deeper ancestors.",
+      "props": {
+        "depth": { "type": "number", "required": true, "description": "The row's nesting depth (0 = root)." },
+        "elbowAt": { "type": "number", "description": "The gutter index that draws the elbow into this row; omit for a root." },
+        "tee": { "type": "boolean", "default": false, "description": "Continues the line past this row to a later sibling." },
+        "passThrough": { "type": "array", "items": { "type": "number" }, "description": "Gutter indexes whose ancestor line continues straight through." }
+      },
+      "example": { "depth": 1, "elbowAt": 0, "tee": true, "passThrough": [] }
+    },
+    "Unknown": {
+      "kind": "native", "group": "feedback", "lite": true, "children": "none", "hidden": true,
+      "description": "The placeholder a renderer paints for a component it has no definition for; never authored directly.",
+      "props": {
+        "component": { "type": "string", "required": true, "description": "The unmapped component's name." },
+        "catalogId": { "type": "string", "description": "The catalog the component was authored against." }
+      },
+      "example": { "component": "Gauge" }
+    }
+  }
+}
