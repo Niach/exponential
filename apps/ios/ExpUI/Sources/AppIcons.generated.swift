@@ -217,6 +217,8 @@ public enum AppIcons {
         "ellipsis-vertical",
         "external-link",
         "eye",
+        "eye-off",
+        "fast-forward",
         "file",
         "file-diff",
         "file-pen-line",
@@ -247,6 +249,7 @@ public enum AppIcons {
         "heading-3",
         "headphones",
         "heart",
+        "heart-off",
         "history",
         "hourglass",
         "house",
@@ -272,6 +275,7 @@ public enum AppIcons {
         "list-tree",
         "loader-circle",
         "lock",
+        "lock-open",
         "log-in",
         "log-out",
         "mail",
@@ -279,6 +283,7 @@ public enum AppIcons {
         "map-pin",
         "maximize-2",
         "megaphone",
+        "menu",
         "message-circle",
         "message-square",
         "message-square-plus",
@@ -313,6 +318,7 @@ public enum AppIcons {
         "play",
         "plug",
         "plus",
+        "printer",
         "progress-1-4",
         "progress-1-5",
         "progress-2-4",
@@ -325,6 +331,7 @@ public enum AppIcons {
         "refresh-cw",
         "remove-formatting",
         "repeat",
+        "rewind",
         "rocket",
         "rotate-ccw",
         "scale",
@@ -342,6 +349,8 @@ public enum AppIcons {
         "signal-high",
         "signal-low",
         "signal-medium",
+        "skip-back",
+        "skip-forward",
         "sliders-horizontal",
         "smartphone",
         "smile",
@@ -351,6 +360,8 @@ public enum AppIcons {
         "square-slash",
         "square-terminal",
         "star",
+        "star-half",
+        "star-off",
         "stethoscope",
         "store",
         "strikethrough",
@@ -373,6 +384,10 @@ public enum AppIcons {
         "user-x",
         "users",
         "video",
+        "volume-1",
+        "volume-2",
+        "volume-off",
+        "volume-x",
         "wallet",
         "wifi-off",
         "workflow",
@@ -482,6 +497,22 @@ public enum AppIcons {
     public static let eventRelationRemoved: String = "unlink"
     /// Concept `event-status-changed`.
     public static let eventStatusChanged: String = "circle-dot"
+    /// Concept `media-fast-forward`.
+    public static let mediaFastForward: String = "fast-forward"
+    /// Concept `media-rewind`.
+    public static let mediaRewind: String = "rewind"
+    /// Concept `media-skip-next`.
+    public static let mediaSkipNext: String = "skip-forward"
+    /// Concept `media-skip-previous`.
+    public static let mediaSkipPrevious: String = "skip-back"
+    /// Concept `media-volume-down`.
+    public static let mediaVolumeDown: String = "volume-1"
+    /// Concept `media-volume-mute`.
+    public static let mediaVolumeMute: String = "volume-x"
+    /// Concept `media-volume-off`.
+    public static let mediaVolumeOff: String = "volume-off"
+    /// Concept `media-volume-up`.
+    public static let mediaVolumeUp: String = "volume-2"
     /// Concept `nav-account`.
     public static let navAccount: String = "circle-user"
     /// Concept `nav-actions`.
@@ -740,6 +771,8 @@ public enum AppIcons {
     public static let uiEstimate: String = "gauge"
     /// Concept `ui-external-link`.
     public static let uiExternalLink: String = "external-link"
+    /// Concept `ui-favorite-off`.
+    public static let uiFavoriteOff: String = "heart-off"
     /// Concept `ui-file`.
     public static let uiFile: String = "file"
     /// Concept `ui-folder`.
@@ -754,6 +787,8 @@ public enum AppIcons {
     public static let uiGithub: String = "github"
     /// Concept `ui-help`.
     public static let uiHelp: String = "circle-question-mark"
+    /// Concept `ui-hide`.
+    public static let uiHide: String = "eye-off"
     /// Concept `ui-icon-placeholder`.
     public static let uiIconPlaceholder: String = "circle-dashed"
     /// Concept `ui-indeterminate`.
@@ -774,6 +809,8 @@ public enum AppIcons {
     public static let uiMcp: String = "plug"
     /// Concept `ui-member`.
     public static let uiMember: String = "shield-check"
+    /// Concept `ui-menu`.
+    public static let uiMenu: String = "menu"
     /// Concept `ui-minus`.
     public static let uiMinus: String = "minus"
     /// Concept `ui-more`.
@@ -790,6 +827,8 @@ public enum AppIcons {
     public static let uiPermission: String = "shield-question-mark"
     /// Concept `ui-pin`.
     public static let uiPin: String = "pin"
+    /// Concept `ui-print`.
+    public static let uiPrint: String = "printer"
     /// Concept `ui-private`.
     public static let uiPrivate: String = "lock"
     /// Concept `ui-properties`.
@@ -822,6 +861,10 @@ public enum AppIcons {
     public static let uiSignOut: String = "log-out"
     /// Concept `ui-staging`.
     public static let uiStaging: String = "flask-conical"
+    /// Concept `ui-star-half`.
+    public static let uiStarHalf: String = "star-half"
+    /// Concept `ui-star-off`.
+    public static let uiStarOff: String = "star-off"
     /// Concept `ui-stop`.
     public static let uiStop: String = "circle-stop"
     /// Concept `ui-submit`.
@@ -840,6 +883,8 @@ public enum AppIcons {
     public static let uiUndo: String = "undo-2"
     /// Concept `ui-undock`.
     public static let uiUndock: String = "arrow-up-right"
+    /// Concept `ui-unlock`.
+    public static let uiUnlock: String = "lock-open"
     /// Concept `ui-unpin`.
     public static let uiUnpin: String = "pin-off"
     /// Concept `ui-unselected`.

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Exponential UI · theme builder</title>
+<link rel="stylesheet" href="./builder.css">
+</head>
+<body data-mode="dark">
+<header class="bar">
+  <strong>Exponential UI</strong><span class="muted">theme builder</span>
+  <label>Base <select id="base"></select></label>
+  <span class="seg"><button type="button" data-set-mode="light">Light</button><button type="button" data-set-mode="dark">Dark</button></span>
+  <label>Width <select id="width"><option value="390">390 · phone</option><option value="600">600</option><option value="900">900</option><option value="1200">1200</option></select></label>
+  <span class="grow"></span>
+  <button type="button" id="do-import">Import CSS / JSON…</button>
+  <button type="button" id="reset">Reset</button>
+  <button type="button" id="do-export" class="primary">Export JSON</button>
+</header>
+<main class="layout">
+  <aside id="panel" class="panel"></aside>
+  <section class="stage">
+    <div id="issues" class="issues" hidden></div>
+    <textarea id="export" class="mono export" rows="12" hidden readonly></textarea>
+    <div id="preview" class="preview"></div>
+  </section>
+</main>
+<dialog id="import" class="import">
+  <h2>Import</h2>
+  <p>Paste a shadcn <code>globals.css</code> (v4 oklch or v3 HSL triplets), a tweakcn export, or an Exponential UI theme JSON. Colours, the radius ladder, fonts and shadows become overrides on the current base.</p>
+  <textarea id="import-text" class="mono" rows="14" spellcheck="false" placeholder=":root {&#10;  --background: oklch(1 0 0);&#10;  --primary: oklch(0.55 0.2 260);&#10;  --radius: 0.625rem;&#10;}&#10;.dark { … }"></textarea>
+  <pre id="import-report" class="mono"></pre>
+  <div class="actions"><button type="button" id="import-close">Close</button><button type="button" id="import-apply" class="primary">Apply</button></div>
+</dialog>
+<script type="module" src="./dist/main.js"></script>
+</body>
+</html>

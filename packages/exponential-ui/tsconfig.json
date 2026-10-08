@@ -1,8 +1,18 @@
 {
   "extends": "@exp/tsconfig/base.json",
-  "include": ["src/**/*.ts", "scripts/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "builder/**/*.ts"
+  ],
   "compilerOptions": {
-    "lib": ["ES2022"],
-    "types": ["bun"]
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "bun"
+    ]
   }
 }

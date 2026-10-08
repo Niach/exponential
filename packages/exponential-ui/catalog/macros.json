@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $recipe? }. Values: `\"{props.x}\"` alone = the raw prop; `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{index}` = the current $each index. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b], $add [a, b], $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text expr (→ the value as a string, absent when missing). `$if` = a condition or an array of conditions (all must hold; `!` negates); `$any` = an array where one must hold. `$each` repeats a part per item of an array prop (`$as` names the item, default `item`). `\"$children\"` in a children list splices the author's children; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour or a font — only structure and token-named spacing. Macros may use other macros (NavRow → Badge); expansion recurses until every node is native (innermost recipe wins).",
+  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $recipe? }. Values: `\"{props.x}\"` alone = the raw prop; `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{index}` = the current $each index. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b], $add [a, b], $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text expr (→ the value as a string, absent when missing). `$if` = a condition or an array of conditions (all must hold; `!` negates); `$any` = an array where one must hold. `$each` repeats a part per item of an array prop (`$as` names the item, default `item`). `\"$children\"` in a children list splices the author's children; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour, a border or a font — only structure and token-named spacing, radius and control heights (VAPP-92 moved the Card/Group/Band/Pill/Alert/CardRow/EntityChip fills and borders and the Separator/Progress/Meter track colours into the neutral theme's recipes; a part's recipe overrides what its template drew). Macros may use other macros (NavRow → Badge); expansion recurses until every node is native (innermost recipe wins).",
   "macros": {
     "Stack": {
       "recipeProps": [],
@@ -32,7 +32,7 @@
       "recipeProps": [],
       "root": {
         "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.xl", "borderWidth": 1, "borderColor": "$color.border", "backgroundColor": "$color.card", "overflow": "hidden" },
+        "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.xl", "overflow": "hidden" },
         "children": [
           {
             "part": "header", "component": "Box", "$any": ["props.title", "props.description"],
@@ -58,8 +58,7 @@
           "alignSelf": "stretch",
           "flexShrink": 0,
           "width": { "$map": { "from": "props.orientation", "cases": { "vertical": 1 }, "default": "auto" } },
-          "height": { "$map": { "from": "props.orientation", "cases": { "vertical": "auto" }, "default": 1 } },
-          "backgroundColor": "$color.border"
+          "height": { "$map": { "from": "props.orientation", "cases": { "vertical": "auto" }, "default": 1 } }
         }
       }
     },
@@ -67,7 +66,7 @@
       "recipeProps": ["variant"],
       "root": {
         "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md", "backgroundColor": "$color.muted" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
         "children": [
           { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
           { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexGrow": 1, "minWidth": 0 } },
@@ -92,7 +91,7 @@
           { "part": "title", "component": "Text", "$if": "props.title", "props": { "text": "{props.title}", "variant": "label" }, "style": { "paddingHorizontal": "$spacing.md" } },
           {
             "part": "body", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.lg", "borderWidth": 1, "borderColor": "$color.border", "backgroundColor": "$color.card", "overflow": "hidden" },
+            "style": { "display": "flex", "flexDirection": "column", "borderRadius": "$radius.lg", "overflow": "hidden" },
             "children": ["$children"]
           },
           { "part": "footer", "component": "Text", "$if": "props.footer", "props": { "text": "{props.footer}", "variant": "muted" }, "style": { "paddingHorizontal": "$spacing.md" } }
@@ -169,7 +168,7 @@
       "recipeProps": ["type"],
       "root": {
         "part": "root", "component": "Box",
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg", "borderWidth": 1, "borderColor": "$color.border" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "flex-start", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg" },
         "children": [
           { "part": "icon", "component": "Icon", "props": { "name": { "$map": { "from": "props.type", "cases": { "success": "ui-success", "warning": "ui-warning", "error": "ui-error" }, "default": "ui-info" } }, "size": "sm", "tone": { "$map": { "from": "props.type", "cases": { "success": "success", "warning": "warning", "error": "danger" }, "default": "info" } } } },
           {
@@ -187,7 +186,7 @@
       "root": {
         "part": "root", "component": "Box",
         "props": { "pressable": "{props.pressable|false}" },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.pill", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.full", "borderWidth": 1, "borderColor": "$color.border", "alignSelf": "flex-start" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.pill", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.full", "alignSelf": "flex-start" },
         "children": [
           { "part": "dot", "component": "Box", "$if": "props.dot", "style": { "width": 8, "height": 8, "borderRadius": "$radius.full", "backgroundColor": "{props.dot}", "flexShrink": 0 } },
           { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
@@ -217,7 +216,7 @@
           { "part": "label", "component": "Text", "$if": "props.label", "props": { "text": "{props.label}", "variant": "caption" } },
           {
             "part": "track", "component": "Box",
-            "style": { "height": "$control.progress", "borderRadius": "$radius.full", "backgroundColor": "$color.muted", "overflow": "hidden", "width": "100%" },
+            "style": { "height": "$control.progress", "borderRadius": "$radius.full", "overflow": "hidden", "width": "100%" },
             "children": [
               { "part": "fill", "component": "Box", "style": { "height": "100%", "width": { "$percent": ["{props.value}", "{props.max|100}"] }, "borderRadius": "$radius.full" } }
             ]
@@ -241,7 +240,7 @@
           },
           {
             "part": "track", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "row", "height": "$control.meter", "borderRadius": "$radius.full", "backgroundColor": "$color.muted", "overflow": "hidden", "width": "100%" },
+            "style": { "display": "flex", "flexDirection": "row", "height": "$control.meter", "borderRadius": "$radius.full", "overflow": "hidden", "width": "100%" },
             "children": [
               { "part": "segment", "component": "Box", "$each": "props.segments", "$as": "item", "style": { "height": "100%", "width": { "$percent": ["{item.value}", "{props.max|100}"] } }, "$recipe": { "tone": "{item.tone|neutral}" } }
             ]
@@ -298,7 +297,7 @@
       "root": {
         "part": "root", "component": "Box",
         "props": { "pressable": true },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg", "borderWidth": 1, "borderColor": "$color.border", "backgroundColor": "$color.card" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "padding": "$spacing.md", "borderRadius": "$radius.lg" },
         "children": [
           { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "default" } },
           {
@@ -356,7 +355,7 @@
       "root": {
         "part": "root", "component": "Box",
         "props": { "pressable": true },
-        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.chip", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.md", "borderWidth": 1, "borderColor": "$color.border", "backgroundColor": "$color.card", "alignSelf": "flex-start" },
+        "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xs", "height": "$control.chip", "paddingHorizontal": "$spacing.sm", "borderRadius": "$radius.md", "alignSelf": "flex-start" },
         "children": [
           { "part": "image", "component": "Image", "$if": "props.image", "props": { "src": "{props.image}", "alt": "{props.label}", "width": 16, "height": 16, "fit": "cover" }, "style": { "borderRadius": "$radius.full" } },
           { "part": "icon", "component": "Icon", "$if": ["props.icon", "!props.image"], "props": { "name": "{props.icon}", "size": "sm" } },

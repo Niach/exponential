@@ -360,7 +360,22 @@
     "run-resume": "rotate-ccw",
     "run-pause": "pause",
     "work-faces": "layers-2",
-    "work-results": "images"
+    "work-results": "images",
+    "media-fast-forward": "fast-forward",
+    "media-rewind": "rewind",
+    "media-skip-next": "skip-forward",
+    "media-skip-previous": "skip-back",
+    "media-volume-up": "volume-2",
+    "media-volume-down": "volume-1",
+    "media-volume-mute": "volume-x",
+    "media-volume-off": "volume-off",
+    "ui-favorite-off": "heart-off",
+    "ui-unlock": "lock-open",
+    "ui-menu": "menu",
+    "ui-print": "printer",
+    "ui-star-half": "star-half",
+    "ui-star-off": "star-off",
+    "ui-hide": "eye-off"
   },
   "imported": {
     "os-apple": {

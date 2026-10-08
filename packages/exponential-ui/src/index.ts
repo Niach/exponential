@@ -34,3 +34,31 @@ export { defineExtension, validateExtension } from "./extension"
 export { coreSchema, extensionSchema } from "./schema"
 export { catalogPrompt, estimateTokens, PROMPT_RULES, CHARS_PER_TOKEN } from "./prompt"
 export type { PromptOptions } from "./prompt"
+// VAPP-92: themes
+export * from "./theme-types"
+export { parseColor, toHex, toThemeHex, isThemeHex, luminance, contrast } from "./color"
+export type { Rgba } from "./color"
+export { RECIPE_STATES, RECIPE_KEYS, recipeParts, macroParts, nativeRecipeProps } from "./recipes"
+export type { PartSpec } from "./recipes"
+export {
+  MODES,
+  THEME_SCHEMA_ID,
+  ThemeError,
+  validateTheme,
+  tryLoadTheme,
+  loadTheme,
+  resolveToken,
+  resolveStyleValues,
+  recipeStyle,
+  resolveRecipe,
+  nodeRecipeQuery,
+  resolveNodeStyle,
+  shadowCss,
+} from "./theme"
+export type { ThemeOptions } from "./theme"
+export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, builtinTheme, builtinThemes } from "./themes"
+export { styleToCss, styleAttribute } from "./css"
+export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
+export type { ThemeImport } from "./builder"
+export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"
+export type { ControlGeometry, GeometryKey, MeasuredBox, PainterOverride, GeometryIssue } from "./geometry"

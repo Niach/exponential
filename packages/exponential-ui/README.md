@@ -1,12 +1,13 @@
 # `@exponential-at/ui` — the Exponential UI catalog
 
-The catalog half of Exponential UI (VAPP-84): the **core catalog** of
+The data half of Exponential UI (VAPP-84): the **core catalog** of
 components an A2UI surface may use, the **A2UI basic catalog** vendored and
 mapped onto it, the **macro table** that turns composite components into
 natives, the **model-facing descriptions** and prompt, the **token names**
-themes must define, codegen for TypeScript, Swift, Kotlin and Rust, and the
-fixtures every renderer suite locks against. No renderer lives here (React:
-VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90); themes are VAPP-92.
+themes must define, the **runtime theme format** with the three built-in
+themes and the theme builder (VAPP-92), codegen for TypeScript, Swift, Kotlin
+and Rust, and the fixtures every renderer suite locks against. No renderer
+lives here (React: VAPP-87, the Rust core: VAPP-86, painters: VAPP-88/89/90).
 
 `"private": true` until VAPP-91 publishes it. Depends on nothing from the
 Exponential app.
@@ -20,10 +21,15 @@ Exponential app.
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
 | `catalog/tokens.json` | the token NAMES (`$color.primary`, `$spacing.md`, …); values come from a theme |
+| `catalog/recipes.json` | the recipe contract: interaction states, the recipe key whitelist, every native's parts + `when` props (macro parts come from macros.json) |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
+| `catalog/theme.schema.json` | generated: a theme file as JSON Schema |
+| `themes/` | the built-in themes: `neutral` (stock shadcn, the root), `exponential` (GENERATED: design-tokens values + `exponential.recipes.json`), `playful` (the test theme) |
+| `builder/` | the theme builder page (`dev:builder` / `build:builder`); ui.exponential.at mounts it (VAPP-93) |
 | `src/` | the TS reference implementation (below) |
-| `generated/*.{swift,kt,rs}` | generated constants for the three native targets |
+| `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON |
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
+| `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
 | `vendor/a2ui/` | A2UI v0.9 schemas, byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
@@ -46,6 +52,77 @@ Wire form = A2UI's: a flat list of `{id, component, …props, children: [ids] |
 {componentId, path}, slots?: {name: id}, on?: {event: Action}, style?}`.
 Normalized form (what painters get) = `UiNode`: `{id, component, props,
 style?, on?, children: [UiNode], slots?, template?, recipe?}`.
+
+## Themes (VAPP-92)
+
+A theme is **data, never code**: one JSON file (`catalog/theme.schema.json`)
+every renderer loads at runtime, safe to fetch from a URL or a vapp package.
+Three levels of customisation, cheapest first: **tokens** (colours per mode,
+radius, spacing, type, control heights, shadows, border widths, motion),
+**recipes** (per component part × `when` selector a small style object), and a
+**painter override** through the extension API (VAPP-91) that must keep the
+measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
+
+```jsonc
+{
+  "id": "brand", "name": "Brand", "extends": "neutral",      // override only what changes
+  "modes": { "light": { "color": { "primary": "#2563eb" }, "shadow": { "sm": [{ "x": 0, "y": 1, "blur": 2, "spread": 0, "color": "#0000000d" }] } }, "dark": { … } },
+  "tokens": { "spacing": { "md": 12 }, "radius": { … }, "type": { "size": { … }, "lineHeight": { … }, "weight": { … }, "family": { "sans": "Inter" } }, "control": { … }, "opacity": { … }, "border": { … }, "motion": { … } },
+  "fonts": { "Inter": { "fallback": "ui-sans-serif, system-ui", "weights": [400, 500, 600, 700], "source": "host" } },
+  "recipes": {
+    "Button": { "root": [
+      { "style": { "borderRadius": "$radius.full" } },                       // the part's base
+      { "when": { "variant": "outline", "state": "hover" }, "style": { "backgroundColor": "$color.accent" } }
+    ] }
+  }
+}
+```
+
+- **Colours are `#rrggbb[aa]` only**; the builder's importer converts
+  oklch/hsl/rgb (`importShadcnCss`). Shadows live under `modes` (they differ
+  in the dark); every other group under `tokens`. Fonts are referenced by
+  family; the host registers the files per platform (`fonts` says what to
+  fall back to).
+- **Recipes**: `recipes.<Component>.<part>` = a list of rules; a rule applies
+  when every `when` entry matches (`state` = every listed state is active;
+  any other key = the recipe prop equals the value or is in the list). Rules
+  merge in order, later wins; a child theme's rules come after its parent's.
+  The keys a rule may set are `catalog/recipes.json` `keys` (the Box visual
+  subset + padding/gap/size + `native`); values may be token references.
+  Parts and `when` props per component: `recipeParts()` (natives from
+  `recipes.json`, macros from their templates: every `part`, the macro's
+  `recipeProps` + `$recipe` keys). States: hover, pressed, focus, disabled,
+  checked, open, selected.
+- **Precedence a painter applies** (`resolveNodeStyle`): the native's own
+  recipe (Text/root for its variant) < the node's style (the macro
+  template's structure + the author's style) < the macro part's recipe
+  (Badge/label). Macro templates state only structure, spacing, radius and
+  control heights; every colour and border is a recipe, so a theme restyles
+  what a template drew.
+- **Loading**: `validateTheme(json)` → issues with a path and a readable
+  message (unknown token, key outside the whitelist, unknown part…);
+  `loadTheme(json, {themes})` flattens the `extends` chain into a
+  `ResolvedTheme` (every token present, recipes merged) or throws ONE
+  `ThemeError` listing every issue; `tryLoadTheme` never throws. A root theme
+  must give every token name a value. Built-ins: `builtinTheme(id)`,
+  `BUILTIN_THEMES`, `DEFAULT_THEME_ID` (`exponential`).
+- **Resolving**: `resolveRecipe(theme, {component, part, props, states}, mode)`
+  → concrete values (hex, px, shadow layers, family); `resolveStyleValues`
+  for a Box style; `styleToCss` for web painters.
+- **Built-ins**: `neutral` = stock shadcn light + dark and the full recipe
+  set (the root every other theme extends); `exponential` = the zinc glass
+  look, GENERATED from `packages/design-tokens/tokens.json` + the app's
+  `styles.css` palettes + `themes/exponential.recipes.json` so the app and
+  the SDK cannot drift; `playful` = the deliberately different test theme
+  (pill buttons, no card borders, underlined tabs, Nunito) the conformance
+  suite renders on every painter. The natives get all three RESOLVED in
+  `generated/ExponentialUIThemes.generated.*` (parse once at startup).
+- **Builder** (`builder/`, `bun run --filter @exponential-at/ui dev:builder`
+  → :4180): pick a base, edit tokens and recipes with the recipe sheet and
+  the kitchen sink previewed live, import a shadcn `globals.css` / tweakcn
+  export or a theme JSON, export the smallest `extends` theme
+  (`diffTheme`). Its preview painter (`builder/paint.ts`) is a stand-in the
+  React renderer replaces (VAPP-87).
 
 ## The reference implementation (`src/`)
 
@@ -73,6 +150,11 @@ style?, on?, children: [UiNode], slots?, template?, recipe?}`.
 | `catalog-extension.json` | an example extension (native + macro + enum) and its cases |
 | `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept; view id `exponential-ui-kitchen-sink` |
 | `prompt-budget.json` | the prompt's size on record (full / lite / terse) and the budget |
+| `theme-resolved.json` | every built-in theme resolved: what a native loader must produce from the same files |
+| `theme-recipes.json` | theme × component part × recipe props → visuals per mode and state (one case per distinct look) |
+| `theme-extends.json` | `extends` cases (the acceptance case: neutral + primary + button radius) → chain + probe styles |
+| `theme-invalid.json` | bad themes → the issues they must raise (paths ×4, never a crash) |
+| `control-geometry.json` | theme × control × props → the box a painter or override must measure to |
 
 ## Commands
 
@@ -84,7 +166,14 @@ bun run --filter @exponential-at/ui typecheck
 
 Change a component = edit `core.catalog.json` (and `macros.json` for a macro),
 run generate, commit everything it rewrote. The icon vocabulary is read from
-`packages/icons/icons.json` at generate time.
+`packages/icons/icons.json` at generate time; the exponential theme reads
+`packages/design-tokens/tokens.json` and `packages/ui/src/styles.css` at
+generate time too (never at runtime).
+
+```bash
+bun run --filter @exponential-at/ui dev:builder     # the theme builder on :4180
+bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (ignored)
+```
 
 ## Extensions
 

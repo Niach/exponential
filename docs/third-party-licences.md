@@ -342,11 +342,18 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   is kept anyway (`packages/exponential-ui/vendor/json-render/`, licence
   verbatim) because the wording is a derivative.
 
+- **shadcn/ui** (shadcn-ui/ui, MIT, shadcn): the built-in `neutral` theme
+  (`packages/exponential-ui/themes/neutral.theme.json`, VAPP-92) carries the
+  stock "neutral" palette VALUES of shadcn's `globals.css` (OKLCH converted to
+  hex) and recipes that describe the stock component look in our own recipe
+  format. No code is copied; colour values and a visual description are not a
+  copyrightable work, so no notice is owed. Recorded here for provenance.
+
 Neither reaches a client build today: the package is consumed by nothing that
 ships. **When a renderer run (VAPP-87 React, VAPP-88/89/90 natives) bundles the
-catalog JSON into a client, add a `VENDORED` row per source in
-`packages/licenses/curated/supplement.ts` for that client and regenerate the
-notices** — the same rule as the desktop's vendored crates above.
+catalog JSON or the built-in themes into a client, add a `VENDORED` row per
+Apache-2.0 source in `packages/licenses/curated/supplement.ts` for that client
+and regenerate the notices** — the same rule as the desktop's vendored crates above.
 
 ## How this is enforced — EXP-375
 
