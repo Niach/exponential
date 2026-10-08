@@ -8,7 +8,7 @@ const root = import.meta.dir
 const port = Number(process.env.PORT ?? 4180)
 
 async function bundle(): Promise<string> {
-  const result = await Bun.build({ entrypoints: [join(root, `main.ts`)], target: `browser`, format: `esm`, minify: false })
+  const result = await Bun.build({ entrypoints: [join(root, `main.ts`)], target: `browser`, format: `esm`, minify: false, define: { "process.env.NODE_ENV": JSON.stringify(`production`) } })
   if (!result.success) throw new Error(result.logs.map((l) => l.message).join(`\n`))
   return await result.outputs[0].text()
 }

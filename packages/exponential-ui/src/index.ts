@@ -62,3 +62,6 @@ export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportT
 export type { ThemeImport } from "./builder"
 export { CONTROL_PARTS, GEOMETRY_KEYS, controlGeometry, checkGeometry, verifyPainterGeometry } from "./geometry"
 export type { ControlGeometry, GeometryKey, MeasuredBox, PainterOverride, GeometryIssue } from "./geometry"
+// VAPP-87: the overlay placement contract (renderers + the Rust core).
+export { OVERLAY_OFFSET, OVERLAY_PADDING, placeOverlay } from "./overlay"
+export type { OverlaySide, OverlayAlign, OverlayPlacement, Rect, Size } from "./overlay"

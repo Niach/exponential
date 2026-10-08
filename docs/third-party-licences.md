@@ -349,11 +349,20 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   format. No code is copied; colour values and a visual description are not a
   copyrightable work, so no notice is owed. Recorded here for provenance.
 
-Neither reaches a client build today: the package is consumed by nothing that
-ships. **When a renderer run (VAPP-87 React, VAPP-88/89/90 natives) bundles the
-catalog JSON or the built-in themes into a client, add a `VENDORED` row per
-Apache-2.0 source in `packages/licenses/curated/supplement.ts` for that client
-and regenerate the notices** — the same rule as the desktop's vendored crates above.
+**Which clients bundle it (VAPP-87, 2026-10-07):** the web app, through
+`@exponential-at/ui-react` (the React renderer, `packages/exponential-ui-react`)
+on its `/exponential-ui-kitchen-sink` route, which imports the catalog JSON
+and the built-in themes. The two Apache-2.0 sources therefore have one
+`VENDORED` row each in `packages/licenses/curated/supplement.ts` with
+`clients: ["web"]`, reproducing the vendored `LICENSE.txt` files. The React
+renderer itself adds no third-party source: its natives are Radix behaviour
+(MIT, in the npm inventory) painted from the theme's recipes, and the shadcn
+primitive set that moved from `@exp/ui` into `src/primitives/` was already
+ours (MIT-derived shadcn code, recorded with the web app's dependencies).
+**When a native painter (VAPP-88/89/90) bundles the catalog JSON or the
+built-in themes into iOS, Android or the desktop app, add that client to the
+two rows' `clients` and regenerate the notices** — the same rule as the
+desktop's vendored crates above.
 
 ## How this is enforced — EXP-375
 

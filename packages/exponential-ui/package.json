@@ -20,12 +20,18 @@
     "generate": "bun run ./scripts/generate.ts",
     "test": "bun test ./src",
     "typecheck": "tsc --noEmit",
-    "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm",
+    "build:builder": "bun build ./builder/main.ts --outdir ./builder/dist --target browser --format esm --define process.env.NODE_ENV='\"production\"'",
     "dev:builder": "bun ./builder/serve.ts"
   },
   "devDependencies": {
     "@exp/tsconfig": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
     "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "lucide-react": "^0.544.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "typescript": "^5.7.2"
   }
 }

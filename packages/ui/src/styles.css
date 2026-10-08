@@ -9,6 +9,10 @@
    which never reaches into node_modules/@exp/ui. Without this line every
    utility only these components use (the whole shadcn set) goes missing. */
 @source "./**/*.{ts,tsx}";
+/* VAPP-87 — the shadcn set and the generic primitives now LIVE in
+   @exponential-at/ui-react/primitives (this package re-exports them), so
+   their utilities are scanned at their real path too. */
+@source "../../exponential-ui-react/src/primitives/**/*.{ts,tsx}";
 
 html {
   font-size: 1.15625rem;

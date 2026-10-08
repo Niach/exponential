@@ -1,0 +1,9 @@
+{
+  "extends": "@exp/tsconfig/base.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "harness/**/*.ts", "harness/**/*.tsx", "browser/**/*.ts", "vitest.config.ts", "vitest.browser.config.ts"],
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vitest/globals", "bun"]
+  }
+}

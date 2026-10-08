@@ -64,6 +64,7 @@ export type GroupId =
   | `settings`
   | `ide`
   | `getting-started`
+  | `exponential-ui`
 
 /** A section of the catalog. Purely presentational grouping. */
 export interface Group {

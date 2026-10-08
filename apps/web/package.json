@@ -40,6 +40,8 @@
     "@exp/mcp-apps": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "@exp/ui": "workspace:*",
+    "@exponential-at/ui": "workspace:*",
+    "@exponential-at/ui-react": "workspace:*",
     "@exp/view-catalog": "workspace:*",
     "@exp/widget": "workspace:*",
     "@mcp-b/global": "^4.0.0",

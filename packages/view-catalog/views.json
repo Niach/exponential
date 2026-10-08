@@ -59,6 +59,12 @@
       "label": "Getting started",
       "blurb": "The setup checklist: a sidebar sheet on web, a rail screen on desktop.",
       "order": 10
+    },
+    {
+      "id": "exponential-ui",
+      "label": "Exponential UI",
+      "blurb": "The open generative-UI SDK (VAPP-84): the core catalog’s kitchen sink painted by each platform’s renderer, the reference every painter is compared against.",
+      "order": 11
     }
   ],
   "excludedRoutes": [
@@ -2028,6 +2034,27 @@
         "web-mobile": "No sheet on phones: the cards render inline under an empty board / empty team.",
         "ios": "Inline under an empty board / empty team.",
         "android": "Inline under an empty board / empty team."
+      }
+    },
+    {
+      "id": "exponential-ui-kitchen-sink",
+      "group": "exponential-ui",
+      "title": "Exponential UI · kitchen sink",
+      "blurb": "Every component of the core catalog once (packages/exponential-ui/fixtures/kitchen-sink.json) under the exponential theme: the VAPP-4 layout cases, the form controls with a 150 ms host echo, overlays, lists, feedback. Web = the React renderer (VAPP-87); desktop, iOS and Android land with their painters (VAPP-90, VAPP-88, VAPP-89).",
+      "order": 1,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink",
+        "anchor": {
+          "text": "Reddit radar",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "The gpui painter is VAPP-90 (run 5 of the VAPP-84 line); no desktop surface yet.",
+        "ios": "The SwiftUI painter is VAPP-88 (run 6 of the VAPP-84 line); no iOS surface yet.",
+        "android": "The Compose painter is VAPP-89 (run 7 of the VAPP-84 line); no Android surface yet."
       }
     }
   ]

@@ -121,8 +121,9 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   → :4180): pick a base, edit tokens and recipes with the recipe sheet and
   the kitchen sink previewed live, import a shadcn `globals.css` / tweakcn
   export or a theme JSON, export the smallest `extends` theme
-  (`diffTheme`). Its preview painter (`builder/paint.ts`) is a stand-in the
-  React renderer replaces (VAPP-87).
+  (`diffTheme`). The preview is the real React renderer
+  (`builder/preview.tsx` on `@exponential-at/ui-react`, VAPP-87): what the
+  builder shows is what a host gets.
 
 ## The reference implementation (`src/`)
 
