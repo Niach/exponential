@@ -144,6 +144,15 @@ ztracing_macro = { path = "crates/ztracing_macro" }
 # keep line tables (readable backtraces); dependencies build with none — gpui
 # internals are not stepped through here, and full var-info debugging of a dep
 # is a one-off `cargo clean -p` away.
+# VAPP-86: the mobile facade (`crates/exponential-ui-ffi` → xcframework /
+# Android .so) ships smallest with LTO + one codegen unit + stripped symbols;
+# `build-ios.sh` / `build-android.sh` select it with `--profile mobile`.
+[profile.mobile]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
+
 [profile.dev]
 debug = "line-tables-only"
 

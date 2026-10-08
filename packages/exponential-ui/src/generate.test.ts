@@ -13,8 +13,10 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the twenty-three outputs`, () => {
+  test(`renders the twenty-five outputs`, () => {
     expect(Object.keys(files).sort()).toEqual([
+      `../../apps/desktop/crates/exponential-ui/src/generated/catalog.rs`,
+      `../../apps/desktop/crates/exponential-ui/src/generated/themes.rs`,
       `catalog/core.schema.json`,
       `catalog/theme.schema.json`,
       `docs/components.generated.json`,

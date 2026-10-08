@@ -34,7 +34,7 @@ CONTENTS
 1. Open-source components
 ==============================================================================
 
-1051 third-party components are distributed as part of this build. They are
+1055 third-party components are distributed as part of this build. They are
 grouped below by the licence text that applies to them; each group reproduces
 that text once, in full, and lists every component it covers together with
 that component's own copyright notice.
@@ -94,7 +94,7 @@ Applies to the following 112 components:
     MIT elected from `MIT OR Apache-2.0`
   gpu-descriptor-types 0.2.0  [x86_64-unknown-linux-gnu]
     MIT elected from `MIT OR Apache-2.0`
-  harfrust 0.5.2  [x86_64-unknown-linux-gnu]
+  harfrust 0.5.2
   jsonschema-regex 0.46.10
   leak 0.1.2  [aarch64-apple-darwin]
     MIT elected from `Apache-2.0 OR MIT`
@@ -1143,6 +1143,70 @@ ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation a
 MIT
 ------------------------------------------------------------------------------
 
+Applies to the following 17 components:
+
+  annotate-snippets 0.12.16
+    MIT elected from `MIT OR Apache-2.0`
+  anstyle 1.0.14
+    MIT elected from `MIT OR Apache-2.0`
+  clap 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_builder 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_derive 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_lex 1.1.1
+    MIT elected from `MIT OR Apache-2.0`
+  serde_spanned 0.6.9
+    MIT elected from `MIT OR Apache-2.0`
+  serde_spanned 1.1.1  [build-time only, not linked]
+    MIT elected from `MIT OR Apache-2.0`
+  toml 0.8.23
+    MIT elected from `MIT OR Apache-2.0`
+  toml 1.1.2+spec-1.1.0  [build-time only, not linked]
+    MIT elected from `MIT OR Apache-2.0`
+  toml_datetime 0.6.11
+    MIT elected from `MIT OR Apache-2.0`
+  toml_datetime 1.1.1+spec-1.1.0
+    MIT elected from `MIT OR Apache-2.0`
+  toml_edit 0.22.27
+    MIT elected from `MIT OR Apache-2.0`
+  toml_edit 0.25.12+spec-1.1.0
+    MIT elected from `MIT OR Apache-2.0`
+  toml_parser 1.1.2+spec-1.1.0
+    MIT elected from `MIT OR Apache-2.0`
+  toml_write 0.1.2
+    MIT elected from `MIT OR Apache-2.0`
+  toml_writer 1.1.1+spec-1.1.0  [build-time only, not linked]
+    MIT elected from `MIT OR Apache-2.0`
+
+..............................................................................
+
+Copyright (c) Individual contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+------------------------------------------------------------------------------
+MIT
+------------------------------------------------------------------------------
+
 Applies to the following 15 components:
 
   phf 0.11.3
@@ -1272,62 +1336,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
-
-------------------------------------------------------------------------------
-MIT
-------------------------------------------------------------------------------
-
-Applies to the following 13 components:
-
-  annotate-snippets 0.12.16
-    MIT elected from `MIT OR Apache-2.0`
-  anstyle 1.0.14
-    MIT elected from `MIT OR Apache-2.0`
-  serde_spanned 0.6.9
-    MIT elected from `MIT OR Apache-2.0`
-  serde_spanned 1.1.1  [build-time only, not linked]
-    MIT elected from `MIT OR Apache-2.0`
-  toml 0.8.23
-    MIT elected from `MIT OR Apache-2.0`
-  toml 1.1.2+spec-1.1.0  [build-time only, not linked]
-    MIT elected from `MIT OR Apache-2.0`
-  toml_datetime 0.6.11
-    MIT elected from `MIT OR Apache-2.0`
-  toml_datetime 1.1.1+spec-1.1.0
-    MIT elected from `MIT OR Apache-2.0`
-  toml_edit 0.22.27
-    MIT elected from `MIT OR Apache-2.0`
-  toml_edit 0.25.12+spec-1.1.0
-    MIT elected from `MIT OR Apache-2.0`
-  toml_parser 1.1.2+spec-1.1.0
-    MIT elected from `MIT OR Apache-2.0`
-  toml_write 0.1.2
-    MIT elected from `MIT OR Apache-2.0`
-  toml_writer 1.1.1+spec-1.1.0  [build-time only, not linked]
-    MIT elected from `MIT OR Apache-2.0`
-
-..............................................................................
-
-Copyright (c) Individual contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 
 ------------------------------------------------------------------------------
@@ -2134,25 +2142,25 @@ Applies to the following 8 components:
   font-types 0.10.1
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
-  font-types 0.11.3  [x86_64-unknown-linux-gnu]
+  font-types 0.11.3
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
   read-fonts 0.35.0
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
-  read-fonts 0.37.0  [x86_64-unknown-linux-gnu]
+  read-fonts 0.37.0
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
-  read-fonts 0.39.2  [x86_64-unknown-linux-gnu]
+  read-fonts 0.39.2
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
   skrifa 0.37.0
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
-  skrifa 0.40.0  [x86_64-unknown-linux-gnu]
+  skrifa 0.40.0
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
-  skrifa 0.42.1  [x86_64-unknown-linux-gnu]
+  skrifa 0.42.1
     Copyright (c) 2019 Colin Rothfels
     MIT elected from `MIT OR Apache-2.0`
 
@@ -2403,9 +2411,9 @@ Applies to the following 7 components:
   codespan-reporting 0.13.1  [x86_64-unknown-linux-gnu]
   imgref 1.12.2
     Apache-2.0 elected from `CC0-1.0 OR Apache-2.0`
-  self_cell 1.2.2  [x86_64-unknown-linux-gnu]
+  self_cell 1.2.2
     Apache-2.0 elected from `Apache-2.0 OR GPL-2.0-only`
-  unicode-linebreak 0.1.5  [x86_64-unknown-linux-gnu]
+  unicode-linebreak 0.1.5
 
 ..............................................................................
 
@@ -3081,7 +3089,7 @@ Applies to the following 4 components:
     MIT elected from `MIT OR Apache-2.0`
   ident_case 1.0.1
     MIT elected from `MIT/Apache-2.0`
-  linebender_resource_handle 0.1.1  [x86_64-unknown-linux-gnu]
+  linebender_resource_handle 0.1.1
     MIT elected from `Apache-2.0 OR MIT`
   str_indices 0.4.4
     MIT elected from `MIT OR Apache-2.0`
@@ -7723,10 +7731,10 @@ MIT
 
 Applies to the following 2 components:
 
-  swash 0.2.9  [x86_64-unknown-linux-gnu]
+  swash 0.2.9
     Copyright (c) 2020 Chad Brokaw
     MIT elected from `Apache-2.0 OR MIT`
-  zeno 0.3.3  [x86_64-unknown-linux-gnu]
+  zeno 0.3.3
     Copyright (c) 2020 Chad Brokaw
     MIT elected from `Apache-2.0 OR MIT`
 
@@ -12668,7 +12676,7 @@ MIT
 
 Applies to the following component:
 
-  cosmic-text 0.19.0  [x86_64-unknown-linux-gnu]
+  cosmic-text 0.19.0
     Copyright (c) 2022 System76
     MIT elected from `MIT OR Apache-2.0`
 
@@ -17359,7 +17367,7 @@ MIT
 
 Applies to the following component:
 
-  rangemap 1.7.1  [x86_64-unknown-linux-gnu]
+  rangemap 1.7.1
     Copyright 2019 Jeffrey Parsons
     MIT elected from `MIT/Apache-2.0`
 
@@ -18586,7 +18594,7 @@ MIT
 
 Applies to the following component:
 
-  sys-locale 0.3.2  [x86_64-unknown-linux-gnu]
+  sys-locale 0.3.2
     Copyright (c) 2021 1Password
     MIT elected from `MIT OR Apache-2.0`
 
@@ -20463,7 +20471,7 @@ MIT
 
 Applies to the following component:
 
-  yazi 0.2.1  [x86_64-unknown-linux-gnu]
+  yazi 0.2.1
     Copyright (c) 2020 Chad Brokaw
     MIT elected from `Apache-2.0 OR MIT`
 
@@ -21292,6 +21300,14 @@ Elections made in this build
   cipher 0.4.4
     MIT elected from `MIT OR Apache-2.0`
   cipher 0.5.2
+    MIT elected from `MIT OR Apache-2.0`
+  clap 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_builder 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_derive 4.6.7
+    MIT elected from `MIT OR Apache-2.0`
+  clap_lex 1.1.1
     MIT elected from `MIT OR Apache-2.0`
   cmov 0.5.4
     MIT elected from `Apache-2.0 OR MIT`
