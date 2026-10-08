@@ -634,8 +634,8 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
 
 fn report_path() -> std::path::PathBuf {
     match std::env::var("EXPONENTIAL_UI_CONFORMANCE_REPORT") {
-        Ok(p) => p.into(),
-        Err(_) => std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../..")).join(".conformance").join("exponential-ui-gpui.json"),
+        Ok(p) if !p.is_empty() => p.into(),
+        _ => std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../..")).join(".conformance").join("exponential-ui-gpui.json"),
     }
 }
 

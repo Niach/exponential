@@ -420,6 +420,13 @@ function readJson<T>(rel: string): T {
 
 /** Every generated file, keyed by its path relative to the package root. */
 export function render(): Record<string, string> {
+  const files = renderFiles()
+  // The manifest counts the fixtures being written, not the bundled ones.
+  const read = (name: string) => JSON.parse(files[`fixtures/${name}`] ?? readFileSync(join(pkgRoot, `fixtures`, name), `utf8`))
+  return { ...files, "conformance/manifest.json": json(conformanceManifest(read)) }
+}
+
+function renderFiles(): Record<string, string> {
   const icons = iconNames()
   const cases = componentCases()
   const kitchen = readJson<NestedNode>(`fixtures/kitchen-sink.json`)
@@ -459,7 +466,6 @@ export function render(): Record<string, string> {
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).
     ...renderHost(),
-    "conformance/manifest.json": json(conformanceManifest()),
   }
 }
 

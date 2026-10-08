@@ -356,11 +356,10 @@ fn suite(id: &str) -> Vec<Case> {
 }
 
 fn report_path() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var("EXPONENTIAL_UI_CONFORMANCE_REPORT") {
-        return p.into();
+    match std::env::var("EXPONENTIAL_UI_CONFORMANCE_REPORT") {
+        Ok(p) if !p.is_empty() => p.into(),
+        _ => std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../..")).join(".conformance").join("exponential-ui.json"),
     }
-    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../target").to_string());
-    std::path::Path::new(&target).join("exponential-ui-conformance").join("exponential-ui.json")
 }
 
 #[test]

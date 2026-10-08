@@ -44,7 +44,7 @@
           },
           {
             "part": "body", "component": "Box",
-            "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": { "$cond": ["props.padded", "$spacing.lg", "$spacing.none"] } },
+            "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": { "$map": { "from": "props.padded", "cases": { "false": "$spacing.none" }, "default": "$spacing.lg" } } },
             "children": ["$children"]
           }
         ]

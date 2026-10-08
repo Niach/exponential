@@ -43,9 +43,35 @@ export interface ConformanceManifest {
 }
 
 const n = (v: unknown) => (Array.isArray(v) ? v.length : Object.keys(v as object).length)
-const controlCases = Object.values(controlFixture.themes as Record<string, Record<string, { cases: object }>>).reduce((sum, t) => sum + Object.values(t).reduce((s, c) => s + n(c.cases), 0), 0)
 
-export function conformanceManifest(): ConformanceManifest {
+const BUNDLED: Record<string, unknown> = {
+  "catalog-components.json": componentsFixture,
+  "catalog-macros.json": macrosFixture,
+  "catalog-basic-map.json": basicFixture,
+  "catalog-extension.json": extensionFixture,
+  "theme-resolved.json": resolvedFixture,
+  "theme-recipes.json": recipesFixture,
+  "theme-extends.json": extendsFixture,
+  "theme-invalid.json": invalidFixture,
+  "control-geometry.json": controlFixture,
+  "layout-geometry.json": layoutFixture,
+  "overlay-geometry.json": overlayFixture,
+  "host-transport.json": transportFixture,
+  "host-policy.json": policyFixture,
+  "host-router.json": routerFixture,
+}
+
+/** The manifest over the bundled fixtures, or over `fixture(name)` (the
+ *  generator passes the files it is about to write). */
+export function conformanceManifest(fixture: (name: string) => unknown = (name) => BUNDLED[name]): ConformanceManifest {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const f = (name: string) => fixture(name) as any
+  const componentsFixture = f(`catalog-components.json`), macrosFixture = f(`catalog-macros.json`), basicFixture = f(`catalog-basic-map.json`)
+  const extensionFixture = f(`catalog-extension.json`), resolvedFixture = f(`theme-resolved.json`), recipesFixture = f(`theme-recipes.json`)
+  const extendsFixture = f(`theme-extends.json`), invalidFixture = f(`theme-invalid.json`), controlFixture = f(`control-geometry.json`)
+  const layoutFixture = f(`layout-geometry.json`), overlayFixture = f(`overlay-geometry.json`)
+  const transportFixture = f(`host-transport.json`), policyFixture = f(`host-policy.json`), routerFixture = f(`host-router.json`)
+  const controlCases = Object.values(controlFixture.themes as Record<string, Record<string, { cases: object }>>).reduce((sum, t) => sum + Object.values(t).reduce((s, c) => s + n(c.cases), 0), 0)
   const suites: ConformanceSuite[] = [
     { id: `catalog`, files: [`fixtures/catalog-components.json`], unit: `case`, cases: n(componentsFixture.cases), check: `Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted.` },
     { id: `macros`, files: [`fixtures/catalog-macros.json`], unit: `case`, cases: n(macrosFixture.cases), check: `Expand the case: the tree equals \`expanded\` (JSON-equal, recipes included).` },

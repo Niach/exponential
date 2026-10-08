@@ -227,7 +227,10 @@ impl<'a, 'b> Builder<'a, 'b> {
     #[allow(clippy::too_many_arguments)]
     fn part_in(&mut self, parent: u32, owner: &LNode, part: &str, component: &str, kind: NodeKind, style: Value, props: Value, id_suffix: &str) -> u32 {
         let id = format!("{}.{part}{id_suffix}", owner.id);
-        let mut n = self.blank(&id, component, Some(parent), owner.layer, kind, &owner.scope);
+        // A part lives in its PARENT's layer: a Dialog's title/body/close sit
+        // under the layer root, not in the owner's (main) layer (VAPP-91).
+        let layer = self.nodes.get(parent as usize).map_or(owner.layer, |p| p.layer);
+        let mut n = self.blank(&id, component, Some(parent), layer, kind, &owner.scope);
         n.part = Some(part.to_string());
         n.owner = Some(owner.id.clone());
         n.owner_component = Some(owner.component.clone());
