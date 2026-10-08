@@ -516,15 +516,15 @@
         "file": "shots/exponential-ui-kitchen-sink/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37008,
-        "sha256": "a87d47434da23bb1ddce50866cf81ac6e27bc9318d329be9dfbd60e241f9a229"
+        "bytes": 31502,
+        "sha256": "f2450683cb9190a53067b8ed06f9a2fe7c97e1d2ec6c6e32663c041ca047b02c"
       },
       "web-mobile": {
         "file": "shots/exponential-ui-kitchen-sink/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 43244,
-        "sha256": "994cdf35e6d60e8ecc8c8ee60f39df164cd21593b5b39f203258f588116e2a70"
+        "bytes": 46730,
+        "sha256": "fafce5892e80f1cfbc5cfbaaa781288c386726b15ca5ce8652c645a9368cfe5f"
       }
     },
     "files": {
