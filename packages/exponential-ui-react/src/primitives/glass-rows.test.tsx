@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { GlassSectionHeader, ListRow } from "./glass-rows"
+import { GlassSectionHeader, ListRow, ROW_PARTS, SECTION_PARTS } from "./glass-rows"
 
 // EXP-862: the group band gained a FOLDABLE variant (the Agent page's "Recent").
 // The plain band every other list uses must be untouched by it.
@@ -95,5 +95,63 @@ describe(`ListRow density`, () => {
     const row = container.querySelector(`a[data-slot="list-row"]`)!
     expect(row.getAttribute(`data-density`)).toBe(`compact`)
     expect(row.className).toContain(`h-7`)
+  })
+})
+
+// VAPP-102: the app's rows/bands paint the catalog's Row/Section anatomy and
+// say so on the DOM (one vocabulary), without moving a pixel.
+describe(`the catalog part vocabulary`, () => {
+  it(`lists the Row and Section parts in paint order`, () => {
+    expect(ROW_PARTS[0]).toBe(`root`)
+    expect(ROW_PARTS).toEqual(
+      expect.arrayContaining([`leading`, `body`, `title`, `subtitle`, `meta`, `value`, `trailing`, `chevron`])
+    )
+    expect(ROW_PARTS.indexOf(`leading`)).toBeLessThan(ROW_PARTS.indexOf(`body`))
+    expect(ROW_PARTS.indexOf(`trailing`)).toBeLessThan(ROW_PARTS.indexOf(`chevron`))
+    expect(SECTION_PARTS).toEqual(expect.arrayContaining([`header`, `title`, `count`, `trailing`, `body`]))
+  })
+
+  it(`stamps the band's header, title, count and trailing parts`, () => {
+    const { container } = render(
+      <GlassSectionHeader label="Running" count={3} trailing={<span data-testid="t" />} />
+    )
+    const band = container.querySelector(`[data-slot=glass-section-header]`)!
+    expect(band.getAttribute(`data-part`)).toBe(`header`)
+    expect(band.querySelector(`[data-part=title]`)!.textContent).toBe(`Running`)
+    expect(band.querySelector(`[data-part=count]`)!.textContent).toBe(`3`)
+    expect(band.querySelector(`[data-part=trailing]`)!.contains(screen.getByTestId(`t`))).toBe(true)
+  })
+
+  it(`stamps the foldable band too`, () => {
+    render(<GlassSectionHeader label="Recent" onToggle={vi.fn()} />)
+    expect(screen.getByRole(`button`).getAttribute(`data-part`)).toBe(`header`)
+  })
+
+  it(`stamps the row root on both arms`, () => {
+    const { container } = render(
+      <>
+        <ListRow>Row</ListRow>
+        <ListRow asChild>
+          <a href="/x">Link</a>
+        </ListRow>
+      </>
+    )
+    const rows = container.querySelectorAll(`[data-slot="list-row"]`)
+    expect(Array.from(rows).map((r) => r.getAttribute(`data-part`))).toEqual([`root`, `root`])
+  })
+
+  it(`takes the catalog's density names as aliases`, () => {
+    const { container } = render(
+      <>
+        <ListRow density="default">A</ListRow>
+        <ListRow density="list">B</ListRow>
+        <ListRow density="compact">C</ListRow>
+      </>
+    )
+    const [a, b, c] = Array.from(container.querySelectorAll(`[data-slot="list-row"]`))
+    expect(a!.getAttribute(`data-density`)).toBe(`list`)
+    expect(a!.className).toBe(b!.className)
+    expect(c!.getAttribute(`data-density`)).toBe(`compact`)
+    expect(c!.className).toContain(`h-7`)
   })
 })

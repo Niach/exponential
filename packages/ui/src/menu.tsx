@@ -13,7 +13,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./dropdown-menu"
-import { conceptIcon } from "./icons.generated"
+import { SEMANTIC_ICONS, type IconConcept, type IconName } from "@exp/icons"
+import { ICON_COMPONENTS, conceptIcon } from "./icons.generated"
 import {
   MENU_CHEVRON_CLASS,
   MENU_CONTENT_CLASS,
@@ -149,6 +150,102 @@ export function tidyMenuEntries(entries: readonly MenuEntry[]): MenuEntry[] {
     out.push(entry)
   }
   while (out[out.length - 1]?.kind === `separator`) out.pop()
+  return out
+}
+
+// ── the catalog's menuItem rows (VAPP-102) ─────────────────────────────────
+
+/** One Exponential UI catalog `menuItem` row (core.catalog.json `defs`), as a
+ *  surface hands it over: `checked`/`items` may still be `{path}` bindings a
+ *  host has not resolved (they read as unchecked / empty). */
+export interface MenuItemLike {
+  label?: string
+  value?: string
+  kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
+  /** An icons.json name or concept. */
+  icon?: string
+  shortcut?: string
+  checked?: boolean | unknown
+  destructive?: boolean
+  disabled?: boolean
+  items?: readonly MenuItemLike[] | unknown
+}
+
+/** What a picked catalog row reports: its value (else its label), the row,
+ *  and a checkbox's NEW state. */
+export type CatalogMenuSelect = (value: string, item: MenuItemLike, checked?: boolean) => void
+
+const catalogMenuIcon = (name: string | undefined): MenuIcon | undefined => {
+  if (!name) return undefined
+  const icon = (SEMANTIC_ICONS[name as IconConcept] ?? name) as IconName
+  return ICON_COMPONENTS[icon]
+}
+
+/**
+ * The catalog `menuItem` vocabulary onto this menu's `MenuEntry` rows: the
+ * kinds map item→item, checkbox→toggle, separator→separator, label→header,
+ * submenu→submenu (ONE level: a submenu inside a submenu is dropped, as the
+ * catalog allows only one). Every SDK renderer's `Menu` native and this app
+ * menu then read the same data.
+ */
+export function menuEntriesFromCatalog(
+  items: readonly MenuItemLike[],
+  onSelect: CatalogMenuSelect,
+  depth = 0
+): MenuEntry[] {
+  const out: MenuEntry[] = []
+  items.forEach((item, index) => {
+    const id = item.value ?? `${index}`
+    const label = item.label ?? ``
+    const value = item.value ?? label
+    const icon = catalogMenuIcon(item.icon)
+    switch (item.kind ?? `item`) {
+      case `separator`:
+        out.push({ kind: `separator`, id: `separator-${index}` })
+        return
+      case `label`:
+        out.push({ kind: `header`, id: `label-${index}`, title: label })
+        return
+      case `checkbox`: {
+        const checked = item.checked === true
+        out.push({
+          kind: `toggle`,
+          id,
+          label,
+          icon,
+          checked,
+          disabled: item.disabled === true || undefined,
+          onChange: (next) => onSelect(value, item, next),
+        })
+        return
+      }
+      case `submenu`: {
+        if (depth > 0) return
+        const nested = Array.isArray(item.items) ? (item.items as MenuItemLike[]) : []
+        out.push({
+          kind: `submenu`,
+          id,
+          label,
+          icon,
+          destructive: item.destructive === true || undefined,
+          disabled: item.disabled === true || undefined,
+          entries: menuEntriesFromCatalog(nested, onSelect, depth + 1),
+        })
+        return
+      }
+      default:
+        out.push({
+          kind: `item`,
+          id,
+          label,
+          icon,
+          shortcut: item.shortcut,
+          destructive: item.destructive === true || undefined,
+          disabled: item.disabled === true || undefined,
+          onSelect: () => onSelect(value, item),
+        })
+    }
+  })
   return out
 }
 

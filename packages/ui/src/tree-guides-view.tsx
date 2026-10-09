@@ -31,6 +31,16 @@ import {
 // viewport, so growing the viewport upwards would walk the corner off the
 // row's centre by half the gap. Two layers keep the elbow exact at any row
 // height and any gap.
+//
+// VAPP-102 — the SDK TWIN: `TreeGuidesNative`
+// (`packages/exponential-ui-react/src/natives/feedback.tsx`) paints a catalog
+// Row's `guides` part from the same rule (`treeGuides`, re-exported by
+// `./tree-guides` from `@exponential-at/ui`) on the same geometry: a 14px
+// column (`TREE_GUIDE_COLUMN` = `TREE_INDENT`), a 3px elbow
+// (`TREE_GUIDE_RADIUS` = `TREE_RADIUS`) and verticals overshooting the row's
+// top by `TREE_GUIDE_BRIDGE` (1px, to cross a Section's hairline divider; this
+// painter's `gap` is the same bridge for SPACED lists). This painter stays the
+// app's: its pixels are locked by the shots store.
 
 /** How wide the guide layer is for a guide — out to the right edge of the
  *  deepest gutter it draws in. */

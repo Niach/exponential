@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the Devices page as a declarative package (VAPP-82 format, VAPP-83's template): data, no code. `exp:devices` is the app host's binding resolver over the synced devices (web: the Electric collection; desktop: the IDE's store); it emits {rows, count, online}, each row {id, label, detail, icon, discTone, tone, status}. A row press calls harness.toast (the package allowlist); every host runs it through the same public API.",
+  "$comment": "VAPP-91: the Devices page as a declarative package (VAPP-82 format, VAPP-83's template): data, no code. `exp:devices` is the app host's binding resolver over the synced devices (web: the Electric collection; desktop: the IDE's store); it emits {rows, count, online}, each row {id, label, detail, icon, discTone, tone, status}. A row press calls harness.toast (the package allowlist); every host runs it through the same public API. VAPP-102: the header is a row-less `Section` (was the deprecated `Band`); the List keeps binding the rows.",
   "id": "exponential.devices",
   "name": "Devices",
   "version": "1.0.0",
@@ -38,7 +38,7 @@
         },
         {
           "id": "band",
-          "component": "Band",
+          "component": "Section",
           "title": "Devices",
           "icon": "nav-devices"
         },

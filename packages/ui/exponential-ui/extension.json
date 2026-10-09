@@ -1,10 +1,14 @@
 {
-  "$comment": "VAPP-85: the Exponential APP's extension catalog for Exponential UI — the first extension, living with the app (not in the SDK). Every component here is one the app already draws on all four clients (docs/shared-ui-inventory.md): the natives are painted by the app's own components (web: @exp/ui; iOS ExpUI; Android ui/components; desktop crates/ui), the macros expand through the core table. Validated by src/exponential-ui-extension.test.ts via @exponential-at/ui defineExtension; VAPP-83 extends it as the dogfood screens turn up more.",
+  "$comment": "VAPP-85: the Exponential APP's extension catalog for Exponential UI — the first extension, living with the app (not in the SDK). Every component here is one the app already draws on all four clients (docs/shared-ui-inventory.md): the natives are painted by the app's own components (web: @exp/ui; iOS ExpUI; Android ui/components; desktop crates/ui), the macros expand through the core table. Validated by src/exponential-ui-extension.test.ts via @exponential-at/ui defineExtension; VAPP-83 extends it as the dogfood screens turn up more. VAPP-102 (round 3): the list rows sit on the catalog's Row/Section/Chip vocabulary. MOVED: IssueRow and IssueChip are MACROS now (IssueRow = a Row with a StatusGlyph lead and label Chips + the assignee Avatar trailing; IssueChip = a rect Chip with a StatusGlyph lead); LabelChip expands to Chip (was Pill), ResultGroup's band is a Section (was Band); RunRow SPLIT into RunStatusRow (the Run face's status row) and SessionRow (a run in a list). NEW: IssueGroupBand (a Section headed by a status glyph), PrRow + StackRail (the PR row and the linear stack rail), DiffCounts + DiffFileRow (the +N −M atoms and a changed-file row), GuideSection (a Guide card: its text, the author's rows and ONE Changes row).",
   "id": "https://ui.exponential.at/catalogs/exponential-app/v1",
   "name": "Exponential app",
   "extends": "https://ui.exponential.at/catalogs/core/v1",
   "enums": {
     "runTone": ["muted", "amber", "emerald", "sky"],
+    "runMarkState": ["needs_input", "working", "review", "done", "ended"],
+    "sessionRowSize": ["small", "big"],
+    "prNodeState": ["open", "current", "base"],
+    "diffStatus": ["added", "modified", "deleted", "renamed"],
     "resultKind": ["text", "picture", "files"]
   },
   "defs": {
@@ -13,6 +17,13 @@
       "properties": {
         "icon": { "type": "icon", "required": true, "description": "The status icon concept (status-backlog … status-duplicate, or a progress-n-m custom glyph)." },
         "color": { "type": "color", "description": "The status row's colour; omitted for a builtin's legacy token colour." }
+      }
+    },
+    "prRail": {
+      "description": "Which stack-rail segments a PR row draws through its ring: into it from above, out of it below.",
+      "properties": {
+        "above": { "type": "boolean", "description": "The rail enters the ring from the row above." },
+        "below": { "type": "boolean", "description": "The rail leaves the ring toward the row below." }
       }
     },
     "choice": {
@@ -27,8 +38,8 @@
   },
   "components": {
     "IssueRow": {
-      "kind": "native", "group": "list", "lite": true, "children": "none",
-      "description": "An issue in a list: status glyph, identifier, title, priority, labels and the assignee avatar; the root of a nesting tree when sub-issues follow.",
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "An issue in a list: a Row led by the status glyph, the identifier and title, then the priority, label chips and the assignee avatar; nests under a parent issue by depth.",
       "props": {
         "identifier": { "type": "string", "required": true, "bindable": true, "description": "The issue identifier (EXP-12)." },
         "title": { "type": "string", "required": true, "bindable": true, "description": "The issue title." },
@@ -37,35 +48,86 @@
         "labels": { "type": "array", "items": { "type": "object", "shape": "option" }, "description": "Label chips after the title (value = the label colour)." },
         "assigneeName": { "type": "string", "description": "The assignee's name for the trailing avatar." },
         "assigneeImage": { "type": "url", "description": "The assignee's picture." },
-        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent issue." },
-        "blocked": { "type": "boolean", "default": false, "description": "Shows the blocks badge or rail dot." },
+        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent issue; the core draws the tree guides." },
+        "blocked": { "type": "boolean", "default": false, "description": "Shows the blocked-by glyph." },
         "selected": { "type": "boolean", "default": false, "description": "Draws it as the active row." }
       },
       "events": ["press"],
-      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "status": { "icon": "status-in-progress" }, "priority": "high" }
+      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "status": { "icon": "status-in-progress" }, "priority": "high", "labels": [{ "label": "bug", "value": "#EF4444" }], "assigneeName": "Ada Lovelace" }
     },
-    "RunRow": {
+    "IssueGroupBand": {
+      "kind": "macro", "group": "list", "lite": true, "children": "many",
+      "description": "A status group of an issue list: a Section headed by the status glyph, its name and count, over the group's IssueRows.",
+      "props": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The status name (In Progress)." },
+        "status": { "type": "object", "shape": "statusGlyph", "required": true, "description": "The status glyph before the name." },
+        "count": { "type": "number", "description": "How many issues the group holds." }
+      },
+      "example": { "title": "In Progress", "status": { "icon": "status-in-progress" }, "count": 3 }
+    },
+    "RunStatusRow": {
       "kind": "native", "group": "list", "lite": true, "children": "none",
-      "description": "A coding run's status row: agent mark, caption (building on which device, elapsed), the last tool line and a live dot.",
+      "description": "A run's status row on its Run face: the agent mark, the status caption and the last tool line.",
       "props": {
         "agent": { "type": "enum", "values": ["claude", "codex"], "description": "Whose brand mark leads the row." },
+        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused run's bare mark." },
         "caption": { "type": "string", "required": true, "bindable": true, "description": "The status caption (runRowCaption)." },
-        "toolLine": { "type": "string", "bindable": true, "description": "The last tool line under the caption." },
         "tone": { "type": "enum", "enum": "runTone", "default": "muted", "description": "The caption's colour tone." },
-        "live": { "type": "boolean", "default": false, "description": "Shows the pulsing live dot." },
-        "busy": { "type": "boolean", "default": false, "description": "Shows the working spinner." }
+        "toolLine": { "type": "string", "bindable": true, "description": "The last tool line under the caption." },
+        "showWork": { "type": "boolean", "default": false, "description": "Whether the transcript shows in place (Show work)." }
+      },
+      "example": { "agent": "claude", "markState": "working", "caption": "Building on MacBook Pro · 4 min", "tone": "emerald", "toolLine": "Edit src/reducer.ts" }
+    },
+    "SessionRow": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "A coding run in a list: the agent mark, the identifier and title, the caption on the big row and the host device's glyph.",
+      "props": {
+        "size": { "type": "enum", "enum": "sessionRowSize", "default": "big", "description": "small = one line; big = title over the caption." },
+        "agent": { "type": "enum", "values": ["claude", "codex"], "description": "Whose brand mark leads the row." },
+        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused run's bare mark." },
+        "identifier": { "type": "string", "bindable": true, "description": "An issue run's identifier or a batch's `EXP-874 +2`." },
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The run's title." },
+        "caption": { "type": "string", "bindable": true, "description": "The big row's second line (sessionRowCaption)." },
+        "captionTone": { "type": "enum", "enum": "runTone", "default": "muted", "description": "The caption's colour tone." },
+        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent run." },
+        "device": { "type": "string", "description": "The host device's name (the glyph's tooltip)." },
+        "deviceIcon": { "type": "icon", "description": "The host device's glyph." }
       },
       "events": ["press"],
-      "example": { "agent": "claude", "caption": "Building on MacBook Pro · 4 min", "toolLine": "Edit src/reducer.ts", "tone": "emerald", "live": true, "busy": true }
+      "example": { "agent": "claude", "markState": "review", "identifier": "EXP-874", "title": "Batch runs", "caption": "In review · 12 min", "captionTone": "emerald", "device": "MacBook Pro", "deviceIcon": "laptop" }
+    },
+    "PrRow": {
+      "kind": "native", "group": "list", "lite": true, "children": "none",
+      "description": "A pull request in one line: the ring lead, the mono identifier, the title and a quiet word; nests in a PR tree by depth or hangs on a stack rail.",
+      "props": {
+        "identifier": { "type": "string", "bindable": true, "description": "The PR's issue identifier." },
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The PR's issue title, or the base branch's name on a `base` row." },
+        "state": { "type": "enum", "enum": "prNodeState", "default": "open", "description": "The ring: an open PR, the current stack member (filled) or the base branch." },
+        "word": { "type": "string", "description": "A quiet trailing word (`stack` on a stack's top row)." },
+        "depth": { "type": "number", "default": 0, "description": "Nesting depth in a PR tree." },
+        "active": { "type": "boolean", "default": false, "description": "Draws it as the active row." },
+        "rail": { "type": "object", "shape": "prRail", "description": "Stack shape: the rail segments through the ring." }
+      },
+      "events": ["press"],
+      "example": { "identifier": "EXP-12", "title": "Rotate the signing key", "word": "stack" }
+    },
+    "StackRail": {
+      "kind": "native", "group": "list", "lite": true, "children": "many",
+      "description": "A linear PR stack: its PrRows top-first on one rail down to the base-branch row.",
+      "props": {
+        "baseBranch": { "type": "string", "required": true, "description": "The branch the stack lands on (the bottom row)." },
+        "word": { "type": "string", "description": "The quiet word of the top row (`stack` in Reviews), when that PrRow names none." }
+      },
+      "example": { "baseBranch": "master", "word": "stack" }
     },
     "IssueChip": {
-      "kind": "native", "group": "list", "lite": true, "children": "none",
-      "description": "A compact chip naming an issue by identifier with its status glyph; stacks of them collapse to a count.",
+      "kind": "macro", "group": "list", "lite": true, "children": "none",
+      "description": "A compact chip naming an issue: a rect Chip led by the status glyph, the identifier, then the title muted.",
       "props": {
         "identifier": { "type": "string", "required": true, "bindable": true, "description": "The issue identifier." },
-        "title": { "type": "string", "required": true, "bindable": true, "description": "The title, shown as the tooltip and on the wide form." },
+        "title": { "type": "string", "bindable": true, "description": "The title, muted after the identifier." },
         "status": { "type": "object", "shape": "statusGlyph", "required": true, "description": "The status glyph." },
-        "size": { "type": "enum", "values": ["sm", "default"], "default": "default", "description": "The chip height class." },
+        "size": { "type": "enum", "values": ["sm", "default"], "default": "default", "description": "The status glyph size." },
         "removable": { "type": "boolean", "default": false, "description": "Shows a remove control that fires `remove`." }
       },
       "events": ["press", "remove"],
@@ -73,7 +135,7 @@
     },
     "LabelChip": {
       "kind": "macro", "group": "list", "lite": true, "children": "none",
-      "description": "A label as a pill with its colour dot.",
+      "description": "A label as a pill Chip with its colour dot.",
       "props": {
         "name": { "type": "string", "required": true, "bindable": true, "description": "The label name." },
         "color": { "type": "color", "required": true, "description": "The label colour." }
@@ -156,7 +218,7 @@
     },
     "ResultGroup": {
       "kind": "macro", "group": "data", "lite": true, "children": "many",
-      "description": "A run's results for one topic: the topic band over its tiles.",
+      "description": "A run's results for one topic: the topic Section over its tiles.",
       "props": {
         "topic": { "type": "string", "required": true, "description": "The topic name (Summary first)." },
         "count": { "type": "number", "description": "How many tiles, shown in the band." }
@@ -174,20 +236,109 @@
         "collapsed": { "type": "boolean", "default": false, "description": "Starts folded." }
       },
       "example": { "path": "src/reducer.ts", "patch": "@@ -1,2 +1,2 @@\n-a\n+b", "additions": 1, "deletions": 1 }
+    },
+    "DiffCounts": {
+      "kind": "native", "group": "data", "lite": true, "children": "none",
+      "description": "The +N −M line counts in the diff colours.",
+      "props": {
+        "additions": { "type": "number", "required": true, "description": "Added lines." },
+        "deletions": { "type": "number", "required": true, "description": "Removed lines." }
+      },
+      "example": { "additions": 12, "deletions": 2 }
+    },
+    "DiffFileRow": {
+      "kind": "native", "group": "data", "lite": true, "children": "none",
+      "description": "A changed file in a list: the status letter, the path (directory dimmed) and its +N −M counts.",
+      "props": {
+        "path": { "type": "string", "required": true, "bindable": true, "description": "The file path." },
+        "additions": { "type": "number", "default": 0, "description": "Added lines." },
+        "deletions": { "type": "number", "default": 0, "description": "Removed lines." },
+        "status": { "type": "enum", "enum": "diffStatus", "default": "modified", "description": "What happened to the file." }
+      },
+      "events": ["press"],
+      "example": { "path": "src/reducer.ts", "additions": 12, "deletions": 2, "status": "modified" }
+    },
+    "GuideSection": {
+      "kind": "macro", "group": "data", "lite": true, "children": "many",
+      "description": "One section of a run's Guide: the title, its text, the author's rows and a Changes row with the file and line counts.",
+      "props": {
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The section title." },
+        "text": { "type": "markdown", "bindable": true, "description": "The section's prose, above the rows." },
+        "files": { "type": "number", "default": 0, "description": "How many files the section changed." },
+        "additions": { "type": "number", "default": 0, "description": "Added lines." },
+        "deletions": { "type": "number", "default": 0, "description": "Removed lines." }
+      },
+      "events": ["changes"],
+      "example": { "title": "Reducer", "text": "Moves the merge into **one** reducer.", "files": 3, "additions": 40, "deletions": 12 }
     }
   },
   "macros": {
+    "IssueRow": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Row",
+        "props": { "identifier": "{props.identifier}", "title": "{props.title}", "depth": "{props.depth|0}", "selected": "{props.selected|false}", "pressable": true },
+        "slots": {
+          "leading": { "part": "status", "component": "StatusGlyph", "props": { "status": "{props.status}" } },
+          "trailing": {
+            "part": "trailing", "component": "Stack", "props": { "direction": "horizontal", "gap": "xs", "align": "center" },
+            "$any": ["props.labels", "props.assigneeName", "props.blocked", { "$not": { "$eq": ["{props.priority|none}", "none"] } }],
+            "children": [
+              { "part": "blocked", "component": "Icon", "$if": "props.blocked", "props": { "name": "relation-blocked-by", "size": "sm", "tone": "danger" } },
+              { "part": "priority", "component": "Icon", "$if": { "$not": { "$eq": ["{props.priority|none}", "none"] } }, "props": { "name": "priority-{props.priority}", "size": "sm", "tone": "neutral" } },
+              { "part": "label", "component": "Chip", "$each": "props.labels", "$as": "item", "props": { "label": "{item.label}", "dot": "{item.value}", "shape": "pill" } },
+              { "part": "assignee", "component": "Avatar", "$if": "props.assigneeName", "props": { "name": "{props.assigneeName}", "src": "{props.assigneeImage}", "size": "sm" } }
+            ]
+          }
+        },
+        "$on": { "press": "press" }
+      }
+    },
+    "IssueGroupBand": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Section",
+        "props": { "title": "{props.title}", "count": "{props.count}" },
+        "slots": { "leading": { "part": "status", "component": "StatusGlyph", "props": { "status": "{props.status}", "size": "sm" } } },
+        "children": ["$children"]
+      }
+    },
+    "IssueChip": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Chip",
+        "props": { "shape": "rect", "label": "{props.identifier}", "detail": "{props.title}", "removable": "{props.removable|false}", "pressable": true },
+        "slots": { "leading": { "part": "status", "component": "StatusGlyph", "props": { "status": "{props.status}", "size": "{props.size|default}" } } },
+        "$on": { "press": "press", "remove": "remove" }
+      }
+    },
     "LabelChip": {
       "recipeProps": [],
-      "root": { "part": "root", "component": "Pill", "props": { "label": "{props.name}", "dot": "{props.color}" } }
+      "root": { "part": "root", "component": "Chip", "props": { "shape": "pill", "label": "{props.name}", "dot": "{props.color}" } }
     },
     "ResultGroup": {
       "recipeProps": [],
       "root": {
         "part": "root", "component": "Stack", "props": { "direction": "vertical", "gap": "sm" },
         "children": [
-          { "part": "band", "component": "Band", "props": { "title": "{props.topic}", "count": "{props.count}" } },
+          { "part": "band", "component": "Section", "props": { "title": "{props.topic}", "count": "{props.count}" } },
           { "part": "tiles", "component": "Grid", "props": { "columns": 2, "gap": "md" }, "children": ["$children"] }
+        ]
+      }
+    },
+    "GuideSection": {
+      "recipeProps": [],
+      "root": {
+        "part": "root", "component": "Section",
+        "props": { "title": "{props.title}" },
+        "children": [
+          { "part": "text", "component": "Markdown", "$if": "props.text", "props": { "text": "{props.text}" } },
+          "$children",
+          {
+            "part": "changes", "component": "Row",
+            "props": { "title": "Changes", "meta": "{props.files|0} files · +{props.additions|0} −{props.deletions|0}", "icon": "guide-changes", "chevron": "right", "pressable": true },
+            "$on": { "press": "changes" }
+          }
         ]
       }
     }
