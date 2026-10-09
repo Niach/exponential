@@ -7,13 +7,14 @@ import { embedCode, EMBED_TARGETS, jsonl, type EmbedTarget } from "../sdk/embed"
 import { surfaceMessages, flatten } from "../sdk/a2ui"
 import { studioTree, subjectOf, thumbProps } from "../sdk/ComponentStudio"
 import { galleryVariants, hasVariants } from "../sdk/VariantGallery"
-import { COMPONENT_DOCS, ORDERED_DOCS, SUMMARY_MAX, componentPath, componentSummary, keyboardRows, macroParts, relatedComponents, specimenById } from "./catalog"
+import { COMPONENT_DOCS, DEPRECATED_ALIASES, ORDERED_DOCS, aliasesOf, SUMMARY_MAX, componentPath, componentSummary, keyboardRows, macroParts, relatedComponents, specimenById } from "./catalog"
 import { ROUTES } from "./routes"
 
 /* Every authorable component (`hidden` ones, the renderer's Unknown
-   placeholder, are never authored and get no page). */
-const catalogNames = Object.entries((coreCatalog as { components: Record<string, { hidden?: boolean }> }).components)
-  .filter(([, c]) => !c.hidden)
+   placeholder and a Row's TreeGuides part, are never authored and get no
+   page; nor do the one-release `deprecated` aliases). */
+const catalogNames = Object.entries((coreCatalog as { components: Record<string, { hidden?: boolean; deprecated?: string }> }).components)
+  .filter(([, c]) => !c.hidden && !c.deprecated)
   .map(([name]) => name)
 const LOREM = /lorem|ipsum|dolor sit|consectetur/i
 
@@ -143,4 +144,16 @@ test(`index search matches word starts`, async () => {
   expect(by(`picker`)).toContain(`TimePicker`)
   expect(by(``, `overlay`).length).toBe(COMPONENT_DOCS.filter((d) => d.group === `overlay`).length)
   expect(by(`zzzz`)).toEqual([])
+})
+
+test(`a deprecated alias gets no page; its replacement's page lists it`, () => {
+  const paths = new Set(ROUTES.map((r) => r.path))
+  expect(Object.keys(DEPRECATED_ALIASES).length).toBeGreaterThan(0)
+  for (const [alias, to] of Object.entries(DEPRECATED_ALIASES)) {
+    expect(COMPONENT_DOCS.some((d) => d.name === alias), alias).toBe(false)
+    expect(paths.has(`/components/${alias.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()}/`), alias).toBe(false)
+    const doc = COMPONENT_DOCS.find((d) => d.name === to)
+    expect(doc, `${alias} → ${to}`).toBeDefined()
+    expect(aliasesOf(to)).toContain(alias)
+  }
 })

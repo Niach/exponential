@@ -72,15 +72,21 @@ that is the only way the dot goes away.
 
 **Generic specimens live on ui.exponential.at (VAPP-93).** Every control that
 is part of the Exponential UI SDK's core catalog — buttons, fields, checkbox,
-switch, select / combobox / the picker shell, date picker, pill, badge, avatar,
-card, separator, dialog, sheet, alert, empty states, skeleton, meters, rings,
-segmented controls and tabs, the row family (list, card, property, picker,
-input and toggle rows), group bands, disclosure headers, tree guides, entity
-chips, the composer and the menu — is documented at
+switch, select and the picker surface, date picker, badge, avatar, card,
+separator, dialog, drawer (the sheet), alert, empty states, skeleton, meters,
+rings, tabs, the composer and, in the round-3 vocabulary (VAPP-102), **Row**
+(list, card, property, picker and nav rows, the list-item anatomy, tree guides
+as its part), **Section** (group bands, row lists, collapsible folds),
+**Chip** (pill and entity chip), **Segmented** (segmented control, toggles,
+button group, tab bar) and **Menu** (dropdown and context menus, the Menu ·
+Picker · Typeahead family) — is documented at
 [`https://ui.exponential.at/components/`](https://ui.exponential.at/components/),
 where it renders live through the SDK beside its four platform shots. Their
 per-platform status tables moved with them, verbatim, to
-`apps/ui-site/src/data/app-parity.ts`, one row per old id. The view-catalog
+`apps/ui-site/src/data/app-parity.ts`, one row per old id; the generic specs
+the VAPP-88 merge dropped from here (list item, tooltip, hover card,
+collapsible, the menu family, the picker surface) were re-homed there too
+(VAPP-102). The view-catalog
 group `exponential-ui-catalog` (the core-catalog specimens and the kitchen
 sink) is owned by the site too: the Views nav links there instead of listing
 it, while `--check` still gates its shots like every other view.

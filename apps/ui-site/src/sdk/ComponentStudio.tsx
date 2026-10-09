@@ -33,7 +33,7 @@ export function initialProps(doc: ComponentDoc, subject: Nested | null): Record<
 
 /* Overlays a small render may show open: they neither trap focus nor lock
    the page (the render's box contains their fixed layer). */
-const THUMB_OPEN = new Set([`Popover`, `Tooltip`, `HoverCard`, `Toast`])
+const THUMB_OPEN = new Set([`Popover`, `Tooltip`, `Toast`])
 
 /** Small renders (index cards, gallery) open only the harmless overlays. */
 export function thumbProps(doc: ComponentDoc, subject: Nested | null): Record<string, unknown> {

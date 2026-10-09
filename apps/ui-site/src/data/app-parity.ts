@@ -31,9 +31,9 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "section-header",
     "title": "Group band",
-    "blurb": "EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.",
+    "blurb": "EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.",
     "components": [
-      "Band"
+      "Section"
     ],
     "status": {
       "web": {
@@ -98,7 +98,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "group",
     "title": "Group container",
-    "blurb": "EXP-994: THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form.",
+    "blurb": "EXP-994: THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form. Its picker rows are `Picker triggerVariant=\"row\"`, never a Combobox (the Combobox engine is internal to Picker since EXP-1249).",
     "components": [
       "Group"
     ],
@@ -129,16 +129,16 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "property-row",
     "title": "Property row",
-    "blurb": "EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, the WHOLE row the target, no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads \"None\".",
+    "blurb": "EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones), the list row's VALUE variant (was PropertyRow; the catalog `Row` with a `value`): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads \"None\".",
     "components": [
-      "PropertyRow"
+      "Row"
     ],
     "status": {
       "web": {
         "status": "leftover",
         "symbol": "PropertyValueRow",
         "file": "apps/web/src/components/issue-editor/mobile-properties.tsx",
-        "note": "the PropertyRow component was folded into ListRow's value variant: ListRow asChild over a Button"
+        "note": "the value variant is ListRow asChild over a Button; ListRow itself has no value prop (the catalog Row's `value` is the contract)"
       },
       "desktop": {
         "status": "n/a",
@@ -159,9 +159,9 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "row",
     "title": "Glass row",
-    "blurb": "The GAPPED card item: radius 10, row fill, its own hairline border, padding 12. EXP-818/1076 keep it for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
+    "blurb": "The GAPPED card item (the catalog `Row surface: card`): radius 10, row fill, its own hairline border, padding 12. EXP-818/1076 keep it for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
     "components": [
-      "CardRow"
+      "Row"
     ],
     "status": {
       "web": {
@@ -191,8 +191,8 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "List row",
     "blurb": "EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: `compact` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and `SidebarMenuButton density=\"compact\"` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.",
     "components": [
-      "ListRow",
-      "RowList"
+      "Row",
+      "Section"
     ],
     "status": {
       "web": {
@@ -225,11 +225,45 @@ export const APP_PARITY: readonly AppParity[] = [
     ]
   },
   {
+    "id": "list-item",
+    "title": "List item",
+    "blurb": "EXP-1248 (fixture `list-item.json`, ×4): THE anatomy every entity row derives from, on a flat list row: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta], which is the catalog `Row` (`depth`, `icon`, `identifier`, `title`, `subtitle`, `meta`). The lead box sits at the same x on every row of a depth, so glyphs and titles align and a child's elbow ends at its own lead. No fold chevron, no trailing chevron, no buttons: a row opens, its menu is a context menu / long-press. Two densities: `compact` (one line, 28-32px: the sidebar's Running, pinned rows) and `list` (36px one-liners, 52px with a caption). Derivations differ only in lead and meta: SessionRow = the run mark + the host device's glyph; an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).",
+    "components": [
+      "Row"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "SessionRow / PrRow over ListRow",
+        "file": "packages/ui/src/session-row.tsx",
+        "note": "PrRow + StackRail in pr-row.tsx; the issue row is apps/web components/issue-list.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "run_rows::run_row",
+        "file": "apps/desktop/crates/ui/src/run_rows.rs",
+        "note": "over surface::flat_row; pr_rows.rs = PrRow, issue_list.rs = the issue row"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "SessionRow / PrRow over .flatRow()",
+        "file": "apps/ios/ExpUI/Sources/SessionRow.swift",
+        "note": "PrRow.swift beside it; caption ExpCore Domain/SessionRow.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "SessionRow / PrRow over Modifier.flatRow()",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/SessionRow.kt",
+        "note": "PrRow.kt beside it; caption domain/SessionRow.kt"
+      }
+    }
+  },
+  {
     "id": "tree-guides",
     "title": "Tree guides",
-    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.",
+    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
     "components": [
-      "TreeGuides"
+      "Row"
     ],
     "status": {
       "web": {
@@ -264,12 +298,12 @@ export const APP_PARITY: readonly AppParity[] = [
     "blurb": "The rhythm every grouped row inherits: padding 12/16, gap 12, 14px text. The shell never draws a stroke — the group's hairlines do.",
     "components": [
       "Group",
-      "PickerRow"
+      "Row"
     ],
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "GlassInputRow / GlassToggleRow / Combobox triggerVariant=\"row\"",
+        "symbol": "GlassInputRow / GlassToggleRow / Picker triggerVariant=\"row\"",
         "file": "packages/ui/src/glass-rows.tsx"
       },
       "desktop": {
@@ -294,13 +328,13 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Picker row",
     "blurb": "Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target, never just the value.",
     "components": [
-      "PickerRow"
+      "Row"
     ],
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Combobox triggerVariant=\"row\"",
-        "file": "packages/ui/src/combobox.tsx",
+        "symbol": "Picker triggerVariant=\"row\"",
+        "file": "packages/ui/src/picker/picker.tsx",
         "note": "EXP-958: the row IS the picker — its own Select and sheet are gone"
       },
       "desktop": {
@@ -386,7 +420,7 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Embedded tabs row",
     "blurb": "The segmented control as the FIRST row of a group: padding 8, full width, no fill and no stroke of its own.",
     "components": [
-      "ToggleGroup",
+      "Segmented",
       "Group"
     ],
     "status": {
@@ -417,7 +451,7 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Segmented control",
     "blurb": "The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry — EXP-941 made that second form a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.",
     "components": [
-      "ToggleGroup"
+      "Segmented"
     ],
     "status": {
       "web": {
@@ -573,7 +607,7 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Pill",
     "blurb": "The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row. A bare COUNT is none of the six: a number with no word beside it is the 16px `Badge` below.",
     "components": [
-      "Pill"
+      "Chip"
     ],
     "status": {
       "web": {
@@ -635,7 +669,7 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Entity chip",
     "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a run transcript draws ONE chip per entity it touched — board, action, comment, run, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 run`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
     "components": [
-      "EntityChip"
+      "Chip"
     ],
     "status": {
       "web": {
@@ -789,8 +823,7 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Sheet shell",
     "blurb": "Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16. Dismissal is the grabber drag or the backdrop — the header's trailing slot holds an optional ACTION, never a Cancel — and the bottom carries exactly one primary.",
     "components": [
-      "Drawer",
-      "Sheet"
+      "Drawer"
     ],
     "status": {
       "web": {
@@ -1205,18 +1238,19 @@ export const APP_PARITY: readonly AppParity[] = [
     }
   },
   {
-    "id": "combobox",
-    "title": "Combobox",
-    "blurb": "The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what \"nothing picked\" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all. EXP-1021 added selectionStyle: the circle pair above is the glyph arm, still what every Combobox call site draws, while the Picker primitive built on these surfaces passes highlight and marks a multi pick by the row's own wash. The four triggers moved to picker/picker-trigger.tsx so both arms draw ONE set.",
+    "id": "picker-surface",
+    "title": "Picker surface",
+    "blurb": "The searchable SURFACE every Picker opens (Picker = the only public picker; its Combobox engine is internal since EXP-1249): a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE marks the picked row with a trailing ui-check, MULTI by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed; never a checkbox, never a circle pair. `value` is the identity and `keywords` the search text, so two boards may share a name; `noneLabel` renders a row that reports null. Single closes on pick, multi stays open. PickerItem is the row shape; the trigger comes in four `triggerVariant`s, pill | field | row | inline (row = the form ladder's picker row, the catalog `Row chevron: selector`). PickerMenuRows draws the same rows inside a Menu.",
     "components": [
-      "Select"
+      "Select",
+      "Row"
     ],
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Picker / PickerList / PickerMenuRows",
+        "symbol": "Picker / PickerList",
         "file": "packages/ui/src/picker/picker.tsx",
-        "note": "EXP-1249: Picker is the ONE shell (Combobox is internal, not exported); PickerItem the row shape; PickerMenuRows the rows inside a Menu"
+        "note": "PickerItem is the row shape; PickerList the body without the popover; PickerMenuRows the rows inside a menu"
       },
       "desktop": {
         "status": "ok",
@@ -1225,10 +1259,10 @@ export const APP_PARITY: readonly AppParity[] = [
         "note": "EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities"
       },
       "ios": {
-        "status": "leftover",
-        "symbol": "GlassPickerSheet",
-        "file": "apps/ios/ExpUI/Sources/GlassSheet.swift",
-        "note": "EXP-1021 built the generic picker (GlassPicker, its own entry); this keeps the picks outside the ten typed subjects"
+        "status": "ok",
+        "symbol": "GlassPicker",
+        "file": "apps/ios/ExpUI/Sources/Picker/Picker.swift",
+        "note": "EXP-1249 retired GlassPickerSheet: every pick outside the typed subjects goes through GlassPicker"
       },
       "android": {
         "status": "leftover",
@@ -1467,14 +1501,14 @@ export const APP_PARITY: readonly AppParity[] = [
     "title": "Menu",
     "blurb": "The one floating-menu surface (opaque card fill, hairline, radius 12, no blur, no shadow) and the one ROW recipe on it, in two densities from tokens.json `menu`: POINTER for web from md up (36 row · 8 pad · 8 gap · 16 glyph · 180–280 wide), TOUCH for mobile web, iOS and Android (48 row · 12 pad · 12 gap · 16 glyph · 180–280 wide). Every menu-like row on web reads the same --menu-* vars — context and dropdown items, their sub-triggers, Select, Command, the typeahead — so one change moves every menu. A destructive row is red and never fenced off by a divider (EXP-687).",
     "components": [
-      "DropdownMenu"
+      "Menu"
     ],
     "status": {
       "web": {
         "status": "ok",
         "symbol": "Menu",
         "file": "packages/ui/src/menu.tsx",
-        "note": "EXP-1249: ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK dropdown-menu + sheet primitives; rows wear menu-surface's --menu-* constants"
+        "note": "EXP-1249: ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK menu + sheet primitives; rows wear menu-surface's --menu-* constants"
       },
       "desktop": {
         "status": "leftover",
@@ -1495,6 +1529,131 @@ export const APP_PARITY: readonly AppParity[] = [
         "note": "the touch set: M3's 48dp rows, 12dp padding"
       }
     }
+  },
+  {
+    "id": "tooltip",
+    "title": "Tooltip",
+    "blurb": "The pointer's one-line label: a glass panel (12 radius, 12px text, padding 6 × 12, no arrow: a translucent arrow double-renders against the blurred panel) that opens at once on hover or focus and never holds a control. `IconTooltip` is the common arm: a ghost glyph button whose tooltip IS its accessible name, so an icon-only control can never ship unlabelled. Touch has no hover, so the phones carry no tooltip: the label is the control's accessibility name there.",
+    "components": [
+      "Tooltip"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Tooltip / TooltipContent",
+        "file": "packages/ui/src/tooltip.tsx",
+        "note": "IconTooltip (icon-tooltip.tsx) = the glyph-button arm"
+      },
+      "desktop": {
+        "status": "n/a",
+        "note": "gpui-component's Tooltip::new on .tooltip(); no app wrapper"
+      },
+      "ios": {
+        "status": "n/a",
+        "note": "touch: no hover tooltips; the label is the accessibility name"
+      },
+      "android": {
+        "status": "n/a",
+        "note": "touch: no hover tooltips; the label is the content description"
+      }
+    }
+  },
+  {
+    "id": "hover-card",
+    "title": "Hover card",
+    "blurb": "EXP-760: the pointer's preview (the catalog `Popover openOn: hover`): the opaque menu card (12 radius, card hairline, no blur, no shadow), 320 wide, padding 12, opening after 400 ms so a pointer crossing a dense list of #IDENT chips never flashes one, closing after 100 ms so the pointer can travel into it. It carries the issue preview body (status · identifier · title · the first lines) and the account picker's usage preview; a tap on touch just activates the trigger, so the phones have none.",
+    "components": [
+      "Popover"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "HoverCard / HoverCardContent",
+        "file": "packages/ui/src/hover-card.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "issue_preview::IssuePreviewHost",
+        "file": "apps/desktop/crates/ui/src/issue_preview.rs"
+      },
+      "ios": {
+        "status": "n/a",
+        "note": "touch: a tap opens the issue, there is no hover preview"
+      },
+      "android": {
+        "status": "n/a",
+        "note": "touch: a tap opens the issue, there is no hover preview"
+      }
+    }
+  },
+  {
+    "id": "collapsible",
+    "title": "Collapsible",
+    "blurb": "The fold BEHIND a disclosure header: Radix Collapsible owns the open state and the content's mount, the header owns the words and the chevron. It never draws chrome of its own, so a fold reads as the surface it sits in (a settings group, a transcript's Show work, a properties section). The natives fold with their own animation primitives under the same disclosure header. In the catalog: `Collapsible`, or a `Section collapsible` when the fold heads a list.",
+    "components": [
+      "Collapsible",
+      "Section"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Collapsible / CollapsibleContent",
+        "file": "packages/ui/src/collapsible.tsx"
+      },
+      "desktop": {
+        "status": "n/a",
+        "note": "a fold = disclosure_header + the caller's own child toggle"
+      },
+      "ios": {
+        "status": "n/a",
+        "note": "a fold = DisclosureHeader + a conditional view"
+      },
+      "android": {
+        "status": "n/a",
+        "note": "a fold = DisclosureHeader + AnimatedVisibility"
+      }
+    }
+  },
+  {
+    "id": "menu-family",
+    "title": "Menu · Picker · Typeahead",
+    "blurb": "EXP-1074/1249: ONE data-driven Menu for every action menu, a list of MenuEntry rows (item, submenu with more rows or a picker body, toggle, separator, header) under one renderer in three modes: TRIGGER (a dropdown at a button), POINTER (a context menu at the pointer; one gesture host per layout, a row opts in with menuProps(kind, id)) and SHEET (the same rows as a bottom sheet below md, submenus as pushed pages). Every row is the one --menu-* recipe (pointer 36 · 8 · 8 · 16, touch 48 · 12 · 12 · 16), a destructive row red with no divider above it (EXP-687). A submenu's picker body is PickerMenuRows, and Menu, Picker and the typeahead speak ONE highlight language: single = a trailing check, multi = the row's wash, mixed = a softer wash. In the catalog: `Menu` (`openOn: press | contextmenu`, submenu `items` bindable to a host source) and `Select`.",
+    "components": [
+      "Menu",
+      "Select"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Menu / MenuGestureHost / MenuPanel",
+        "file": "packages/ui/src/menu.tsx",
+        "note": "rows wear MENU_ITEM_CLASS (packages/exponential-ui-react/src/primitives/menu-surface.ts)"
+      },
+      "desktop": {
+        "status": "leftover",
+        "symbol": "PopupMenu + controls::PointerMenu / pointer_label_item",
+        "file": "apps/desktop/crates/ui/src/controls.rs",
+        "note": "issue, tab, file and run menus point; settings, actions and team menus still plain crate rows"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "GlassMenu",
+        "file": "apps/ios/ExpUI/Sources/GlassMenu.swift",
+        "note": "the touch set: 48pt rows, 12pt padding"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "GlassDropdownMenu",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/GlassMenu.kt",
+        "note": "the touch set: M3's 48dp rows, 12dp padding"
+      }
+    },
+    "leftovers": [
+      {
+        "file": "apps/desktop/crates/ui/src/controls.rs",
+        "note": "gpui-component's PopupMenu draws 26px rows / 8px pad from the crate; the tokens record 36 / 8 (a leftover by decision)"
+      }
+    ]
   }
 ]
 

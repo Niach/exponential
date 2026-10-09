@@ -39,7 +39,7 @@ const MESSAGES = `{"version":"v0.9","createSurface":{"surfaceId":"main","catalog
 {"version":"v0.9","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
 
 const TEMPLATE = `{"id":"people","component":"List","children":{"componentId":"person","path":"/people"}}
-{"id":"person","component":"ListRow","title":{"path":"name"},"subtitle":{"path":"role"}}`
+{"id":"person","component":"Row","title":{"path":"name"},"subtitle":{"path":"role"}}`
 
 const ACTION_OUT = `{"version":"v0.9","action":{"name":"deploy","surfaceId":"main","sourceComponentId":"go",
   "timestamp":"2026-10-08T09:14:02Z","context":{"version":"0.18.84"}}}`
