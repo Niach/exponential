@@ -552,8 +552,8 @@ mod tests {
 
     #[test]
     fn every_specimen_parses_as_a_nested_node() {
-        // Every visible core component (81 since round 1) + the home demo.
-        assert_eq!(specimens().len(), 82);
+        // Every visible core component (82 since round 2: Resizable joined) + the home demo.
+        assert_eq!(specimens().len(), 83);
         for (id, node) in specimens() {
             let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
             assert!(tree.is_ok(), "{id}: {:?}", tree.err());
