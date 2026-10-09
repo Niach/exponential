@@ -372,6 +372,14 @@ data class SteerDevice(
     val canResumeRun: Boolean get() = caps?.contains("resume-run") == true
 
     /**
+     * EXP-1249: the machine reads the per-run `computerUse` flag (contract
+     * `codingSessionComputerUseCap`); older builds would ignore it, so the
+     * composer hides the toggle and never sends the key to them.
+     */
+    val canToggleComputerUse: Boolean
+        get() = caps?.contains(com.exponential.app.domain.DomainContract.codingSessionComputerUseCap) == true
+
+    /**
      * Whether this machine runs action triggers locally (EXP-530; the cap
      * string keeps its old name) — the
      * trigger device picker offers only these (offline-but-capable stays
@@ -490,6 +498,18 @@ data class SteerStartOptions(
      * active login (never [SYSTEM_PROFILE_ID] on the wire).
      */
     val account: String? = null,
+    /**
+     * EXP-792/EXP-1249: the team MCP servers this run gets (the composer's
+     * `MCP servers ›` pick); null/omitted = none.
+     */
+    val mcpServerIds: List<String>? = null,
+    /**
+     * EXP-1249: per-run computer use (contract `codingSession.launchKeys`):
+     * true/false = this run, null/omitted = the device's
+     * `launch_defaults.computerUse`. Sent only to a device advertising
+     * `codingSessionComputerUseCap`.
+     */
+    val computerUse: Boolean? = null,
 )
 
 // The three non-resume forms of steer.startSession all carry the EXP-825
@@ -510,6 +530,9 @@ internal data class StartSessionInput(
     @SerialName("agent") val agent: String? = null,
     @SerialName("resume") val resume: Boolean? = null,
     @SerialName("account") val account: String? = null,
+    // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
+    @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
+    @SerialName("computerUse") val computerUse: Boolean? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -529,6 +552,9 @@ internal data class StartBatchSessionInput(
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
     @SerialName("account") val account: String? = null,
+    // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
+    @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
+    @SerialName("computerUse") val computerUse: Boolean? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -555,6 +581,9 @@ internal data class StartActionSessionInput(
     @SerialName("agent") val agent: String? = null,
     @SerialName("inputs") val inputs: Map<String, String>? = null,
     @SerialName("account") val account: String? = null,
+    // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
+    @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
+    @SerialName("computerUse") val computerUse: Boolean? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -640,6 +669,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 agent = options.agent,
                 resume = options.resume,
                 account = options.account,
+                mcpServerIds = options.mcpServerIds,
+                computerUse = options.computerUse,
                 prompt = prompt,
             ),
             inputSerializer = StartSessionInput.serializer(),
@@ -671,6 +702,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 planMode = options.planMode,
                 agent = options.agent,
                 account = options.account,
+                mcpServerIds = options.mcpServerIds,
+                computerUse = options.computerUse,
                 prompt = prompt,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
@@ -744,6 +777,8 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 agent = options.agent,
                 inputs = inputs,
                 account = options.account,
+                mcpServerIds = options.mcpServerIds,
+                computerUse = options.computerUse,
                 prompt = prompt,
             ),
             inputSerializer = StartActionSessionInput.serializer(),

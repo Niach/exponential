@@ -129,10 +129,6 @@
       "reason": "SLOP-3: Workflows are gone; old links and native deep links redirect to /t/$teamSlug/agent."
     },
     {
-      "route": "/t/$teamSlug/reviews/$issueIdentifier",
-      "reason": "EXP-1154: the review page is the issue's Changes face; old links redirect to boards/$boardSlug/issues/$issueIdentifier?view=diff."
-    },
-    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },
@@ -2106,6 +2102,63 @@
       "notes": {
         "ios": "The SwiftUI painter is VAPP-88 (run 6 of the VAPP-84 line); no iOS surface yet.",
         "android": "The Compose painter is VAPP-89 (run 7 of the VAPP-84 line); no Android surface yet."
+      }
+    },
+    {
+      "id": "session-row",
+      "group": "coding",
+      "title": "Session rows",
+      "blurb": "ONE SessionRow in two sizes (EXP-1248): the sidebar's small one-line row and the big two-line row the Recent list and the phone Running list draw, the run mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes.",
+      "order": 11,
+      "ios": {
+        "shot": "sg_session-row",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session-row",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
+        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent."
+      }
+    },
+    {
+      "id": "pr-row",
+      "group": "reviews",
+      "title": "PR rows",
+      "blurb": "ONE PrRow (EXP-1248): a one-line PR row with the ring lead, nested with tree guides for a PR tree and railed top-first down to the base branch for a stack (the Guide's stack card and the Reviews list share it).",
+      "order": 6,
+      "ios": {
+        "shot": "sg_pr-row",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_pr-row",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide island `pr-row` (apps/styleguide/src/entries/pr-row.tsx); the app views are `reviews` and `guide`.",
+        "desktop": "The desktop styleguide entry `pr_row.rs`; the app views are Reviews and the Guide."
+      }
+    },
+    {
+      "id": "composer-menu",
+      "group": "coding",
+      "title": "Composer + menu",
+      "blurb": "The composer's ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue, Run action, Add file or image, Effort, Subagents, Ultracode, MCP servers, Computer use; a dropdown at desktop widths and a bottom sheet on phones.",
+      "order": 12,
+      "ios": {
+        "shot": "sg_composer-menu",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_composer-menu",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide `menu` and `composer-dialog` entries show the open menu; the app view is `chat`.",
+        "desktop": "The desktop styleguide `menu` entry draws the real \"+\" menu (`chat_screen::plus_menu`)."
       }
     }
   ]

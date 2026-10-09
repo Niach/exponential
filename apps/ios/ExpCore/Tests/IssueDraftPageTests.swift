@@ -12,11 +12,6 @@ final class IssueDraftPageTests: XCTestCase {
             let debounceMs: Double
         }
 
-        struct DiscardConfirm: Decodable, Equatable {
-            let title: String
-            let confirm: String
-        }
-
         struct Leave: Decodable, Equatable {
             let title: String
             let create: String
@@ -29,9 +24,7 @@ final class IssueDraftPageTests: XCTestCase {
             let titlePlaceholder: String
             let descriptionPlaceholder: String
             let create: String
-            let discard: String
             let untitled: String
-            let discardConfirm: DiscardConfirm
             let leave: Leave
             let discardedElsewhere: String
         }
@@ -82,10 +75,7 @@ final class IssueDraftPageTests: XCTestCase {
             "titlePlaceholder": IssueDraftPage.titlePlaceholder,
             "descriptionPlaceholder": IssueDraftPage.descriptionPlaceholder,
             "create": IssueDraftPage.create,
-            "discard": IssueDraftPage.discard,
             "untitled": IssueDraftPage.untitled,
-            "discardConfirm.title": IssueDraftPage.DiscardConfirm.title,
-            "discardConfirm.confirm": IssueDraftPage.DiscardConfirm.confirm,
             "leave.title": IssueDraftPage.Leave.title,
             "leave.create": IssueDraftPage.Leave.create,
             "leave.keep": IssueDraftPage.Leave.keep,
@@ -97,10 +87,7 @@ final class IssueDraftPageTests: XCTestCase {
             "titlePlaceholder": copy.titlePlaceholder,
             "descriptionPlaceholder": copy.descriptionPlaceholder,
             "create": copy.create,
-            "discard": copy.discard,
             "untitled": copy.untitled,
-            "discardConfirm.title": copy.discardConfirm.title,
-            "discardConfirm.confirm": copy.discardConfirm.confirm,
             "leave.title": copy.leave.title,
             "leave.create": copy.leave.create,
             "leave.keep": copy.leave.keep,
@@ -109,18 +96,20 @@ final class IssueDraftPageTests: XCTestCase {
         ]
         XCTAssertEqual(mirrored, expected)
         XCTAssertEqual(Set(mirrored.keys), try fixtureCopyKeys())
+        // EXP-1247: the close button and its confirm are gone ×4.
+        XCTAssertFalse(try fixtureCopyKeys().contains("discard"))
+        XCTAssertFalse(try fixtureCopyKeys().contains("discardConfirm.title"))
     }
 
     // EXP-1212: which prompt an exit raises.
 
     func testNoContentNeverAsks() {
-        for exit in [IssueDraftPage.Exit.discard, .leave, .own] {
+        for exit in [IssueDraftPage.Exit.leave, .own] {
             XCTAssertEqual(IssueDraftPage.prompt(for: exit, hasContent: false), .none)
         }
     }
 
-    func testContentAsksOnDiscardAndLeave() {
-        XCTAssertEqual(IssueDraftPage.prompt(for: .discard, hasContent: true), .discardConfirm)
+    func testContentAsksOnLeave() {
         XCTAssertEqual(IssueDraftPage.prompt(for: .leave, hasContent: true), .leave)
     }
 
@@ -143,12 +132,12 @@ final class IssueDraftPageTests: XCTestCase {
         ))
         XCTAssertEqual(
             IssueDraftPage.prompt(
-                for: .discard,
+                for: .leave,
                 hasContent: IssueDraftPage.hasContent(
                     title: "", description: "", attachmentCount: 0, attachmentsKnown: false
                 )
             ),
-            .discardConfirm
+            .leave
         )
         // Known and empty (a brand-new draft): nothing to ask.
         XCTAssertFalse(IssueDraftPage.hasContent(

@@ -33,7 +33,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  * mark as the spinner ([markState] = the ×4 `runningRowMarkState`), the
  * `runRowCaption` in its tone, the newest tool line muted under it (live runs
  * only), and the trailing `Show work` / `Hide work` switch. Fixture
- * `run-row.json` (×4).
+ * `run-row.json` (×4). EXP-1245: the owner's thread draws one PER TURN
+ * (`turnRowCaption`); with no [onToggle] the row draws no switch.
  */
 @Composable
 internal fun RunStatusRow(
@@ -44,7 +45,7 @@ internal fun RunStatusRow(
     tone: RunRowTone,
     toolLine: String?,
     showWork: Boolean,
-    onToggle: () -> Unit,
+    onToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -80,8 +81,10 @@ internal fun RunStatusRow(
                 )
             }
         }
-        TextButton(onClick = onToggle, modifier = Modifier.testTag("run-show-work")) {
-            Text(showWorkLabel(showWork), style = MaterialTheme.typography.labelMedium)
+        if (onToggle != null) {
+            TextButton(onClick = onToggle, modifier = Modifier.testTag("run-show-work")) {
+                Text(showWorkLabel(showWork), style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

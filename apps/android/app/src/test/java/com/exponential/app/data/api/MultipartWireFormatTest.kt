@@ -105,4 +105,15 @@ class MultipartWireFormatTest {
         // The mangled filename must not smuggle extra header lines.
         assertFalse(wire, wire.contains("\r\nd.png"))
     }
+
+    // EXP-1247: a FILE/paperclip pick sends `asFile=1`; a plain upload none.
+    @Test
+    fun `a file pick sends the asFile part`() {
+        assertEquals(mapOf("asFile" to "1"), attachmentUploadFields(null, null, null, asFile = true))
+        assertEquals(emptyMap<String, String>(), attachmentUploadFields(null, null, null, asFile = false))
+        assertEquals(
+            listOf("width" to "640", "asFile" to "1"),
+            attachmentUploadFields(640, null, null, asFile = true).toList(),
+        )
+    }
 }

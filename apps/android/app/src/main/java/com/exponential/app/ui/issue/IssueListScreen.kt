@@ -106,6 +106,7 @@ import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.IssueGroupBand
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
@@ -810,11 +811,17 @@ private fun IssueListContent(
                                 .animateItem()
                                 .fillMaxWidth(),
                         ) {
-                            StatusHeader(
-                                status = group.status,
+                            // EXP-1248: the ONE issue group band (the only
+                            // list band that keeps its count).
+                            IssueGroupBand(
+                                glyph = { StatusIcon(group.status, size = 14.dp) },
+                                name = group.status.name,
                                 count = group.issues.size,
                                 collapsed = isCollapsed,
                                 onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
+                                // The list carries no horizontal contentPadding
+                                // (EXP-614): the band carries the gutter + 8dp.
+                                horizontalInset = ListGutter + 8.dp,
                             )
                         }
                     }
@@ -929,47 +936,6 @@ private fun BoardSwitcherControl(
             )
         },
     )
-}
-
-@Composable
-private fun StatusHeader(
-    status: ResolvedIssueStatus,
-    count: Int,
-    collapsed: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            // The list carries no horizontal contentPadding (EXP-614), so the
-            // content carries the gutter on top of the header's own 8dp inset
-            // — the glyphs stay lined up with the rows below, matching
-            // MyIssuesScreen's 16dp contentPadding + 8dp.
-            .padding(horizontal = ListGutter + 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
-            contentDescription = if (collapsed) "Expand" else "Collapse",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(6.dp))
-        StatusIcon(status, size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            status.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)

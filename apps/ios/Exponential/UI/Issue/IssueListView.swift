@@ -382,46 +382,34 @@ struct IssueListView: View {
 
     @ViewBuilder
     private func statusHeader(group: ResolvedIssueStatus, count: Int, vm: IssueListViewModel) -> some View {
+        // EXP-1248: the status group = the shared `GlassSectionBand` with its
+        // count slot, the ONE list band that keeps a count (web
+        // `IssueGroupBand`). The whole band folds the group; the chevron
+        // leads, then the status glyph.
         Button {
             vm.toggleStatusCollapsed(group.id)
         } label: {
-            HStack(spacing: 8) {
+            GlassSectionBand(group.name, count: count) {
                 AppIcon(vm.collapsedStatuses.contains(group.id) ? AppIcons.uiChevronRight : AppIcons.uiChevronDown,
                         size: 11, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(width: 12)
-
                 AppIcon(group.iconName, size: AppIcon.Size.small)
                     .foregroundStyle(group.color)
-
-                Text(group.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                Text("\(count)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-                Spacer()
+            } trailing: {
+                EmptyView()
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .textCase(nil)
-        // The former listRowInsets (top 6 / bottom 2 / 16pt gutter), padded
-        // inside the view: the glyphs line up with the rows below.
+        .accessibilityIdentifier("issue-status-band")
+        // The former listRowInsets (top 6 / 16pt gutter), padded inside the
+        // view. EXP-620: it scrolls with its rows (an ordinary row, never a
+        // pinned `header:`), so the band's own fill is all the backing it
+        // needs.
         .padding(.top, 6)
-        .padding(.bottom, 2)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // EXP-620: no background at all. The status-tinted band (EXP-593) and
-        // the opaque slab before it (EXP-578) both existed only because the
-        // header was PINNED — a floating header needs to hide the rows passing
-        // under it, and plain List backs it with its own system material. Now
-        // that it scrolls with its rows, it reads as plain text on
-        // AppBackground, like the My Issues headers. Desktop keeps the tint.
     }
 
     @ViewBuilder

@@ -9,6 +9,12 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.IssueImagesApi
+import com.exponential.app.data.api.McpServersApi
+import com.exponential.app.domain.McpServerOption
+import com.exponential.app.domain.mcpServerReady
+import com.exponential.app.domain.preselectMcpServerIds
+import com.exponential.app.domain.subjectOwnsMcpServers
+import kotlinx.coroutines.flow.collectLatest
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
@@ -171,6 +177,7 @@ class AgentComposerViewModel @Inject constructor(
     private val steerLaunch: SteerLaunchDelegate,
     private val imagesApi: IssueImagesApi,
     private val issuesApi: IssuesApi,
+    private val mcpServersApi: McpServersApi,
 ) : ViewModel() {
 
     /** The route's one-shot preselection — applied once in `init`. */
@@ -708,6 +715,62 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(planMode = value)
     }
 
+    // ── EXP-1249: the "+" menu's MCP servers + Computer use ─────────────────
+
+    private val _mcpServers = MutableStateFlow<List<McpServerOption>>(emptyList())
+
+    /** The team's MCP servers (`mcpServers.list`), the caller's readiness on each. */
+    val mcpServers: StateFlow<List<McpServerOption>> = _mcpServers
+
+    private val _mcpServerIds = MutableStateFlow<List<String>>(emptyList())
+
+    /** The servers this run gets — seeded with the ready enabled-by-default rows. */
+    val mcpServerIds: StateFlow<List<String>> = _mcpServerIds
+
+    /** Toggle a READY server in or out of the pick (a not-ready row is inert). */
+    fun toggleMcpServer(id: String) {
+        val server = _mcpServers.value.firstOrNull { it.id == id } ?: return
+        val current = _mcpServerIds.value
+        _mcpServerIds.value = when {
+            id in current -> current - id
+            mcpServerReady(server) -> current + id
+            else -> current
+        }
+    }
+
+    private val _computerUse = MutableStateFlow(false)
+
+    /** The per-run computer use toggle, seeded from the device's default. */
+    val computerUse: StateFlow<Boolean> = _computerUse
+
+    fun setComputerUse(value: Boolean) {
+        _computerUse.value = value
+    }
+
+    init {
+        // The pick reseeds per team; a refetch keeps what is still ready.
+        viewModelScope.launch {
+            teamId.collectLatest { team ->
+                _mcpServers.value = emptyList()
+                _mcpServerIds.value = emptyList()
+                val accountId = auth.activeAccountId.value
+                if (team == null || accountId == null) return@collectLatest
+                val servers = runCatching { mcpServersApi.list(accountId, team) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull() ?: return@collectLatest
+                _mcpServers.value = servers
+                _mcpServerIds.value = preselectMcpServerIds(servers, saved = null)
+            }
+        }
+        // A per-DEVICE switch: it reseeds with the device only (an agent
+        // switch keeps whatever the person set).
+        viewModelScope.launch {
+            device.map { it?.deviceId }.distinctUntilChanged().collect {
+                _computerUse.value = device.value?.launchDefaults?.computerUse == true
+            }
+        }
+    }
+
     private fun applyAgentSeed(agent: String, device: SteerDevice?) {
         val seed = agentSeed(device, agent)
         _launch.value = _launch.value.copy(
@@ -764,6 +827,11 @@ class AgentComposerViewModel @Inject constructor(
             agent = agent,
             resume = if (resume) true else null,
             account = draft.wireAccount,
+            // EXP-1249: a real action owns its MCP list; none picked = none sent.
+            mcpServerIds = _mcpServerIds.value
+                .takeIf { it.isNotEmpty() && !subjectOwnsMcpServers((_subject.value as? ComposerSubject.Action)?.id) },
+            // Only a device that reads the flag gets it (older builds ignore it).
+            computerUse = if (device.value?.canToggleComputerUse == true) _computerUse.value else null,
         )
     }
 

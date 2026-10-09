@@ -93,6 +93,8 @@ public struct DraftAttachmentDto: Decodable, Identifiable, Sendable {
     public let height: Int?
     public let durationMs: Int?
     public let posterStorageKey: String?
+    /// EXP-1247: uploaded through a FILE button (false on older servers).
+    public let asFile: Bool
     public let createdAt: String?
 
     public init(
@@ -105,8 +107,10 @@ public struct DraftAttachmentDto: Decodable, Identifiable, Sendable {
         height: Int? = nil,
         durationMs: Int? = nil,
         posterStorageKey: String? = nil,
+        asFile: Bool = false,
         createdAt: String? = nil
     ) {
+        self.asFile = asFile
         self.id = id
         self.filename = filename
         self.contentType = contentType
@@ -121,7 +125,7 @@ public struct DraftAttachmentDto: Decodable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, filename, contentType, sizeBytes, url, width, height
-        case durationMs, posterStorageKey, createdAt
+        case durationMs, posterStorageKey, asFile, createdAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -136,6 +140,7 @@ public struct DraftAttachmentDto: Decodable, Identifiable, Sendable {
         height = try? c.decodeWireInt(forKey: .height)
         durationMs = try? c.decodeWireInt(forKey: .durationMs)
         posterStorageKey = try c.decodeIfPresent(String.self, forKey: .posterStorageKey)
+        asFile = (try? c.decodeIfPresent(Bool.self, forKey: .asFile)) ?? false
         createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
     }
 }

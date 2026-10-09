@@ -2073,7 +2073,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(`DiffFileList`, `apps/ios/Exponential/UI/Session/SessionDiffList.swift`),
       android: leftover(
         `ChangesFace`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ChangesFace.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
         `the card stack is inlined in the Changes face; no shared list composable`
       ),
     },
@@ -4092,7 +4092,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: leftover(
         `PrChangesFace.githubToolbarButton`,
-        `apps/ios/Exponential/UI/Issue/PrChangesFace.swift`,
+        `apps/ios/Exponential/UI/Work/GuideFace.swift`,
         `private; WorkScreen.swift holds a second inline copy under the same accessibility id`
       ),
       android: ok(
@@ -4329,7 +4329,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       android: leftover(
         `ResultPreviewDialog`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
         `private and results-only; an issue attachment hands off to another app (ui/issue/AttachmentOpen.kt)`
       ),
     },
@@ -4351,10 +4351,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
       ),
       desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
-      ios: ok(`SessionResultsFace`, `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`),
+      ios: ok(`GuideFace`, `apps/ios/Exponential/UI/Work/GuideFace.swift`),
       android: ok(
         `ResultsFace`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
         `ResultTile + ResultPreviewDialog sit in the same file`
       ),
     },
@@ -4379,7 +4379,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       desktop: ok(`render_inline_picture`, `apps/desktop/crates/ui/src/steer_viewer.rs`, `the steer view method; Earlier band in session_results.rs`),
       ios: ok(
         `SessionInlinePicture`,
-        `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`,
+        `apps/ios/Exponential/UI/Work/GuideFace.swift`,
         `AgentSessionView reads the run's results through the sessionResultsRaw environment value`
       ),
       android: ok(
@@ -4454,7 +4454,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       android: leftover(
         `ChangesEmptyRow`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ChangesFace.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
         `private to one face; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized`
       ),
     },

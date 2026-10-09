@@ -211,4 +211,60 @@ class ReviewRowsTest {
         )
         assertTrue(!onlyPulls.isEmpty)
     }
+
+    // EXP-1248: the row label ×4 (web `reviewRowLabel`).
+    @Test
+    fun `names a single-issue PR by its issue`() {
+        val state = buildReviewsState(
+            issues = listOf(issue("a")),
+            boards = listOf(board("board-1", 1.0)),
+            runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
+        )
+        assertEquals(ReviewRowLabel("A", "Issue a"), reviewRowLabel(state.groups.single().entries.single()))
+    }
+
+    @Test
+    fun `names a batch PR by its first issue plus the rest`() {
+        val shared = "https://github.com/acme/app/pull/7"
+        val state = buildReviewsState(
+            issues = listOf(
+                issue("a", prUrl = shared, createdAt = "2026-09-10T10:00:00Z"),
+                issue("b", prUrl = shared, createdAt = "2026-09-10T11:00:00Z"),
+                issue("c", prUrl = shared, createdAt = "2026-09-10T09:00:00Z"),
+            ),
+            boards = listOf(board("board-1", 1.0)),
+            runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
+        )
+        assertEquals(ReviewRowLabel("B +2", "Issue b"), reviewRowLabel(state.groups.single().entries.single()))
+    }
+
+    // EXP-1248: a band's items as drawn ×4 (web `reviewBlocks`).
+    @Test
+    fun `keeps a tree in ONE list and gives each stack its own rail`() {
+        fun stacked(id: String, base: String, createdAt: String) =
+            issue(id, createdAt = createdAt).copy(prBaseBranch = base)
+        val state = buildReviewsState(
+            issues = listOf(
+                // A tree: root r with two children.
+                stacked("r", "master", "2026-09-10T12:00:00Z"),
+                stacked("r1", "exp/R", "2026-09-10T11:00:00Z"),
+                stacked("r2", "exp/R", "2026-09-10T10:00:00Z"),
+                // A stack: s2 on s1.
+                stacked("s2", "exp/S1", "2026-09-10T09:00:00Z"),
+                stacked("s1", "main", "2026-09-10T08:00:00Z"),
+            ),
+            boards = listOf(board("board-1", 1.0)),
+            runs = emptyList(),
+            teams = listOf(team("team-1", "Team")),
+        )
+        val blocks = reviewBlocks(state.groups.single().items)
+        assertEquals(2, blocks.size)
+        val tree = blocks[0] as ReviewBlock.Rows
+        assertEquals(listOf("r" to 0, "r1" to 1, "r2" to 1), tree.rows.map { it.entry.representative.id to it.depth })
+        val stack = blocks[1] as ReviewBlock.Stack
+        assertEquals(listOf("s2", "s1"), stack.entries.map { it.representative.id })
+        assertEquals("main", stack.baseBranch)
+    }
 }

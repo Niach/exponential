@@ -34,32 +34,24 @@ final class WorkFacesTests: XCTestCase {
         )
     }
 
-    func testListsTheAvailableFacesInIssueRunChangesResultsOrder() {
+    func testListsTheAvailableFacesInIssueRunGuideOrder() {
         XCTAssertEqual(
-            WorkFaces.availableFaces(
-                hasIssue: true, hasRun: true, hasChanges: true, hasResults: true
-            ),
-            [.issue, .run, .changes, .results]
+            WorkFaces.availableFaces(hasIssue: true, hasRun: true, hasResults: true, hasDiff: true),
+            [.issue, .run, .guide]
         )
         XCTAssertEqual(
-            WorkFaces.availableFaces(
-                hasIssue: false, hasRun: true, hasChanges: false, hasResults: false
-            ),
+            WorkFaces.availableFaces(hasIssue: false, hasRun: true, hasResults: false, hasDiff: false),
             [.run]
         )
-        // Changes is independent of Run: an open PR with no run of mine.
+        // EXP-1251: a diff alone (an open PR, no run of mine) is a Guide.
         XCTAssertEqual(
-            WorkFaces.availableFaces(
-                hasIssue: true, hasRun: false, hasChanges: true, hasResults: false
-            ),
-            [.issue, .changes]
+            WorkFaces.availableFaces(hasIssue: true, hasRun: false, hasResults: false, hasDiff: true),
+            [.issue, .guide]
         )
-        // EXP-879: Results is the RUN's, and always last.
+        // So are results alone.
         XCTAssertEqual(
-            WorkFaces.availableFaces(
-                hasIssue: true, hasRun: true, hasChanges: false, hasResults: true
-            ),
-            [.issue, .run, .results]
+            WorkFaces.availableFaces(hasIssue: true, hasRun: true, hasResults: true, hasDiff: false),
+            [.issue, .run, .guide]
         )
     }
 
@@ -67,9 +59,9 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(WorkFaces.faceLabel(.issue), "Issue")
         XCTAssertEqual(WorkFaces.faceLabel(.run), "Run")
         XCTAssertEqual(WorkFaces.faceLabel(.run, multipleRuns: true), "Runs")
-        XCTAssertEqual(WorkFaces.faceLabel(.changes), "Changes")
-        XCTAssertEqual(WorkFaces.faceLabel(.results), "Results")
-        XCTAssertEqual(WorkFaces.openResultsLabel, "Open Results")
+        XCTAssertEqual(WorkFaces.faceLabel(.guide), "Guide")
+        XCTAssertEqual(WorkFaces.guideFaceLabel, "Guide")
+        XCTAssertEqual(WorkFaces.openResultsLabel, "Open Guide")
         XCTAssertEqual(WorkFaces.steerComposerPlaceholder, "Type / for commands")
         XCTAssertEqual(WorkFaces.planModeLabel, "Plan mode")
         XCTAssertEqual(WorkFaces.startCodingLabel, "Start coding")
@@ -78,21 +70,12 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(AgentFeed.planModeFooterLabel, WorkFaces.planModeLabel)
     }
 
-    func testLabelsChangesWithItsCountsOnceTheFilesAreKnown() {
+    func testCountsTheDiffOnceTheFilesAreKnown() {
         XCTAssertNil(WorkFaces.changesFaceCounts(nil))
         XCTAssertNil(WorkFaces.changesFaceCounts(Diff.Totals(files: 0, additions: 0, deletions: 0)))
         XCTAssertEqual(
             WorkFaces.changesFaceCounts(Diff.Totals(files: 3, additions: 12, deletions: 2)),
             WorkFaces.ChangesFaceCounts(additions: 12, deletions: 2)
-        )
-        // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
-        XCTAssertEqual(
-            WorkFaces.changesFaceText(WorkFaces.ChangesFaceCounts(additions: 12, deletions: 2)),
-            "+12 \u{2212}2"
-        )
-        XCTAssertEqual(
-            WorkFaces.changesFaceText(WorkFaces.ChangesFaceCounts(additions: 0, deletions: 0)),
-            "+0 \u{2212}0"
         )
     }
 
@@ -166,40 +149,32 @@ final class WorkFacesTests: XCTestCase {
     }
 
     func testSwipesToTheNeighbouringFace() {
-        let all: [WorkFaceKind] = [.issue, .run, .changes, .results]
+        let all: [WorkFaceKind] = [.issue, .run, .guide]
         XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .issue, direction: .left), .run)
-        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .run, direction: .left), .changes)
-        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .changes, direction: .right), .run)
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .run, direction: .left), .guide)
+        XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .guide, direction: .right), .run)
         XCTAssertEqual(WorkFaces.swipeTarget(faces: all, shown: .run, direction: .right), .issue)
         XCTAssertNil(WorkFaces.swipeTarget(faces: all, shown: .issue, direction: .right))
-        XCTAssertNil(WorkFaces.swipeTarget(faces: all, shown: .results, direction: .left))
+        XCTAssertNil(WorkFaces.swipeTarget(faces: all, shown: .guide, direction: .left))
         XCTAssertEqual(
-            WorkFaces.swipeTarget(faces: [.issue, .results], shown: .issue, direction: .left),
-            .results
+            WorkFaces.swipeTarget(faces: [.issue, .guide], shown: .issue, direction: .left),
+            .guide
         )
         XCTAssertNil(WorkFaces.swipeTarget(faces: [.issue], shown: .run, direction: .left))
         XCTAssertNil(WorkFaces.swipeTarget(faces: [], shown: .issue, direction: .left))
     }
 
-    func testFallsBackChangesToRunToIssue() {
-        XCTAssertEqual(WorkFaces.fallbackFace(shown: .changes, available: [.issue, .run]), .run)
-        // EXP-879: Results falls back the same way — both are the run's.
-        XCTAssertEqual(WorkFaces.fallbackFace(shown: .results, available: [.issue, .run]), .run)
-        XCTAssertEqual(WorkFaces.fallbackFace(shown: .results, available: [.issue]), .issue)
-        XCTAssertNil(WorkFaces.fallbackFace(shown: .results, available: []))
-        XCTAssertEqual(WorkFaces.fallbackFace(shown: .changes, available: [.issue]), .issue)
+    func testFallsBackGuideToRunToIssue() {
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .guide, available: [.issue, .run]), .run)
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .guide, available: [.issue]), .issue)
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .guide, available: [.issue, .run, .guide]), .guide)
+        XCTAssertNil(WorkFaces.fallbackFace(shown: .guide, available: []))
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .run, available: [.issue]), .issue)
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .run, available: [.issue, .run]), .run)
         XCTAssertEqual(WorkFaces.fallbackFace(shown: .issue, available: [.run]), .run)
         XCTAssertNil(WorkFaces.fallbackFace(shown: .run, available: []))
-        // A session subject opened with the page's face: Issue lands on Run,
-        // a run face it has is kept (`WorkScreen.init`).
-        XCTAssertEqual(
-            WorkFaces.fallbackFace(shown: .issue, available: [.run, .changes, .results]), .run
-        )
-        XCTAssertEqual(
-            WorkFaces.fallbackFace(shown: .results, available: [.run, .changes, .results]), .results
-        )
+        // A session subject opened with the page's face: Issue lands on Run.
+        XCTAssertEqual(WorkFaces.fallbackFace(shown: .issue, available: [.run, .guide]), .run)
     }
 
     func testReadsTheSessionModelOffTheConfigOption() {
@@ -221,13 +196,12 @@ final class WorkFacesTests: XCTestCase {
     func testShowsTheContextMenuOnTheIssueFaceAlone() {
         XCTAssertTrue(WorkFaces.faceShowsContextMenu(.issue))
         XCTAssertFalse(WorkFaces.faceShowsContextMenu(.run))
-        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.changes))
-        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.results))
+        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.guide))
     }
 
-    // EXP-1154: a Reviews row's `.changes` arrival survives the runs landing
+    // EXP-1154: a Reviews row's Guide arrival survives the runs landing
     // before the issue row.
-    func testHoldsAPendingChangesOrResultsFaceUntilRunsAndTheIssueRowLanded() {
+    func testHoldsAPendingGuideFaceUntilRunsAndTheIssueRowLanded() {
         func holds(
             _ pending: WorkFaceKind,
             shown: WorkFaceKind? = nil,
@@ -242,16 +216,62 @@ final class WorkFacesTests: XCTestCase {
         }
         // Runs not read yet: hold, whatever the face.
         XCTAssertTrue(holds(.run, runs: false, issue: false))
-        XCTAssertTrue(holds(.changes, runs: false, issue: true))
-        // Runs read, issue row still missing: Changes / Results keep holding.
-        XCTAssertTrue(holds(.changes, runs: true, issue: false))
-        XCTAssertTrue(holds(.results, runs: true, issue: false))
+        XCTAssertTrue(holds(.guide, runs: false, issue: true))
+        // Runs read, issue row still missing: the Guide keeps holding.
+        XCTAssertTrue(holds(.guide, runs: true, issue: false))
         XCTAssertFalse(holds(.run, runs: true, issue: false))
         // Both landed and the face is still missing: let go (fall back).
-        XCTAssertFalse(holds(.changes, runs: true, issue: true))
+        XCTAssertFalse(holds(.guide, runs: true, issue: true))
         // The face arrived, or the reader moved: let go.
-        XCTAssertFalse(holds(.changes, available: [.issue, .changes], runs: false, issue: false))
-        XCTAssertFalse(holds(.changes, shown: .issue, runs: false, issue: false))
+        XCTAssertFalse(holds(.guide, available: [.issue, .guide], runs: false, issue: false))
+        XCTAssertFalse(holds(.guide, shown: .issue, runs: false, issue: false))
+    }
+
+    // MARK: EXP-1251 — the Guide's section pages, mirrors web `guideSectionPage`.
+
+    private let sectionFiles = [
+        Diff.File(path: "a.ts", additions: 3, deletions: 1),
+        Diff.File(path: "b.ts", previousPath: "old-b.ts", additions: 5, deletions: 0),
+        Diff.File(path: "c.ts", additions: 1, deletions: 1),
+    ]
+    private let sectionGroups = [
+        SessionResultGroup(topic: "Summary", entries: [], files: []),
+        SessionResultGroup(topic: "Model", entries: [], files: ["a.ts"]),
+        SessionResultGroup(topic: "Paint", entries: [], files: ["old-b.ts"]),
+    ]
+
+    func testOpensANumberedSectionWithItsCaptionAndCoveredFiles() {
+        let page = WorkFaces.guideSectionPage(sectionGroups, files: sectionFiles, section: .section(2))
+        XCTAssertEqual(page?.caption, "02 / 02")
+        XCTAssertEqual(page?.title, "Paint")
+        XCTAssertEqual(page?.files.map(\.path), ["b.ts"])
+        XCTAssertEqual(page?.additions, 5)
+        XCTAssertEqual(page?.deletions, 0)
+        XCTAssertEqual(page.map(WorkFaces.guideSectionSummary), "+5 \u{2212}0 · 1 file")
+    }
+
+    func testOpensOtherChangesAndTheCompleteDiff() {
+        let other = WorkFaces.guideSectionPage(sectionGroups, files: sectionFiles, section: .other)
+        XCTAssertEqual(other?.files.map(\.path), ["c.ts"])
+        XCTAssertEqual(other?.title, "Other changes")
+        let all = WorkFaces.guideSectionPage(sectionGroups, files: sectionFiles, section: .all)
+        XCTAssertEqual(all?.files.count, 3)
+        XCTAssertNil(all?.caption)
+        XCTAssertEqual(all?.additions, 9)
+        XCTAssertEqual(all?.deletions, 2)
+    }
+
+    func testIsNullForAStaleSectionOrWhileTheDiffLoads() {
+        XCTAssertNil(WorkFaces.guideSectionPage(sectionGroups, files: sectionFiles, section: .section(7)))
+        XCTAssertNil(WorkFaces.guideSectionPage(sectionGroups, files: nil, section: .section(1)))
+        XCTAssertNil(WorkFaces.guideSectionPage(
+            [SessionResultGroup(topic: "Model", entries: [], files: ["a.ts", "b.ts", "c.ts"])],
+            files: sectionFiles, section: .other
+        ))
+    }
+
+    func testWithNoReportTheWholeDiffIsOneChangesSection() {
+        XCTAssertEqual(WorkFaces.guideSectionPage([], files: sectionFiles, section: .other)?.title, "Changes")
     }
 
     // MARK: EXP-1175 — the run row (`run-row.json`), mirrors web `run row`.
@@ -314,6 +334,31 @@ final class WorkFacesTests: XCTestCase {
             )
             XCTAssertEqual(caption.text, expected["text"] as? String, name)
             XCTAssertEqual(caption.tone.rawValue, expected["tone"] as? String, name)
+        }
+    }
+
+    func testTurnRowCaptionMatchesTheSharedFixture() throws {
+        let cases = try XCTUnwrap(try runRowFixture()["turnCaptions"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let turn = try XCTUnwrap(testCase["turn"] as? [String: Any], name)
+            let state = try XCTUnwrap(RunRowState(rawValue: try XCTUnwrap(testCase["state"] as? String)), name)
+            let now = try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(testCase["now"] as? String)), name)
+            let caption = WorkFaces.turnRowCaption(
+                turnStartedAt: (turn["startedAt"] as? String).flatMap(WireTimestamps.parse),
+                turnEndedAt: (turn["endedAt"] as? String).flatMap(WireTimestamps.parse),
+                state: state,
+                device: try XCTUnwrap(testCase["device"] as? String),
+                runEndedAt: (testCase["runEndedAt"] as? String).flatMap(WireTimestamps.parse),
+                now: now
+            )
+            if let expected = testCase["expected"] as? [String: Any] {
+                XCTAssertEqual(caption?.text, expected["text"] as? String, name)
+                XCTAssertEqual(caption?.tone.rawValue, expected["tone"] as? String, name)
+            } else {
+                XCTAssertNil(caption, name)
+            }
         }
     }
 }

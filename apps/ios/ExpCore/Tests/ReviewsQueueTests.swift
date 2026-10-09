@@ -20,6 +20,9 @@ final class ReviewsQueueTests: XCTestCase {
             let createdAt: String
             let prUrl: String?
             let prState: String?
+            /// EXP-1248: the stack edge (absent = no edge).
+            var branch: String? = nil
+            var prBaseBranch: String? = nil
         }
         struct Session: Decodable {
             let id: String
@@ -77,6 +80,26 @@ final class ReviewsQueueTests: XCTestCase {
         let labels: Labels
         let cases: [Case]
         let navCases: [NavCase]
+        let groupingCases: [GroupingCase]
+    }
+
+    /// EXP-1248 rule (9): `groupingCases` (`_groupDoc`).
+    private struct GroupingCase: Decodable {
+        struct ExpectedItem: Decodable, Equatable {
+            let kind: String
+            var key: String? = nil
+            var depth: Int? = nil
+            var keys: [String]? = nil
+            var baseBranch: String? = nil
+        }
+        struct ExpectedBoard: Decodable, Equatable {
+            let boardId: String
+            let items: [ExpectedItem]
+        }
+        struct Expected: Decodable { let boards: [ExpectedBoard] }
+        let name: String
+        let input: Fixture.Input
+        let expected: Expected
     }
 
     private struct NavCase: Decodable {
@@ -112,8 +135,8 @@ final class ReviewsQueueTests: XCTestCase {
             title: row.id, description: nil, status: "in_review",
             priority: "none", assigneeId: nil, creatorId: nil, source: nil, dueDate: nil,
             sortOrder: nil, completedAt: nil, duplicateOfId: nil, prUrl: row.prUrl,
-            prNumber: nil, prState: row.prState, branch: nil,
-            prBaseBranch: nil, prMergedAt: nil,
+            prNumber: nil, prState: row.prState, branch: row.branch,
+            prBaseBranch: row.prBaseBranch, prMergedAt: nil,
             createdAt: row.createdAt, updatedAt: row.createdAt
         )
     }
@@ -181,6 +204,67 @@ final class ReviewsQueueTests: XCTestCase {
             )
             XCTAssertEqual(result.count, testCase.expected.count, testCase.name)
         }
+    }
+
+    func testGrouping() throws {
+        let cases = try fixture().groupingCases
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let input = testCase.input
+            let result = ReviewsQueue.build(
+                teamIds: input.teams.map(\.id),
+                boards: input.boards.map(board),
+                issues: input.issues.map(issue),
+                sessions: input.sessions.map(session),
+                pulls: []
+            )
+            let boards = result.boardGroups.map { group in
+                GroupingCase.ExpectedBoard(
+                    boardId: group.board.id,
+                    items: group.items.map { item in
+                        switch item {
+                        case let .pr(entry, depth):
+                            GroupingCase.ExpectedItem(kind: "pr", key: entry.key, depth: depth)
+                        case let .stack(entries, baseBranch):
+                            GroupingCase.ExpectedItem(
+                                kind: "stack", keys: entries.map(\.key), baseBranch: baseBranch
+                            )
+                        }
+                    }
+                )
+            }
+            XCTAssertEqual(boards, testCase.expected.boards, testCase.name)
+        }
+    }
+
+    func testReviewRowLabelNamesABatchByItsFirstIssue() {
+        let a = issue(.init(id: "EXP-874", boardId: "b1", createdAt: "2026-10-01T10:00:00Z", prUrl: "u", prState: "open"))
+        let b = issue(.init(id: "EXP-875", boardId: "b1", createdAt: "2026-10-01T09:00:00Z", prUrl: "u", prState: "open"))
+        let c = issue(.init(id: "EXP-876", boardId: "b1", createdAt: "2026-10-01T08:00:00Z", prUrl: "u", prState: "open"))
+        let batch = ReviewsQueue.reviewRowLabel(.init(key: "u", issues: [a, b, c]))
+        XCTAssertEqual(batch.identifier, "EXP-874 +2")
+        XCTAssertEqual(batch.title, "EXP-874")
+        XCTAssertEqual(ReviewsQueue.reviewRowLabel(.init(key: "u", issues: [b])).identifier, "EXP-875")
+    }
+
+    func testReviewBlocksShareOneListAndRailEachStack() throws {
+        let grouping = try XCTUnwrap(try fixture().groupingCases.first)
+        let result = ReviewsQueue.build(
+            teamIds: grouping.input.teams.map(\.id),
+            boards: grouping.input.boards.map(board),
+            issues: grouping.input.issues.map(issue),
+            sessions: [], pulls: []
+        )
+        let blocks = ReviewsQueue.reviewBlocks(try XCTUnwrap(result.boardGroups.first).items)
+        // The lone PR + the tree (root and its two children) share ONE list,
+        // the stack is its own rail.
+        XCTAssertEqual(blocks.count, 2)
+        guard case let .list(rows) = blocks[0], case let .stack(entries, base) = blocks[1] else {
+            return XCTFail("expected a list then a stack")
+        }
+        XCTAssertEqual(rows.map(\.depth), [0, 0, 1, 1])
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(base, "master")
     }
 
     func testEveryNavCaseMatches() throws {

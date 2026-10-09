@@ -334,7 +334,9 @@ final class IssueDraftViewModel {
                     accountId: accountId, id: draftId
                 ) {
                     attachmentsLoaded = true
-                    attachments = files.map {
+                    // EXP-1247: the Files list only — the server filters
+                    // too, an older one may still hand back inline rows.
+                    attachments = files.filter { AttachmentFiles.isFile($0) }.map {
                         IssueDraftFile(
                             id: $0.id,
                             filename: $0.filename,
@@ -771,7 +773,9 @@ final class IssueDraftViewModel {
                         draftId: draftId,
                         data: data,
                         filename: filename,
-                        contentType: contentType
+                        contentType: contentType,
+                        // EXP-1247: a Files pick is a file, never inlined.
+                        asFile: true
                     )
                     attachments.append(IssueDraftFile(
                         id: uploaded.id,
@@ -1064,7 +1068,8 @@ final class IssueDraftViewModel {
                     issueId: issueId,
                     data: data,
                     filename: file.filename,
-                    contentType: file.contentType
+                    contentType: file.contentType,
+                    asFile: true
                 )
             } catch {
                 failed.append(file.filename)

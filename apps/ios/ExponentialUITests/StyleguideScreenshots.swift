@@ -18,9 +18,10 @@ import XCTest
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_chat · sg_chat-issues · sg_chat-action ·
+///   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_action-triggers ·
 ///   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
+///   sg_session-row · sg_pr-row ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
@@ -414,7 +415,32 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_chat", settle: 2)
 
-        anyElement(app, identified: "agent-composer-issues-button").tap()
+        // ── sg_session-row: THE session row, big (EXP-1248) ─────────────────
+        // The Recent sheet behind the page's history glyph draws every run as
+        // the big SessionRow (mark at 12 + 14·depth, caption, device glyph,
+        // children nested, no fold). A detour no later shot needs, so it is
+        // skipped whole when a scoped run did not ask for it.
+        if ScreenshotShots.isWanted("sg_session-row") {
+            anyElement(app, identified: "agent-history-button").tap()
+            let recentSheet = anyElement(app, identified: "recent-runs-sheet")
+            XCTAssertTrue(recentSheet.waitForExistence(timeout: 20), "The Recent sheet did not open")
+            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: 30) {
+                print("EXP-1248 sg_session-row: no finished runs — reseed with `bun run seed:screenshots`")
+            }
+            snapshot("sg_session-row", settle: 2)
+            dismissSheet(app, whileVisible: recentSheet)
+            _ = recentSheet.waitForNonExistence(timeout: 10)
+            settle(1)
+        }
+
+        // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
+        // `composer-menu.json` rows is `sg_composer-menu`; Implement issue ›
+        // hands off to the issue picker once the sheet is gone.
+        anyElement(app, identified: "agent-composer-plus-button").tap()
+        let plusMenu = anyElement(app, identified: "agent-composer-menu")
+        XCTAssertTrue(plusMenu.waitForExistence(timeout: 20), "The + menu did not open")
+        snapshot("sg_composer-menu", settle: 2)
+        anyElement(app, identified: "agent-composer-menu-implement-issue").tap()
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
         XCTAssertTrue(issuePicker.waitForExistence(timeout: 20), "Issue picker did not open")
         for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
@@ -434,7 +460,12 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(issueChip.waitForExistence(timeout: 15), "No issue chip after picking")
         snapshot("sg_chat-issues", settle: 2)
 
-        anyElement(app, identified: "agent-composer-actions-button").tap()
+        anyElement(app, identified: "agent-composer-plus-button").tap()
+        XCTAssertTrue(
+            anyElement(app, identified: "agent-composer-menu").waitForExistence(timeout: 20),
+            "The + menu did not reopen"
+        )
+        anyElement(app, identified: "agent-composer-menu-run-action").tap()
         let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
         XCTAssertTrue(actionPicker.waitForExistence(timeout: 20), "Action picker did not open")
         let fixRow = app.staticTexts["Fix merge conflicts"].firstMatch
@@ -604,9 +635,9 @@ final class StyleguideScreenshots: XCTestCase {
         let runsTab = anyElement(app, identified: "action-tab-runs")
         XCTAssertTrue(runsTab.waitForExistence(timeout: 15), "Runs tab missing")
         runsTab.tap()
-        let endedRun = anyElement(app, identified: "ended-run-row")
-        let liveRun = anyElement(app, identified: "action-run-row")
-        if !endedRun.waitForExistence(timeout: 45), !liveRun.exists {
+        // EXP-1248: live and ended runs are the same SessionRow now.
+        let actionRunRow = anyElement(app, identified: "action-run-row")
+        if !actionRunRow.waitForExistence(timeout: 45) {
             print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
             XCTAssertTrue(
                 app.staticTexts["No runs yet."].waitForExistence(timeout: 15),
@@ -645,6 +676,15 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
+
+        // ── sg_pr-row: THE pull-request row (EXP-1248) ──────────────────────
+        // The same queue IS the PrRow surface: one line per PR, a tree nested
+        // with guides, a stack on its rail over the base-branch row.
+        XCTAssertTrue(
+            anyElement(app, identified: "pr-row").waitForExistence(timeout: 30),
+            "Reviews drew no PrRow"
+        )
+        snapshot("sg_pr-row", settle: 1)
 
         // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
         // The Reviews "Agent runs" band lists Jonas's finished chat run, whose

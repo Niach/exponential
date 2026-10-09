@@ -124,7 +124,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id"]
+             "v63_issue_draft_id", "v64_attachment_as_file"]
         )
     }
 
@@ -175,7 +175,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id"]
+             "v63_issue_draft_id", "v64_attachment_as_file"]
         )
     }
 
@@ -633,7 +633,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id"]
+             "v63_issue_draft_id", "v64_attachment_as_file"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -732,7 +732,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id"]
+             "v63_issue_draft_id", "v64_attachment_as_file"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }

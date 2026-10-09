@@ -22,6 +22,21 @@ class AttachmentFilesTest {
         }
     }
 
+    // EXP-1247: an as_file upload is never inline and always a Files row
+    // (web attachment-files.test "row-aware classification").
+    @Test
+    fun anAsFileRowIsAFilesRowWhateverItsType() {
+        assertTrue(isInlineImageAttachment("image/png", asFile = false))
+        assertFalse(isInlineImageAttachment("image/png", asFile = true))
+        assertTrue(isInlineMediaAttachment("video/mp4", asFile = false))
+        assertFalse(isInlineMediaAttachment("video/mp4", asFile = true))
+        assertFalse(isFileAttachment("image/png", asFile = false))
+        assertFalse(isFileAttachment("audio/mpeg", asFile = false))
+        assertTrue(isFileAttachment("image/png", asFile = true))
+        assertTrue(isFileAttachment("video/mp4", asFile = true))
+        assertTrue(isFileAttachment("application/pdf", asFile = false))
+    }
+
     @Test
     fun otherImageTypesAreFiles() {
         assertFalse(isInlineImage("image/tiff"))

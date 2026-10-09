@@ -691,7 +691,8 @@ final class IssueDetailViewModel {
         fileAttachments = rows
             // Inline images and (EXP-824) inline media live in the body, not
             // the rail.
-            .filter { AttachmentFiles.isFile(contentType: $0.contentType) }
+            // EXP-1247: an `asFile` row is a file whatever its type.
+            .filter { AttachmentFiles.isFile($0) }
             // EXP-554: a file attached to a COMMENT renders in that comment's
             // strip, not the issue's Files rail — otherwise it lists twice.
             .filter { $0.commentId == nil }
@@ -718,27 +719,9 @@ final class IssueDetailViewModel {
             UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
         )
 
-        // An inline-image type uploaded through /files would be invisible
-        // everywhere (filtered out of every client's Files section, referenced
-        // by no markdown) and eventually deleted by the owner's
-        // unreferenced-image sweep. EXP-327: rather than dead-ending the pick
-        // with an error telling the user to go press the other button, put it
-        // where it belongs — appended to the description. (The editor's attach
-        // menu classifies picks up front, so this only catches a URL whose type
-        // resolves differently here, or an oversize image the editor handed
-        // over precisely because this path can report the failure.)
-        guard !AttachmentFiles.isInlineImage(contentType: contentType) else {
-            appendImageToDescription(from: url, filename: filename, contentType: contentType)
-            return
-        }
-        // EXP-824: a video/audio pick is inline media — normalised and
-        // appended to the description as a player block, never a Files row
-        // (media rows leave the rail, so one uploaded here would be invisible).
-        guard !AttachmentFiles.isInlineMedia(contentType: contentType) else {
-            appendMediaToDescription(from: url, filename: filename, contentType: contentType)
-            return
-        }
-
+        // EXP-1247: a Files pick is a FILE whatever its type — it uploads
+        // `asFile`, lists under Files and is never inlined (an image or clip
+        // the reader wants in the body goes through the image button).
         Task.detached { [weak self] in
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -771,101 +754,6 @@ final class IssueDetailViewModel {
             }
             await self?.startUpload(filename: filename, contentType: contentType, data: data)
         }
-    }
-
-    /// Read a picked image off-main (inside its security scope) and append it to
-    /// the end of the description, then save — the seamless half of EXP-327.
-    private func appendImageToDescription(from url: URL, filename: String, contentType: String) {
-        let editor = editor
-        Task.detached { [weak self] in
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-            // Size check before buffering, exactly like the non-image branch
-            // above — an oversize pick must never be read into memory, and an
-            // appended draft that can't upload blocks every later description
-            // save.
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            if let size, size > AttachmentFiles.maxFileUploadBytes {
-                await self?.appendFailedUpload(
-                    filename: filename,
-                    contentType: contentType,
-                    failure: "Files must be 50 MB or smaller."
-                )
-                return
-            }
-            guard let data = try? Data(contentsOf: url) else {
-                await self?.appendFailedUpload(
-                    filename: filename,
-                    contentType: contentType,
-                    failure: "Couldn't read this file."
-                )
-                return
-            }
-            guard data.count <= AttachmentFiles.maxFileUploadBytes else {
-                await self?.appendFailedUpload(
-                    filename: filename,
-                    contentType: contentType,
-                    failure: "Files must be 50 MB or smaller."
-                )
-                return
-            }
-            let decoded = UIImage(data: data)
-            let width = decoded.map { Int($0.size.width * $0.scale) }
-            let height = decoded.map { Int($0.size.height * $0.scale) }
-            await editor.appendImage(
-                data: data,
-                filename: filename,
-                contentType: contentType,
-                width: (width ?? 0) > 0 ? width : nil,
-                height: (height ?? 0) > 0 ? height : nil
-            )
-            await self?.commitDescriptionNow()
-        }
-    }
-
-    /// EXP-824: copy a picked media file out inside its security scope, run
-    /// the 720p normalisation + poster probe off-main, append the block and
-    /// save. A failure surfaces as a failed Files row (the one error surface
-    /// this screen has for a pick that inserted nothing).
-    private func appendMediaToDescription(from url: URL, filename: String, contentType: String) {
-        let editor = editor
-        Task.detached { [weak self] in
-            let scoped = url.startAccessingSecurityScopedResource()
-            let copied = try? MediaUploadPrep.copyToTemp(url)
-            if scoped { url.stopAccessingSecurityScopedResource() }
-            guard let copied else {
-                await self?.appendFailedUpload(
-                    filename: filename, contentType: contentType, failure: "Couldn't read this file."
-                )
-                return
-            }
-            defer { try? FileManager.default.removeItem(at: copied) }
-            do {
-                let media = try await MediaUploadPrep.prepare(
-                    fileURL: copied, filename: filename, contentType: contentType
-                )
-                await editor.appendMedia(media)
-                await self?.commitDescriptionNow()
-            } catch {
-                await self?.appendFailedUpload(
-                    filename: filename,
-                    contentType: contentType,
-                    failure: (error as? MediaUploadPrep.PrepError)?.errorDescription
-                        ?? "Couldn't process this video."
-                )
-            }
-        }
-    }
-
-    /// Commit the description immediately, superseding the debounced autosave
-    /// that `appendImage`'s edit hook just scheduled. `commitPendingImages` has
-    /// no in-flight guard, so letting the 1.2s timer fire during a slower
-    /// upload would upload the same draft twice and orphan an attachment row.
-    private func commitDescriptionNow() async {
-        autosaveTask?.cancel()
-        autosaveTask = nil
-        await commitDescription()
     }
 
     private func appendFailedUpload(filename: String, contentType: String, failure: String) {
@@ -909,7 +797,9 @@ final class IssueDetailViewModel {
                 issueId: issueId,
                 data: pending.data,
                 filename: pending.filename,
-                contentType: pending.contentType
+                contentType: pending.contentType,
+                // EXP-1247: the Files path's rows are files, never inlined.
+                asFile: true
             )
             guard let index = pendingFileUploads.firstIndex(where: { $0.id == pendingId }) else { return }
             // Hold the placeholder until the synced row lands (applyAttachments

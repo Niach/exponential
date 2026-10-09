@@ -5,48 +5,40 @@ import com.exponential.app.domain.PrStack
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 
+/** The confirm's dismiss (`stack-merge-choice.json` `confirm.labels.cancel`). */
+internal const val STACK_CONFIRM_CANCEL_LABEL = "Cancel"
+
 /**
- * EXP-1145: the stack merge dialog every plain Merge control on a PR-stack
- * member opens instead of "Merge pull request?". Copy = [PrStack.stackMergeChoice],
- * byte-identical x4 (fixture `stack-merge-choice.json`). [onMergeStack] takes
- * the issue the server merges the chain THROUGH: the top member for Merge
- * stack, the merged issue for Merge this pull request above the bottom; the
- * bottom member's Merge this pull request is the plain [onMergePlain].
- * EXP-1215: the shared [GlassAlert] card, Cancel · Merge this pull request ·
- * Merge stack (primary, the default); the row stacks when it cannot fit.
+ * EXP-1248: the ONE stack merge confirm (it replaces the EXP-1145 3-way
+ * dialog), web `StackMergeConfirmDialog`. Copy = [PrStack.stackMergeConfirm],
+ * byte-identical x4 (fixture `stack-merge-choice.json` `confirm`): the title
+ * IS the primary button (Merge stack / Merge through here), the body lists
+ * what lands and what stays open. [onConfirm] gets the issue
+ * `issues.mergePr({ mergeStack: true })` takes ([PrStack.StackMergeConfirm.issueId]).
+ * The shared [GlassAlert] card, Cancel · the primary (the default).
  */
 @Composable
 fun StackMergeDialog(
-    choice: PrStack.StackMergeChoice,
-    issueId: String,
-    onMergeStack: (throughIssueId: String) -> Unit,
-    onMergePlain: () -> Unit,
+    confirm: PrStack.StackMergeConfirm,
+    onConfirm: (issueId: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassAlert(
-        title = PrStack.STACK_MERGE_CHOICE_TITLE,
-        body = choice.body,
+        title = confirm.title,
+        body = confirm.body,
         onDismiss = onDismiss,
         trailing = listOf(
-            GlassAlertAction(PrStack.STACK_MERGE_CANCEL_LABEL, onClick = onDismiss),
+            GlassAlertAction(STACK_CONFIRM_CANCEL_LABEL, onClick = onDismiss),
             GlassAlertAction(
-                PrStack.MERGE_THIS_PR_LABEL,
-                testTag = "merge-this-pr",
-                onClick = {
-                    onDismiss()
-                    if (choice.position > 1) onMergeStack(issueId) else onMergePlain()
-                },
-            ),
-            GlassAlertAction(
-                PrStack.MERGE_STACK_LABEL,
+                confirm.title,
                 primary = true,
                 testTag = "merge-stack",
                 onClick = {
                     onDismiss()
-                    onMergeStack(choice.topIssueId)
+                    onConfirm(confirm.issueId)
                 },
             ),
         ),
-        defaultAction = 2,
+        defaultAction = 1,
     )
 }

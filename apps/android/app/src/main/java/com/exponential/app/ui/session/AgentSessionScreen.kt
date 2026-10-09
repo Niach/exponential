@@ -145,6 +145,18 @@ import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.ThreadItem
 import com.exponential.app.domain.SessionThread
 import com.exponential.app.domain.sessionThread
+import com.exponential.app.domain.SessionTurn
+import com.exponential.app.domain.SessionTurnMessage
+import com.exponential.app.domain.SessionTurns
+import com.exponential.app.domain.TurnFeedRow
+import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.recordFeedMessages
+import com.exponential.app.domain.recordTurnSlot
+import com.exponential.app.domain.sessionTurns
+import com.exponential.app.domain.turnEventsOf
+import com.exponential.app.domain.turnLogFor
+import com.exponential.app.domain.turnRowCaption
+import com.exponential.app.domain.userMessageCaption
 import com.exponential.app.domain.lastToolLine
 import com.exponential.app.domain.runRowCaption
 import com.exponential.app.domain.runRowState
@@ -376,8 +388,8 @@ fun RunFace(
      *  before [trailingBarSlot]; hidden with the circles while the composer
      *  is expanded. */
     mergeBarSlot: (@Composable () -> Unit)? = null,
-    /** EXP-933: switches the host to its Results face — the inline
-     *  `sessions_results` card's `Open Results` button. Null hides it. */
+    /** EXP-933: switches the host to its Guide face — the inline
+     *  `sessions_guide` card's `Open Guide` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
     /** EXP-1175: the shown run's ×4 display state (the status row's state
      *  and mark); null reads as working. */
@@ -399,8 +411,8 @@ fun RunFace(
  *  pictures. Dynamic: only the rows that read it recompose on a sync. */
 private val LocalSessionResults = compositionLocalOf<String?> { null }
 
-/** EXP-933: the host's "show the Results face" hop, read by the transcript's
- *  `sessions_results` card deep inside the feed. */
+/** EXP-933: the host's "show the Guide face" hop, read by the transcript's
+ *  `sessions_guide` card deep inside the feed. */
 private val LocalOpenResults = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 @Composable
@@ -839,6 +851,53 @@ private fun RunFaceContent(
     // in publish order, the Summary as the agent's reply, then every card that
     // still waits on this viewer (questions never hide).
     val thread = remember(session?.results) { sessionThread(session?.results) }
+    // EXP-1245: the OWNER's thread is a conversation of TURNS — their own
+    // messages and the turn edges off the relay feed they already hold
+    // (`SessionTurnEvents`), each turn with its own status row. Teammates and
+    // an offline host have no feed: the single-row thread above.
+    val ownRun = session != null && currentUserId != null && session?.userId == currentUserId
+    val turnEvents = remember(ownRun, session?.id, feed, activity.turnState, activity.turnStartedAt) {
+        val row = session
+        if (!ownRun || row == null) {
+            emptyList()
+        } else {
+            val log = turnLogFor(row.id)
+            val now = System.currentTimeMillis()
+            val rows = feed.map { item ->
+                if (item is AgentFeedItem.UserMessage) {
+                    TurnFeedRow(item.id, isUserMessage = true, text = item.text, subagentId = item.subagentId, at = item.at)
+                } else {
+                    TurnFeedRow(item.id, isUserMessage = false, text = null)
+                }
+            }
+            recordTurnSlot(log, activity.turnState, activity.turnStartedAt, now)
+            recordFeedMessages(log, rows, now)
+            turnEventsOf(log, rows, WireTimestamps.parseEpochMs(row.startedAt))
+        }
+    }
+    val turns = remember(session?.results, turnEvents) { sessionTurns(session?.results, turnEvents) }
+    val turnRow: @Composable (SessionTurn, Boolean) -> Unit = { turn, last ->
+        val caption = turnRowCaption(
+            turn = turn,
+            state = rowState,
+            device = hostDevice.displayLabel,
+            runEndedAt = session?.let { it.endedAt ?: it.updatedAt },
+            nowMs = rowNowMs,
+        )
+        if (caption != null) {
+            RunStatusRow(
+                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+                // A settled turn's mark rests; the open one reads the run's row.
+                markState = if (last && turn.endedAt == null) rowMarkState else null,
+                ended = !(last && turn.endedAt == null) || rowState == RunRowState.Ended,
+                caption = caption.text,
+                tone = caption.tone,
+                toolLine = if (last && turn.endedAt == null) rowToolLine else null,
+                showWork = showWork,
+                onToggle = { viewModel.setShowWork(!showWork) },
+            )
+        }
+    }
     val threadWorkflowIds = remember(activity.workflows) {
         activity.workflows.mapTo(mutableSetOf()) { it.id }
     }
@@ -1020,6 +1079,8 @@ private fun RunFaceContent(
             } else if (!showWork) {
                 RunThread(
                     thread = thread,
+                    turns = turns.takeIf { it.perTurn },
+                    turnRow = turnRow,
                     pendingCards = pendingCards,
                     cards = answerCards,
                     statusRow = statusRow,
@@ -2480,6 +2541,9 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
 @Composable
 private fun RunThread(
     thread: SessionThread,
+    /** EXP-1245: the owner's turns (null = the single-row thread). */
+    turns: SessionTurns?,
+    turnRow: @Composable (SessionTurn, last: Boolean) -> Unit,
     pendingCards: List<AgentFeedRow>,
     cards: AnswerCards,
     statusRow: @Composable () -> Unit,
@@ -2498,9 +2562,15 @@ private fun RunThread(
                 if (dragging) follow = nearBottom
             }
     }
-    // header + items + the reply + the cards.
-    val count = 1 + thread.items.size + (if (thread.reply != null) 1 else 0) + pendingCards.size
-    LaunchedEffect(thread, pendingCards.size, follow) {
+    // header + items + the reply + the cards (per turn: its bubble and row too).
+    val count = if (turns != null) {
+        1 + turns.turns.sumOf { turn ->
+            2 + turn.items.size + (if (turn.reply != null) 1 else 0)
+        } + pendingCards.size
+    } else {
+        1 + thread.items.size + (if (thread.reply != null) 1 else 0) + pendingCards.size
+    }
+    LaunchedEffect(thread, turns, pendingCards.size, follow) {
         if (follow && count > 0) {
             listState.scrollToItem(count - 1)
             listState.scrollBy(1_000_000f)
@@ -2511,7 +2581,8 @@ private fun RunThread(
     }
     Column(modifier = Modifier.fillMaxSize().testTag("agent-thread")) {
         Spacer(Modifier.height(topInset))
-        statusRow()
+        // EXP-1245: per turn, every turn draws its own row inside the list.
+        if (turns == null) statusRow()
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 state = listState,
@@ -2520,7 +2591,37 @@ private fun RunThread(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + bottomInset),
             ) {
                 item(key = "thread-header") { header() }
-                itemsIndexed(
+                if (turns != null) {
+                    turns.turns.forEachIndexed { turnIndex, turn ->
+                        val last = turnIndex == turns.turns.lastIndex
+                        turn.message?.let { message ->
+                            item(key = "turn-$turnIndex-message") {
+                                TranscriptRow(TranscriptGap.Turn) { TurnMessageBubble(message) }
+                            }
+                        }
+                        item(key = "turn-$turnIndex-row") {
+                            TranscriptRow(if (turnIndex == 0) TranscriptGap.None else TranscriptGap.Turn) {
+                                turnRow(turn, last)
+                            }
+                        }
+                        itemsIndexed(
+                            turn.items,
+                            key = { index, item ->
+                                when (item) {
+                                    is ThreadItem.Text -> "turn-$turnIndex-text-${item.topic}"
+                                    is ThreadItem.Picture -> "turn-$turnIndex-picture-$index-${item.entry.attachmentId}"
+                                }
+                            },
+                        ) { _, item ->
+                            TranscriptRow(TranscriptGap.Block) { ThreadItemBody(item) }
+                        }
+                        turn.reply?.let { reply ->
+                            item(key = "turn-$turnIndex-reply") {
+                                TranscriptRow(TranscriptGap.Block) { NarrationBubble(reply) }
+                            }
+                        }
+                    }
+                } else itemsIndexed(
                     thread.items,
                     key = { index, item ->
                         when (item) {
@@ -2530,25 +2631,10 @@ private fun RunThread(
                     },
                 ) { index, item ->
                     TranscriptRow(if (index == 0) TranscriptGap.None else TranscriptGap.Block) {
-                        when (item) {
-                            is ThreadItem.Text -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(
-                                    item.topic,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                MarkdownView(markdown = item.text, softBreaksAsNewlines = true)
-                            }
-                            is ThreadItem.Picture -> InlineResultPicture(
-                                entry = item.entry,
-                                modifier = Modifier.testTag("thread-picture"),
-                            )
-                        }
+                        ThreadItemBody(item)
                     }
                 }
-                thread.reply?.let { reply ->
+                if (turns == null) thread.reply?.let { reply ->
                     item(key = "thread-reply") {
                         TranscriptRow(if (thread.items.isEmpty()) TranscriptGap.None else TranscriptGap.Turn) {
                             NarrationBubble(reply)
@@ -2583,6 +2669,53 @@ private fun RunThread(
                     .height(DetailChrome.EDGE_TOP.dp),
             )
         }
+    }
+}
+
+/** One thread piece: a topic's text under its name, or a picture tile. */
+@Composable
+private fun ThreadItemBody(item: ThreadItem) {
+    when (item) {
+        is ThreadItem.Text -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                item.topic,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            MarkdownView(markdown = item.text, softBreaksAsNewlines = true)
+        }
+        is ThreadItem.Picture -> InlineResultPicture(
+            entry = item.entry,
+            modifier = Modifier.testTag("thread-picture"),
+        )
+    }
+}
+
+/**
+ * EXP-1245: the owner's message that opened a turn — the transcript's own
+ * bubble (right-aligned, its images as thumbs) with the muted caption
+ * `<HH:mm>` under it (`userMessageCaption`; the feed names no sender device).
+ */
+@Composable
+private fun TurnMessageBubble(message: SessionTurnMessage) {
+    val raw = remember(message) {
+        val embeds = message.images.joinToString("\n") { "![image]($it)" }
+        listOf(message.text, embeds).filter { it.isNotEmpty() }.joinToString("\n\n")
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("turn-message"),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        UserMessageBubble(raw)
+        Text(
+            userMessageCaption(name = null, at = message.at, device = null),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+        )
     }
 }
 

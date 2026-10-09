@@ -118,6 +118,9 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     /// This view's ONE claim on that model (`attach` / `detach` are counted).
     @State private var claimed = false
+    /// EXP-1245: the owner's turn facts (`SessionTurnLog`), re-read on every
+    /// turn edge and new feed row; empty = the single-row thread.
+    @State private var turnEvents: [SessionTurnEvent] = []
     @State private var showKillConfirm = false
     /// EXP-688: the Usage sheet — the per-window cards that used to be a
     /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
@@ -315,6 +318,9 @@ struct AgentSessionView: View {
             .onChange(of: model?.agentWorking) { _, _ in
                 if let model { collapseIdleComposer(model) }
             }
+            // EXP-1245: the turn slot and the feed feed the owner's turns.
+            .onChange(of: model?.turn, initial: true) { _, _ in recordTurns() }
+            .onChange(of: model?.feed.last?.id) { _, _ in recordTurns() }
             // EXP-893: the screen's Stop pill — the confirm is still this
             // view's, where the model is.
             // A request already set when this view mounts (a continuation
@@ -631,6 +637,55 @@ struct AgentSessionView: View {
         sessionThread((model.session ?? session).results)
     }
 
+    /// EXP-1245: the thread as TURNS — the owner's relay feed (this model)
+    /// delimits them; `perTurn` false = today's single-row thread.
+    private func turns(_ model: AgentSessionModel) -> SessionTurns {
+        sessionTurns((model.session ?? session).results, feed: turnEvents)
+    }
+
+    /// Folds the model's turn slot and new feed rows into the run's log.
+    private func recordTurns() {
+        guard let model else { return }
+        let log = SessionTurnLog.log(for: session.id)
+        let now = Date().timeIntervalSince1970 * 1000
+        log.recordTurnSlot(model.turn.state, startedAt: model.turn.startedAt.map(Double.init), now: now)
+        let rows = SessionTurnLog.rows(model.feed)
+        log.recordFeedMessages(rows, now: now)
+        let start = WireTimestamps.parse((model.session ?? session).startedAt)
+            .map { $0.timeIntervalSince1970 * 1000 }
+        let events = log.turnEvents(rows, runStartedAt: start)
+        if events != turnEvents { turnEvents = events }
+    }
+
+    /// One turn's status row: a settled turn reads `Done on <device> · <turn
+    /// time>`, the open one the run's row timed from the turn's start (with
+    /// the tool line); a message still waiting has none.
+    @ViewBuilder
+    private func turnStatusRow(_ model: AgentSessionModel, turn: SessionTurn, isLast: Bool) -> some View {
+        let row = model.session ?? session
+        let state = runRowState(model)
+        let device = hostLabel
+        let runEnd = WireTimestamps.parse(row.endedAt ?? row.updatedAt)
+        let open = turn.endedAt == nil
+        if WorkFaces.turnRowCaption(turn, state: state, device: device, runEndedAt: runEnd, now: Date()) != nil {
+            RunStatusRow(
+                agent: row.agent,
+                markState: open
+                    ? runningRowMarkState(displayState(model), paused: hostPaused, working: model.agentWorking)
+                    : nil,
+                ended: !open || model.sessionEnded,
+                rowState: open ? state : .done,
+                caption: { now in
+                    WorkFaces.turnRowCaption(turn, state: state, device: device, runEndedAt: runEnd, now: now)
+                        ?? RunRowCaption(text: "", tone: .muted)
+                },
+                toolLine: open && isLast && model.phase == .live ? AgentFeed.lastToolLine(model.feed) : nil,
+                showWork: showWork,
+                onToggle: { showWork.toggle() }
+            )
+        }
+    }
+
     /// The empty-feed placeholders: the transcript's while it has no rows;
     /// the thread's only while it is empty too and no card waits.
     private func feedPlaceholder(_ model: AgentSessionModel) -> Bool {
@@ -643,7 +698,10 @@ struct AgentSessionView: View {
     /// with Show work; only the row's button label flips.
     private func feedArea(_ model: AgentSessionModel) -> some View {
         VStack(spacing: 0) {
-            runStatusRow(model)
+            // EXP-1245: the owner's thread of turns draws a row per turn.
+            if showWork || !turns(model).perTurn {
+                runStatusRow(model)
+            }
             feedBody(model)
         }
         // The thread has ONE conversation: hiding the work drops a subagent tab.
@@ -973,16 +1031,23 @@ struct AgentSessionView: View {
     /// no Working… footer: the status row above is the indicator.
     private func threadList(_ model: AgentSessionModel) -> some View {
         let runThread = thread(model)
+        let runTurns = turns(model)
         let cards = model.cardPending ? model.rows.filter(AgentFeed.isPendingCard) : []
         return GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
-                            threadItem(item)
-                        }
-                        if let reply = runThread.reply {
-                            NarrationBubble(text: reply, context: markdownContext)
+                        if runTurns.perTurn {
+                            ForEach(Array(runTurns.turns.enumerated()), id: \.offset) { index, turn in
+                                turnView(model, turn: turn, isLast: index == runTurns.turns.count - 1)
+                            }
+                        } else {
+                            ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
+                                threadItem(item)
+                            }
+                            if let reply = runThread.reply {
+                                NarrationBubble(text: reply, context: markdownContext)
+                            }
                         }
                         ForEach(cards, id: \.id) { row in
                             feedRow(row, isLast: row.id == cards.last?.id)
@@ -1002,11 +1067,43 @@ struct AgentSessionView: View {
                 .onChange(of: runThread) { _, _ in
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
+                .onChange(of: runTurns.turns.count) { _, _ in
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                }
                 .onChange(of: cards.count) { _, _ in
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
             }
         }
+    }
+
+    /// EXP-1245: one turn — the owner's bubble, the turn's status row, then
+    /// its results and reply under the row.
+    @ViewBuilder
+    private func turnView(_ model: AgentSessionModel, turn: SessionTurn, isLast: Bool) -> some View {
+        if let message = turn.message {
+            UserMessageBubble(
+                text: SteerImageMessage.build(
+                    text: message.text,
+                    attachmentIds: message.images.map {
+                        $0.replacingOccurrences(of: "/api/attachments/", with: "")
+                    }
+                ),
+                context: markdownContext,
+                caption: userMessageCaption(name: deps.auth.userName, at: message.at, device: nil)
+            )
+        }
+        turnStatusRow(model, turn: turn, isLast: isLast)
+            .padding(.horizontal, -AgentSessionLayout.gutter)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(turn.items.enumerated()), id: \.offset) { _, item in
+                threadItem(item)
+            }
+            if let reply = turn.reply {
+                NarrationBubble(text: reply, context: markdownContext)
+            }
+        }
+        .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
     }
 
     @ViewBuilder
@@ -2116,6 +2213,9 @@ private struct NarrationBubble: View {
 private struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
+    /// EXP-1245: the turn bubble's muted caption (`<name> · <time>`), under
+    /// the bubble on the trailing edge; nil in the transcript.
+    var caption: String?
 
     @State private var expanded = false
 
@@ -2207,6 +2307,28 @@ private struct UserMessageBubble: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
             )
+        }
+        .modifier(BubbleCaption(caption: caption))
+    }
+}
+
+/// EXP-1245: the turn bubble's caption, muted under it on the trailing edge.
+private struct BubbleCaption: ViewModifier {
+    let caption: String?
+
+    func body(content: Content) -> some View {
+        if let caption, !caption.isEmpty {
+            VStack(alignment: .trailing, spacing: 4) {
+                content
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.trailing, 4)
+                    .accessibilityIdentifier("user-message-caption")
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            content
         }
     }
 }

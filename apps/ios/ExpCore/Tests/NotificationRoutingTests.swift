@@ -16,7 +16,7 @@ final class NotificationRoutingTests: XCTestCase {
                 "face": "results",
                 "notificationId": "n1",
             ]),
-            .issue(id: "i1", face: .results)
+            .issue(id: "i1", face: .guide)
         )
     }
 
@@ -47,7 +47,7 @@ final class NotificationRoutingTests: XCTestCase {
     }
 
     func testAnInboxRowOpensResultsWhenItsLatestIsAnAgentMessage() {
-        XCTAssertEqual(NotificationRouting.issueFace(latestType: "agent_message"), .results)
+        XCTAssertEqual(NotificationRouting.issueFace(latestType: "agent_message"), .guide)
         XCTAssertEqual(NotificationRouting.issueFace(latestType: "issue_mention"), .issue)
         XCTAssertEqual(NotificationRouting.issueFace(latestType: nil), .issue)
     }

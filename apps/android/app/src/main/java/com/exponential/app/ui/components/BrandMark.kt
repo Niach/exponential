@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -22,10 +24,20 @@ import com.exponential.app.R
  * gets a 12dp disc, not a 12dp box with a 6dp disc in it.
  */
 @Composable
-fun ExponentialMark(size: Dp = 12.dp, modifier: Modifier = Modifier) {
+fun ExponentialMark(
+    size: Dp = 12.dp,
+    modifier: Modifier = Modifier,
+    /**
+     * EXP-1249: paint the mark in ONE colour (the Agent page's faint brand
+     * mark is the logo in the foreground colour at ~3.5%); null = its own
+     * colours.
+     */
+    tint: Color? = null,
+) {
     Image(
         painter = painterResource(R.drawable.ic_splash_icon),
         contentDescription = null,
+        colorFilter = tint?.let { ColorFilter.tint(it) },
         modifier = modifier.size(size / MARK_VIEWPORT_RATIO),
     )
 }

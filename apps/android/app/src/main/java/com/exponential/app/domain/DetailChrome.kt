@@ -9,7 +9,7 @@ package com.exponential.app.domain
  * scrolling content; the header shows the identifier alone until that row has
  * scrolled under the header band, then BREAKS (a threshold, never a morph)
  * into the identifier over the one-line title. A face with no title row of
- * its own (Run, Changes, Results) is always collapsed.
+ * its own (Run, Guide) is always collapsed.
  *
  * EDGE STRIPS: content scrolls under the header band and the floating bottom
  * bar; behind them the page background at [SCRIM] over an [EDGE_BLUR] blur,
@@ -58,8 +58,8 @@ object DetailChrome {
     /**
      * Which face tabs wear a state dot, in the session-dot tones. The Run tab
      * while its run is LIVE (`NeedsInput` while it waits on a person, else
-     * `Running`); an OPEN pull request puts `Review` on Results, or on Changes
-     * when there is no Results face. A face not on show carries no dot, an
+     * `Running`); an OPEN pull request puts `Review` on the Guide (EXP-1251).
+     * A face not on show carries no dot, an
      * ended run none.
      */
     fun faceDots(
@@ -71,12 +71,7 @@ object DetailChrome {
         if (runLive && WorkFaceKind.Run in faces) {
             put(WorkFaceKind.Run, if (needsInput) SessionDotTone.NeedsInput else SessionDotTone.Running)
         }
-        if (prOpen) {
-            when {
-                WorkFaceKind.Results in faces -> put(WorkFaceKind.Results, SessionDotTone.Review)
-                WorkFaceKind.Changes in faces -> put(WorkFaceKind.Changes, SessionDotTone.Review)
-            }
-        }
+        if (prOpen && WorkFaceKind.Guide in faces) put(WorkFaceKind.Guide, SessionDotTone.Review)
     }
 
     /** What a dotted tab says after its label ("Run, running"); null = no dot. */

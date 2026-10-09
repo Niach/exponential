@@ -42,13 +42,14 @@ import com.exponential.app.domain.Prompts
 
 /**
  * The issue's file attachments (EXP-297) — everything that is not one of the
- * five inline-embeddable raster types. These rows never appear in the
+ * five inline-embeddable raster types, plus (EXP-1247) every `as_file` upload
+ * whatever its type (`isFileAttachment`). These rows never appear in the
  * markdown, so this section is the only place they exist for the user:
  * open in another app, share, delete.
  *
  * EXP-327: there is no attach button here any more, and no empty state. Files
- * are attached from the description editor's image button ("Photo library /
- * Files"), which is the one place a user reaches for when adding something —
+ * are attached from the description editor's attach menu ("Photo library /
+ * Files"; a Files pick always uploads `asFile`), which is the one place a user reaches for when adding something —
  * so with nothing attached this section renders nothing at all.
  *
  * EXP-1003: a markdown row (`isMarkdownAttachment`, the web's EXP-955 rule)

@@ -101,11 +101,12 @@ public final class AttachmentsApi: Sendable {
         data: Data,
         filename: String,
         contentType: String,
-        media: MediaUploadParts? = nil
+        media: MediaUploadParts? = nil,
+        asFile: Bool = false
     ) async throws -> UploadedAttachment {
         try await upload(
             accountId: accountId,
-            path: "/api/issues/\(issueId)/files",
+            path: Self.withAsFile("/api/issues/\(issueId)/files", asFile),
             data: data,
             filename: filename,
             contentType: contentType,
@@ -124,11 +125,12 @@ public final class AttachmentsApi: Sendable {
         data: Data,
         filename: String,
         contentType: String,
-        media: MediaUploadParts? = nil
+        media: MediaUploadParts? = nil,
+        asFile: Bool = false
     ) async throws -> UploadedAttachment {
         try await upload(
             accountId: accountId,
-            path: Self.draftFilesPath(draftId: draftId),
+            path: Self.withAsFile(Self.draftFilesPath(draftId: draftId), asFile),
             data: data,
             filename: filename,
             contentType: contentType,
@@ -185,6 +187,12 @@ public final class AttachmentsApi: Sendable {
     /// (the multipart body is byte-identical).
     static func draftFilesPath(draftId: String) -> String {
         "/api/issue-drafts/\(draftId)/files"
+    }
+
+    /// EXP-1247: a FILE-button upload marks its row `as_file` (`?asFile=1`,
+    /// read by both upload routes), so it lists under Files and never inlines.
+    static func withAsFile(_ path: String, _ asFile: Bool) -> String {
+        asFile ? "\(path)?asFile=1" : path
     }
 
     private func upload(

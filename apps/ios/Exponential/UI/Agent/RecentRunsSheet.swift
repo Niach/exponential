@@ -3,28 +3,23 @@ import ExpUI
 import SwiftUI
 
 /// EXP-923: the caller's finished runs — history, behind the Agent page's
-/// toolbar glyph instead of a fold under the composer (the ×4 rule). The
-/// composer page lists what is RUNNING; what is over is one tap away and
-/// never in the way.
+/// toolbar glyph instead of a fold under the composer (the ×4 rule).
 ///
-/// No fold of its own: the sheet is not a disclosure. EXP-1061: the rows are
-/// the `SessionTree.sessionTree` SELECTOR drawn, exactly like the Running band
-/// (and web's Recent panel): a resume succession is ONE row, a child nests
-/// under its parent, every parent folds, top level newest ACTIVITY first. Each run row
-/// is the `EndedRunRow` the band used to draw, each tap opening that run's
-/// Work screen.
+/// EXP-1061: the rows are the `SessionTree.sessionTree` SELECTOR drawn,
+/// exactly like the Running band (and web's Recent panel): a resume
+/// succession is ONE row, a child nests under its parent, top level newest
+/// ACTIVITY first. EXP-1248: each row is THE `SessionRow` (big): `Done ·
+/// macbook · 10 h`, the device glyph trailing, no fold (children always
+/// show); a tap opens that run's Work screen.
 ///
 /// EXP-1186: history spans EVERY member team; with more than one, the rows
-/// split into one band per team (`TeamAvatar` + name), each its own tree.
+/// split into one band per team (`TeamAvatar` + name, no count).
 struct RecentRunsSheet: View {
     let vm: AgentsViewModel
     /// The picked run — the page dismisses this sheet and pushes it.
     let onOpen: (String) -> Void
 
     @Environment(TeamState.self) private var teamState
-
-    /// The nodes folded shut, keyed by `SessionTree.nodeKey` (the ×4 rule).
-    @State private var collapsed: Set<String> = []
 
     var body: some View {
         GlassSheetChrome(title: "Recent") {
@@ -57,86 +52,42 @@ struct RecentRunsSheet: View {
         .accessibilityIdentifier("recent-runs-sheet")
     }
 
-    /// One list's rows, drawn as the session tree.
+    /// One list's rows, drawn as the session tree. EXP-1061: the cap
+    /// (`PastRuns.cap`) applies to the ROWS first, so a child whose parent
+    /// fell off it is a top-level orphan.
     @ViewBuilder
     private func tree(_ source: [AgentsViewModel.PastRow]) -> some View {
-        let rows = pastRows(source)
+        let rows = SessionTree.visibleRows(SessionTree.sessionTree(source.map(\.session)))
         let guides = TreeGuides.compute(depths: rows.map(\.depth))
         let byId = Dictionary(
             source.map { ($0.session.id, $0) }, uniquingKeysWith: { a, _ in a }
         )
         ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
-            treeRow(entry, rows: byId)
-                .treeGuides(guides[index])
+            if let past = byId[entry.node.session.id] {
+                row(past, guide: guides[index])
+            }
         }
     }
 
-    /// One drawn row.
-    @ViewBuilder
-    private func treeRow(
-        _ entry: SessionTree.FlatRow, rows: [String: AgentsViewModel.PastRow]
-    ) -> some View {
-        if let past = rows[entry.node.session.id] {
-            row(
-                past,
-                expandable: entry.hasChildren,
-                expanded: !collapsed.contains(entry.key),
-                onToggle: { toggle(entry.key) }
+    private func row(_ row: AgentsViewModel.PastRow, guide: TreeGuide) -> some View {
+        Button { onOpen(row.session.id) } label: {
+            SessionListRow(
+                session: row.session,
+                // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
+                identifier: PastRuns.identifier(
+                    row.session, issue: row.issue, batchIssues: row.batchIssues
+                ),
+                title: PastRuns.title(
+                    row.session, issue: row.issue, batchIssues: row.batchIssues
+                ),
+                prState: row.issue?.prState ?? row.session.prState,
+                device: row.device,
+                deviceIcon: SessionListRow.deviceIcon(row.session, devices: vm.devices),
+                guide: guide
             )
         }
-    }
-
-    private func toggle(_ key: String) {
-        if collapsed.contains(key) {
-            collapsed.remove(key)
-        } else {
-            collapsed.insert(key)
-        }
-    }
-
-    private func row(
-        _ row: AgentsViewModel.PastRow,
-        expandable: Bool,
-        expanded: Bool,
-        onToggle: @escaping () -> Void
-    ) -> some View {
-        EndedRunRow(
-            title: PastRuns.title(
-                row.session, issue: row.issue, batchIssues: row.batchIssues
-            ),
-            // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
-            identifier: PastRuns.identifier(
-                row.session, issue: row.issue, batchIssues: row.batchIssues
-            ),
-            byline: byline(row),
-            expandable: expandable,
-            expanded: expanded,
-            onToggle: onToggle,
-            // EXP-1208: the dimmed run mark leads every ended row.
-            lead: { SessionRowEndedMark(agent: row.session.agent) },
-            onOpen: { onOpen(row.session.id) }
-        )
+        .buttonStyle(.plain)
         .accessibilityIdentifier("past-run-row")
-    }
-
-    /// "macbook · 5m ago" — the ×4 rule, fed the LIVE devices row's label (a
-    /// rename never rewrites the session's start-time snapshot) and this
-    /// client's own relative time.
-    private func byline(_ row: AgentsViewModel.PastRow) -> String {
-        PastRuns.byline(
-            device: row.device.displayLabel,
-            relativeTime: relativeWireDate(PastRuns.endedAt(row.session))
-        )
-    }
-
-    /// EXP-1061: history is the same tree as the Running band — the cap
-    /// (`PastRuns.cap`) applies to the ROWS first, so a child whose parent fell
-    /// off it is a top-level orphan.
-    private func pastRows(_ source: [AgentsViewModel.PastRow]) -> [SessionTree.FlatRow] {
-        SessionTree.visibleRows(
-            SessionTree.sessionTree(source.map(\.session)),
-            collapsed: collapsed
-        )
     }
 
     private var emptyNote: some View {

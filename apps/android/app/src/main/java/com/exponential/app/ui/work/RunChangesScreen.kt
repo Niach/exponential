@@ -16,6 +16,8 @@ import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.chatRunSubject
+import com.exponential.app.domain.guideSectionPage
+import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.issue.toDiffFile
@@ -23,11 +25,12 @@ import dev.chrisbanes.haze.rememberHazeState
 import com.exponential.app.domain.Prompts
 
 // EXP-1194: the review of a RUN's own issue-less pull request (Reviews →
-// Agent runs) — the same Changes face an issue row opens, fed by
-// `codingSessions.prFiles` through [ChangesViewModel] ([ChangesSource.Session]).
-// The header names the run (its title, the Reviews row's), GitHub sits in the
-// header's action slot like the issue Changes face, and the white Merge
-// capsule merges through `codingSessions.mergePr` while the PR is open.
+// Agent runs). EXP-1251: it opens the run's GUIDE — the same [GuideFace] an
+// issue row opens (the run's published sections over `codingSessions.prFiles`
+// through [ChangesViewModel] ([ChangesSource.Session])), each Changes row
+// opening its section page. The header names the run (its title, the Reviews
+// row's), GitHub sits in the header's action slot, and the white Merge capsule
+// merges through `codingSessions.mergePr` while the PR is open.
 
 @Composable
 fun RunChangesScreen(
@@ -42,12 +45,15 @@ fun RunChangesScreen(
     val merging by viewModel.merging.collectAsStateWithLifecycle()
     val actionError by viewModel.actionError.collectAsStateWithLifecycle()
 
-    val files: List<Diff.File> = remember(load) {
+    // Null while the PR files are not loaded: the Guide draws no Changes rows yet.
+    val files: List<Diff.File>? = remember(load) {
         when (val state = load) {
             is ChangesLoadState.Loaded -> state.files.map { it.toDiffFile() }
-            else -> emptyList()
+            else -> null
         }
     }
+    val groups = remember(session?.results) { parseSessionResultGroups(session?.results) }
+    var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     // The Reviews row's own title: a chat run's subject, an action run's
     // snapshot, else "Chat".
     val title = session?.let { chatRunSubject(it) ?: it.actionName }
@@ -95,12 +101,24 @@ fun RunChangesScreen(
                 )
             },
         ) { padding ->
-            ChangesFace(
-                padding = padding,
-                files = files,
-                prLoad = load,
-                merge = merge,
-            )
+            val section = parseGuideSectionParam(sectionName)
+            if (section != null) {
+                GuideSectionDiff(
+                    padding = padding,
+                    page = remember(groups, files, section) { guideSectionPage(groups, files, section) },
+                    load = load,
+                    merge = merge,
+                    onBack = { sectionName = null },
+                )
+            } else {
+                GuideFace(
+                    padding = padding,
+                    groups = groups,
+                    files = files,
+                    merge = merge,
+                    onOpenSection = { key -> sectionName = guideSectionParam(key) },
+                )
+            }
         }
     }
 }

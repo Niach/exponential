@@ -146,4 +146,33 @@ class SteerStartInputWireTest {
             ).contains("subagentModel"),
         )
     }
+
+    // EXP-1249: the per-run computer use flag sits next to `mcpServerIds`,
+    // both before the prompt; absent when null (the device default).
+    @Test
+    fun `mcp servers and computer use ride before the prompt`() {
+        val encoded = json.encodeToString(
+            StartSessionInput.serializer(),
+            StartSessionInput(
+                issueId = "i-1",
+                deviceId = "d-1",
+                mcpServerIds = listOf("m-1"),
+                computerUse = true,
+                prompt = "go",
+            ),
+        )
+        assertEquals(
+            """{"issueId":"i-1","deviceId":"d-1","mcpServerIds":["m-1"],"computerUse":true,"prompt":"go"}""",
+            encoded,
+        )
+        val action = json.encodeToString(
+            StartActionSessionInput.serializer(),
+            StartActionSessionInput(actionId = "a-1", deviceId = "d-1", computerUse = false),
+        )
+        assertEquals("""{"actionId":"a-1","deviceId":"d-1","computerUse":false}""", action)
+        assertFalse(
+            json.encodeToString(StartBatchSessionInput.serializer(), StartBatchSessionInput(listOf("i"), "d"))
+                .contains("computerUse"),
+        )
+    }
 }

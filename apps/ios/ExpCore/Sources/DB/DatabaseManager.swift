@@ -353,6 +353,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 // EXP-824 (v35 heals older stores): media length + poster.
                 t.column("duration_ms", .integer)
                 t.column("poster_storage_key", .text)
+                // EXP-1247 (v64 heals older stores): a FILE-button upload.
+                t.column("as_file", .boolean).notNull().defaults(to: false)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -2271,6 +2273,27 @@ public final class DatabaseManager: @unchecked Sendable {
                     UPDATE "electric_offsets"
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'issues'
+                    """)
+            }
+        }
+
+        // v64 (EXP-1247 draft files): `attachments.as_file`, set by the FILE
+        // buttons so an image picked there lists under Files and never
+        // inlines. The v63 pattern: a guarded additive ALTER, and the
+        // attachments offset resets only when the column was added, so
+        // already-synced rows re-arrive carrying it.
+        migrator.registerMigration("v64_attachment_as_file") { db in
+            guard try db.tableExists("attachments") else { return }
+            let existing = Set(try db.columns(in: "attachments").map(\.name))
+            guard !existing.contains("as_file") else { return }
+            try db.alter(table: "attachments") { t in
+                t.add(column: "as_file", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'attachments'
                     """)
             }
         }

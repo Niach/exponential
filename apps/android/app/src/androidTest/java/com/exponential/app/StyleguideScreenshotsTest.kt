@@ -50,6 +50,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_chat · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_action-triggers ·
  *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
+ *   sg_session-row · sg_pr-row ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices
@@ -384,7 +385,32 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_chat")
 
-        composeRule.onNode(hasTestTag("agent-composer-issues-button")).performClick()
+        // --- sg_session-row: THE session row, big (EXP-1248). The Recent
+        // sheet behind the page's history glyph draws every run as the big
+        // SessionRow (mark at 12 + 14·depth, caption, device glyph, children
+        // nested, no fold). A detour no later shot needs, so a scoped run that
+        // did not ask for it skips it whole (iOS parity).
+        if (ScreenshotFlow.isShotWanted("sg_session-row")) {
+            composeRule.onNode(hasTestTag("agent-history-button")).performClick()
+            flow.waitFor(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
+            if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
+                android.util.Log.w(
+                    "EXP-1248",
+                    "sg_session-row: no finished runs — reseed with `bun run seed:screenshots`",
+                )
+            }
+            flow.settle()
+            flow.screenshot("sg_session-row")
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
+            flow.settle()
+        }
+
+        // EXP-1249: the "+" is the composer's ONE tool; Implement issue › opens
+        // the issue picker (composer-menu.json test ids).
+        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-menu-implement-issue"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-menu-implement-issue")).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
             flow.waitFor(hasText(title, substring = true), SYNC_TIMEOUT)
@@ -398,7 +424,9 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_chat-issues")
 
-        composeRule.onNode(hasTestTag("agent-composer-actions-button")).performClick()
+        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-menu-run-action"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-menu-run-action")).performClick()
         flow.waitFor(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
         flow.waitFor(hasText(FIX_CONFLICTS_ACTION_NAME), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText(FIX_CONFLICTS_ACTION_NAME)).onFirst().performClick()
@@ -497,7 +525,7 @@ class StyleguideScreenshotsTest {
         // --- Runs tab: every run of this action; the seed's triggered run
         // reads "Scheduled run". Same optional gate as Triggers.
         composeRule.onNode(hasTestTag("action-tab-runs")).performClick()
-        if (!flow.waitForOptional(hasTestTag("ended-run-row"), SYNC_TIMEOUT)) {
+        if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
             android.util.Log.w(
                 "SLOP-2",
                 "sg_action-runs: no run rows — reseed with `bun run seed:screenshots`",
@@ -526,6 +554,13 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_reviews")
+
+        // --- sg_pr-row: THE pull-request row (EXP-1248). The same queue IS
+        // the PrRow surface: one line per PR, a tree nested with guides, a
+        // stack on its rail over the base-branch row.
+        flow.waitFor(hasTestTag("pr-list"), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_pr-row")
 
         // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
         // finished chat run whose own pull request is open; its row opens

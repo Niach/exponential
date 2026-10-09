@@ -13,7 +13,7 @@ final class DeepLinkBus: @unchecked Sendable {
     // EXP-92 — where the account is known from the URL-host match, not a
     // userId). Wins over the userId mapping when set.
     var pendingIssueAccountId: String?
-    // EXP-933: the Work face the issue link opens on — `.results` for an
+    // EXP-933: the Work face the issue link opens on — `.guide` for an
     // agent's targeted message (its report), `.issue` otherwise.
     var pendingIssueFace: WorkFaceKind = .issue
     var pendingInviteToken: String?

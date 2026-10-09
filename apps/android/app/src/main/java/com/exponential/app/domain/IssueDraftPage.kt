@@ -11,12 +11,7 @@ object IssueDraftPage {
     const val TITLE_PLACEHOLDER = "Issue title"
     const val DESCRIPTION_PLACEHOLDER = "Add description..."
     const val CREATE = "Create"
-    const val DISCARD = "Discard draft"
     const val UNTITLED = "Untitled draft"
-
-    // EXP-1212: the close button's confirm (`copy.discardConfirm`).
-    const val DISCARD_CONFIRM_TITLE = "Discard this draft and its files?"
-    const val DISCARD_CONFIRM = "Discard"
 
     // EXP-1212: the held-navigation prompt (`copy.leave`).
     const val LEAVE_TITLE = "Save this issue as a draft?"
@@ -47,25 +42,18 @@ object IssueDraftPage {
     fun createEnabled(title: String, hasBoard: Boolean, creating: Boolean, uploadsInFlight: Int): Boolean =
         title.isNotBlank() && hasBoard && !creating && uploadsInFlight == 0
 
-    /** How the page is asked to go. */
-    enum class Exit {
-        /** The close button, Discard draft. */
-        Discard,
-
-        /** Anything else: back, a nav entry, opening another screen. */
-        Leave,
-    }
-
-    /** What an [Exit] asks before it happens. */
-    enum class Prompt { None, DiscardConfirm, Leave }
+    /** What leaving the page asks before it happens. */
+    enum class Prompt { None, Leave }
 
     /**
-     * EXP-1212: a draft WITH content never goes silently. Nothing is asked
-     * while a Create is in flight (the page goes where the create lands).
+     * EXP-1212: a draft WITH content never goes silently: back, a nav entry or
+     * opening another screen asks the leave question (EXP-1247: the page has
+     * no close button, Back + Create only, so discarding is the leave
+     * prompt's answer). Nothing is asked while a Create is in flight (the
+     * page goes where the create lands).
      */
-    fun prompt(hasContent: Boolean, exit: Exit, creating: Boolean = false): Prompt = when {
+    fun prompt(hasContent: Boolean, creating: Boolean = false): Prompt = when {
         creating || !hasContent -> Prompt.None
-        exit == Exit.Discard -> Prompt.DiscardConfirm
         else -> Prompt.Leave
     }
 

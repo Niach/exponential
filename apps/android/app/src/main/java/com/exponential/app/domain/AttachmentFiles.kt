@@ -50,6 +50,23 @@ fun isInlineAudio(contentType: String?): Boolean =
 fun isInlineMedia(contentType: String?): Boolean =
     isInlineVideo(contentType) || isInlineAudio(contentType)
 
+// EXP-1247: the ROW-aware rule (web `lib/attachment-files.ts`, desktop
+// `issue_files::is_file_row`, iOS `AttachmentFiles.isFile`): a row uploaded
+// through a FILE/paperclip path carries `as_file` and is never inline (image
+// or media), so it always shows in Files; otherwise the content type decides.
+
+/** An inline image row: an embeddable raster type, never an `as_file` upload. */
+fun isInlineImageAttachment(contentType: String?, asFile: Boolean): Boolean =
+    !asFile && isInlineImage(contentType)
+
+/** An inline media row: a video/audio type, never an `as_file` upload. */
+fun isInlineMediaAttachment(contentType: String?, asFile: Boolean): Boolean =
+    !asFile && isInlineMedia(contentType)
+
+/** A Files row: a type that never inlines, OR an `as_file` upload. */
+fun isFileAttachment(contentType: String?, asFile: Boolean): Boolean =
+    asFile || (!isInlineImage(contentType) && !isInlineMedia(contentType))
+
 /**
  * Canonical upload form of a picker-derived content type: lowercased media
  * essence with any `;`-parameter suffix stripped, falling back to

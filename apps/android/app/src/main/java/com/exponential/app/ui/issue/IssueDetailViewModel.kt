@@ -46,8 +46,7 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.relationSortKey
 import com.exponential.app.domain.PreparedMedia
-import com.exponential.app.domain.isInlineImage
-import com.exponential.app.domain.isInlineMedia
+import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.session.PastRunRow
 import com.exponential.app.ui.session.issueRunRows
@@ -324,11 +323,12 @@ class IssueDetailViewModel @AssistedInject constructor(
      * attachment strip, and listing them here too would double-list them.
      * EXP-824: inline media (video / audio) leaves the rail like images do —
      * it is referenced from the description as a plain link and plays there.
+     * EXP-1247: an `as_file` row stays here whatever its type.
      */
     val fileAttachments: StateFlow<List<AttachmentEntity>> = attachmentsFlow
         .map { rows ->
             rows.filter {
-                it.commentId == null && !isInlineImage(it.contentType) && !isInlineMedia(it.contentType)
+                it.commentId == null && isFileAttachment(it.contentType, it.asFile)
             }
                 .sortedBy { it.createdAt }
         }
@@ -1119,9 +1119,10 @@ class IssueDetailViewModel @AssistedInject constructor(
     // ── File attachments (EXP-297) ───────────────────────────────────────────
 
     /**
-     * Installed by the screen (EXP-327): where an image that reached the FILE
-     * path goes instead of erroring — appended to the description editor, whose
-     * model the screen owns. Null (no editor mounted) leaves the pick dropped.
+     * EXP-327 legacy hook, no longer invoked: since EXP-1247 a FILE-path pick
+     * of an image or clip uploads `asFile` and stays a Files row instead of
+     * detouring into the description. Kept only while IssueDetailScreen still
+     * installs it.
      */
     var onInlineImagePicked: ((android.net.Uri, String) -> Unit)? = null
 
@@ -1179,21 +1180,8 @@ class IssueDetailViewModel @AssistedInject constructor(
             val contentType = canonicalContentType(
                 withContext(Dispatchers.IO) { resolver.getType(pending.uri) }
             )
-            if (isInlineImage(contentType) || isInlineMedia(contentType)) {
-                // An inline-image type uploaded through the Files flow would be
-                // invisible everywhere: filtered out of every client's Files
-                // section, referenced by no markdown, and eventually deleted by
-                // the owner's unreferenced-image sweep. EXP-327: rather than
-                // dead-ending the pick with an error telling the user to go use
-                // the other button, put it where it belongs — the end of the
-                // description. (The attach menu classifies picks up front, so
-                // this only catches a URI whose type resolves differently here.)
-                // EXP-824: a video / audio type takes the same detour — the
-                // screen's handler routes it through the media path.
-                _pendingFiles.value = _pendingFiles.value.filterNot { it.key == key }
-                onInlineImagePicked?.invoke(pending.uri, contentType)
-                return@launch
-            }
+            // EXP-1247: a Files pick never inlines — an image or a clip
+            // uploads `asFile` and stays in Files (no description detour).
             val bytes = withContext(Dispatchers.IO) {
                 runCatching {
                     resolver.openInputStream(pending.uri)?.use { it.readBytes() }
@@ -1222,6 +1210,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                     bytes,
                     filename,
                     contentType,
+                    asFile = true,
                 )
                 // Keep the row until the synced attachment lands (pendingFiles
                 // dedupes on this id) so the list never blinks empty.

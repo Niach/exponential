@@ -2,7 +2,8 @@ import CoreGraphics
 import Foundation
 
 // EXP-879: a coding run's published RESULTS — the screenshots the agent filed
-// with `exponential_sessions_results` while it worked, read off the synced
+// with `exponential_sessions_guide` (EXP-1251, alias
+// `exponential_sessions_results`) while it worked, read off the synced
 // `coding_sessions.results` jsonb (the entity keeps it as the raw TEXT, like
 // `blocked`).
 //
@@ -161,19 +162,24 @@ public struct SessionResultGroup: Equatable, Sendable, Identifiable {
     /// EXP-1154: the repo-relative paths the topic touched, off the SAME
     /// entry its text came from; empty when none (or a picture-only topic).
     public let files: [String]
+    /// EXP-1251: the PR the topic belongs to (its text entry's `prUrl`); nil =
+    /// every PR of the run.
+    public let prUrl: String?
 
     public init(
         topic: String,
         text: String? = nil,
         entries: [SessionResultEntry],
         earlier: [SessionResultEntry] = [],
-        files: [String] = []
+        files: [String] = [],
+        prUrl: String? = nil
     ) {
         self.topic = topic
         self.text = text
         self.entries = entries
         self.earlier = earlier
         self.files = files
+        self.prUrl = prUrl
     }
 
     public var id: String { topic }
@@ -188,25 +194,9 @@ private func foldInline(_ group: SessionResultGroup) -> SessionResultGroup {
         text: group.text,
         entries: group.entries.filter { !$0.inline },
         earlier: group.entries.filter(\.inline),
-        files: group.files
+        files: group.files,
+        prUrl: group.prUrl
     )
-}
-
-/// Groups by topic in FIRST-SEEN order, keeping each group's entries in the
-/// order the agent published them.
-public func groupSessionResults(
-    _ entries: [SessionResultEntry]
-) -> [SessionResultGroup] {
-    var topics: [String] = []
-    var byTopic: [String: [SessionResultEntry]] = [:]
-    for entry in entries {
-        if byTopic[entry.topic] == nil {
-            topics.append(entry.topic)
-            byTopic[entry.topic] = []
-        }
-        byTopic[entry.topic]?.append(entry)
-    }
-    return topics.map { foldInline(SessionResultGroup(topic: $0, entries: byTopic[$0] ?? [])) }
 }
 
 /// EXP-933: the Results face as a REPORT — pictures AND each topic's text
@@ -215,9 +205,20 @@ public func groupSessionResults(
 /// non-blank text entry, trimmed; pictures keep the 60 cap. Fixture:
 /// `packages/domain-contract/fixtures/session-results.json` (×4).
 public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
+    sessionResultGroups(resultRecords(raw))
+}
+
+/// The same reader over records already parsed (what `sessionResultsForPr`
+/// answers).
+public func parseSessionResultGroups(records: [[String: Any]]) -> [SessionResultGroup] {
+    sessionResultGroups(records)
+}
+
+private func sessionResultGroups(_ records: [[String: Any]]) -> [SessionResultGroup] {
     var topics: [String] = []
     var texts: [String: String] = [:]
     var filesByTopic: [String: [String]] = [:]
+    var prUrlByTopic: [String: String] = [:]
     var byTopic: [String: [SessionResultEntry]] = [:]
     func open(_ topic: String) {
         if byTopic[topic] == nil {
@@ -226,7 +227,7 @@ public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
         }
     }
     var pictures = 0
-    for record in resultRecords(raw) {
+    for record in records {
         if let entry = resultPicture(record) {
             if pictures >= maxSessionResults { continue }
             pictures += 1
@@ -241,6 +242,7 @@ public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
         if texts[topic] == nil {
             texts[topic] = body
             filesByTopic[topic] = resultFiles(record["files"])
+            if let prUrl = resultText(record["prUrl"]) { prUrlByTopic[topic] = prUrl }
         }
     }
     return topics.map {
@@ -248,7 +250,8 @@ public func parseSessionResultGroups(_ raw: String?) -> [SessionResultGroup] {
             topic: $0,
             text: texts[$0],
             entries: byTopic[$0] ?? [],
-            files: filesByTopic[$0] ?? []
+            files: filesByTopic[$0] ?? [],
+            prUrl: prUrlByTopic[$0]
         ))
     }
 }
@@ -316,30 +319,186 @@ public func guideSectionCaption(_ index: Int, _ total: Int) -> String {
     String(format: "%02d / %02d", index, total)
 }
 
-/// One file row under a Guide section: counts only when the path matches a
-/// loaded diff file exactly.
-public struct GuideFileRow: Equatable, Sendable, Identifiable {
-    public let path: String
-    public let additions: Int?
-    public let deletions: Int?
+// MARK: - EXP-1251: the Guide's COVERAGE
 
-    public init(path: String, additions: Int? = nil, deletions: Int? = nil) {
-        self.path = path
-        self.additions = additions
-        self.deletions = deletions
+// Each section's ONE `Changes` row counts the diff files its topic names (a
+// path matches a diff file's `path` OR its rename source `previousPath`),
+// every diff file no topic names lands in a trailing automatic section
+// (`Other changes`; with no report at all, ONE `Changes` section holds the
+// whole diff) and `complete` is the `Show complete diff` row. Fixture
+// `session-results.json` `coverage` (×4).
+
+/// The automatic section's title when a report exists.
+public let guideOtherChangesTopic = DomainContract.diffUiGuideOtherChanges
+/// The automatic section's title with no report, and every section's row label.
+public let guideChangesTopic = DomainContract.diffUiGuideChangesRow
+
+public struct GuideChangeSet: Equatable, Sendable {
+    public let files: [Diff.File]
+    public let additions: Int
+    public let deletions: Int
+    public var fileCount: Int { files.count }
+
+    public init(files: [Diff.File]) {
+        self.files = files
+        additions = files.reduce(0) { $0 + $1.additions }
+        deletions = files.reduce(0) { $0 + $1.deletions }
     }
-
-    public var id: String { path }
 }
 
-/// One row per path in order. Fixture `guide.fileRows` (×4).
-public func guideFileRows(_ paths: [String], files: [Diff.File]?) -> [GuideFileRow] {
-    paths.map { path in
-        guard let file = files?.first(where: { $0.path == path }) else {
-            return GuideFileRow(path: path)
-        }
-        return GuideFileRow(path: path, additions: file.additions, deletions: file.deletions)
+public struct GuideCoveredGroup: Equatable, Sendable {
+    public let group: SessionResultGroup
+    /// nil while no diff is loaded: the row is not drawn.
+    public let changes: GuideChangeSet?
+    /// Listed paths the loaded diff does not have (empty without a diff).
+    public let missing: [String]
+}
+
+public struct GuideCoverageSection: Equatable, Sendable, Identifiable {
+    public let group: SessionResultGroup
+    public let changes: GuideChangeSet?
+    public let missing: [String]
+    /// 1-based; the lead never counts, the automatic section neither.
+    public let index: Int
+    public let total: Int
+
+    public var id: String { group.topic }
+}
+
+public struct GuideCoverage: Equatable, Sendable {
+    public struct Other: Equatable, Sendable {
+        public let topic: String
+        public let changes: GuideChangeSet
     }
+
+    public let lead: GuideCoveredGroup?
+    public let sections: [GuideCoverageSection]
+    /// The trailing automatic section, unnumbered: nil when every file is
+    /// claimed, the diff is empty or not loaded.
+    public let other: Other?
+    /// Every diff file (the `Show complete diff` row); nil without a diff.
+    public let complete: GuideChangeSet?
+}
+
+/// A Changes row's muted count: `1 file`, `N files`.
+public func guideFileCountLabel(_ count: Int) -> String {
+    count == 1 ? "1 file" : "\(count) files"
+}
+
+/// True when a listed path names this diff file (its path or rename source).
+public func guidePathMatches(_ path: String, _ file: Diff.File) -> Bool {
+    file.path == path || (file.previousPath.map { !$0.isEmpty && $0 == path } ?? false)
+}
+
+/// The diff files a topic's paths name, in LISTED order (a file once), plus
+/// the listed paths no diff file matches.
+public func guideFilesFor(
+    _ paths: [String], _ diffFiles: [Diff.File]
+) -> (files: [Diff.File], missing: [String]) {
+    let (picked, missing) = guideFileIndices(paths, diffFiles)
+    return (picked.map { diffFiles[$0] }, missing)
+}
+
+private func guideFileIndices(
+    _ paths: [String], _ diffFiles: [Diff.File]
+) -> (indices: [Int], missing: [String]) {
+    var picked: [Int] = []
+    var missing: [String] = []
+    for path in paths {
+        let hits = diffFiles.indices.filter { guidePathMatches(path, diffFiles[$0]) }
+        if hits.isEmpty {
+            missing.append(path)
+            continue
+        }
+        for hit in hits where !picked.contains(hit) { picked.append(hit) }
+    }
+    return (picked, missing)
+}
+
+public func guideCoverage(_ groups: [SessionResultGroup], _ diffFiles: [Diff.File]?) -> GuideCoverage {
+    let guide = sessionResultsGuide(groups)
+    var claimed = Set<Int>()
+    func cover(_ group: SessionResultGroup) -> (GuideChangeSet?, [String]) {
+        guard let diffFiles else { return (nil, []) }
+        let (indices, missing) = guideFileIndices(group.files, diffFiles)
+        claimed.formUnion(indices)
+        return (GuideChangeSet(files: indices.map { diffFiles[$0] }), missing)
+    }
+    let lead = guide.lead.map { group -> GuideCoveredGroup in
+        let (changes, missing) = cover(group)
+        return GuideCoveredGroup(group: group, changes: changes, missing: missing)
+    }
+    let sections = guide.sections.map { section -> GuideCoverageSection in
+        let (changes, missing) = cover(section.group)
+        return GuideCoverageSection(
+            group: section.group, changes: changes, missing: missing,
+            index: section.index, total: section.total
+        )
+    }
+    guard let diffFiles else {
+        return GuideCoverage(lead: lead, sections: sections, other: nil, complete: nil)
+    }
+    let rest = diffFiles.indices.filter { !claimed.contains($0) }.map { diffFiles[$0] }
+    return GuideCoverage(
+        lead: lead,
+        sections: sections,
+        other: rest.isEmpty ? nil : GuideCoverage.Other(
+            topic: groups.isEmpty ? guideChangesTopic : guideOtherChangesTopic,
+            changes: GuideChangeSet(files: rest)
+        ),
+        complete: GuideChangeSet(files: diffFiles)
+    )
+}
+
+// MARK: - EXP-1251: a run's topics scoped per PR
+
+// A run that stacks a second PR scopes its topics: a text entry may carry
+// `prUrl`, and a PR (or the issue that owns it) shows only the topics tagged
+// with it plus the untagged ones. Pictures follow their topic's text. Fixture
+// `session-results.json` `prScope` (×4).
+
+/// A topic's PR tag: its first non-blank text entry's `prUrl`, trimmed.
+private func topicPrUrls(_ records: [[String: Any]]) -> (tags: [String: String], order: [String]) {
+    var tags: [String: String] = [:]
+    var order: [String] = []
+    var seen = Set<String>()
+    for record in records {
+        if resultPicture(record) != nil { continue }
+        guard let topic = resultText(record["topic"]),
+              resultText(record["text"]) != nil,
+              !seen.contains(topic)
+        else { continue }
+        seen.insert(topic)
+        if let prUrl = resultText(record["prUrl"]) {
+            tags[topic] = prUrl
+            order.append(prUrl)
+        }
+    }
+    return (tags, order)
+}
+
+/// The entries a PR shows: untagged topics and the ones tagged `prUrl`; feed
+/// the answer to `parseSessionResultGroups(records:)`.
+public func sessionResultsForPr(_ raw: String?, prUrl: String?) -> [[String: Any]] {
+    let list = resultRecords(raw)
+    let tags = topicPrUrls(list).tags
+    let want = prUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let wanted = (want?.isEmpty ?? true) ? nil : want
+    return list.filter { record in
+        guard let topic = resultText(record["topic"]), let tag = tags[topic] else { return true }
+        return tag == wanted
+    }
+}
+
+/// The groups a PR shows (`sessionResultsForPr` → the group reader).
+public func sessionResultGroupsForPr(_ raw: String?, prUrl: String?) -> [SessionResultGroup] {
+    parseSessionResultGroups(records: sessionResultsForPr(raw, prUrl: prUrl))
+}
+
+/// Every PR url a run's topics are tagged with, first-seen order.
+public func sessionResultPrUrls(_ raw: String?) -> [String] {
+    var seen = Set<String>()
+    return topicPrUrls(resultRecords(raw)).order.filter { seen.insert($0).inserted }
 }
 
 /// True when the blob has anything for the Results face to show.
@@ -438,6 +597,50 @@ public struct SessionThread: Equatable, Sendable {
     public var isEmpty: Bool { items.isEmpty && reply == nil }
 }
 
+/// A run's thread in publish order, each piece with the server's write stamp
+/// (`at`, ms; nil on an entry filed before EXP-1251).
+private struct ThreadPiece {
+    let item: SessionThread.Item?
+    let reply: String?
+    let at: Double?
+}
+
+private func stampMs(_ value: Any?) -> Double? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID()
+    else { return nil }
+    let double = number.doubleValue
+    return double.isFinite && double > 0 ? double : nil
+}
+
+private func threadPieces(_ raw: String?) -> [ThreadPiece] {
+    var pieces: [ThreadPiece] = []
+    var seenText = Set<String>()
+    var replied = false
+    var pictures = 0
+    for record in resultRecords(raw) {
+        let at = stampMs(record["at"])
+        if let entry = resultPicture(record) {
+            if pictures >= maxSessionResults { continue }
+            pictures += 1
+            pieces.append(ThreadPiece(item: .picture(entry), reply: nil, at: at))
+            continue
+        }
+        guard let topic = resultText(record["topic"]),
+              let body = resultText(record["text"])
+        else { continue }
+        if isSummaryTopic(topic) {
+            if !replied { pieces.append(ThreadPiece(item: nil, reply: body, at: at)) }
+            replied = true
+            continue
+        }
+        if seenText.contains(topic) { continue }
+        seenText.insert(topic)
+        pieces.append(ThreadPiece(item: .text(topic: topic, text: body), reply: nil, at: at))
+    }
+    return pieces
+}
+
 /// Array (publish) order, the group reader's tolerance and 60-picture cap: a
 /// picture is an item where it sits; a topic's FIRST non-blank text is an item
 /// where it sits (a later text of the same topic is dropped); the Summary
@@ -445,26 +648,175 @@ public struct SessionThread: Equatable, Sendable {
 /// stay in the stream.
 public func sessionThread(_ raw: String?) -> SessionThread {
     var items: [SessionThread.Item] = []
-    var seenText = Set<String>()
     var reply: String?
-    var pictures = 0
-    for record in resultRecords(raw) {
-        if let entry = resultPicture(record) {
-            if pictures >= maxSessionResults { continue }
-            pictures += 1
-            items.append(.picture(entry))
-            continue
-        }
-        guard let topic = resultText(record["topic"]),
-              let body = resultText(record["text"])
-        else { continue }
-        if isSummaryTopic(topic) {
-            if reply == nil { reply = body }
-            continue
-        }
-        if seenText.contains(topic) { continue }
-        seenText.insert(topic)
-        items.append(.text(topic: topic, text: body))
+    for piece in threadPieces(raw) {
+        if let item = piece.item { items.append(item) } else { reply = piece.reply }
     }
     return SessionThread(items: items, reply: reply)
+}
+
+// MARK: - EXP-1245: the thread as a CONVERSATION of turns
+
+// For the run's OWNER (the relay feed is theirs alone): each turn = the
+// person's message that opened it (a bubble), its status row (`startedAt` /
+// `endedAt` feed the per-turn caption) and the results the server stamped
+// (`at`) inside it, the Summary as the reply of the turn that last wrote it.
+// Teammates and an offline host have no feed and keep today's single-row
+// thread. Fixture `session-results.json` `turns` (×4).
+
+/// One relay feed fact the turns read: a person's message or a turn edge.
+/// Times are epoch milliseconds.
+public enum SessionTurnEvent: Equatable, Sendable {
+    case userMessage(at: Double, text: String, images: [String] = [])
+    case turn(started: Bool, at: Double)
+
+    var at: Double {
+        switch self {
+        case let .userMessage(at, _, _): at
+        case let .turn(_, at): at
+        }
+    }
+}
+
+public struct SessionTurnMessage: Equatable, Sendable {
+    public let text: String
+    public let at: Double
+    /// The message's image urls, in order (the bubble shows a thumb).
+    public let images: [String]
+
+    public init(text: String, at: Double, images: [String] = []) {
+        self.text = text
+        self.at = at
+        self.images = images
+    }
+}
+
+public struct SessionTurn: Equatable, Sendable {
+    /// The person's message that opened the turn; nil for the first turn of
+    /// an issue run (its prompt is the issue) or a turn the agent began.
+    public var message: SessionTurnMessage?
+    /// The turn's `started` edge; nil while a sent message waits.
+    public var startedAt: Double?
+    /// The turn's `ended` edge (or the next message that cut in); nil while live.
+    public var endedAt: Double?
+    public var items: [SessionThread.Item]
+    public var reply: String?
+
+    public init(
+        message: SessionTurnMessage? = nil,
+        startedAt: Double? = nil,
+        endedAt: Double? = nil,
+        items: [SessionThread.Item] = [],
+        reply: String? = nil
+    ) {
+        self.message = message
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.items = items
+        self.reply = reply
+    }
+
+    var boundary: Double { message?.at ?? startedAt ?? 0 }
+}
+
+public struct SessionTurns: Equatable, Sendable {
+    /// False = no feed: ONE turn holding today's thread, drawn under the one
+    /// run-wide status row.
+    public let perTurn: Bool
+    public let turns: [SessionTurn]
+}
+
+/// Walks the feed in time order (ties keep feed order): a message opens a new
+/// turn (closing a still-open one at its time, the new turn starting there
+/// too: the agent never stopped); a `started` edge starts the newest turn when
+/// it has not started yet, else opens a turn with no message; an `ended` edge
+/// ends the open turn. Every result lands in the LAST turn whose boundary
+/// (message time, else start) is at or before its `at`; one without `at`, or
+/// older than the first turn, lands in the first. No usable feed event = one
+/// turn, `perTurn` false.
+public func sessionTurns(_ raw: String?, feed: [SessionTurnEvent]? = nil) -> SessionTurns {
+    let events = (feed ?? []).enumerated()
+        .filter { $0.element.at.isFinite }
+        .sorted { a, b in
+            a.element.at != b.element.at ? a.element.at < b.element.at : a.offset < b.offset
+        }
+        .map(\.element)
+    var turns: [SessionTurn] = []
+    func openIndex() -> Int? {
+        guard let last = turns.indices.last,
+              turns[last].startedAt != nil, turns[last].endedAt == nil
+        else { return nil }
+        return last
+    }
+    for event in events {
+        switch event {
+        case let .userMessage(at, text, images):
+            let running = openIndex()
+            if let running { turns[running].endedAt = at }
+            turns.append(SessionTurn(
+                message: SessionTurnMessage(text: text, at: at, images: images.filter { !$0.isEmpty }),
+                startedAt: running == nil ? nil : at
+            ))
+        case let .turn(started, at):
+            if started {
+                if let last = turns.indices.last,
+                   turns[last].startedAt == nil, turns[last].endedAt == nil {
+                    turns[last].startedAt = at
+                } else if openIndex() == nil {
+                    turns.append(SessionTurn(startedAt: at))
+                }
+            } else if let running = openIndex() {
+                turns[running].endedAt = at
+            }
+        }
+    }
+    if turns.isEmpty {
+        let thread = sessionThread(raw)
+        return SessionTurns(
+            perTurn: false,
+            turns: [SessionTurn(items: thread.items, reply: thread.reply)]
+        )
+    }
+    for piece in threadPieces(raw) {
+        var target = 0
+        if let at = piece.at {
+            for index in turns.indices where turns[index].boundary <= at { target = index }
+        }
+        if let item = piece.item {
+            turns[target].items.append(item)
+        } else {
+            turns[target].reply = piece.reply
+        }
+    }
+    return SessionTurns(perTurn: true, turns: turns)
+}
+
+// MARK: - EXP-1245: the owner's message bubble caption
+
+/// `21:40`: local hours and minutes, both two-digit (web `userMessageTime`).
+public func userMessageTime(_ atMs: Double, timeZone: TimeZone = .current) -> String {
+    guard atMs.isFinite else { return "" }
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let parts = calendar.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: atMs / 1000))
+    return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+}
+
+/// The caption under the bubble — `<name> · <time> · from <device>`; a
+/// missing part drops with its separator (web `userMessageCaption`).
+public func userMessageCaption(
+    name: String?, at: Double?, device: String?, timeZone: TimeZone = .current
+) -> String {
+    var parts: [String] = []
+    if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+        parts.append(name)
+    }
+    if let at {
+        let time = userMessageTime(at, timeZone: timeZone)
+        if !time.isEmpty { parts.append(time) }
+    }
+    if let device = device?.trimmingCharacters(in: .whitespacesAndNewlines), !device.isEmpty {
+        parts.append("from \(device)")
+    }
+    return parts.joined(separator: " · ")
 }

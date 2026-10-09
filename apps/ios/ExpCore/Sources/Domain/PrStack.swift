@@ -2,8 +2,11 @@ import Foundation
 
 /// EXP-897, the PR STACK, derived from synced data alone and mirrored ×4
 /// (web `lib/pr-stack.ts`, desktop `domain::pr_stack`, Android `PrStack.kt`).
-/// SLOP-3: the client CHAIN, read by the related-work badge (`PrGraph`) and
-/// the stack merge dialog (`stackMergeChoice`, EXP-1145); no list nesting.
+/// SLOP-3: the client CHAIN, read by the related-work badge (`PrGraph`).
+/// EXP-1248: `openPrShape` tells a tree from a stack, `stackView` = the stack
+/// rail (Guide card, Reviews), `stackMergeConfirm` = the ONE stack merge
+/// confirm (the legacy 3-way `stackMergeChoice` stays until its last caller
+/// moves).
 ///
 /// One edge, one rule: a pull request is stacked ON another when its
 /// `prBaseBranch` equals the lower one's `branch` (both non-empty). No stack
@@ -252,6 +255,225 @@ public enum PrStack {
             stackSentence: stackSentence,
             thisSentence: thisSentence,
             body: "\(listing)\n\n\(stackSentence)\n\(thisSentence)"
+        )
+    }
+
+    // MARK: - EXP-1248: tree vs stack, the stack rail, the one confirm
+
+    // ×4 (web `prComponent`/`prGraphShape`/`openPrShape`/`stackView`/
+    // `stackMergeConfirm` in `lib/pr-stack.ts`, desktop `domain::pr_stack`,
+    // Android `PrStack`), locked by `fixtures/pr-stack-view.json` and
+    // `fixtures/stack-merge-choice.json` (`confirm`).
+
+    /// A base-chained component's shape: `tree` = a fork anywhere (follow-up
+    /// runs; nests with tree guides), `stack` = linear (GitHub stacks it; the
+    /// stack rail), `single` = one pull request.
+    public enum PrGraphShape: String, Sendable {
+        case tree
+        case stack
+        case single
+    }
+
+    /// Every node base-chained to `node` (either direction), in input order.
+    public static func prComponent(_ node: IssueEntity, in nodes: [IssueEntity]) -> [IssueEntity] {
+        let byBranch = branchIndex(nodes, branch: { $0.branch })
+        var seen: Set<String> = [node.id]
+        var queue = [node]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            var linked: [IssueEntity] = []
+            if let base = nonEmpty(current.prBaseBranch), let lower = byBranch[base] {
+                linked.append(lower)
+            }
+            if let branch = nonEmpty(current.branch) {
+                linked += nodes.filter { nonEmpty($0.prBaseBranch) == branch }
+            }
+            for next in linked where !seen.contains(next.id) {
+                seen.insert(next.id)
+                queue.append(next)
+            }
+        }
+        return nodes.filter { seen.contains($0.id) }
+    }
+
+    /// `tree` when any member carries two children, else `stack` (2+) or
+    /// `single`.
+    public static func prGraphShape(_ component: [IssueEntity]) -> PrGraphShape {
+        guard component.count >= 2 else { return .single }
+        let byBranch = branchIndex(component, branch: { $0.branch })
+        var children: [String: Int] = [:]
+        for node in component {
+            guard let base = nonEmpty(node.prBaseBranch), let parent = byBranch[base],
+                  parent.id != node.id
+            else { continue }
+            let count = (children[parent.id] ?? 0) + 1
+            if count > 1 { return .tree }
+            children[parent.id] = count
+        }
+        return .stack
+    }
+
+    /// The OPEN rows (identifier order) with ONE representative per pull
+    /// request (a batch PR = its lowest identifier); nil without an open PR.
+    private static func openRepresentatives(
+        _ issue: IssueEntity, issues: [IssueEntity]
+    ) -> (open: [IssueEntity], reps: [IssueEntity], subject: IssueEntity)? {
+        guard issue.prState == DomainContract.prStateOpen else { return nil }
+        var open = issues.filter { $0.prState == DomainContract.prStateOpen }
+        if !open.contains(where: { $0.id == issue.id }) { open.append(issue) }
+        let ident: (IssueEntity) -> [UInt16] = { Array(($0.identifier ?? "").utf16) }
+        open = open.enumerated().sorted { a, b in
+            let (ia, ib) = (ident(a.element), ident(b.element))
+            if ia != ib { return ia.lexicographicallyPrecedes(ib) }
+            return a.offset < b.offset
+        }.map(\.element)
+        var reps: [IssueEntity] = []
+        var repOf: [String: IssueEntity] = [:]
+        for row in open {
+            if let url = nonEmpty(row.prUrl), let rep = reps.first(where: { $0.prUrl == url }) {
+                repOf[row.id] = rep
+            } else {
+                reps.append(row)
+                repOf[row.id] = row
+            }
+        }
+        guard let subject = repOf[issue.id] else { return nil }
+        return (open, reps, subject)
+    }
+
+    /// The shape of the open component `issue`'s pull request sits in
+    /// (`single` without an open pull request).
+    public static func openPrShape(_ issue: IssueEntity, issues: [IssueEntity]) -> PrGraphShape {
+        guard let picked = openRepresentatives(issue, issues: issues) else { return .single }
+        return prGraphShape(prComponent(picked.subject, in: picked.reps))
+    }
+
+    /// The linear open stack `issue` sits in: the chain bottom → top, the
+    /// subject's representative and each pull request's batch partners.
+    private static func openStack(
+        _ issue: IssueEntity, issues: [IssueEntity]
+    ) -> (chain: [IssueEntity], subject: IssueEntity, siblings: (IssueEntity) -> Int)? {
+        guard let picked = openRepresentatives(issue, issues: issues) else { return nil }
+        guard prGraphShape(prComponent(picked.subject, in: picked.reps)) == .stack else { return nil }
+        let chain = stackChain(picked.subject, issues: picked.reps)
+        let open = picked.open
+        let siblings: (IssueEntity) -> Int = { row in
+            guard let url = nonEmpty(row.prUrl) else { return 0 }
+            return open.filter { $0.id != row.id && $0.prUrl == url }.count
+        }
+        return (chain, picked.subject, siblings)
+    }
+
+    /// One row of the stack rail.
+    public struct StackViewRow: Equatable, Sendable {
+        public let issueId: String
+        public let identifier: String
+        public let title: String
+        public let prNumber: Int?
+        /// The subject's pull request: the row wears the active wash.
+        public let isCurrent: Bool
+
+        public init(issueId: String, identifier: String, title: String, prNumber: Int?, isCurrent: Bool) {
+            self.issueId = issueId
+            self.identifier = identifier
+            self.title = title
+            self.prNumber = prNumber
+            self.isCurrent = isCurrent
+        }
+    }
+
+    public struct StackView: Equatable, Sendable {
+        /// TOP first, one row per open pull request.
+        public let rows: [StackViewRow]
+        /// The trailing muted row: the bottom member's base; nil = unknown.
+        public let baseBranch: String?
+
+        public init(rows: [StackViewRow], baseBranch: String?) {
+            self.rows = rows
+            self.baseBranch = baseBranch
+        }
+    }
+
+    /// The stack rail of `issue`'s pull request (the Guide's Stack card, a
+    /// Reviews stack): nil unless it sits in a LINEAR open stack of 2+ pull
+    /// requests. Only OPEN pull requests count; a fork anywhere = a tree = nil.
+    public static func stackView(_ issue: IssueEntity, issues: [IssueEntity]) -> StackView? {
+        guard let stack = openStack(issue, issues: issues), stack.chain.count >= 2 else { return nil }
+        return StackView(
+            rows: stack.chain.reversed().map { row in
+                StackViewRow(
+                    issueId: row.id,
+                    identifier: row.identifier ?? "",
+                    title: row.title,
+                    prNumber: row.prNumber,
+                    isCurrent: row.id == stack.subject.id
+                )
+            },
+            baseBranch: nonEmpty(stack.chain[0].prBaseBranch)
+        )
+    }
+
+    /// The ONE merge control's label on an open-stack member, and the hover /
+    /// long-press action on a stack row (contract `diffUi`).
+    public static let mergeThroughLabel = DomainContract.diffUiMergeThrough
+    public static let stackConfirmCancelLabel = "Cancel"
+
+    /// `stack` = the merge control (the whole open chain, through its top);
+    /// `through` = Merge through here on this member.
+    public enum StackConfirmMode: String, Sendable {
+        case stack
+        case through
+    }
+
+    /// The ONE confirm a stack merge asks (EXP-1248, it replaces the 3-way
+    /// dialog). Send `issues.mergePr({issueId, mergeStack: true})`.
+    public struct StackMergeConfirm: Equatable, Sendable {
+        /// The title AND the primary button.
+        public let title: String
+        /// What lands, bottom first; a batch PR = `EXP-874 +2`.
+        public let landing: [String]
+        /// What stays open above it (GitHub retargets it).
+        public let staysOpen: [String]
+        public let body: String
+        /// The `issues.mergePr` target (always with `mergeStack: true`).
+        public let issueId: String
+
+        public init(title: String, landing: [String], staysOpen: [String], body: String, issueId: String) {
+            self.title = title
+            self.landing = landing
+            self.staysOpen = staysOpen
+            self.body = body
+            self.issueId = issueId
+        }
+    }
+
+    /// Nil = not in a linear open stack: the plain merge confirm.
+    public static func stackMergeConfirm(
+        _ issue: IssueEntity, issues: [IssueEntity], mode: StackConfirmMode
+    ) -> StackMergeConfirm? {
+        guard let stack = openStack(issue, issues: issues), stack.chain.count >= 2,
+              let index = stack.chain.firstIndex(where: { $0.id == stack.subject.id })
+        else { return nil }
+        func label(_ row: IssueEntity) -> String {
+            let extra = stack.siblings(row)
+            let ident = row.identifier ?? ""
+            return extra > 0 ? "\(ident) +\(extra)" : ident
+        }
+        let through = mode == .stack ? stack.chain.count - 1 : index
+        let landing = stack.chain[...through].map(label)
+        let staysOpen = stack.chain[(through + 1)...].map(label)
+        let lands = landing.count == 1
+            ? "Lands 1 pull request: \(landing[0])."
+            : "Lands \(landing.count) pull requests, bottom-up: \(landing.joined(separator: ", "))."
+        let open = staysOpen.isEmpty
+            ? ""
+            : " \(staysOpen.joined(separator: ", ")) \(staysOpen.count == 1 ? "stays" : "stay") open."
+        return StackMergeConfirm(
+            title: mode == .stack ? DomainContract.diffUiMergeStack : DomainContract.diffUiMergeThrough,
+            landing: Array(landing),
+            staysOpen: Array(staysOpen),
+            body: lands + open,
+            issueId: mode == .stack ? stack.chain[stack.chain.count - 1].id : issue.id
         )
     }
 

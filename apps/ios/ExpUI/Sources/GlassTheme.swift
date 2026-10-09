@@ -200,22 +200,28 @@ extension GlassSectionHeader where Trailing == EmptyView {
 /// Web `GlassSectionHeader` / desktop `surface::glass_section_band` twin —
 /// same fill, radius, padding and 85% label. `GlassSectionHeader` above stays
 /// the PLAIN-TEXT heading for free content (a settings section's title over a
-/// card); a list takes this one. Labels are SENTENCE CASE, never uppercase,
-/// and there is no count slot.
+/// card); a list takes this one. Labels are SENTENCE CASE, never uppercase.
+///
+/// EXP-1248: list bands carry NO count (Running, Recent, Reviews boards,
+/// Stack, Not linked) — the `count` slot exists for the ONE band that keeps
+/// it, the issue list's status group (web `IssueGroupBand`).
 ///
 /// The trailing 4pt IS the gap to the rows below, so a host stacks band + rows
 /// in a `VStack(spacing: 0)`.
 public struct GlassSectionBand<Leading: View, Trailing: View>: View {
     let title: String
+    let count: Int?
     let leading: Leading
     let trailing: Trailing
 
     public init(
         _ title: String,
+        count: Int? = nil,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
+        self.count = count
         self.leading = leading()
         self.trailing = trailing()
     }
@@ -231,6 +237,12 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
                 // `TextOpacity.secondary` because the fill sits behind it.
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
+            if let count {
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityIdentifier("section-band-count")
+            }
             Spacer(minLength: 0)
             trailing
         }
@@ -245,8 +257,8 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
 }
 
 extension GlassSectionBand where Leading == EmptyView, Trailing == EmptyView {
-    public init(_ title: String) {
-        self.init(title) { EmptyView() } trailing: { EmptyView() }
+    public init(_ title: String, count: Int? = nil) {
+        self.init(title, count: count) { EmptyView() } trailing: { EmptyView() }
     }
 }
 

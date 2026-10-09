@@ -3,26 +3,6 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// One review entry (EXP-131): the open PR(s) awaiting review. A batch coding
-/// run links several issues to ONE `prUrl`, so those issues collapse into a
-/// single entry; an issue with no `prUrl` (shouldn't normally happen for an
-/// open PR, but be defensive) keys on its own id so it still renders once.
-struct ReviewEntry: Identifiable {
-    /// `prUrl` when present, else `issue:<id>` — the grouping key.
-    let id: String
-    /// The issues sharing this PR, newest first. `representative` is the first.
-    let issues: [IssueEntity]
-
-    var representative: IssueEntity { issues[0] }
-    var isBatch: Bool { issues.count > 1 }
-    var prUrl: String? { representative.prUrl }
-    var prNumber: Int? { representative.prNumber }
-    var branch: String? { representative.branch }
-    /// Identifiers of every linked issue, newest first — mirrors `issues`
-    /// (for the batch row subtitle).
-    var identifiers: [String] { issues.compactMap { $0.identifier } }
-}
-
 /// EXP-734: one AGENT RUN's own open pull request — the chore PR an action or
 /// chat run opened through `exponential_pr_open({repositoryId, head})`, which
 /// links no issue at all and so appears in no board group.
@@ -36,15 +16,16 @@ struct RunReviewEntry: Identifiable {
     var branch: String? { session.branch }
 }
 
-/// One board's review entries — Reviews groups by board like the other
-/// cross-board lists group by status. The rows are FLAT: one per open pull
-/// request, newest first.
+/// One board's band — Reviews groups by board like the other cross-board
+/// lists group by status. EXP-1248: one line per open pull request; a PR TREE
+/// nests under its root, a linear STACK hangs off one rail
+/// (`ReviewsQueue.items`, rule 9), drawn as `blocks`.
 struct ReviewGroup: Identifiable {
     let board: BoardEntity
     /// EXP-1186: the board's team — the header names it when the caller is
     /// in more than one.
     let team: TeamEntity
-    let entries: [ReviewEntry]
+    let blocks: [ReviewsQueue.Block]
     var id: String { board.id }
 }
 
@@ -169,12 +150,6 @@ final class ReviewsViewModel {
         )
     }
 
-    /// EXP-1244: a merged external pull request leaves the list (and the
-    /// tab's dot) at once.
-    func dropPull(repositoryId: String, number: Int) {
-        openPulls.drop(accountId: accountId, repositoryId: repositoryId, number: number)
-    }
-
     /// The queue across `teams` (EXP-1186), in the team order
     /// (`TeamGroups.ordered`): board bands, then one "Agent runs" band per
     /// team, then the repository bands (EXP-1244). Empty when no team has
@@ -193,7 +168,7 @@ final class ReviewsViewModel {
             guard let team = teamById[group.board.teamId] else { return nil }
             return ReviewGroup(
                 board: group.board, team: team,
-                entries: group.entries.map { ReviewEntry(id: $0.key, issues: $0.issues) }
+                blocks: ReviewsQueue.reviewBlocks(group.items)
             )
         }
         let runs = queue.runGroups.compactMap { group -> TeamGroups.Group<RunReviewEntry>? in
@@ -213,22 +188,5 @@ final class ReviewsViewModel {
             )
         }
         return ReviewsSnapshot(groups: groups, runs: runs, repos: repos)
-    }
-
-    /// The team a review entry's board belongs to — the recovery run's seed
-    /// names it so the composer opens on THAT team (EXP-1186).
-    func teamId(of entry: ReviewEntry) -> String? {
-        boards.first { $0.id == entry.representative.boardId }?.teamId
-    }
-
-    /// EXP-1145: the stack merge dialog's pool, the open pull requests of
-    /// `issue`'s OWN team. `issues` spans every team of the account and
-    /// branch names repeat across teams.
-    func stackPool(for issue: IssueEntity) -> [IssueEntity] {
-        PrStack.teamPool(
-            of: issue,
-            issues: issues.filter { $0.prState == DomainContract.prStateOpen },
-            boards: boards
-        )
     }
 }

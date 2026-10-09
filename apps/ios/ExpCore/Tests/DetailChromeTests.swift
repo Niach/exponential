@@ -115,10 +115,10 @@ final class DetailChromeTests: XCTestCase {
             "a live run dots the Run tab",
             "a run waiting on a person dots the Run tab amber",
             "an ended run carries no dot, even if it still says needs input",
-            "an open pull request dots Results",
-            "an open pull request with no Results face dots Changes",
+            "an open pull request dots Guide",
+            "an issue-less run's open pull request dots its Guide",
             "a live run with an open pull request dots both",
-            "an open pull request with neither face shows no dot",
+            "an open pull request without a Guide face shows no dot",
             "an issue-less run dots its Run tab too",
         ]
         XCTAssertEqual(Set(try fixture().faceDots.map(\.name)), named)
@@ -153,20 +153,20 @@ final class DetailChromeTests: XCTestCase {
         try assertFaceDots("an ended run carries no dot, even if it still says needs input")
     }
 
-    func testAnOpenPullRequestDotsResults() throws {
-        try assertFaceDots("an open pull request dots Results")
+    func testAnOpenPullRequestDotsGuide() throws {
+        try assertFaceDots("an open pull request dots Guide")
     }
 
-    func testAnOpenPullRequestWithNoResultsFaceDotsChanges() throws {
-        try assertFaceDots("an open pull request with no Results face dots Changes")
+    func testAnIssueLessRunsOpenPullRequestDotsItsGuide() throws {
+        try assertFaceDots("an issue-less run's open pull request dots its Guide")
     }
 
     func testALiveRunWithAnOpenPullRequestDotsBoth() throws {
         try assertFaceDots("a live run with an open pull request dots both")
     }
 
-    func testAnOpenPullRequestWithNeitherFaceShowsNoDot() throws {
-        try assertFaceDots("an open pull request with neither face shows no dot")
+    func testAnOpenPullRequestWithoutAGuideFaceShowsNoDot() throws {
+        try assertFaceDots("an open pull request without a Guide face shows no dot")
     }
 
     func testAnIssueLessRunDotsItsRunTabToo() throws {

@@ -4,7 +4,7 @@ import SwiftUI
 
 /// EXP-1150: the Work screen's face TABS — the segmented strip directly under
 /// the nav bar, on every face, listing `WorkFaces.availableFaces` in their
-/// fixed order (`Issue · Run/Runs · Changes · Results`). It replaced the
+/// fixed order (`Issue · Run/Runs · Guide`, EXP-1251). It replaced the
 /// bottom-right switcher circle (EXP-893). Tapping a segment switches the
 /// face; tapping the `Runs` tab while it is ALREADY selected asks for the run
 /// menu, which the host anchors under that tab (`runsAnchor`).
@@ -13,17 +13,15 @@ import SwiftUI
 /// (EXP-1150) went back to the floating bottom bar. Drawn only with two or
 /// more faces.
 ///
-/// EXP-1152: the Changes tab wears the diff's `+N −M` once its counts are
-/// known (`WorkFaces.changesFaceCounts`, the desktop's `FaceToggle::diff`),
-/// the word until then; the body under the strip is `WorkFacePager`.
+/// EXP-1251: the Guide tab reads `Guide` (the diff's counts moved into its
+/// body) and wears the open-PR dot; the body under the strip is
+/// `WorkFacePager`.
 struct WorkFaceTabs: View {
     let faces: [WorkFaceKind]
     let shown: WorkFaceKind
     /// Two or more own runs: the Run tab reads `Runs` and reselecting it opens
     /// the run menu.
     let multipleRuns: Bool
-    /// EXP-1152: the Changes tab's counts — nil keeps the word `Changes`.
-    var changesCounts: WorkFaces.ChangesFaceCounts? = nil
     /// EXP-1162: the face tabs' tones (`DetailChrome.faceDots`) — the state
     /// the header title no longer carries. Run's is drawn as its agent mark.
     var dots: [WorkFaceKind: SessionDotTone] = [:]
@@ -57,7 +55,6 @@ struct WorkFaceTabs: View {
             selection: shown,
             label: segmentLabel,
             identifier: { "work-face-\($0.rawValue)" },
-            content: segmentContent,
             leading: segmentMark,
             leadingGap: DetailChrome.faceMarkGap,
             accessory: segmentDot,
@@ -73,26 +70,9 @@ struct WorkFaceTabs: View {
         .accessibilityIdentifier("work-face-tabs")
     }
 
-    /// The segment's words — and its accessibility label: the counts read as
-    /// `+12 −2`, the same string web names the segment by.
+    /// The segment's words — and its accessibility label.
     private func segmentLabel(_ face: WorkFaceKind) -> String {
-        if face == .changes, let changesCounts {
-            return WorkFaces.changesFaceText(changesCounts)
-        }
-        return WorkFaces.faceLabel(face, multipleRuns: multipleRuns)
-    }
-
-    /// EXP-1152: the counts in the diff's own green and red, mono at the
-    /// strip's `.subheadline` rung — the same `+a −b` every diff card wears.
-    private func segmentContent(_ face: WorkFaceKind) -> AnyView? {
-        guard face == .changes, let changesCounts else { return nil }
-        return AnyView(
-            DiffCountsLabel(
-                additions: changesCounts.additions,
-                deletions: changesCounts.deletions,
-                font: .subheadline.monospaced().weight(.medium)
-            )
-        )
+        WorkFaces.faceLabel(face, multipleRuns: multipleRuns)
     }
 
     /// EXP-1162/1184: the Run tab's tone as the run's agent mark, leading
@@ -118,7 +98,7 @@ struct WorkFaceTabs: View {
         )
     }
 
-    /// A dotted tab says its state: `Run, running`, `Results, pull request
+    /// A dotted tab says its state: `Run, running`, `Guide, pull request
     /// open`.
     private func spokenLabel(_ face: WorkFaceKind) -> String? {
         guard let tone = dots[face] else { return nil }

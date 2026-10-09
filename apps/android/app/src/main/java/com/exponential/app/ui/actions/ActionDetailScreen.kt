@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,12 +51,16 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.actionRunTitle
-import com.exponential.app.domain.pastRunByline
-import com.exponential.app.domain.runHasEnded
+import com.exponential.app.domain.SessionTreeNode
+import com.exponential.app.domain.TreeGuides
+import com.exponential.app.domain.sessionTree
+import com.exponential.app.domain.visibleSessionTreeRows
 import com.exponential.app.domain.triggerCaption
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.EndedRunRow
+import com.exponential.app.ui.components.CodingSessionRow
+import com.exponential.app.ui.components.SessionRowSize
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
@@ -70,8 +75,6 @@ import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
-import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -546,50 +549,51 @@ private fun RunsTab(
         }
         return
     }
+    // EXP-1248: nested like the Agent page — a run started by another run
+    // hangs off its parent with the tree guides, children always shown, the
+    // BIG session row ×4 on a gapless list.
+    val tree = remember(runs) { visibleSessionTreeRows(sessionTree(runs)) }
+    val guides = remember(tree) { TreeGuides.compute(tree.map { it.depth }) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("action-runs-tab"),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        items(runs, key = { it.id }) { session ->
-            // EXP-874: the Agent page's row shapes — a live run is the shared
-            // RunningSessionRow (state dot, byline), a finished one the plain
-            // EndedRunRow link. Both open the session view (close-out + Resume
-            // live there). Every row here ran THIS action, so its title says
-            // what started it ([actionRunTitle]) instead of the action's name.
-            val title = actionRunTitle(session.startedReason)
-            val device = sessionDevice(session, devices)
-            if (runHasEnded(session)) {
-                val timeLabel = relativeTime(session.endedAt ?: session.updatedAt)
-                EndedRunRow(
-                    title = title,
-                    timeLabel = timeLabel,
-                    agent = session.agent,
-                    byline = pastRunByline(
-                        deviceLabel = device.displayLabel,
-                        timeLabel = timeLabel,
-                    ),
-                    onOpen = { onOpenSteer(session.id) },
-                )
-            } else {
-                RunningSessionRow(
-                    session = session,
-                    issue = null,
-                    device = device,
-                    onClick = { onOpenSteer(session.id) },
-                    titleOverride = title,
-                )
+        itemsIndexed(tree, key = { _, entry -> entry.key }) { index, entry ->
+            when (val node = entry.node) {
+                is SessionTreeNode.Session -> {
+                    val session = node.session
+                    val steerDevice = steerDeviceOf(session, devices)
+                    // Every row here ran THIS action, so its title says what
+                    // started it ([actionRunTitle]) instead of the action's name.
+                    CodingSessionRow(
+                        session = session,
+                        issue = null,
+                        device = sessionDevice(session, devices),
+                        size = SessionRowSize.Big,
+                        titleOverride = actionRunTitle(session.startedReason),
+                        depth = entry.depth,
+                        guide = guides.getOrNull(index),
+                        deviceIcon = steerDevice?.let { deviceIcon(it) } ?: ExpIcons.uiDevice,
+                        onClick = { onOpenSteer(session.id) },
+                    )
+                }
             }
         }
     }
+}
+
+/** The steer device a run ran on: the owner's own row first. */
+private fun steerDeviceOf(session: CodingSessionEntity, devices: List<SteerDevice>): SteerDevice? {
+    val matches = session.deviceId?.let { id -> devices.filter { it.deviceId == id } }.orEmpty()
+    return matches.firstOrNull { it.owner?.id == session.userId }
+        ?: matches.firstOrNull { it.isMine } ?: matches.firstOrNull()
 }
 
 /** EXP-874: a run's host machine off the synced devices (steer `device_id`,
  *  the owner's own row first) — the stamped label and UNKNOWN presence when
  *  the row isn't visible, mirroring `resolveSessionDevice`. */
 private fun sessionDevice(session: CodingSessionEntity, devices: List<SteerDevice>): SessionDevicePresentation {
-    val matches = session.deviceId?.let { id -> devices.filter { it.deviceId == id } }.orEmpty()
-    val row = matches.firstOrNull { it.owner?.id == session.userId }
-        ?: matches.firstOrNull { it.isMine } ?: matches.firstOrNull()
+    val row = steerDeviceOf(session, devices)
         ?: return SessionDevicePresentation(label = session.deviceLabel, online = null)
     return SessionDevicePresentation(
         label = row.deviceLabel.takeIf { it.isNotBlank() } ?: session.deviceLabel,

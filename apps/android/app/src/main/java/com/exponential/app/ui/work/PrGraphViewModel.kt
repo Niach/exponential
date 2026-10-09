@@ -74,6 +74,26 @@ class PrGraphViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null))
 
+    /**
+     * EXP-1248/1251: the subject's TEAM issues — the pool the Guide's Stack
+     * card ([PrStack.stackView]) and the ONE stack merge confirm
+     * ([PrStack.stackMergeConfirm]) read. Branch names repeat across teams.
+     */
+    val teamIssues: StateFlow<List<IssueEntity>> = combine(
+        subject,
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+    ) { current, issues, sessions, boards ->
+        val issue = current.issueId?.let { id -> issues.firstOrNull { it.id == id } }
+        if (issue != null) {
+            PrStack.teamIssues(issue, issues, boards)
+        } else {
+            val session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } }
+            PrStack.teamIssues(session?.teamId, issues, boards)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** SLOP-16 r3: every synced status, resolved; the sheet's relation rows
      *  resolve their glyph by `status_id` against it. */
     val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =

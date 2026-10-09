@@ -70,15 +70,15 @@ final class SessionResultsTests: XCTestCase {
     }
 
     func testGroupsByTopicInFirstSeenOrder() {
-        let entries = parseSessionResults("""
+        let raw = """
             [
               { "topic": "chatui", "label": "web", "attachmentId": "a1" },
               { "topic": "nav", "label": "web", "attachmentId": "a2" },
               { "topic": "chatui", "label": "ios", "attachmentId": "a3" }
             ]
-            """)
+            """
         XCTAssertEqual(
-            groupSessionResults(entries),
+            parseSessionResultGroups(raw),
             [
                 SessionResultGroup(
                     topic: "chatui",
@@ -95,7 +95,7 @@ final class SessionResultsTests: XCTestCase {
                 ),
             ]
         )
-        XCTAssertEqual(groupSessionResults([]), [])
+        XCTAssertEqual(parseSessionResultGroups("[]"), [])
     }
 
     func testCapsAt60Entries() {
@@ -289,29 +289,228 @@ final class SessionResultsTests: XCTestCase {
         }
     }
 
-    func testResolvesFileRowCountsByExactPathPerTheFixture() throws {
-        let guide = try XCTUnwrap(try fixture()["guide"] as? [String: Any])
-        let cases = try XCTUnwrap(guide["fileRows"] as? [[String: Any]])
+    // MARK: EXP-1251 — the Guide's coverage (`coverage`), its per-PR scope
+    // (`prScope`) and the owner's turns (`turns`), same case names ×4.
+
+    private func diffFiles(_ value: Any?) -> [Diff.File]? {
+        (value as? [[String: Any]])?.map {
+            Diff.File(
+                path: $0["path"] as? String ?? "",
+                previousPath: $0["previousPath"] as? String,
+                additions: $0["additions"] as? Int ?? 0,
+                deletions: $0["deletions"] as? Int ?? 0
+            )
+        }
+    }
+
+    private func coverageCase(_ name: String) throws -> [String: Any] {
+        let block = try XCTUnwrap(try fixture()["coverage"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        return try XCTUnwrap(cases.first { $0["name"] as? String == name }, name)
+    }
+
+    private func assertSet(
+        _ set: GuideChangeSet?, _ expected: [String: Any]?, _ name: String
+    ) {
+        guard let expected else { return XCTAssertNil(set, name) }
+        if let files = expected["files"] as? [String] {
+            XCTAssertEqual(set?.files.map(\.path), files, name)
+        }
+        if expected.keys.contains("changes") {
+            XCTAssertNil(set, name)
+            return
+        }
+        if let count = expected["fileCount"] as? Int { XCTAssertEqual(set?.fileCount, count, name) }
+        XCTAssertEqual(set?.additions, expected["additions"] as? Int, name)
+        XCTAssertEqual(set?.deletions, expected["deletions"] as? Int, name)
+    }
+
+    private func assertCoverage(_ name: String) throws {
+        let testCase = try coverageCase(name)
+        let groups = try XCTUnwrap(testCase["groups"] as? [[String: Any]]).map {
+            SessionResultGroup(
+                topic: $0["topic"] as? String ?? "",
+                entries: [],
+                files: $0["files"] as? [String] ?? []
+            )
+        }
+        let coverage = guideCoverage(groups, diffFiles(testCase["diff"]))
+        let expected = try XCTUnwrap(testCase["expected"] as? [String: Any])
+        if let lead = expected["lead"] as? [String: Any] {
+            XCTAssertEqual(coverage.lead?.group.topic, lead["topic"] as? String, name)
+            assertSet(coverage.lead?.changes, lead, name)
+            XCTAssertEqual(coverage.lead?.missing, lead["missing"] as? [String], name)
+        } else {
+            XCTAssertNil(coverage.lead, name)
+        }
+        let sections = try XCTUnwrap(expected["sections"] as? [[String: Any]])
+        XCTAssertEqual(coverage.sections.count, sections.count, name)
+        for (section, want) in zip(coverage.sections, sections) {
+            XCTAssertEqual(section.group.topic, want["topic"] as? String, name)
+            XCTAssertEqual(section.index, want["index"] as? Int, name)
+            XCTAssertEqual(section.total, want["total"] as? Int, name)
+            assertSet(section.changes, want, name)
+            XCTAssertEqual(section.missing, want["missing"] as? [String], name)
+        }
+        if let other = expected["other"] as? [String: Any] {
+            XCTAssertEqual(coverage.other?.topic, other["topic"] as? String, name)
+            assertSet(coverage.other?.changes, other, name)
+        } else {
+            XCTAssertNil(coverage.other, name)
+        }
+        assertSet(coverage.complete, expected["complete"] as? [String: Any], name)
+    }
+
+    func testEveryCoverageCaseHasATest() throws {
+        let block = try XCTUnwrap(try fixture()["coverage"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertEqual(Set(cases.compactMap { $0["name"] as? String }), [
+            "exact paths, a missing path and an unassigned file",
+            "a rename matches by its previous path, listed order wins",
+            "a file two sections name counts in both",
+            "no report: one Changes section holds the whole diff",
+            "a section without files claims nothing",
+            "an empty diff: every listed path is missing, nothing else",
+            "no diff loaded",
+        ])
+    }
+
+    func testCoverageExactPathsAMissingPathAndAnUnassignedFile() throws {
+        try assertCoverage("exact paths, a missing path and an unassigned file")
+    }
+
+    func testCoverageARenameMatchesByItsPreviousPathListedOrderWins() throws {
+        try assertCoverage("a rename matches by its previous path, listed order wins")
+    }
+
+    func testCoverageAFileTwoSectionsNameCountsInBoth() throws {
+        try assertCoverage("a file two sections name counts in both")
+    }
+
+    func testCoverageNoReportOneChangesSectionHoldsTheWholeDiff() throws {
+        try assertCoverage("no report: one Changes section holds the whole diff")
+    }
+
+    func testCoverageASectionWithoutFilesClaimsNothing() throws {
+        try assertCoverage("a section without files claims nothing")
+    }
+
+    func testCoverageAnEmptyDiffEveryListedPathIsMissingNothingElse() throws {
+        try assertCoverage("an empty diff: every listed path is missing, nothing else")
+    }
+
+    func testCoverageNoDiffLoaded() throws {
+        try assertCoverage("no diff loaded")
+    }
+
+    func testGuideFileCountLabelMatchesTheSharedFixture() throws {
+        let block = try XCTUnwrap(try fixture()["coverage"] as? [String: Any])
+        let labels = try XCTUnwrap(block["fileCountLabels"] as? [[Any]])
+        XCTAssertFalse(labels.isEmpty)
+        for pair in labels {
+            XCTAssertEqual(guideFileCountLabel(try XCTUnwrap(pair[0] as? Int)), pair[1] as? String)
+        }
+        XCTAssertEqual(guideOtherChangesTopic, "Other changes")
+        XCTAssertEqual(guideChangesTopic, "Changes")
+    }
+
+    func testSessionResultsForPrMatchesTheSharedFixture() throws {
+        let block = try XCTUnwrap(try fixture()["prScope"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
         for testCase in cases {
             let name = try XCTUnwrap(testCase["name"] as? String)
-            let paths = try XCTUnwrap(testCase["paths"] as? [String])
-            let diff = (testCase["diff"] as? [[String: Any]])?.map {
-                Diff.File(
-                    path: $0["path"] as? String ?? "",
-                    additions: $0["additions"] as? Int ?? 0,
-                    deletions: $0["deletions"] as? Int ?? 0
+            let raw = try rawString(testCase["raw"])
+            XCTAssertEqual(sessionResultPrUrls(raw), testCase["prUrls"] as? [String], "pr scope: \(name)")
+            for byPr in try XCTUnwrap(testCase["byPr"] as? [[String: Any]]) {
+                let prUrl = byPr["prUrl"] as? String
+                XCTAssertEqual(
+                    sessionResultsForPr(raw, prUrl: prUrl).map { $0["topic"] as? String ?? "" },
+                    byPr["topics"] as? [String],
+                    "pr scope: \(name) / \(prUrl ?? "null")"
                 )
             }
-            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]]).map {
-                GuideFileRow(
-                    path: $0["path"] as? String ?? "",
-                    additions: $0["additions"] as? Int,
-                    deletions: $0["deletions"] as? Int
-                )
-            }
-            XCTAssertEqual(guideFileRows(paths, files: diff), expected, name)
         }
+        // The groups a PR shows carry their tag.
+        let groups = sessionResultGroupsForPr(
+            #"[{"topic":"Reviews","text":"x","prUrl":"https://github.com/o/r/pull/2"}]"#,
+            prUrl: "https://github.com/o/r/pull/2"
+        )
+        XCTAssertEqual(groups.map(\.prUrl), ["https://github.com/o/r/pull/2"])
+    }
+
+    private func turnItems(_ items: [SessionThread.Item]) -> [[String: String]] {
+        items.map { item in
+            switch item {
+            case let .text(topic, text): return ["kind": "text", "topic": topic, "text": text]
+            case let .picture(entry): return ["kind": "picture", "attachmentId": entry.attachmentId]
+            }
+        }
+    }
+
+    private func turnEvents(_ value: Any?) -> [SessionTurnEvent]? {
+        (value as? [[String: Any]])?.compactMap { event in
+            let at = (event["at"] as? NSNumber)?.doubleValue ?? .nan
+            if event["kind"] as? String == "user_message" {
+                return .userMessage(
+                    at: at,
+                    text: event["text"] as? String ?? "",
+                    images: event["images"] as? [String] ?? []
+                )
+            }
+            return .turn(started: event["state"] as? String == "started", at: at)
+        }
+    }
+
+    private func assertTurns(_ name: String) throws {
+        let block = try XCTUnwrap(try fixture()["turns"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        let testCase = try XCTUnwrap(cases.first { $0["name"] as? String == name }, name)
+        let turns = sessionTurns(try rawString(testCase["raw"]), feed: turnEvents(testCase["feed"]))
+        let expected = try XCTUnwrap(testCase["expected"] as? [String: Any])
+        XCTAssertEqual(turns.perTurn, expected["perTurn"] as? Bool, name)
+        let want = try XCTUnwrap(expected["turns"] as? [[String: Any]])
+        XCTAssertEqual(turns.turns.count, want.count, name)
+        for (turn, expect) in zip(turns.turns, want) {
+            if let message = expect["message"] as? [String: Any] {
+                XCTAssertEqual(turn.message?.text, message["text"] as? String, name)
+                XCTAssertEqual(turn.message?.at, (message["at"] as? NSNumber)?.doubleValue, name)
+                XCTAssertEqual(turn.message?.images, message["images"] as? [String], name)
+            } else {
+                XCTAssertNil(turn.message, name)
+            }
+            XCTAssertEqual(turn.startedAt, (expect["startedAt"] as? NSNumber)?.doubleValue, name)
+            XCTAssertEqual(turn.endedAt, (expect["endedAt"] as? NSNumber)?.doubleValue, name)
+            XCTAssertEqual(turnItems(turn.items), expect["items"] as? [[String: String]], name)
+            XCTAssertEqual(turn.reply, expect["reply"] as? String, name)
+        }
+    }
+
+    func testEveryTurnsCaseHasATest() throws {
+        let block = try XCTUnwrap(try fixture()["turns"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertEqual(Set(cases.compactMap { $0["name"] as? String }), [
+            "no feed keeps the single thread",
+            "two turns and the person's bubble",
+            "a message sent mid-turn cuts the running turn",
+            "unstamped results land in the first turn, a waiting message has no start",
+        ])
+    }
+
+    func testNoFeedKeepsTheSingleThread() throws {
+        try assertTurns("no feed keeps the single thread")
+    }
+
+    func testTwoTurnsAndThePersonsBubble() throws {
+        try assertTurns("two turns and the person's bubble")
+    }
+
+    func testAMessageSentMidTurnCutsTheRunningTurn() throws {
+        try assertTurns("a message sent mid-turn cuts the running turn")
+    }
+
+    func testUnstampedResultsLandInTheFirstTurnAWaitingMessageHasNoStart() throws {
+        try assertTurns("unstamped results land in the first turn, a waiting message has no start")
     }
 
     func testTextEntriesDoNotCountTowardThe60PictureCap() {
@@ -354,7 +553,8 @@ final class SessionResultsTests: XCTestCase {
                     issueId: try XCTUnwrap(testCase["issueId"] as? String),
                     boundId: testCase["boundId"] as? String,
                     me: testCase["me"] as? String,
-                    now: now
+                    now: now,
+                    issuePrUrl: testCase["prUrl"] as? String
                 )?.id,
                 testCase["expected"] as? String,
                 name
@@ -409,16 +609,6 @@ final class SessionResultsTests: XCTestCase {
             XCTAssertEqual(
                 groups.map { $0.earlier.map(inlineEntry) },
                 expected.map { inlineExpected($0["earlier"]) },
-                name
-            )
-            // The pictures-only reader folds the same way.
-            let pictureGroups = expected.filter {
-                !inlineExpected($0["entries"]).isEmpty || !inlineExpected($0["earlier"]).isEmpty
-            }
-            let grouped = groupSessionResults(parseSessionResults(raw))
-            XCTAssertEqual(
-                grouped.map { $0.earlier.map(inlineEntry) },
-                pictureGroups.map { inlineExpected($0["earlier"]) },
                 name
             )
             // Tile sizing reads the folded pictures too.

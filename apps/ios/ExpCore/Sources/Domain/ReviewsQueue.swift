@@ -42,9 +42,28 @@ public enum ReviewsQueue {
         public var representative: IssueEntity { issues[0] }
     }
 
+    /// EXP-1248 (rule 9, `_groupDoc`): one display item of a board band.
+    public enum Item: Sendable, Identifiable {
+        /// A lone PR (depth 0) or a member of a PR TREE, pre-order under its
+        /// root.
+        case pr(entry: Entry, depth: Int)
+        /// A linear STACK: its entries TOP first, then the base-branch row.
+        case stack(entries: [Entry], baseBranch: String?)
+
+        public var id: String {
+            switch self {
+            case let .pr(entry, _): entry.key
+            case let .stack(entries, _): "stack:" + (entries.first?.key ?? "")
+            }
+        }
+    }
+
     public struct BoardGroup: Identifiable, Sendable {
         public let board: BoardEntity
+        /// Every entry, flat, newest first (rule 3).
         public let entries: [Entry]
+        /// The same entries as the band draws them (rule 9).
+        public let items: [Item]
         public var id: String { board.id }
     }
 
@@ -108,7 +127,12 @@ public enum ReviewsQueue {
         }
         // (4) Team order, sort_order (null last), name, id.
         let boardGroups = boardOrder
-            .map { BoardGroup(board: boardById[$0]!, entries: entriesByBoard[$0]!) }
+            .map {
+                BoardGroup(
+                    board: boardById[$0]!, entries: entriesByBoard[$0]!,
+                    items: items(entriesByBoard[$0]!)
+                )
+            }
             .sorted { a, b in
                 let ta = teamOrder[a.board.teamId]!, tb = teamOrder[b.board.teamId]!
                 if ta != tb { return ta < tb }
@@ -165,6 +189,114 @@ public enum ReviewsQueue {
             repoGroups: repoGroups,
             count: entries.count + runs.count + repoGroups.reduce(0) { $0 + $1.pulls.count }
         )
+    }
+
+    /// (9) A band's entries as items (web `queueItems`, desktop
+    /// `queue_items`, Android `ReviewsQueue.items`). Edge: an entry sits on
+    /// the entry (same band) whose representative's `branch` is its
+    /// representative's `prBaseBranch`. A component lists where its NEWEST
+    /// entry would, walked from its ROOT (a cycle breaks where the climb first
+    /// repeats). Any entry with two children = a TREE: pre-order, children in
+    /// band order, depth = distance from the root. Otherwise 2+ entries = ONE
+    /// stack item, top first, `baseBranch` = the root's `prBaseBranch`.
+    public static func items(_ entries: [Entry]) -> [Item] {
+        func edge(_ branch: String?) -> String? {
+            guard let branch, !branch.isEmpty else { return nil }
+            return branch
+        }
+        var owner: [String: Entry] = [:]
+        for entry in entries {
+            if let branch = edge(entry.representative.branch), owner[branch] == nil {
+                owner[branch] = entry
+            }
+        }
+        var parentOf: [String: Entry] = [:]
+        var children: [String: [Entry]] = [:]
+        for entry in entries {
+            guard let base = edge(entry.representative.prBaseBranch), let parent = owner[base],
+                  parent.key != entry.key
+            else { continue }
+            parentOf[entry.key] = parent
+            children[parent.key, default: []].append(entry)
+        }
+        var placed = Set<String>()
+        var out: [Item] = []
+        for start in entries where !placed.contains(start.key) {
+            // Climb to the root; a cycle stops where it first repeats.
+            var root = start
+            var climbed: Set<String> = [root.key]
+            while let parent = parentOf[root.key], !climbed.contains(parent.key),
+                  !placed.contains(parent.key) {
+                climbed.insert(parent.key)
+                root = parent
+            }
+            // The component under the root, pre-order, children in band order.
+            var members: [(entry: Entry, depth: Int)] = []
+            var fork = false
+            func visit(_ entry: Entry, _ depth: Int) {
+                guard !placed.contains(entry.key) else { return }
+                placed.insert(entry.key)
+                members.append((entry, depth))
+                let below = (children[entry.key] ?? []).filter { !placed.contains($0.key) }
+                if below.count > 1 { fork = true }
+                for child in below { visit(child, depth + 1) }
+            }
+            visit(root, 0)
+            if members.count > 1, !fork {
+                out.append(.stack(
+                    entries: members.map(\.entry).reversed(),
+                    baseBranch: edge(root.representative.prBaseBranch)
+                ))
+            } else {
+                out += members.map { .pr(entry: $0.entry, depth: $0.depth) }
+            }
+        }
+        return out
+    }
+
+    // MARK: - EXP-1248: the Reviews page as drawn (web `reviews/index.tsx`)
+
+    /// A PR row's mono label + title: the first issue's identifier (a batch
+    /// PR = `EXP-874 +2`) beside the first issue's title (web
+    /// `reviewRowLabel`).
+    public static func reviewRowLabel(_ entry: Entry) -> (identifier: String, title: String) {
+        let first = entry.issues[0]
+        let more = entry.issues.count - 1
+        let identifier = first.identifier ?? ""
+        return (more > 0 ? "\(identifier) +\(more)" : identifier, first.title)
+    }
+
+    /// One drawn block of a board band (web `reviewBlocks`).
+    public enum Block: Sendable, Identifiable {
+        /// Consecutive `pr` items in ONE list, so a tree's guides span its
+        /// rows.
+        case list(rows: [(entry: Entry, depth: Int)])
+        /// Each stack is its own rail.
+        case stack(entries: [Entry], baseBranch: String?)
+
+        public var id: String {
+            switch self {
+            case let .list(rows): "list:" + (rows.first?.entry.key ?? "")
+            case let .stack(entries, _): "stack:" + (entries.first?.key ?? "")
+            }
+        }
+    }
+
+    public static func reviewBlocks(_ items: [Item]) -> [Block] {
+        var blocks: [Block] = []
+        for item in items {
+            switch item {
+            case let .stack(entries, baseBranch):
+                blocks.append(.stack(entries: entries, baseBranch: baseBranch))
+            case let .pr(entry, depth):
+                if case let .list(rows)? = blocks.last {
+                    blocks[blocks.count - 1] = .list(rows: rows + [(entry, depth)])
+                } else {
+                    blocks.append(.list(rows: [(entry, depth)]))
+                }
+            }
+        }
+        return blocks
     }
 
     /// The Reviews tab's state (fixture `_navDoc` + `navCases`, ×4: web

@@ -3,11 +3,12 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the launch options as ONE muted inline line under the composer
-/// card (Danny's variant B): Device, Account, Model, a Plan switch, the Resume
-/// switch inline while a worktree makes it offerable (EXP-481), and a `⋯` pill
-/// for the rest (`AgentOptionsSheet`: Effort, Subagent model, Ultracode).
-/// Every pill is a picker or a toggle — no disabled controls, the footer under
-/// the row explains what cannot start.
+/// card (Danny's variant B): Device, Account, Model, a Plan switch and the
+/// Resume switch inline while a worktree makes it offerable (EXP-481).
+/// EXP-1249: nothing else — the `⋯` pill is gone; Effort, Subagents,
+/// Ultracode, MCP servers and Computer use live in the composer's "+" menu
+/// (`ComposerPlusMenu`). Every pill is a picker or a toggle — no disabled
+/// controls, the footer under the row explains what cannot start.
 ///
 /// EXP-872 folded the Agent pill INTO the Account one: the list is every login
 /// the picked machine reports across agents, and picking one implies its agent.
@@ -15,8 +16,6 @@ import SwiftUI
 /// team's first repository is the anchor.
 struct AgentOptionsRow: View {
     let model: AgentComposerModel
-
-    @State private var showsMore = false
 
     private var launch: LaunchOptionsState { model.launch }
 
@@ -28,7 +27,6 @@ struct AgentOptionsRow: View {
                 modelPill
                 planPill
                 resumePill
-                morePill
             }
             .padding(.horizontal, 2)
         }
@@ -149,19 +147,6 @@ struct AgentOptionsRow: View {
             .accessibilityLabel("Resume previous run")
         }
     }
-
-    private var morePill: some View {
-        Button {
-            showsMore = true
-        } label: {
-            OptionPillLabel(icon: AppIcons.uiMore, text: "", chevron: false)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("More options")
-        .sheet(isPresented: $showsMore) {
-            AgentOptionsSheet(model: model)
-        }
-    }
 }
 
 /// One option pill's LABEL — a glyph, a value and a chevron, on the row fill.
@@ -196,72 +181,6 @@ struct OptionPillLabel: View {
         .background(GlassTokens.fillRow, in: Capsule())
         .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         .contentShape(Capsule())
-    }
-}
-
-/// EXP-825: the `⋯` sheet — the options that did not earn a pill: Effort
-/// (Reasoning / Thinking per agent), the Subagent model (EXP-981, claude only)
-/// and Ultracode (claude only — it IS `--effort ultracode`, so it disables the
-/// Effort row). EXP-862 promoted the Account out of here into the row itself.
-/// No MCP-server picker: mobile has none.
-///
-/// The Subagent model sits here rather than on the pill row: the row already
-/// carries the pills a phone can hold, and this is the same place its sibling
-/// Effort lives.
-///
-/// EXP-994: ONE grouped card, rows separated by `GlassDivider` hairlines —
-/// the Settings idiom. It used to be a 2pt-gapped stack of individually
-/// bordered rows, the shape every grouped list on this client stopped using.
-struct AgentOptionsSheet: View {
-    let model: AgentComposerModel
-
-    var body: some View {
-        @Bindable var launch = model.launch
-        GlassSheetChrome(title: "Options") {
-            VStack(spacing: 0) {
-                GlassPickerRow(
-                    LaunchVocabulary.effortTitle(for: launch.agent),
-                    selection: $launch.effort,
-                    options: [LaunchVocabulary.cliDefault] + LaunchVocabulary.effortValues(for: launch.agent),
-                    label: { value in
-                        value == LaunchVocabulary.cliDefault
-                            ? "CLI default"
-                            : LaunchVocabulary.effortLabel(value)
-                    },
-                    enabled: !(launch.agent == "claude" && launch.ultracode)
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-
-                // EXP-981: the model this run's SUBAGENTS get. Claude-only,
-                // hidden for every other agent exactly like Ultracode.
-                if LaunchVocabulary.supportsSubagentModel(launch.agent) {
-                    GlassDivider()
-                    GlassPickerRow(
-                        "Subagent model",
-                        selection: $launch.subagentModel,
-                        options: LaunchVocabulary.subagentModelValues(),
-                        label: { LaunchVocabulary.subagentModelLabel($0) }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-                    .accessibilityIdentifier("agent-subagent-model-row")
-                }
-
-                if launch.agent == "claude" {
-                    GlassDivider()
-                    Toggle("Ultracode", isOn: $launch.ultracode)
-                        .tint(DesignTokens.Palette.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                }
-            }
-            .glassSection()
-            .padding(.horizontal, GlassSheetTokens.headerHPadding)
-            .padding(.bottom, 16)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-options-sheet")
     }
 }
 

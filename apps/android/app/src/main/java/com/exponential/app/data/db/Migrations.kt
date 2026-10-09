@@ -105,6 +105,21 @@ val MIGRATION_81_82: Migration = object : Migration(81, 82) {
     }
 }
 
+/**
+ * v83 (EXP-1247): `attachments.as_file`, set by the FILE/paperclip upload
+ * paths. The column lands false, so the attachments shape refetches (its
+ * offset resets) and already-synced rows re-arrive carrying it.
+ */
+val MIGRATION_82_83: Migration = object : Migration(82, 83) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `attachments` ADD COLUMN `as_file` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'attachments'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

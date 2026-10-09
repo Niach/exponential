@@ -27,7 +27,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.codingSessionDisplayState
-import com.exponential.app.domain.changesFaceCounts
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
@@ -46,6 +45,10 @@ import com.exponential.app.domain.fallbackFace
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.issueResultsRun
 import com.exponential.app.domain.parseSessionResultGroups
+import com.exponential.app.domain.GuideSectionKey
+import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.guideSectionPage
+import com.exponential.app.domain.sessionResultsForPr
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.CodingReadiness
@@ -79,8 +82,9 @@ import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
 
 // EXP-893: the phone WORK SCREEN — one screen per subject (an issue, or a
-// session) with up to four FACES held as screen state, never as navigation:
-// Issue, Run, Changes and Results (`domain/WorkFaces.kt`, the ×4 rules).
+// session) with up to three FACES held as screen state, never as navigation:
+// Issue, Run and Guide (`domain/WorkFaces.kt`, the ×4 rules; EXP-1251 merged
+// Changes + Results into the Guide, its section pages under it).
 // System Back pops the whole screen. Opening a run from any list opens it on
 // the Run face; opening an issue lands on the Issue face. EXP-1150: the faces
 // are TABS — [WorkFaceTabs] in the header under the title row, the same on
@@ -89,10 +93,11 @@ import com.exponential.app.domain.Prompts
 // (title dot + verbs + the issue menu, Close PR included), the kill / resume /
 // close confirms, the ended edge, the ONE Merge PR control and each face's
 // trailing circle. EXP-1154: the Merge rides the floating bar of EVERY face —
-// the white [MergeCapsule] in the Changes / Results bar's centred cluster,
-// EXP-1191: the glyph-only [MergeCircle] right of the Issue / Run composer
-// capsule — and the review of a
-// PR IS this screen on its Changes face (the standalone review page is gone).
+// the white [MergeCapsule] in the Guide bar's centred cluster, EXP-1191: the
+// glyph-only [MergeCircle] right of the Issue / Run composer capsule — and the
+// review of a PR IS this screen on its Guide face. EXP-1248: `Merge stack`
+// while the PR sits in an open stack, ONE confirm; the Guide's Stack card
+// swaps the subject to another member IN PLACE.
 
 /** What a Work screen is about — the route decides, the screen resolves. */
 sealed interface WorkSubject {
@@ -105,7 +110,7 @@ fun WorkScreen(
     subject: WorkSubject,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    /** EXP-1154: ANOTHER issue's Changes face (a related-work PR row). */
+    /** EXP-1154: ANOTHER issue's Guide face (a related-work PR row). */
     onOpenIssueChanges: (issueId: String) -> Unit,
     // EXP-825: every start / fix-conflicts goes through the Agent page composer.
     onOpenAgent: (AgentComposerSeed) -> Unit,
@@ -128,6 +133,12 @@ fun WorkScreen(
     var shownSessionId by rememberSaveable {
         mutableStateOf((subject as? WorkSubject.Session)?.id)
     }
+    // EXP-1251: the issue the screen shows — the subject's, until the Guide's
+    // Stack card swaps it to another member IN PLACE (no new screen).
+    var subjectIssueId by rememberSaveable { mutableStateOf((subject as? WorkSubject.Issue)?.id) }
+    // EXP-1251: the Guide's open section page (`lead` | `other` | `all` | N);
+    // null = the Guide itself.
+    var guideSectionName by rememberSaveable { mutableStateOf<String?>(null) }
     // A run the reader PICKED (or arrived on) stays; only an auto-chosen one
     // follows `codingTarget` as the issue's runs come and go.
     var pinnedByUser by rememberSaveable { mutableStateOf(subject is WorkSubject.Session) }
@@ -139,11 +150,9 @@ fun WorkScreen(
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
     // EXP-1154: the issue menu's Close PR confirm.
     var closePrConfirmOpen by rememberSaveable { mutableStateOf(false) }
-    // EXP-1154: the file a Results row asked the Changes face for.
-    var changesFocusPath by rememberSaveable { mutableStateOf<String?>(null) }
-    // EXP-1154: an EXPLICIT ask for the Changes face (the PR row's tap, a
-    // `?face=changes` arrival) is honoured for a merged or closed PR too.
-    var changesRequested by rememberSaveable { mutableStateOf(initialFace == WorkFaceKind.Changes) }
+    // EXP-1154: an EXPLICIT ask for the Guide (the PR row's tap, a
+    // `?face=guide` arrival) is honoured for a merged or closed PR too.
+    var changesRequested by rememberSaveable { mutableStateOf(initialFace == WorkFaceKind.Guide) }
 
     // ── The shown run's model, one per id ──────────────────────────────────
     val sessionVm: AgentSessionViewModel? = shownSessionId?.let { id ->
@@ -155,10 +164,7 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
 
     // ── The issue, from the subject or the run's own row ───────────────────
-    val issueId: String? = when (subject) {
-        is WorkSubject.Issue -> subject.id
-        is WorkSubject.Session -> shownSession?.issueId
-    }
+    val issueId: String? = subjectIssueId ?: shownSession?.issueId
     val issueVm: IssueDetailViewModel? = issueId?.let { id ->
         hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(
             key = "issue:$id",
@@ -281,7 +287,7 @@ fun WorkScreen(
         (!issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank())
     val issueChanges = prOpen || pushedBranch || requestedWork
     val hasChanges = latestDiff != null || issueChanges
-    // EXP-895: the PR the Changes face links out to — the issue's, or the
+    // EXP-895: the PR the Guide links out to — the issue's, or the
     // shown run's OWN issue-less one (EXP-734). It wears the header's action
     // slot now, because the bar's leading slot opens the changed-files sheet.
     val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
@@ -314,8 +320,13 @@ fun WorkScreen(
             else -> emptyList()
         }
     }
-    // EXP-1152: the Changes tab wears these files' `+N −M` (desktop parity).
-    val changesCounts = remember(changesFiles) { changesFaceCounts(Diff.totals(changesFiles)) }
+    // EXP-1251: the diff the Guide COUNTS — null while it is not known yet
+    // (no Changes rows rather than wrong ones).
+    val guideFiles: List<Diff.File>? = when {
+        parsedDiff != null -> parsedDiff.files
+        prLoad is ChangesLoadState.Loaded -> changesFiles
+        else -> null
+    }
     // EXP-879: the run's published screenshots, parsed off the synced blob.
     // Results is a SUB-FACE of Run — no shown run, no results — which the
     // `shownSession` read gives for free.
@@ -323,8 +334,12 @@ fun WorkScreen(
     // `issueResultsRun` over every member's runs on it (my target run when it
     // has any, else the newest run with results) — so a teammate reading the
     // issue sees the report too. An issue-less run keeps its own results.
+    // EXP-1251: an issue reads only its OWN PR's topics (plus the untagged
+    // ones) — a run that stacked a second PR keeps each issue to its sections.
     val resultsSource: String? = if (issueId != null) {
-        issueResultsRun(issueSessions, issueId, shownSessionId, currentUserId, liveClock)?.results
+        issueResultsRun(issueSessions, issueId, shownSessionId, currentUserId, liveClock, issue?.prUrl)
+            ?.results
+            ?.let { raw -> sessionResultsForPr(raw, issue?.prUrl) }
     } else {
         shownSession?.results
     }
@@ -337,15 +352,15 @@ fun WorkScreen(
     val faces = availableFaces(
         hasIssue = issueId != null,
         hasRun = shownSessionId != null,
-        hasChanges = hasChanges,
         hasResults = hasResults,
+        hasDiff = hasChanges,
     )
     val wantedFace = faceName?.let { name -> WorkFaceKind.entries.firstOrNull { it.name == name } }
         ?: if (subject is WorkSubject.Session) WorkFaceKind.Run else WorkFaceKind.Issue
     val face = fallbackFace(wantedFace, faces) ?: wantedFace
     // Where a face lands when it vanishes under the reader (the diff cleared,
-    // the run row went): changes → run → issue.
-    // EXP-933: an ARRIVAL face (`?face=results`) waits for its data to sync
+    // the run row went): guide → run → issue.
+    // EXP-933: an ARRIVAL face (`?face=guide`) waits for its data to sync
     // instead of being overwritten by the fallback on the first empty frame;
     // it settles once it shows, or once the reader picks another face.
     LaunchedEffect(face, wantedFace) {
@@ -355,10 +370,12 @@ fun WorkScreen(
         }
         if (face != wantedFace) faceName = face.name
     }
-    // EXP-1154: the PR body is fetched only once the Results face shows it
+    // The Guide's section page closes once the Guide is not on show.
+    LaunchedEffect(face) { if (face != WorkFaceKind.Guide) guideSectionName = null }
+    // EXP-1154: the PR body is fetched only once the Guide shows it
     // (the view model keeps it cached per issue, so a swipe back is free).
     val wantsPrBody = changesVm != null && prOpen && resultGroups.isEmpty() &&
-        face == WorkFaceKind.Results
+        face == WorkFaceKind.Guide
     LaunchedEffect(changesVm, wantsPrBody) {
         if (wantsPrBody) changesVm?.loadDescription()
     }
@@ -380,7 +397,7 @@ fun WorkScreen(
 
     // EXP-1162: the state dots ride the face TABS, never the title — the Run
     // tab while the shown run is live (amber while it waits on a person), an
-    // open pull request on Results (or Changes without Results).
+    // open pull request on the Guide.
     val faceDots = DetailChrome.faceDots(
         faces = faces,
         runLive = shownLive && !sessionEnded,
@@ -419,9 +436,12 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     // EXP-1215: how many issues the subject's ONE pull request covers.
     val prIssueCount = graph.batch?.issues?.size ?: 1
-    // EXP-1145: a stack member's Merge asks first, per merge source.
-    val sessionStackChoice by (sessionVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-        .collectAsStateWithLifecycle()
+    // EXP-1248: the team's issues — the Stack card and the ONE stack confirm.
+    val teamIssues by graphVm.teamIssues.collectAsStateWithLifecycle()
+    // Non-null = Merge lands the whole open stack (labelled `Merge stack`).
+    fun stackConfirmFor(row: com.exponential.app.data.db.IssueEntity?): PrStack.StackMergeConfirm? =
+        row?.let { PrStack.stackMergeConfirm(it, teamIssues, PrStack.StackConfirmMode.Stack) }
+    val sessionStackConfirm = (mergeTarget as? MergeTarget.Issue)?.let { stackConfirmFor(mergeIssue) }
     // The live run merges its own target (EXP-678/734).
     val sessionCanMerge = sessionVm != null && mergeTarget != null &&
         !sessionEnded && phase !is AgentPhase.Ended
@@ -433,7 +453,7 @@ fun WorkScreen(
         canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
     val sessionMerge: ChangesMergeControl? = if (sessionCanMerge) {
         ChangesMergeControl(
-            label = DomainContract.diffUiMergePr,
+            label = if (sessionStackConfirm != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
             loading = merging,
             error = mergeError?.takeUnless { sessionConflictOpens }?.message,
             confirmPrompt = when (mergeTarget) {
@@ -441,8 +461,7 @@ fun WorkScreen(
                 else -> Prompts.MergeIssuePr.prompt(mergeIssue?.prNumber, prIssueCount)
             },
             onConfirm = { sessionVm.merge() },
-            stackChoice = sessionStackChoice,
-            stackIssueId = (mergeTarget as? MergeTarget.Issue)?.issueId,
+            stackConfirm = sessionStackConfirm,
             onMergeStack = { through -> sessionVm.mergeStack(through) },
         )
     } else {
@@ -457,8 +476,7 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val changesConflict by (changesVm?.actionErrorIsConflict ?: remember { MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
-    val changesStackChoice by (changesVm?.stackMergeChoice ?: remember { MutableStateFlow(null) })
-        .collectAsStateWithLifecycle()
+    val changesStackConfirm = if (changesVm != null) stackConfirmFor(issue) else null
     // EXP-1150/EXP-1154: the ONE Merge PR, on every face's floating bar — the
     // live run's own target first, else the issue's open PR.
     val mergeControl: ChangesMergeControl? = when {
@@ -469,7 +487,7 @@ fun WorkScreen(
                 changesErrorFrom == ChangesViewModel.PrAction.Merge &&
                 steerEnabled == true && !issue.branch.isNullOrBlank()
             ChangesMergeControl(
-                label = DomainContract.diffUiMergePr,
+                label = if (changesStackConfirm != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
                 loading = changesMerging,
                 // EXP-1154: a Close PR refusal toasts on its own (below).
                 error = changesError.takeIf {
@@ -477,8 +495,7 @@ fun WorkScreen(
                 },
                 confirmPrompt = Prompts.MergeIssuePr.prompt(issue.prNumber, prIssueCount),
                 onConfirm = { changesVm.mergePr() },
-                stackChoice = changesStackChoice,
-                stackIssueId = issueId,
+                stackConfirm = changesStackConfirm,
                 onMergeStack = { through -> changesVm.mergeStack(through) },
             )
         }
@@ -543,13 +560,40 @@ fun WorkScreen(
             toaster.error(error)
         }
     }
+    // EXP-1251: the Guide's Stack card — the subject's open stack, top first.
+    // A member's tap swaps the subject IN PLACE (the Guide stays); its
+    // long-press offers Merge through here (ONE confirm, then a merge through
+    // that member) for whoever may merge.
+    var mergeThroughConfirm by remember { mutableStateOf<PrStack.StackMergeConfirm?>(null) }
+    val stackView = remember(issue, teamIssues) { issue?.let { PrStack.stackView(it, teamIssues) } }
+    val guideStack = stackView?.let { view ->
+        GuideStack(
+            view = view,
+            onOpen = { memberId ->
+                subjectIssueId = memberId
+                shownSessionId = null
+                pinnedByUser = false
+                guideSectionName = null
+                faceName = WorkFaceKind.Guide.name
+            },
+            onMergeThrough = if (mergeControl != null) {
+                { memberId ->
+                    teamIssues.firstOrNull { it.id == memberId }?.let { member ->
+                        mergeThroughConfirm = PrStack.stackMergeConfirm(member, teamIssues, PrStack.StackConfirmMode.Through)
+                    }
+                }
+            } else {
+                null
+            },
+        )
+    }
     // The Run face's bar: Start coding once the shown run ended for good.
     val runTrailing: (@Composable () -> Unit)? = startUi?.takeIf { offerStart }?.let { ui ->
         { StartCircle(ui = ui, onClick = { startCoding() }) }
     }
     // EXP-1191: the Issue and Run faces carry Merge as the bar's glyph-only
-    // circle right of the composer capsule (Changes / Results keep the white
-    // capsule in their cluster).
+    // circle right of the composer capsule (the Guide keeps the white capsule
+    // in its cluster).
     val issueMergeSlot: (@Composable () -> Unit)? = mergeControl?.let { merge ->
         { MergeCircle(merge, tag = "$MergeCapsuleTag-issue") }
     }
@@ -672,10 +716,10 @@ fun WorkScreen(
                             null -> Unit
                         }
                     },
-                    // EXP-895: the Changes face's GitHub circle lives in the
-                    // header's action slot — the bar's leading slot now opens
+                    // EXP-895: the Guide's GitHub circle lives in the header's
+                    // action slot — the section page's bar leading slot opens
                     // the changed-files sheet.
-                    action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
+                    action = changesPrUrl?.takeIf { face == WorkFaceKind.Guide }?.let { url ->
                         { GithubHeaderAction(url) }
                     },
                     // SLOP-16: a quiet icon button beside the `…` whose glyph
@@ -684,8 +728,8 @@ fun WorkScreen(
                         PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
-                    // Issue face alone (`faceShowsContextMenu`) — Run, Changes
-                    // and Results keep only the run's own verb. A Delete issue
+                    // Issue face alone (`faceShowsContextMenu`) — Run and the
+                    // Guide keep only the run's own verb. A Delete issue
                     // beside a running agent acts on a subject that face is not
                     // even showing.
                     // EXP-1154: Close PR rides it for a member while the PR is open.
@@ -717,7 +761,6 @@ fun WorkScreen(
                                 pinnedByUser = true
                                 faceName = WorkFaceKind.Run.name
                             },
-                            changesCounts = changesCounts,
                             dots = faceDots,
                             runAgent = shownSession?.agent,
                             runState = runMarkState,
@@ -744,10 +787,11 @@ fun WorkScreen(
                             onBack = onBack,
                             onOpenIssue = onOpenIssue,
                             // EXP-1154: the PR / branch row opens this screen's
-                            // own Changes face, for a merged PR too.
+                            // own complete diff under the Guide, for a merged PR too.
                             onOpenChanges = {
                                 changesRequested = true
-                                faceName = WorkFaceKind.Changes.name
+                                guideSectionName = guideSectionParam(GuideSectionKey.All)
+                                faceName = WorkFaceKind.Guide.name
                             },
                             trailingBarSlot = issueTrailing,
                             mergeBarSlot = issueMergeSlot,
@@ -765,43 +809,48 @@ fun WorkScreen(
                                 trailingBarSlot = runTrailing,
                                 mergeBarSlot = runMergeSlot,
                                 runState = runDisplayState,
-                                // EXP-1154: the transcript card's Open Results
+                                // EXP-1154: the transcript card's Open Guide
                                 // means the run's REPORT, never the PR body.
-                                onOpenResults = if (WorkFaceKind.Results in faces && resultGroups.isNotEmpty()) {
-                                    { faceName = WorkFaceKind.Results.name }
+                                onOpenResults = if (WorkFaceKind.Guide in faces && resultGroups.isNotEmpty()) {
+                                    {
+                                        guideSectionName = null
+                                        faceName = WorkFaceKind.Guide.name
+                                    }
                                 } else {
                                     null
                                 },
                             )
                         }
                     }
-                    WorkFaceKind.Changes -> key(shownSessionId) {
-                        ChangesFace(
-                            padding = padding,
-                            // EXP-932: the files the host resolved.
-                            files = changesFiles,
-                            prLoad = prLoad,
-                            merge = mergeControl,
-                            focusPath = changesFocusPath,
-                            onFocusConsumed = { changesFocusPath = null },
-                        )
-                    }
-                    WorkFaceKind.Results -> ResultsFace(
-                        padding = padding,
-                        groups = resultGroups,
-                        files = changesFiles,
-                        // EXP-1154: a file row opens the Changes face on it.
-                        onOpenFile = if (hasChanges) {
-                            { path ->
-                                changesFocusPath = path
-                                faceName = WorkFaceKind.Changes.name
-                            }
+                    WorkFaceKind.Guide -> key(shownSessionId, issueId) {
+                        val section = parseGuideSectionParam(guideSectionName)
+                        if (section != null) {
+                            // EXP-1251: a Changes row's section page.
+                            GuideSectionDiff(
+                                padding = padding,
+                                page = remember(resultGroups, guideFiles, section) {
+                                    guideSectionPage(resultGroups, guideFiles, section)
+                                },
+                                load = prLoad,
+                                merge = mergeControl,
+                                onBack = { guideSectionName = null },
+                            )
                         } else {
-                            null
-                        },
-                        prFallback = prDescription.takeIf { resultGroups.isEmpty() && prOpen },
-                        merge = mergeControl,
-                    )
+                            GuideFace(
+                                padding = padding,
+                                groups = resultGroups,
+                                files = guideFiles,
+                                prFallback = prDescription.takeIf { resultGroups.isEmpty() && prOpen },
+                                stack = guideStack,
+                                merge = mergeControl,
+                                onOpenSection = if (hasChanges) {
+                                    { key -> guideSectionName = guideSectionParam(key) }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -817,13 +866,14 @@ fun WorkScreen(
             statuses = graphStatuses,
             users = graphUsers,
             onOpenIssue = onOpenIssue,
-            // SLOP-16 r3 / EXP-1154: a pull request row opens its Changes:
+            // SLOP-16 r3 / EXP-1154: a pull request row opens its Guide:
             // this screen's own face for the subject's PR, else that issue's
-            // Work screen on its Changes face.
+            // Work screen on its Guide.
             onOpenPr = { id ->
                 if (id == issueId) {
                     changesRequested = true
-                    faceName = WorkFaceKind.Changes.name
+                    guideSectionName = null
+                    faceName = WorkFaceKind.Guide.name
                 } else {
                     onOpenIssueChanges(id)
                 }
@@ -917,6 +967,20 @@ fun WorkScreen(
         )
     }
 
+    // EXP-1248: Merge through here (a Stack card member's long-press).
+    mergeThroughConfirm?.let { confirm ->
+        StackMergeDialog(
+            confirm = confirm,
+            onConfirm = { through ->
+                when {
+                    changesVm != null -> changesVm.mergeStack(through)
+                    else -> sessionVm?.mergeStack(through)
+                }
+            },
+            onDismiss = { mergeThroughConfirm = null },
+        )
+    }
+
     // EXP-1154: Close PR without merging (the issue menu's destructive item),
     // the ×4 copy of `close-pr.json`; a refusal toasts via the Merge capsule's
     // model error (`actionError`).
@@ -961,3 +1025,19 @@ fun WorkScreen(
 
 /** EXP-876: the covered-issues sheet's title behind a batch run's title. */
 internal const val COVERED_ISSUES_TITLE = "Issues in this run"
+
+/** EXP-1251: a section page key as the saveable screen state. */
+internal fun guideSectionParam(key: GuideSectionKey): String = when (key) {
+    GuideSectionKey.Lead -> "lead"
+    GuideSectionKey.Other -> "other"
+    GuideSectionKey.All -> "all"
+    is GuideSectionKey.Numbered -> key.index.toString()
+}
+
+internal fun parseGuideSectionParam(raw: String?): GuideSectionKey? = when (raw) {
+    null -> null
+    "lead" -> GuideSectionKey.Lead
+    "other" -> GuideSectionKey.Other
+    "all" -> GuideSectionKey.All
+    else -> raw.toIntOrNull()?.takeIf { it >= 1 }?.let { GuideSectionKey.Numbered(it) }
+}

@@ -10,7 +10,6 @@ import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
@@ -18,7 +17,6 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.ConflictRefusal
 import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.PrStack
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -103,19 +101,9 @@ class ChangesViewModel @AssistedInject constructor(
             ?: flowOf(null))
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // EXP-1145: the synced issues and boards, so a plain Merge on a stack
-    // member can ask first (Merge stack / Merge this pull request / Cancel).
-    // The stack is read from this issue's TEAM only ([PrStack.teamIssues]).
+    // The synced issues: the Close PR confirm's batch line counts them.
     private val allIssues: Flow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-    private val allBoards: Flow<List<BoardEntity>> =
-        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
-
-    /** EXP-1145: non-null when merging this issue's PR must ask first. */
-    val stackMergeChoice: StateFlow<PrStack.StackMergeChoice?> =
-        combine(issue, allIssues, allBoards) { iss, all, boards ->
-            iss?.let { PrStack.stackMergeChoice(it, PrStack.teamIssues(it, all, boards)) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1154: how many OTHER synced issues share this issue's PR (a batch
@@ -260,8 +248,9 @@ class ChangesViewModel @AssistedInject constructor(
     }
 
     /**
-     * EXP-1145: merge the open stack bottom-up THROUGH [targetIssueId]
-     * (the top member = the whole stack, this issue = it and those below).
+     * EXP-1248: merge THROUGH [targetIssueId] (`mergeStack: true`): that
+     * member and every open PR beneath it, ONE GitHub merge on the server
+     * (the top member = the whole stack).
      */
     fun mergeStack(targetIssueId: String) = merge(targetIssueId, mergeStack = true)
 

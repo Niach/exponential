@@ -1481,6 +1481,10 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
     /// as `/api/attachments/{id}?poster=1`. The key itself is never used by a
     /// client; non-nil IS the "has a poster" signal.
     public let posterStorageKey: String?
+    /// EXP-1247: uploaded through a FILE button (the Files paperclip, the
+    /// editor's Attach file), so it lists under Files and never inlines, even
+    /// when it is an image or a clip.
+    public let asFile: Bool
     public let createdAt: String
     public let updatedAt: String
 
@@ -1499,6 +1503,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         height: Int?,
         durationMs: Int? = nil,
         posterStorageKey: String? = nil,
+        asFile: Bool = false,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1506,6 +1511,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         self.teamId = teamId
         self.issueId = issueId
         self.commentId = commentId
+        self.asFile = asFile
         self.uploaderId = uploaderId
         self.filename = filename
         self.contentType = contentType
@@ -1534,6 +1540,7 @@ public struct AttachmentEntity: FetchableRecord, PersistableRecord, Identifiable
         case storageKey = "storage_key"
         case durationMs = "duration_ms"
         case posterStorageKey = "poster_storage_key"
+        case asFile = "as_file"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1564,6 +1571,8 @@ extension AttachmentEntity: Codable {
         // EXP-824: both nullable and absent on pre-rotation snapshots.
         durationMs = try c.decodeWireInt(forKey: .durationMs)
         posterStorageKey = try c.decodeIfPresent(String.self, forKey: .posterStorageKey)
+        // EXP-1247: absent on pre-rotation snapshots and older servers.
+        asFile = c.decodeWireBool(forKey: .asFile, default: false)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

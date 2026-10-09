@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -16,9 +19,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSectionBand
 
@@ -79,6 +85,60 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
+    }
+}
+
+/**
+ * EXP-1248: THE issue status group band (web `IssueGroupBand`, desktop
+ * `issue_group_band`, iOS `IssueGroupBand`) — the ONE list band that keeps a
+ * count: fold chevron · status glyph · name · count, the whole strip toggling
+ * its group. Phones draw it untinted (EXP-620), so it scrolls with its rows on
+ * the app background. [horizontalInset] lines its glyphs up with the rows below
+ * (the board list carries its gutter in the content, My Issues in the list).
+ */
+@Composable
+fun IssueGroupBand(
+    glyph: @Composable () -> Unit,
+    name: String,
+    /** The group's full size. */
+    count: Int,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    horizontalInset: Dp = 8.dp,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .testTag("issue-group-band")
+            .padding(horizontal = horizontalInset, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
+            contentDescription = if (collapsed) "Expand" else "Collapse",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Spacer(Modifier.width(6.dp))
+        glyph()
+        Spacer(Modifier.width(8.dp))
+        Text(
+            name,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.testTag("issue-group-band-count"),
+        )
     }
 }
 

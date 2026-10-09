@@ -66,8 +66,7 @@ class DetailChromeTest {
     private fun face(wire: String): WorkFaceKind = when (wire) {
         "issue" -> WorkFaceKind.Issue
         "run" -> WorkFaceKind.Run
-        "changes" -> WorkFaceKind.Changes
-        "results" -> WorkFaceKind.Results
+        "guide" -> WorkFaceKind.Guide
         else -> error("unknown face $wire")
     }
 

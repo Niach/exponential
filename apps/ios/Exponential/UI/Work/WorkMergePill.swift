@@ -8,9 +8,10 @@ import SwiftUI
 /// Changes bar's cluster `[files] [Merge PR]` and alone on the Results bar.
 /// EXP-1191: the Issue and Run bars wear it as a 52pt glass CIRCLE (`style:
 /// .circle`, the merge glyph alone) right of their centre capsule, the
-/// floating capsule above them retired. The same flow
-/// everywhere: the confirm alert, or the stack dialog for a member of an open
-/// PR stack (EXP-1145 `PrStack.stackMergeChoice`). EXP-1233: a merge the
+/// floating capsule above them retired. EXP-1248: ONE merge control — it
+/// reads "Merge stack" on a member of a linear open stack and asks ONE confirm
+/// listing the pull requests that land (`PrStack.stackMergeConfirm`), else
+/// the plain merge confirm. EXP-1233: a merge the
 /// server refused on a REAL content conflict OPENS the Agent page composer on
 /// the Fix merge conflicts builtin at once (this PR picked, the refusal
 /// flagged) — the control never swaps to "Fix conflicts" any more, so a
@@ -46,7 +47,7 @@ struct WorkMergePill: View {
     var style: Style = .capsule
     enum Style { case capsule, circle }
     @State private var showMergeConfirm = false
-    @State private var stackChoice: PrStack.StackMergeChoice?
+    @State private var stackConfirm: PrStack.StackMergeConfirm?
 
     private var merging: Bool { state.merging }
 
@@ -68,28 +69,33 @@ struct WorkMergePill: View {
                     GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
                 }
         }
-        // EXP-1145: the stack dialog, its copy byte-locked by the
-        // `stack-merge-choice.json` fixture.
+        // EXP-1248: the ONE stack confirm, its copy byte-locked by
+        // `stack-merge-choice.json` `confirm`.
         .background {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .glassAlert(item: $stackChoice) { choice in
-                    GlassAlert(
-                        title: PrStack.stackMergeChoiceTitle,
-                        message: choice.body,
-                        actions: [
-                            GlassAlertAction(PrStack.stackMergeCancelLabel, role: .outline, isCancel: true, id: "cancel") {},
-                            GlassAlertAction(PrStack.mergeThisPrLabel, role: .outline, id: "merge-this") {
-                                mergeThis(choice)
-                            },
-                            GlassAlertAction(PrStack.mergeStackLabel, role: .primary, id: "merge-stack") {
-                                mergeStack(issueId: choice.topIssueId)
-                            },
-                        ]
-                    )
+                .stackMergeConfirmAlert($stackConfirm) { confirm in
+                    mergeStack(issueId: confirm.issueId)
                 }
         }
+    }
+
+    /// The `.issue` target's synced row.
+    private var targetRow: IssueEntity? {
+        guard case let .issue(issueId) = target else { return nil }
+        return issue?.id == issueId ? issue : prIssues.first { $0.id == issueId }
+    }
+
+    /// EXP-1248: the control's Merge stack confirm, nil off a linear open
+    /// stack.
+    private var stackMerge: PrStack.StackMergeConfirm? {
+        targetRow.flatMap { PrStack.stackMergeConfirm($0, issues: prIssues, mode: .stack) }
+    }
+
+    /// "Merge stack" on an open-stack member, else "Merge PR".
+    private var label: String {
+        stackMerge == nil ? DomainContract.diffUiMergePr : DomainContract.diffUiMergeStack
     }
 
     /// EXP-734: a run's OWN pull request links no issue (`merge-run-pr`);
@@ -105,7 +111,7 @@ struct WorkMergePill: View {
 
     private var pill: some View {
         FloatingBarSolidPill(
-            accessibilityLabel: DomainContract.diffUiMergePr,
+            accessibilityLabel: label,
             enabled: !merging,
             action: { requestMerge() }
         ) {
@@ -114,7 +120,7 @@ struct WorkMergePill: View {
             } else {
                 AppIcon(AppIcons.prMerged, size: FloatingBarTokens.glyph, weight: .medium)
             }
-            Text(DomainContract.diffUiMergePr)
+            Text(label)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
         }
@@ -126,7 +132,7 @@ struct WorkMergePill: View {
     /// the merge glyph alone, a spinner while the merge is in flight.
     private var circle: some View {
         FloatingBarCircle(
-            accessibilityLabel: DomainContract.diffUiMergePr,
+            accessibilityLabel: label,
             enabled: !merging,
             action: { requestMerge() }
         ) {
@@ -150,26 +156,14 @@ struct WorkMergePill: View {
             && !(issue?.branch ?? "").isEmpty
     }
 
-    /// EXP-1145: a member of an open PR stack asks first; anything else
-    /// confirms the plain merge.
+    /// EXP-1248: a member of an open PR stack asks the ONE stack confirm;
+    /// anything else confirms the plain merge.
     private func requestMerge() {
-        if case let .issue(issueId) = target,
-           let row = issue?.id == issueId ? issue : prIssues.first(where: { $0.id == issueId }),
-           let choice = PrStack.stackMergeChoice(row, issues: prIssues) {
-            stackChoice = choice
+        if let confirm = stackMerge {
+            stackConfirm = confirm
         } else {
             showMergeConfirm = true
         }
-    }
-
-    /// "Merge this pull request": the bottom member merges plainly, any other
-    /// one lands the chain bottom-up THROUGH itself.
-    private func mergeThis(_ choice: PrStack.StackMergeChoice) {
-        guard choice.mergeThisUsesStack, case let .issue(issueId) = target else {
-            merge()
-            return
-        }
-        mergeStack(issueId: issueId)
     }
 
     /// No local surgery on success: the server ends the run and flips
@@ -200,10 +194,9 @@ struct WorkMergePill: View {
         }
     }
 
-    /// EXP-1145: the stack merge through `issueId` (the top for Merge stack,
-    /// the member itself for Merge this). A refusal toasts the server's
-    /// message and never opens the recovery run: the member that stopped the
-    /// chain may not be this pull request.
+    /// EXP-1248: ONE merge through `issueId` (the top for Merge stack). A
+    /// refusal toasts the server's message and never opens the recovery run:
+    /// the member that stopped the chain may not be this pull request.
     private func mergeStack(issueId: String) {
         state.merging = true
         Task {
@@ -238,4 +231,60 @@ struct WorkMergePill: View {
 /// The screen resets it when the merge target changes.
 struct WorkMergeState: Equatable {
     var merging = false
+}
+
+extension View {
+    /// EXP-1248: the ONE stack merge confirm (`PrStack.stackMergeConfirm`):
+    /// the title is the primary button, the body lists what lands; Cancel
+    /// beside it. `onConfirm` sends `mergePr({issueId, mergeStack: true})`.
+    func stackMergeConfirmAlert(
+        _ confirm: Binding<PrStack.StackMergeConfirm?>,
+        onConfirm: @escaping (PrStack.StackMergeConfirm) -> Void
+    ) -> some View {
+        glassAlert(item: confirm) { confirm in
+            GlassAlert(
+                title: confirm.title,
+                message: confirm.body,
+                actions: [
+                    GlassAlertAction(PrStack.stackConfirmCancelLabel, role: .outline, isCancel: true, id: "cancel") {},
+                    GlassAlertAction(confirm.title, role: .primary, id: "merge-stack") {
+                        onConfirm(confirm)
+                    },
+                ]
+            )
+        }
+    }
+}
+
+/// EXP-1248: "Merge through here" off a stack row (the Guide's Stack card,
+/// a long-press): the ONE confirm in `through` mode, then ONE merge through
+/// that member. The merge in flight is the screen's (`WorkMergeState`).
+struct StackMergeThroughHost: ViewModifier {
+    @Binding var request: PrStack.StackMergeConfirm?
+    @Binding var state: WorkMergeState
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+
+    func body(content: Content) -> some View {
+        content.background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .stackMergeConfirmAlert($request) { confirm in
+                    state.merging = true
+                    Task {
+                        do {
+                            try await deps.issuesApi.mergePr(
+                                accountId: accountId, issueId: confirm.issueId, mergeStack: true
+                            )
+                        } catch {
+                            toaster.error(MergeFailure(error: error, stackMerge: true).message)
+                        }
+                        state.merging = false
+                    }
+                }
+        }
+    }
 }

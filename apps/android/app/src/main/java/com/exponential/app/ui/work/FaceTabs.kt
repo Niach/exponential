@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.ChangesFaceCounts
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.domain.DetailChrome
@@ -40,7 +39,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.WorkFaceKind
-import com.exponential.app.domain.changesFaceText
 import com.exponential.app.domain.faceLabel
 import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.issueRunWhen
@@ -65,8 +63,9 @@ import com.exponential.app.ui.session.PastRunRow
 // moves between faces. The row is `[strip][Merge PR pill]`: with a merge
 // the strip shrinks left and the pill trails at the row's end (every face).
 // [WorkFaceFrame] hosts the face BODIES as a pager (EXP-1152: the neighbour
-// follows the finger like native tabs), and the Changes segment wears the
-// diff's `+N −M` once known (desktop `FaceToggle::diff`, [changesFaceCounts]).
+// follows the finger like native tabs). EXP-1251: the faces are Issue · Run ·
+// Guide; the Guide tab reads its word alone (the counts moved into its body)
+// and wears the open-PR dot.
 // With two or more own runs the Run tab reads `Runs`, and tapping it while it
 // is ALREADY selected opens the run menu under the strip (`<device> ·
 // <when>`, a check on the shown run).
@@ -108,8 +107,6 @@ fun WorkFaceTabs(
     runs: List<PastRunRow> = emptyList(),
     shownRunId: String? = null,
     onPickRun: (String) -> Unit = {},
-    /** EXP-1152: the Changes face's diff counts; null = the word `Changes`. */
-    changesCounts: ChangesFaceCounts? = null,
     /** EXP-1162: the tabs' state dots (`DetailChrome.faceDots`). */
     dots: Map<WorkFaceKind, SessionDotTone> = emptyMap(),
     /** EXP-1162: the shown run's agent (its Run mark); EXP-1184: its display
@@ -134,24 +131,7 @@ fun WorkFaceTabs(
                 if (faces.size >= 2) GlassSegmentedControl(
                     options = faces,
                     selected = face,
-                    // The counts' ONE string is the segment's accessible name.
-                    label = { f ->
-                        if (f == WorkFaceKind.Changes && changesCounts != null) {
-                            changesFaceText(changesCounts)
-                        } else {
-                            faceLabel(f, multipleRuns)
-                        }
-                    },
-                    labelContent = { f ->
-                        if (f == WorkFaceKind.Changes && changesCounts != null) {
-                            val slot: @Composable (Color) -> Unit = { color ->
-                                ChangesCountsLabel(changesCounts, color.alpha)
-                            }
-                            slot
-                        } else {
-                            null
-                        }
-                    },
+                    label = { f -> faceLabel(f, multipleRuns) },
                     onSelect = { picked ->
                         // `selectable` fires for the ALREADY selected segment too:
                         // a second tap on `Runs` is the way into the run menu.
@@ -176,12 +156,7 @@ fun WorkFaceTabs(
                     },
                     description = { f ->
                         DetailChrome.faceDotCaption(dots[f])?.let { caption ->
-                            val name = if (f == WorkFaceKind.Changes && changesCounts != null) {
-                                changesFaceText(changesCounts)
-                            } else {
-                                faceLabel(f, multipleRuns)
-                            }
-                            "$name, $caption"
+                            "${faceLabel(f, multipleRuns)}, $caption"
                         }
                     },
                     modifier = Modifier.testTag("work-face-tabs"),
@@ -257,35 +232,6 @@ private fun FaceDot(tone: SessionDotTone) {
     )
 }
 
-/**
- * EXP-1152: the Changes segment's label — the desktop `FaceToggle::diff` pair:
- * mono `+N` / `−M` in the diff's own add/delete tints, at the strip's label
- * size and constant weight so the segment never re-measures between faces.
- * [alpha] carries the strip's selected/unselected emphasis (EXP-698).
- */
-@Composable
-private fun ChangesCountsLabel(counts: ChangesFaceCounts, alpha: Float) {
-    val size = MaterialTheme.typography.labelLarge.fontSize
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            Diff.additionsLabel(counts.additions),
-            color = DesignTokens.Diff.AddFg.copy(alpha = alpha),
-            fontFamily = FontFamily.Monospace,
-            fontSize = size,
-            fontWeight = GlassSegmentedControlDefaults.LabelWeight,
-            maxLines = 1,
-        )
-        Text(
-            Diff.deletionsLabel(counts.deletions),
-            color = DesignTokens.Diff.DelFg.copy(alpha = alpha),
-            fontFamily = FontFamily.Monospace,
-            fontSize = size,
-            fontWeight = GlassSegmentedControlDefaults.LabelWeight,
-            maxLines = 1,
-        )
-    }
-}
-
 @Composable
 private fun RunMenuRow(run: PastRunRow, shown: Boolean, onClick: () -> Unit) {
     val live = isLiveRun(run.session)
@@ -315,6 +261,5 @@ private fun RunMenuRow(run: PastRunRow, shown: Boolean, onClick: () -> Unit) {
 private fun faceTag(face: WorkFaceKind): String = when (face) {
     WorkFaceKind.Issue -> "work-face-issue"
     WorkFaceKind.Run -> "work-face-run"
-    WorkFaceKind.Changes -> "work-face-changes"
-    WorkFaceKind.Results -> "work-face-results"
+    WorkFaceKind.Guide -> "work-face-guide"
 }

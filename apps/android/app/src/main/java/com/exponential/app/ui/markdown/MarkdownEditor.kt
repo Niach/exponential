@@ -32,7 +32,6 @@ import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.MediaPreparer
 import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.domain.mediaLinkLabel
 import com.exponential.app.ui.markdown.model.PendingImage
@@ -279,63 +278,28 @@ fun rememberMarkdownImagePicker(
 
 /**
  * The "Files" half of the toolbar's attach menu (EXP-327): an any-type document
- * picker that sorts the pick itself instead of making the user pick the right
- * button up front.
+ * picker. EXP-1247: EVERY pick goes to [onAttachFile] and becomes a Files row
+ * uploaded `asFile`, images and clips included: the file button never
+ * inlines (the image button, paste and drop still do). Web `routeFilePicks`.
  *
- * An inline-image pick is APPENDED to the description — same insert/upload
- * lifecycle as the photo picker, just at the end rather than at the caret,
- * because the user was attaching rather than typing. Anything else goes to
- * [onAttachFile] and becomes a real attachment row. This is why picking an
- * image here no longer dead-ends in "images go in the description": it just
- * goes there.
- *
- * Returns null when there is nowhere to put a non-image file, which is also the
- * signal that the toolbar should keep its plain image button.
+ * Returns null when there is nowhere to put a file, which is also the signal
+ * that the toolbar should keep its plain image button. [onUploadImage] and
+ * [onUploadMedia] stay in the signature for the hosts that pass them.
  */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun rememberMarkdownFilePicker(
     model: EditorModel,
     onUploadImage: (suspend (uri: Uri) -> String?)?,
     onAttachFile: ((Uri) -> Unit)?,
     onUploadMedia: (suspend (media: PreparedMedia) -> String?)? = null,
 ): (() -> Unit)? {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val preparer = rememberMediaPreparer()
-    val currentModel by rememberUpdatedState(model)
-    val currentUploader by rememberUpdatedState(onUploadImage)
-    val currentMediaUploader by rememberUpdatedState(onUploadMedia)
     val currentAttach by rememberUpdatedState(onAttachFile)
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val target = currentModel
-        val uploader = currentUploader
-        val mediaUploader = currentMediaUploader
-        val attach = currentAttach
-        scope.launch {
-            // Fall back to octet-stream, NOT the photo picker's image/jpeg: an
-            // untyped document is a file, not a picture.
-            val mime = canonicalContentType(
-                withContext(Dispatchers.IO) {
-                    MarkdownMediaUtils.guessMimeType(context, uri, fallback = "application/octet-stream")
-                }
-            )
-            // EXP-824: a video/audio document becomes an inline media block
-            // (appended, like an image from this picker) when the host can
-            // upload media; otherwise it stays a plain file attachment.
-            if (isInlineMedia(mime) && mediaUploader != null) {
-                insertPickedMedia(context, target, uri, mime, preparer, mediaUploader, atEnd = true)
-                return@launch
-            }
-            if (!isInlineImage(mime)) {
-                attach?.invoke(uri)
-                return@launch
-            }
-            if (uploader == null) return@launch
-            appendPickedImage(context, target, uri, mime, uploader)
-        }
+        currentAttach?.invoke(uri)
     }
     return remember(launcher, onAttachFile) {
         if (onAttachFile == null) null else ({ launcher.launch(arrayOf("*/*")) })

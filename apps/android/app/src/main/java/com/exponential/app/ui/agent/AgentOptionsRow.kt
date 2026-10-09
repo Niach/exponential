@@ -3,15 +3,12 @@ package com.exponential.app.ui.agent
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -36,40 +33,28 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.AccountOption
 import com.exponential.app.ui.components.AccountPickerPill
-import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
-import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.OptionGroup
-import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillMode
-import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceOptionLabel
-import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
-import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
-import com.exponential.app.ui.components.subagentModelLabel
-import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsPlanMode
-import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-825: the launch options as ONE muted inline line under the composer
- * card (Danny's variant B): Device, Account, Model, a Plan switch, the Resume
- * switch inline while a worktree makes it offerable (EXP-481), and a `⋯` pill
- * for the rest ([AgentOptionsSheet]: Effort, Subagent model, Ultracode).
+ * card (Danny's variant B): Device, Account, Model, a Plan switch and the
+ * Resume switch inline while a worktree makes it offerable (EXP-481).
+ * EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
+ * servers and Computer use live in the composer's "+" menu.
  * Every pill is a menu or a toggle — no disabled controls; the caption under
  * the row explains what cannot start. Horizontally scrolling: a phone cannot
  * fit six pills, and wrapping would push the sessions list around.
@@ -94,7 +79,6 @@ internal fun AgentOptionsRow(
     resumeCandidate: DeviceWorktreeEntity?,
     resume: Boolean,
     onResumeChange: (Boolean) -> Unit,
-    onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // A resume never re-enters plan mode (EXP-202) — the switch hides while
@@ -177,12 +161,6 @@ internal fun AgentOptionsRow(
                 contentDescription = "Resume previous run",
             )
         }
-        GlassPill(
-            "",
-            icon = ExpIcons.uiMore,
-            onClick = onMore,
-            contentDescription = "More options",
-        )
     }
 }
 
@@ -319,72 +297,4 @@ private fun OptionPill(
         contentDescription = contentDescription,
         modifier = modifier,
     )
-}
-
-/**
- * EXP-825: the `⋯` sheet — the options that did not earn a pill: Effort
- * (Reasoning / Thinking per agent), the Subagent model (EXP-981, claude only)
- * and Ultracode (claude only — it IS `--effort ultracode`, so it disables the
- * Effort row). No MCP-server picker: mobile has none. EXP-862: the Account
- * moved OUT of here onto the options row itself — which login a run spends is
- * a decision, not an overflow entry.
- */
-@Composable
-internal fun AgentOptionsSheet(
-    launch: LaunchDraft,
-    onEffortChange: (String) -> Unit,
-    onSubagentModelChange: (String) -> Unit,
-    onUltracodeChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    GlassSheet(
-        title = "Options",
-        onDismiss = onDismiss,
-        modifier = Modifier.testTag("agent-options-sheet"),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            OptionGroup {
-                PickerRow(
-                    label = when (launch.agent) {
-                        "codex" -> "Reasoning"
-                        else -> "Effort"
-                    },
-                    value = effortLabel(launch.effort),
-                    options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(launch.agent),
-                    selected = launch.effort,
-                    optionLabel = ::effortLabel,
-                    // Ultracode IS `--effort ultracode` — it owns the row.
-                    enabled = !(launch.agent == DEFAULT_AGENT && launch.ultracode),
-                    onSelect = onEffortChange,
-                )
-                // EXP-981: the model this run's SUBAGENTS spend, right beside
-                // the run's own. claude only — it is the one agent that
-                // spawns them — so it hides like Ultracode does.
-                if (supportsSubagentModel(launch.agent)) {
-                    GroupDivider()
-                    PickerRow(
-                        label = SUBAGENT_MODEL_LABEL,
-                        value = subagentModelLabel(launch.subagentModel),
-                        options = subagentModelOptions(),
-                        selected = launch.subagentModel,
-                        optionLabel = ::subagentModelLabel,
-                        onSelect = onSubagentModelChange,
-                    )
-                }
-                if (launch.agent == DEFAULT_AGENT) {
-                    GroupDivider()
-                    SwitchRow(
-                        title = "Ultracode",
-                        checked = launch.ultracode,
-                        onCheckedChange = onUltracodeChange,
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
 }

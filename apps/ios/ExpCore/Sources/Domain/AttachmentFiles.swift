@@ -82,6 +82,32 @@ public enum AttachmentFiles {
         !isInlineImage(contentType: contentType) && !isInlineMedia(contentType: contentType)
     }
 
+    // MARK: - EXP-1247: the row-aware rule (`as_file`)
+
+    /// An `asFile` row (uploaded through a FILE button) is never inline, so it
+    /// always lists under Files: `isInlineImage` / `isInlineMedia` are false
+    /// for it and `isFile` = not inline OR `asFile` (issue-draft.json FILES,
+    /// web `lib/attachment-files.ts`).
+    public static func isInlineImage(contentType: String, asFile: Bool) -> Bool {
+        !asFile && isInlineImage(contentType: contentType)
+    }
+
+    public static func isInlineMedia(contentType: String, asFile: Bool) -> Bool {
+        !asFile && isInlineMedia(contentType: contentType)
+    }
+
+    public static func isFile(contentType: String, asFile: Bool) -> Bool {
+        asFile || isFile(contentType: contentType)
+    }
+
+    public static func isFile(_ row: AttachmentEntity) -> Bool {
+        isFile(contentType: row.contentType, asFile: row.asFile)
+    }
+
+    public static func isFile(_ row: DraftAttachmentDto) -> Bool {
+        isFile(contentType: row.contentType, asFile: row.asFile)
+    }
+
     // MARK: - Markdown preview (EXP-1003)
 
     /// EXP-1003 — a markdown attachment opens in the in-app preview instead of

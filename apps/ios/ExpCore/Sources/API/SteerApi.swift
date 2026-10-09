@@ -673,6 +673,16 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the same login, so the switch would silently do nothing.
     public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
 
+    /// EXP-1249: whether this machine reads the per-run `computerUse` flag
+    /// (contract `codingSessionComputerUseCap`); an older build would ignore
+    /// it, so the toggle hides and the key never rides out.
+    public var canToggleComputerUse: Bool {
+        caps?.contains(DomainContract.codingSessionComputerUseCap) == true
+    }
+
+    /// The per-run toggle's seed: the machine's `launch_defaults.computerUse`.
+    public var computerUseDefault: Bool { launchDefaults?.computerUse ?? false }
+
     /// EXP-862: whether this machine runs `agent_profile_remove` — deleting
     /// its own copy of a login (the profile's config dir plus its index row;
     /// the ACCOUNT itself is never touched). Its own cap beside `agent-login`:
@@ -763,6 +773,13 @@ public struct SteerStartOptions: Sendable {
     /// the machine's `agentAccounts[agent].profiles` ids, `system` = the
     /// ambient login by name. Nil = the machine's last used login (EXP-1158).
     public let account: String?
+    /// EXP-792/1249: the team MCP servers this run gets; nil = none picked
+    /// (the server treats an absent list and an empty one alike).
+    public let mcpServerIds: [String]?
+    /// EXP-1249: per-run computer use (contract `codingSession.launchKeys`),
+    /// sent only to a device advertising `codingSessionComputerUseCap`; nil =
+    /// the device's own `launch_defaults.computerUse`.
+    public let computerUse: Bool?
 
     public init(
         agent: String? = nil,
@@ -772,8 +789,12 @@ public struct SteerStartOptions: Sendable {
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
         resume: Bool? = nil,
-        account: String? = nil
+        account: String? = nil,
+        mcpServerIds: [String]? = nil,
+        computerUse: Bool? = nil
     ) {
+        self.mcpServerIds = mcpServerIds
+        self.computerUse = computerUse
         self.agent = agent
         self.model = model
         self.subagentModel = subagentModel
@@ -806,6 +827,10 @@ struct StartSessionInput: Encodable {
     // forbids it only next to `resumeSessionId` (a recorded run keeps its
     // options), which this input never carries.
     let prompt: String?
+    // EXP-792/1249: omitted when nil (encodeIfPresent), next to each other
+    // as on every client.
+    var mcpServerIds: [String]? = nil
+    var computerUse: Bool? = nil
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -824,6 +849,8 @@ struct StartBatchSessionInput: Encodable {
     let planMode: Bool?
     let account: String?
     let prompt: String?
+    var mcpServerIds: [String]? = nil
+    var computerUse: Bool? = nil
 }
 
 /// Action remote-start (EXP-253/EXP-257): exactly one of
@@ -850,6 +877,8 @@ struct StartActionSessionInput: Encodable {
     let inputs: [String: String]?
     let account: String?
     let prompt: String?
+    var mcpServerIds: [String]? = nil
+    var computerUse: Bool? = nil
 }
 
 /// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
@@ -923,7 +952,9 @@ public final class SteerApi: Sendable {
                     planMode: options.planMode,
                     resume: options.resume,
                     account: options.account,
-                    prompt: prompt
+                    prompt: prompt,
+                    mcpServerIds: options.mcpServerIds,
+                    computerUse: options.computerUse
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -960,7 +991,9 @@ public final class SteerApi: Sendable {
                     ultracode: options.ultracode,
                     planMode: options.planMode,
                     account: options.account,
-                    prompt: prompt
+                    prompt: prompt,
+                    mcpServerIds: options.mcpServerIds,
+                    computerUse: options.computerUse
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -1007,7 +1040,9 @@ public final class SteerApi: Sendable {
                     planMode: options.planMode,
                     inputs: inputs,
                     account: options.account,
-                    prompt: prompt
+                    prompt: prompt,
+                    mcpServerIds: options.mcpServerIds,
+                    computerUse: options.computerUse
                 )
             )
         } catch let TrpcError.httpError(status, body) {

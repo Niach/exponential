@@ -1,97 +1,64 @@
 package com.exponential.app.ui.reviews
 
 import androidx.browser.customtabs.CustomTabsIntent
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.UserEntity
-import com.exponential.app.domain.ResolvedIssueStatus
-import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.issue.RelationIssueRow
-import com.exponential.app.ui.work.StackMergeDialog
 import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.PrList
+import com.exponential.app.ui.components.PrListRow
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.StackRail
+import com.exponential.app.ui.components.StackRailMember
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
-import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.components.PromptAlert
-import com.exponential.app.domain.Prompts
-import com.exponential.app.domain.PullRepo
-import com.exponential.app.domain.ReviewsQueue
-import com.exponential.app.data.api.OpenPull
-import com.exponential.app.ui.components.PillSize
 
 /**
  * "Reviews" (EXP-131): the open pull requests across every member team
- * (EXP-1186), grouped by board. Its own bottom-bar destination beside My Work (EXP-147 — it used
- * to be a PersonalScreen segment). A batch coding run's combined PR shows as
- * ONE entry ("N issues"), never one row per linked issue. Rows open the
- * issue's Work screen on its Changes face (EXP-1154: the review IS the issue,
- * the standalone review page is gone); the long-press sheet keeps an
- * "Open issue" path.
+ * (EXP-1186), grouped by board — its own bottom-bar destination.
+ *
+ * EXP-1248: every PR is ONE [com.exponential.app.ui.components.PrRow] line ×4
+ * and the page only OPENS things: no Merge pill, no swipe, no long-press
+ * sheet, no dialogs. Inside a board band a PR TREE nests with tree guides and
+ * a linear STACK hangs on its rail down to the base branch ("stack" on the top
+ * row); singles stay flat. Bands carry no count. A row opens the issue's Guide
+ * (a run PR the run's), an unlinked PR opens GitHub (muted external-link glyph).
  */
 @Composable
 fun ReviewsScreen(
-    onOpenIssue: (String) -> Unit,
+    /** Unused since EXP-1248 (rows open the Guide); kept for the nav host. */
+    onOpenIssue: (String) -> Unit = {},
+    /** An issue PR row: the issue's Guide face. */
     onOpenChanges: (String) -> Unit,
-    /** EXP-1194: an Agent runs row — the run's own PR on the Changes face. */
+    /** EXP-1194: an Agent runs row — the run's own PR on its Guide. */
     onOpenRunChanges: (sessionId: String) -> Unit,
-    // EXP-825/EXP-1233: a conflict-refused merge (and the long-press sheet's
-    // "Fix merge conflicts") navigates to the Agent page composer on the
-    // builtin action with this PR pre-picked (EXP-323).
-    onOpenAgent: (AgentComposerSeed) -> Unit,
+    /** Unused since EXP-1248 (no merge path left here); kept for the nav host. */
+    onOpenAgent: (AgentComposerSeed) -> Unit = {},
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     Scaffold(containerColor = Color.Transparent) { padding ->
@@ -103,55 +70,29 @@ fun ReviewsScreen(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
             )
             ReviewsListContent(
-                onOpenIssue = onOpenIssue,
-                onOpenChanges = onOpenChanges,
-                onOpenRunChanges = onOpenRunChanges,
-                onOpenAgent = onOpenAgent,
+                onOpenIssueGuide = onOpenChanges,
+                onOpenRunGuide = onOpenRunChanges,
+                viewModel = viewModel,
             )
         }
     }
 }
 
-/** The bare list — reusable content with no chrome of its own. */
+/** A stack-rail member carrying the entry it opens. */
+private class ReviewStackMember(val entry: ReviewEntry, label: ReviewRowLabel) :
+    StackRailMember(key = entry.groupKey, identifier = label.identifier, title = label.title)
+
 @Composable
 private fun ReviewsListContent(
-    onOpenIssue: (String) -> Unit,
-    onOpenChanges: (String) -> Unit,
-    onOpenRunChanges: (sessionId: String) -> Unit,
-    onOpenAgent: (AgentComposerSeed) -> Unit,
+    onOpenIssueGuide: (String) -> Unit,
+    onOpenRunGuide: (sessionId: String) -> Unit,
+    viewModel: ReviewsViewModel,
     modifier: Modifier = Modifier,
-    viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val mergeErrors by viewModel.mergeErrors.collectAsStateWithLifecycle()
-    val merging by viewModel.merging.collectAsStateWithLifecycle()
-    // SLOP-16 r3: what the batch sheet's relation rows resolve against.
-    val issueStatuses by viewModel.issueStatuses.collectAsStateWithLifecycle()
-    val users by viewModel.users.collectAsStateWithLifecycle()
-    val openPrIssuesByTeam by viewModel.openPrIssuesByTeam.collectAsStateWithLifecycle()
-    var mergeTarget by remember { mutableStateOf<ReviewEntry?>(null) }
-    // EXP-734: an issueless run's own PR — merged through the session, so it
-    // gets its own confirm target.
-    var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
-    // EXP-1244: an unlinked pull request — merged by repository + number.
-    var mergePullTarget by remember { mutableStateOf<Pair<PullRepo, OpenPull>?>(null) }
+    val context = LocalContext.current
     // EXP-1244: every entry refetches the unlinked pull requests (no sync).
     LaunchedEffect(viewModel) { viewModel.onScreenEntered() }
-    // EXP-1233: a merge refused by a REAL conflict opens the Fix merge
-    // conflicts composer at once, the pull request picked and the refusal
-    // flagged — no row caption, no button swap. One event per refusal.
-    val openAgent by rememberUpdatedState(onOpenAgent)
-    LaunchedEffect(viewModel) {
-        viewModel.conflictRefusals.collect { issueId ->
-            openAgent(
-                AgentComposerSeed(
-                    actionId = DomainContract.builtinFixConflictsId,
-                    prIssueId = issueId,
-                    conflict = true,
-                ),
-            )
-        }
-    }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -161,144 +102,114 @@ private fun ReviewsListContent(
             modifier = modifier,
         )
         else -> LazyColumn(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier.fillMaxSize().testTag("reviews-list"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-            // EXP-818: flat rows under a band — the 6dp every converted list
-            // uses, not the 3dp gap the carded rows needed.
-            verticalArrangement = Arrangement.spacedBy(REVIEW_ROW_GAP),
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
                     BoardHeader(board = group.board, teamName = group.teamName)
                 }
-                items(group.entries, key = { it.groupKey }) { entry ->
-                    ReviewRow(
-                        entry = entry,
-                        failure = mergeErrors[entry.groupKey],
-                        merging = entry.groupKey in merging,
-                        onClick = { onOpenChanges(entry.representative.id) },
-                        onOpenIssue = { onOpenIssue(entry.representative.id) },
-                        onOpenBatchIssue = onOpenIssue,
-                        statuses = issueStatuses,
-                        users = users,
-                        onMerge = { mergeTarget = entry },
-                        // EXP-323/EXP-825: the long-press sheet's manual entry —
-                        // the composer opens on the builtin with THIS pull
-                        // request already picked (no refusal to explain).
-                        onFixConflicts = {
-                            onOpenAgent(
-                                AgentComposerSeed(
-                                    actionId = DomainContract.builtinFixConflictsId,
-                                    prIssueId = entry.representative.id,
-                                ),
+                val blocks = reviewBlocks(group.items)
+                blocks.forEachIndexed { index, block ->
+                    // The band's breathing room sits under its LAST block only.
+                    val gap = Modifier.padding(bottom = if (index == blocks.lastIndex) BAND_GAP else 0.dp)
+                    when (block) {
+                        is ReviewBlock.Stack -> item(key = "stack-${block.entries.firstOrNull()?.groupKey ?: index}") {
+                            StackRail(
+                                members = block.entries.map { ReviewStackMember(it, reviewRowLabel(it)) },
+                                baseBranch = block.baseBranch ?: group.board.defaultBranch ?: "default branch",
+                                word = STACK_WORD,
+                                onOpen = { member -> onOpenIssueGuide(member.entry.representative.id) },
+                                modifier = gap,
                             )
-                        },
-                    )
+                        }
+                        is ReviewBlock.Rows -> item(key = "list-${block.rows.firstOrNull()?.entry?.groupKey ?: index}") {
+                            PrList(
+                                rows = block.rows.map { row ->
+                                    val label = reviewRowLabel(row.entry)
+                                    PrListRow(
+                                        key = row.entry.groupKey,
+                                        identifier = label.identifier,
+                                        title = label.title,
+                                        depth = row.depth,
+                                        onOpen = { onOpenIssueGuide(row.entry.representative.id) },
+                                        testTag = "review-row",
+                                    )
+                                },
+                                modifier = gap,
+                            )
+                        }
+                    }
                 }
             }
             // EXP-734: the runs that opened a pull request of their OWN — a
-            // batch, action or chat run whose PR links no issue, so no board
-            // group can hold it. Listed last, under one header.
-            // EXP-1186: one band per team once the user is in more than one.
+            // batch, action or chat run whose PR links no issue. EXP-1186: one
+            // band per team once the user is in more than one.
             state.runGroups.forEach { runGroup ->
                 item(key = "header-runs-${runGroup.team?.id.orEmpty()}") {
                     RunsHeader(teamName = runGroup.team?.name)
                 }
-                items(runGroup.entries, key = { it.groupKey }) { entry ->
-                    RunReviewRow(
-                        entry = entry,
-                        failure = mergeErrors[entry.groupKey],
-                        merging = entry.groupKey in merging,
-                        onClick = { onOpenRunChanges(entry.session.id) },
-                        onMerge = { mergeRunTarget = entry },
+                item(key = "runs-${runGroup.team?.id.orEmpty()}") {
+                    PrList(
+                        rows = runGroup.entries.map { entry ->
+                            PrListRow(
+                                key = entry.groupKey,
+                                identifier = entry.prNumber?.let { "#$it" },
+                                title = entry.title,
+                                onOpen = { onOpenRunGuide(entry.session.id) },
+                                testTag = "review-run-row",
+                            )
+                        },
+                        modifier = Modifier.padding(bottom = BAND_GAP),
                     )
                 }
             }
             // EXP-1244: the open pull requests NO issue or run links, one band
-            // per repository after the run bands (`ReviewsQueue` rule 7).
+            // per repository; a row opens it on GitHub.
             state.repoGroups.forEach { group ->
                 val repo = group.repo
                 item(key = "header-repo-${repo.teamId}-${repo.repositoryId}") {
                     RepoHeader(fullName = repo.fullName, teamName = group.teamName)
                 }
-                items(repo.pulls, key = { externalPullKey(repo.repositoryId, it.number) }) { pull ->
-                    val key = externalPullKey(repo.repositoryId, pull.number)
-                    ExternalPullRow(
-                        pull = pull,
-                        failure = mergeErrors[key],
-                        merging = key in merging,
-                        onMerge = { mergePullTarget = repo to pull },
+                item(key = "repo-${repo.teamId}-${repo.repositoryId}") {
+                    PrList(
+                        rows = repo.pulls.map { pull ->
+                            PrListRow(
+                                key = "${repo.repositoryId}#${pull.number}",
+                                identifier = "#${pull.number}",
+                                title = pull.title,
+                                word = if (pull.draft) DRAFT_WORD else null,
+                                onOpen = {
+                                    CustomTabsIntent.Builder().build()
+                                        .launchUrl(context, android.net.Uri.parse(pull.url))
+                                },
+                                testTag = "review-pull-row",
+                                trailing = { ExternalLinkGlyph() },
+                            )
+                        },
+                        modifier = Modifier.padding(bottom = BAND_GAP),
                     )
                 }
             }
         }
     }
+}
 
-    mergeTarget?.let { entry ->
-        // EXP-1145/SLOP-3: a stack member's row asks which merge it means.
-        // EXP-1186: against the ROW's team, never the selected one.
-        val teamId = state.groups.firstOrNull { it.board.id == entry.boardId }?.board?.teamId
-        val teamOpenPrIssues = openPrIssuesByTeam[teamId].orEmpty()
-        val stackChoice = remember(entry, teamOpenPrIssues) {
-            PrStack.stackMergeChoice(entry.representative, teamOpenPrIssues)
-        }
-        if (stackChoice != null) {
-            StackMergeDialog(
-                choice = stackChoice,
-                issueId = entry.representative.id,
-                onMergeStack = { through ->
-                    viewModel.mergePr(entry.groupKey, through, entry.branch, mergeStack = true)
-                },
-                onMergePlain = { viewModel.mergePr(entry.groupKey, entry.representative.id, entry.branch) },
-                onDismiss = { mergeTarget = null },
-            )
-            return@let
-        }
-        MergeConfirmDialog(
-            entry = entry,
-            onConfirm = {
-                viewModel.mergePr(entry.groupKey, entry.representative.id, entry.branch)
-                mergeTarget = null
-            },
-            onDismiss = { mergeTarget = null },
-        )
-    }
-
-    mergePullTarget?.let { (repo, pull) ->
-        // EXP-1244: no issue is linked, so nothing is completed — say so.
-        PromptAlert(
-            prompt = Prompts.MergeExternalPr.prompt(repo.fullName, pull.number, pull.baseBranch),
-            onDismiss = { mergePullTarget = null },
-            handlers = mapOf(
-                "merge" to {
-                    viewModel.mergeExternalPull(repo.repositoryId, pull)
-                    mergePullTarget = null
-                },
-            ),
-        )
-    }
-
-    mergeRunTarget?.let { entry ->
-        // EXP-734: no issue is linked, so nothing is completed — say so.
-        PromptAlert(
-            prompt = Prompts.MergeRunPr.prompt(entry.prNumber),
-            onDismiss = { mergeRunTarget = null },
-            handlers = mapOf(
-                "merge" to {
-                    viewModel.mergeRun(entry)
-                    mergeRunTarget = null
-                },
-            ),
-        )
-    }
-
+/** The muted external-link glyph an unlinked PR wears: it opens GitHub. */
+@Composable
+private fun ExternalLinkGlyph() {
+    Icon(
+        ExpIcons.uiExternalLink,
+        contentDescription = "Open on GitHub",
+        modifier = Modifier.size(14.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    )
 }
 
 // EXP-698/EXP-818: the board band over its PR rows — THE section header every
-// list renders, with the board icon as its leading glyph and no count (the
-// header counts are gone on every client).
-// EXP-1186: with more than one team, the band names the board's team as
-// quiet secondary text.
+// list renders, with the board icon as its leading glyph and NO count
+// (EXP-1248). EXP-1186: with more than one team, the band names the board's
+// team as quiet secondary text.
 @Composable
 private fun BoardHeader(board: BoardEntity, teamName: String?) {
     SectionHeader(
@@ -321,10 +232,7 @@ private fun BandTeamName(name: String) {
     )
 }
 
-/**
- * EXP-734: the band over the issueless runs' pull requests. Its glyph is the
- * actions one, not a board icon — these PRs belong to a RUN, not to a board.
- */
+/** EXP-734: the band over the issueless runs' pull requests. */
 @Composable
 private fun RunsHeader(teamName: String?) {
     SectionHeader(
@@ -332,7 +240,7 @@ private fun RunsHeader(teamName: String?) {
         trailing = { BandTeamName(teamName ?: ReviewsQueue.RUN_BAND_CAPTION) },
         leading = {
             Icon(
-                ExpIcons.navActions,
+                ExpIcons.prOpen,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
@@ -362,378 +270,5 @@ private fun RepoHeader(fullName: String, teamName: String?) {
     )
 }
 
-/**
- * EXP-1244: one open pull request no issue or run links — the shared
- * [ReviewPrRow] (`#n` + title + a Draft pill, the branch under it). A tap
- * opens it on GitHub (there is no review of ours to open); Merge confirms
- * first and is off for a draft.
- */
-@Composable
-private fun ExternalPullRow(
-    pull: OpenPull,
-    failure: MergeFailure?,
-    merging: Boolean,
-    onMerge: () -> Unit,
-) {
-    val context = LocalContext.current
-    ReviewPrRow(
-        isBatch = false,
-        label = "#${pull.number}",
-        title = pull.title,
-        onClick = {
-            CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(pull.url))
-        },
-        modifier = Modifier.testTag("review-pull-row"),
-        titleTrailing = if (pull.draft) {
-            { GlassPill("Draft", size = PillSize.Sm) }
-        } else {
-            null
-        },
-        details = {
-            if (pull.branch.isNotBlank()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    pull.branch,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        },
-        trailing = {
-            GlassPill(
-                "Merge",
-                onClick = onMerge,
-                icon = ExpIcons.prMerged,
-                enabled = !merging && !pull.draft,
-                loading = merging,
-            )
-        },
-        footer = {
-            // A refused merge captions THIS row, like the run rows.
-            if (failure != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 3.dp)
-                        .glassCard()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        failure.message,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-    )
-}
-
-/**
- * One run's OWN pull request (EXP-734). EXP-1194: the row opens OUR review of
- * it — the Changes face fed by `codingSessions.prFiles` (GitHub sits in that
- * screen's header), like an issue row opens its issue's; merging goes through
- * `codingSessions.mergePr` and completes nothing. No "Fix conflicts" here —
- * the recovery run takes an issue-linked PR as its input.
- */
-@Composable
-private fun RunReviewRow(
-    entry: RunReviewEntry,
-    failure: MergeFailure?,
-    merging: Boolean,
-    onClick: () -> Unit,
-    onMerge: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .flatRow()
-                .clickable(onClick = onClick)
-                .testTag("review-run-row")
-                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Same green PR glyph the issue-backed review rows wear (EXP-248).
-            Icon(
-                ExpIcons.prOpen,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = DesignTokens.Semantic.Green,
-            )
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        entry.prNumber?.let { "#$it" } ?: "PR",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        entry.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-                if (!entry.branch.isNullOrBlank()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        entry.branch,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Spacer(Modifier.width(6.dp))
-            GlassPill(
-                "Merge",
-                onClick = onMerge,
-                icon = ExpIcons.prMerged,
-                enabled = !merging,
-                loading = merging,
-            )
-        }
-
-        // A refused merge captions THIS row, like every other merge surface.
-        if (failure != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 3.dp)
-                    .glassCard()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Text(
-                    failure.message,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun ReviewRow(
-    entry: ReviewEntry,
-    failure: MergeFailure?,
-    merging: Boolean,
-    onClick: () -> Unit,
-    onOpenIssue: () -> Unit,
-    /** SLOP-16 r3: the batch sheet's rows open THEIR issue. */
-    onOpenBatchIssue: (String) -> Unit,
-    statuses: List<ResolvedIssueStatus>,
-    users: List<UserEntity>,
-    onMerge: () -> Unit,
-    onFixConflicts: () -> Unit,
-) {
-    val context = LocalContext.current
-    var showActions by remember { mutableStateOf(false) }
-    // The batch glyph opens the issues its ONE pull request spans.
-    var showBatch by remember { mutableStateOf(false) }
-    ReviewPrRow(
-        isBatch = entry.isBatch,
-        label = if (entry.isBatch) {
-            entry.prNumber?.let { "#$it" } ?: "Batch"
-        } else {
-            entry.representative.identifier
-        },
-        title = if (entry.isBatch) "${entry.issues.size} issues" else entry.representative.title,
-        onClick = onClick,
-        onLongClick = { showActions = true },
-        // The batch glyph opens the issues its ONE pull request spans.
-        onBatchMark = { showBatch = true },
-        details = {
-            // Secondary line: the batch entry lists its issue identifiers; every
-            // entry shows its branch (parity with the web/desktop Reviews rows).
-            val subtitle = buildString {
-                if (entry.isBatch) append(entry.identifiers.joinToString(", "))
-                if (entry.branch != null) {
-                    if (isNotEmpty()) append(" · ")
-                    append(entry.branch)
-                }
-            }
-            if (subtitle.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        },
-        trailing = {
-            // Inline merge — same confirm-gated flow as the long-press sheet
-            // (EXP-248: uniform with the web/iOS review rows). EXP-1233: always
-            // Merge — a conflict-refused merge opens the recovery composer
-            // instead of swapping this slot.
-            // EXP-698: the shared pill, not a second hand-rolled copy of it
-            // (the steer screen's Merge control is the same component).
-            GlassPill(
-                "Merge",
-                onClick = onMerge,
-                icon = ExpIcons.prMerged,
-                enabled = !merging,
-                loading = merging,
-                modifier = Modifier.testTag("review-merge"),
-            )
-        },
-        footer = {
-            // A refused merge (conflicts, branch protection, GitHub App errors, an
-            // unreachable server) captions THIS row (EXP-323) — inside the list,
-            // which already clears the floating nav pill, so the reason is always
-            // readable. EXP-1233: a real conflict never lands here — it opened
-            // the Fix merge conflicts composer instead.
-            if (failure != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 3.dp)
-                        .glassCard()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        failure.message,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-    )
-
-    if (showBatch) {
-        BatchIssuesSheet(
-            entry = entry,
-            statuses = statuses,
-            users = users,
-            onOpenIssue = { id ->
-                showBatch = false
-                onOpenBatchIssue(id)
-            },
-            onDismiss = { showBatch = false },
-        )
-    }
-
-    if (showActions) {
-        GlassSheet(
-            title = if (entry.isBatch) {
-                entry.prNumber?.let { "PR #$it" } ?: "Batch PR"
-            } else {
-                entry.representative.identifier
-            },
-            onDismiss = { showActions = false },
-        ) {
-            // Row taps open the issue on its Changes face (EXP-1154), so the
-            // plain issue lives here — the representative issue for a batch entry.
-            GlassSheetRow(
-                label = "Open issue",
-                onClick = {
-                    showActions = false
-                    onOpenIssue()
-                },
-                leading = { Icon(ExpIcons.navMyIssues, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-            GlassSheetRow(
-                label = "Merge pull request",
-                onClick = {
-                    showActions = false
-                    onMerge()
-                },
-                leading = { Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-            // The recovery run needs the PR's branch to rebase (EXP-323).
-            if (!entry.branch.isNullOrBlank()) {
-                GlassSheetRow(
-                    label = "Fix merge conflicts",
-                    onClick = {
-                        showActions = false
-                        onFixConflicts()
-                    },
-                    leading = { Icon(ExpIcons.uiBranch, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                )
-            }
-            if (entry.prUrl != null) {
-                GlassSheetRow(
-                    // EXP-916: the contract's words and the GitHub mark, ×4.
-                    label = DomainContract.diffUiOpenOnGithub,
-                    onClick = {
-                        showActions = false
-                        CustomTabsIntent.Builder().build()
-                            .launchUrl(context, android.net.Uri.parse(entry.prUrl))
-                    },
-                    leading = { Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MergeConfirmDialog(
-    entry: ReviewEntry,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    PromptAlert(
-        prompt = Prompts.MergeIssuePr.prompt(entry.prNumber, if (entry.isBatch) entry.issues.size else 1),
-        onDismiss = onDismiss,
-        handlers = mapOf("merge" to onConfirm),
-    )
-}
-
-
-/** EXP-818: the Reviews scroller's row spacing. */
-private val REVIEW_ROW_GAP = 6.dp
-
-/**
- * The issues a batch pull request spans — the relation rows, flat under the
- * sheet's 16dp gutter, and each one opens its issue.
- */
-@Composable
-private fun BatchIssuesSheet(
-    entry: ReviewEntry,
-    statuses: List<ResolvedIssueStatus>,
-    users: List<UserEntity>,
-    onOpenIssue: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    GlassSheet(
-        title = entry.prNumber?.let { "PR #$it" } ?: "Batch PR",
-        onDismiss = onDismiss,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 8.dp),
-        ) {
-            entry.issues.forEachIndexed { index, issue ->
-                if (index > 0) GroupDivider()
-                RelationIssueRow(
-                    issue = issue,
-                    statuses = statuses,
-                    users = users,
-                    onClick = { onOpenIssue(issue.id) },
-                )
-            }
-        }
-    }
-}
+/** The breathing room under a band's rows, before the next band. */
+private val BAND_GAP = 12.dp
