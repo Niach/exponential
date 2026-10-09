@@ -246,7 +246,7 @@
       "web": {
         "route": "/onboarding",
         "anchor": {
-          "text": "Name your team",
+          "text": "Team name",
           "timeoutMs": 30000
         },
         "auth": "newcomer",
@@ -279,7 +279,7 @@
       "web": {
         "route": "/onboarding",
         "anchor": {
-          "text": "Ask a teammate for an invite link",
+          "text": "Invite link",
           "timeoutMs": 30000
         },
         "auth": "newcomer",

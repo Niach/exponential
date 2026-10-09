@@ -349,7 +349,7 @@ const IssueRow = memo(function IssueRow({
             role="checkbox"
             aria-checked={isSelected}
             aria-label={`Select ${issue.identifier}`}
-            data-testid={`issue-row-select-${issue.identifier}`}
+            data-testid={`issue-select-${issue.identifier}`}
             className={`flex size-5 shrink-0 items-center justify-center rounded-full border md:hidden ${isSelected ? `border-primary bg-primary text-primary-foreground` : `border-muted-foreground/50`}`}
           >
             {isSelected && <CheckIcon className="size-3" />}

@@ -311,8 +311,11 @@ async function recipeOpenBoardBulkEdit(page: Page): Promise<void> {
   } else {
     await rows.first().click({ button: `right` })
     await page.getByRole(`menuitem`, { name: `Select`, exact: true }).click()
+    // Tap each row's leading selection check: the row's middle holds the
+    // status glyph, whose own picker would open instead.
+    const checks = page.locator(`[data-testid^="issue-select-"]`)
     for (let index = 1; index < wanted; index += 1) {
-      await rows.nth(index).click()
+      await checks.nth(index).click()
     }
   }
   await page

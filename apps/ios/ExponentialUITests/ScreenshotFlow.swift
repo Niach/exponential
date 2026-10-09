@@ -191,6 +191,12 @@ extension XCTestCase {
         if app.staticTexts["onboarding-signed-in-as"].waitForExistence(timeout: 5), wizardSignOut.exists {
             wizardSignOut.firstMatch.tap()
         }
+        // A retry after a failure past the instance picker relaunches into
+        // LoginView (the instance URL survives): Back returns to the picker.
+        let loginEmail = app.buttons["login-continue-with-email-button"]
+        if loginEmail.waitForExistence(timeout: 3), app.buttons["Back"].exists {
+            app.buttons["Back"].firstMatch.tap()
+        }
         if awaitLaunchStage(app) == .alreadySignedIn {
             dismissSavePasswordSheet(timeout: 2)
             return .alreadySignedIn
