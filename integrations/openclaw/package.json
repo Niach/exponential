@@ -1,6 +1,6 @@
 {
   "name": "@exponential/openclaw-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Exponential's issue tracker in OpenClaw over MCP, with MCP Apps views.",
   "type": "module",
   "license": "Apache-2.0",

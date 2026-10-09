@@ -380,7 +380,10 @@ type ToolResult = {
   isError?: boolean
   content: Array<{ type: string; text?: string; data?: string }>
 }
-type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>
+type ToolHandler = (
+  args: Record<string, unknown>,
+  extra?: unknown
+) => Promise<ToolResult>
 
 const USER: McpUser = {
   id: `user-1`,
@@ -5384,14 +5387,64 @@ describe(`exponential_sessions_get — EXP-1216`, () => {
     }
   })
 
-  it(`caps timeoutS at 120`, () => {
+  // FEED-83: the default stays under a 60s client request timeout; the max
+  // is for clients that allow longer (keepalives hold the SSE answer open).
+  it(`defaults timeoutS to 45 and caps it at 600`, () => {
     const schema = collectToolDefs().get(`exponential_sessions_get`)!.inputSchema!
-    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 120 }).success).toBe(
+    expect(schema.parse({ id: RUN, waitForIdle: true })).toMatchObject({ timeoutS: 45 })
+    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 600 }).success).toBe(
       true
     )
-    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 121 }).success).toBe(
+    expect(schema.safeParse({ id: RUN, waitForIdle: true, timeoutS: 601 }).success).toBe(
       false
     )
+  })
+
+  it(`sends a progress notification per poll when asked for one`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: true },
+    ]
+    const sendNotification = vi.fn().mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)(
+        { id: RUN, waitForIdle: true, timeoutS: 5 },
+        {
+          _meta: { progressToken: `p1` },
+          sendNotification,
+          signal: new AbortController().signal,
+        }
+      )
+      await vi.advanceTimersByTimeAsync(6_000)
+      expect(parseOk(await pending)).toMatchObject({ timedOut: true })
+      expect(sendNotification).toHaveBeenCalledWith({
+        method: `notifications/progress`,
+        params: expect.objectContaining({ progressToken: `p1`, total: 5 }),
+      })
+      expect(sendNotification.mock.calls.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`stops waiting once the client cancels`, async () => {
+    dbRows.current = [
+      { id: RUN, userId: `user-1`, teamId: WS, status: `running`, agentBusy: true },
+    ]
+    const abort = new AbortController()
+    vi.useFakeTimers()
+    try {
+      const pending = tool(`exponential_sessions_get`)(
+        { id: RUN, waitForIdle: true, timeoutS: 600 },
+        { sendNotification: vi.fn(), signal: abort.signal }
+      )
+      await vi.advanceTimersByTimeAsync(2_000)
+      abort.abort()
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect((await pending).isError).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
