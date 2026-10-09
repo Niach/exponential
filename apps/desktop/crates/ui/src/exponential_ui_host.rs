@@ -72,19 +72,10 @@ const MCP_TIMEOUT: Duration = Duration::from_secs(60);
 // The `exp:devices` derivation (pure, tested)
 // ---------------------------------------------------------------------------
 
-/// The web's `formatAgo`: `N min ago` under an hour (at least 1), `N h ago`
-/// under 48 hours, else `N d ago`.
+/// The web's `readinessAgo` (Last seen): floored, `just now` under a minute,
+/// then `N min ago`, `N h ago`, `N d ago`.
 pub(crate) fn format_ago(seen_ms: i64, now_ms: i64) -> String {
-    let minutes = ((now_ms - seen_ms) as f64 / 60_000.).round() as i64;
-    if minutes < 60 {
-        return format!("{} min ago", minutes.max(1));
-    }
-    let hours = (minutes as f64 / 60.).round() as i64;
-    if hours < 48 {
-        format!("{hours} h ago")
-    } else {
-        format!("{} d ago", (hours as f64 / 24.).round() as i64)
-    }
+    domain::coding_readiness::ago(now_ms, seen_ms)
 }
 
 /// One `exp:devices` row, exactly as the web host derives it:
@@ -373,22 +364,55 @@ fn open_device_fn() -> HostFunction {
     })
 }
 
-/// A JSON-RPC `tools/call` response (plain JSON, or one SSE `data:` line)
-/// → its `result`, like the web host's `callMcp`.
-pub(crate) fn mcp_result(body: &str) -> Result<Value, String> {
-    let json: Value = if body.trim_start().starts_with('{') {
-        serde_json::from_str(body).map_err(|e| format!("MCP: {e}"))?
-    } else {
-        let line = body
-            .lines()
-            .find_map(|l| l.strip_prefix("data:"))
-            .unwrap_or("{}");
-        serde_json::from_str(line.trim()).map_err(|e| format!("MCP: {e}"))?
+/// The id `api::mcp_tools::tool_call_body` stamps on every request.
+const MCP_REQUEST_ID: i64 = 1;
+
+/// The message with `id` in one JSON text (a message or a batch), like the
+/// web's `parseJsonRpcMessage`; not JSON / no match = `None`.
+fn json_rpc_message(text: &str, id: i64) -> Option<Value> {
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    let messages = match parsed {
+        Value::Array(items) => items,
+        one => vec![one],
     };
-    if let Some(error) = json.get("error") {
-        return Err(error["message"].as_str().unwrap_or("MCP error").to_string());
+    messages.into_iter().find(|m| m.get("id").and_then(Value::as_i64) == Some(id))
+}
+
+/// The answer to request `id` in a JSON or SSE body (the web's
+/// `readJsonRpcAnswer`): SSE events are read in order and notifications or
+/// foreign ids skipped.
+fn json_rpc_answer(body: &str, id: i64) -> Option<Value> {
+    if body.trim_start().starts_with(['{', '[']) {
+        return json_rpc_message(body, id);
     }
-    Ok(json.get("result").cloned().unwrap_or(Value::Null))
+    let mut data: Vec<&str> = Vec::new();
+    for line in body.lines().map(|l| l.strip_suffix('\r').unwrap_or(l)) {
+        if let Some(rest) = line.strip_prefix("data:") {
+            data.push(rest.strip_prefix(' ').unwrap_or(rest));
+        } else if line.is_empty() && !data.is_empty() {
+            if let Some(message) = json_rpc_message(&data.join("\n"), id) {
+                return Some(message);
+            }
+            data.clear();
+        }
+    }
+    (!data.is_empty()).then(|| json_rpc_message(&data.join("\n"), id)).flatten()
+}
+
+/// A JSON-RPC `tools/call` response (plain JSON or SSE) → the `result` of
+/// the message answering request `id`, like the web host's `callMcp`. A
+/// JSON-RPC `error` rejects with its message and code (the web's
+/// `McpCallError`); no answer with `id` rejects too.
+pub(crate) fn mcp_result(body: &str, id: i64) -> Result<Value, String> {
+    let message = json_rpc_answer(body, id).ok_or_else(|| "MCP: no answer".to_string())?;
+    if let Some(error) = message.get("error") {
+        let text = error["message"].as_str().filter(|m| !m.is_empty()).unwrap_or("MCP error");
+        return Err(match error.get("code").and_then(Value::as_i64) {
+            Some(code) => format!("{text} (code {code})"),
+            None => text.to_string(),
+        });
+    }
+    Ok(message.get("result").cloned().unwrap_or(Value::Null))
 }
 
 fn mcp_fn() -> HostFunction {
@@ -403,17 +427,13 @@ fn mcp_fn() -> HostFunction {
             let response = trpc
                 .post_json("/api/mcp", &body, MCP_ACCEPT, MCP_TIMEOUT)
                 .map_err(|e| format!("MCP {e}"))?;
-            mcp_result(&response)
+            mcp_result(&response, MCP_REQUEST_ID)
         })
     })
 }
 
-static CONSENT_ACTIONS: [domain::prompts::Action; 2] = [
-    domain::prompts::Action { id: "deny", label: "Deny", role: domain::prompts::Role::Cancel },
-    domain::prompts::Action { id: "allow", label: "Allow", role: domain::prompts::Role::Primary },
-];
-
-/// What the consent window asks: the tool a `harness.mcp` call runs, else
+/// What the consent window asks (`prompts.json` `exponential-ui-consent`,
+/// Deny focused so Return denies): the tool a `harness.mcp` call runs, else
 /// the function's own name (the web's `ConsentCard`).
 pub(crate) fn consent_prompt(call: &FunctionCallInfo) -> domain::prompts::Prompt {
     let tool = if call.name == "harness.mcp" {
@@ -421,13 +441,7 @@ pub(crate) fn consent_prompt(call: &FunctionCallInfo) -> domain::prompts::Prompt
     } else {
         call.name.clone()
     };
-    domain::prompts::Prompt {
-        id: "exponential-ui-consent",
-        title: format!("Allow this surface to run {tool}?"),
-        body: Some("It acts as you, with your access to this team.".to_string()),
-        actions: &CONSENT_ACTIONS,
-        focus: "deny",
-    }
+    domain::prompts::exponential_ui_consent(&tool)
 }
 
 /// `ask` decisions: a native confirm over the active window. No window, a
@@ -666,11 +680,15 @@ mod tests {
 
     #[test]
     fn format_ago_matches_the_web() {
-        assert_eq!(format_ago(NOW, NOW), "1 min ago");
-        assert_eq!(format_ago(NOW - 5 * 60_000, NOW), "5 min ago");
+        // The web's `readinessAgo`: floored, never rounded up.
+        assert_eq!(format_ago(NOW, NOW), "just now");
+        assert_eq!(format_ago(NOW - 59_000, NOW), "just now");
+        assert_eq!(format_ago(NOW - 60_000, NOW), "1 min ago");
+        assert_eq!(format_ago(NOW - 119_000, NOW), "1 min ago");
         assert_eq!(format_ago(NOW - 59 * 60_000, NOW), "59 min ago");
+        assert_eq!(format_ago(NOW - 119 * 60_000, NOW), "1 h ago");
         assert_eq!(format_ago(NOW - 3 * 3_600_000, NOW), "3 h ago");
-        assert_eq!(format_ago(NOW - 47 * 3_600_000, NOW), "47 h ago");
+        assert_eq!(format_ago(NOW - 47 * 3_600_000, NOW), "1 d ago");
         assert_eq!(format_ago(NOW - 72 * 3_600_000, NOW), "3 d ago");
     }
 
@@ -804,10 +822,33 @@ mod tests {
     #[test]
     fn mcp_results_decode_json_and_sse() {
         let json_body = r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}"#;
-        assert_eq!(mcp_result(json_body).unwrap()["content"][0]["text"], "ok");
+        assert_eq!(mcp_result(json_body, 1).unwrap()["content"][0]["text"], "ok");
         let sse = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"x\":1}}\n\n";
-        assert_eq!(mcp_result(sse).unwrap(), json!({"x": 1}));
-        assert!(mcp_result(r#"{"error":{"message":"nope"}}"#).is_err());
+        assert_eq!(mcp_result(sse, 1).unwrap(), json!({"x": 1}));
+        assert_eq!(mcp_result(json_body, 2).unwrap_err(), "MCP: no answer");
+    }
+
+    #[test]
+    fn mcp_results_read_only_the_answer_with_our_id() {
+        // A notification, a foreign id, then ours (multi-line data, CRLF).
+        let sse = concat!(
+            ": keep-alive\n\n",
+            "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\",\"params\":{}}\n\n",
+            "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":9,\"result\":{\"x\":\"foreign\"}}\n\n",
+            "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":7,\r\ndata: \"result\":{\"x\":\"ours\"}}\r\n\r\n",
+        );
+        assert_eq!(mcp_result(sse, 7).unwrap(), json!({"x": "ours"}));
+        assert_eq!(mcp_result(sse, 3).unwrap_err(), "MCP: no answer");
+        // A batch body answers by id too.
+        let batch = r#"[{"jsonrpc":"2.0","id":2,"result":{}},{"jsonrpc":"2.0","id":1,"result":{"y":1}}]"#;
+        assert_eq!(mcp_result(batch, 1).unwrap(), json!({"y": 1}));
+        // An error reply rejects with its message and code.
+        let error = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}\n\n";
+        assert_eq!(mcp_result(error, 1).unwrap_err(), "Unknown tool (code -32602)");
+        assert_eq!(
+            mcp_result(r#"{"jsonrpc":"2.0","id":1,"error":{"message":""}}"#, 1).unwrap_err(),
+            "MCP error"
+        );
     }
 
     #[test]
@@ -819,8 +860,15 @@ mod tests {
             args: json!({"tool": "exponential_issues_list"}),
         };
         let prompt = consent_prompt(&call);
+        assert_eq!(prompt, domain::prompts::exponential_ui_consent("exponential_issues_list"));
         assert_eq!(prompt.title, "Allow this surface to run exponential_issues_list?");
+        assert_eq!(prompt.body.as_deref(), Some("It acts as you, with your access to this team."));
+        // Return denies: Deny = cancel + focused, Allow = a plain default.
         assert_eq!(prompt.focused().label, "Deny");
+        assert_eq!(prompt.focused().role, domain::prompts::Role::Cancel);
+        assert_eq!(prompt.action("allow").role, domain::prompts::Role::Default);
+        let named = FunctionCallInfo { name: "harness.openIssue".into(), args: json!({}), ..call };
+        assert_eq!(consent_prompt(&named).title, "Allow this surface to run harness.openIssue?");
     }
 
     #[test]
