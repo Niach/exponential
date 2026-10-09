@@ -21,8 +21,12 @@ once both have matching crates.io releases).
 
 1. Bump the version everywhere it is written: `packages/exponential-ui*/package.json`,
    `apps/desktop/crates/exponential-ui{,-ffi,-gpui}/Cargo.toml` (the workflow
-   refuses a tag that does not match the core crate), `uiVersion` in
-   `packages/exponential-ui-compose/gradle.properties`.
+   refuses a tag that does not match the core crate), and move each package's
+   `CHANGELOG.md` `Unreleased` section under the version. The Compose
+   artifacts need no bump: the workflow passes the tag's version as
+   `-PuiVersion` (`ORG_GRADLE_PROJECT_uiVersion`); the `0.1.0` in
+   `ui-compose/build.gradle.kts` and `primitives/build.gradle.kts` is only the
+   local default. The Swift distribution package is generated per release.
 2. Green: `.github/workflows/exponential-ui.yml` (all four renderers
    conformant) on the release commit.
 3. `git tag ui-v0.2.0 && git push origin ui-v0.2.0` (one tag per push, see the
@@ -38,7 +42,8 @@ once both have matching crates.io releases).
   The workspace package.json files stay private with `main` on the sources.
   Locally: `bun samples/exponential-ui/pack-local.ts` packs the same tarballs.
 - **crates**: `cargo publish -p exponential-ui` (`--dry-run` without the token).
-- **swift**: `build-ios.sh` → `packages/exponential-ui-swift/release/zip-xcframework.sh`
+- **swift**: `build-ios.sh` (device arm64, simulator arm64 + x86_64, macOS
+  arm64 + x86_64, all profile `mobile`) → `packages/exponential-ui-swift/release/zip-xcframework.sh`
   (zip + `swift package compute-checksum`) → `make-release-package.sh`
   writes the distribution repo (`Package.swift` with
   `.binaryTarget(url:checksum:)` on this release's zip); `swift-dist` pushes

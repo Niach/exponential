@@ -22,8 +22,14 @@ bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh   # → Binaries/Expone
 swift test                                                 # macOS: the painter, host + conformance tests + the primitives
 ```
 
+The xcframework holds iOS device (arm64), iOS Simulator (arm64 + x86_64) and
+macOS (arm64 + x86_64) slices, all built with the `mobile` profile (LTO, one
+codegen unit) and without the facade's `cli` feature; ~200 MB unzipped.
+
 `Package.swift` declares the binary target, the painter and its tests only
-when the xcframework is present (or `EXPONENTIAL_UI_FFI` names one); a
+when the xcframework is present in `Binaries/` (or `EXPONENTIAL_UI_FFI` names
+one elsewhere: an absolute path or one relative to this directory; the
+manifest rewrites an absolute one relative, the form SwiftPM accepts); a
 checkout that only needs the primitives (the app's Tuist graph, CI) resolves
 without a Rust toolchain. Publishing (VAPP-91, below) switches the binary
 target to `url:` + `checksum`. The generated binding
@@ -265,7 +271,18 @@ exponential-ui-kitchen-sink` captures), `-a11yDump`. Icons are SF Symbols
 mapped from the kitchen sink's concepts; a real host hands the renderer its
 own registry.
 
-## Tests (`swift test`, macOS)
+**The list bench** (`fixtures/bench-list.json`, `NativeHardeningTests.testListBenchScrollStep`:
+100,000 rows, 390 × 800, the real TextKit measure on the main actor, Apple
+M-series, `swift test -c release`): `firstPaintMs` 167, `scrollStepMs` 8.3
+(the core's own share 2.3 ms; 78 text measurements per one-viewport step, all
+rows new to the window, so a per-row cache would not hit; text widths are
+already cached per string), `scrollToIndexMs` 12.
+
+## Tests (`swift test`, macOS; `xcodebuild test`, iOS Simulator)
+
+On iOS: `xcodebuild test -scheme ExponentialUI-Package -destination
+'platform=iOS Simulator,name=<iPhone>'` (the `#if canImport(UIKit)` paths;
+CI's `swift-ios` job, which also builds the KitchenSink app).
 
 `FixtureReplayTests` (the kitchen sink in every theme and mode, all
 catalog-component cases, macros, the basic map, the extension fixture

@@ -6,7 +6,7 @@ drift-gated) and the report passes:
 
 ```bash
 bun run --filter @exponential-at/ui conformance:check path/to/report.json
-# CONFORMANT  my-renderer (flutter 0.3.0): 1642 cases passed in 24 suites
+# CONFORMANT  my-renderer (flutter 0.3.0): <n> cases passed in <m> suites
 ```
 
 Every suite present, every case run (the manifest's `cases` count), nothing

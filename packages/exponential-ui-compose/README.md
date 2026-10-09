@@ -281,7 +281,7 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (default `0.1.0`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.1.0` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
