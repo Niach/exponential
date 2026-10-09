@@ -1,4 +1,5 @@
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 // The ONE pill (EXP-698 round 2). Before this file iOS had three pill types
 // (`GlassPillLabel`, `GlassPillButton`, `GlassChip`) plus nineteen raw
@@ -188,32 +189,27 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         }
     }
 
+    /// SLOP-18 / VAPP-88: the drawing is the SDK's `PillView`; this type only
+    /// maps the size rung, mode and paint onto a `PillStyle`.
     private var content: some View {
-        HStack(spacing: size.spacing) {
-            if let dot {
-                Circle()
-                    .fill(dot)
-                    .frame(width: GlassPillTokens.dotSize, height: GlassPillTokens.dotSize)
-            }
-            leading
-            if !label.isEmpty {
-                Text(label)
-                    .font(size.font)
-                    .lineLimit(1)
-            }
-            trailing
-        }
-        .foregroundStyle(contentColor)
-        .padding(.horizontal, size.horizontalPadding)
-        .frame(height: size.height)
-        // A disabled pill drops the tone with the rest of its emphasis —
-        // label AND hairline, or it reads as a live pill with a dead label.
-        .modifier(Paint(
-            isPrimary: isPrimary,
-            tint: (isPrimary || !enabled) ? nil : tint,
-            isSelected: isSelected,
-            isOpaque: isOpaque
-        ))
+        PillView(
+            label,
+            style: size.pillStyle(
+                paint: GlassPillPaint(
+                    isPrimary: isPrimary,
+                    // A disabled pill drops the tone with the rest of its
+                    // emphasis — label AND hairline, or it reads as a live
+                    // pill with a dead label.
+                    tint: (isPrimary || !enabled) ? nil : tint,
+                    isSelected: isSelected,
+                    isOpaque: isOpaque
+                ),
+                label: contentColor
+            ),
+            dot: dot,
+            leading: { leading },
+            trailing: { trailing }
+        )
     }
 
     /// The label/glyph colour: the loud pill's foreground, else the tone when
@@ -224,36 +220,50 @@ public struct GlassPill<Leading: View, Trailing: View>: View {
         if let tint, enabled { return tint }
         return Color.white.opacity(labelOpacity)
     }
+}
 
-    /// Glass or solid — the ONE branch between the two paints, so everything
-    /// above it (geometry, font, label opacity) is shared. `tint` is a third
-    /// arm of the glass one: the same fill, a hairline in the tone at 40%.
-    private struct Paint: ViewModifier {
-        let isPrimary: Bool
-        let tint: Color?
-        let isSelected: Bool
-        let isOpaque: Bool
+/// Glass or solid — the ONE branch between the two paints, so everything
+/// else (geometry, font, label opacity) is shared. `tint` is a third arm of
+/// the glass one: the same fill, a hairline in the tone at 40%.
+struct GlassPillPaint: Equatable {
+    var isPrimary: Bool = false
+    var tint: Color? = nil
+    var isSelected: Bool = false
+    var isOpaque: Bool = false
+}
 
-        func body(content: Content) -> some View {
-            if isPrimary {
-                content
-                    .background(DesignTokens.Palette.primary, in: Capsule())
-            } else if let tint {
-                content
-                    .background(GlassTokens.fillCard)
-                    .background(isOpaque ? DesignTokens.Palette.card : Color.clear)
-                    .clipShape(Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(tint.opacity(0.4), lineWidth: GlassTokens.hairline)
-                    )
-            } else {
-                content
-                    .glassButton(isActive: isSelected, isOpaque: isOpaque)
-            }
+extension GlassPillSize {
+    /// The SDK pill style for this rung in a paint: the rung's geometry and
+    /// font, the glass (`fillCard`/`fillActive` + its hairline, the opaque
+    /// card beneath when `isOpaque`) or the solid `primary` fill.
+    func pillStyle(paint: GlassPillPaint, label: Color) -> PillStyle {
+        let fill: Color
+        let stroke: Color?
+        if paint.isPrimary {
+            fill = DesignTokens.Palette.primary
+            stroke = nil
+        } else if let tint = paint.tint {
+            fill = GlassTokens.fillCard
+            stroke = tint.opacity(0.4)
+        } else {
+            fill = paint.isSelected ? GlassTokens.fillActive : GlassTokens.fillCard
+            stroke = paint.isSelected ? GlassTokens.strokeActive : GlassTokens.strokeCard
         }
+        return PillStyle(
+            height: height,
+            horizontalPadding: horizontalPadding,
+            spacing: spacing,
+            fill: fill,
+            stroke: stroke,
+            strokeWidth: GlassTokens.hairline,
+            label: label,
+            dotSize: GlassPillTokens.dotSize,
+            glyphSize: glyphSize,
+            font: font,
+            underlay: (!paint.isPrimary && paint.isOpaque) ? DesignTokens.Palette.card : nil,
+            strokeCentered: true
+        )
     }
-
 }
 
 /// The press feedback of a `primary` pill: a solid fill has no hairline to

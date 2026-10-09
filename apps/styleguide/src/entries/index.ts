@@ -3,7 +3,6 @@
  * name. A leaf fills ITS file; nobody edits this list (EXP-1019 splices it
  * into the page when it moves the existing entries into the sections).
  */
-import { entry as picker } from "./picker.tsx"
 import { entry as pickerBoard } from "./picker-board.tsx"
 import { entry as pickerIssue } from "./picker-issue.tsx"
 import { entry as pickerAction } from "./picker-action.tsx"
@@ -17,7 +16,6 @@ import { entry as pickerLabel } from "./picker-label.tsx"
 import { entry as pickerMcp } from "./picker-mcp.tsx"
 import { entry as pickerRepository } from "./picker-repository.tsx"
 import { entry as scopePicker } from "./scope-picker.tsx"
-import { entry as menu } from "./menu.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
@@ -42,7 +40,6 @@ import type { StyleguideEntry } from "./types.ts"
 export type { StyleguideEntry } from "./types.ts"
 
 export const ENTRIES: readonly StyleguideEntry[] = [
-  picker,
   pickerBoard,
   pickerIssue,
   pickerAction,
@@ -56,7 +53,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerMcp,
   pickerRepository,
   scopePicker,
-  menu,
   toast,
   jumpToBottom,
   composerDialog,

@@ -416,8 +416,8 @@ pub fn map_basic_component(flat: &FlatComponent, lookup: &dyn Fn(&str) -> Option
     match rule.children.as_deref() {
         Some("children") => match &flat.children {
             Some(crate::types::FlatChildren::Ids(ids)) => out.children_ids = ids.clone(),
-            Some(crate::types::FlatChildren::Template { component_id, path }) => {
-                out.template = Some(Template { component: component_id.clone(), path: path.clone() })
+            Some(t @ crate::types::FlatChildren::Template { .. }) => {
+                out.template = t.template()
             }
             None => {}
         },

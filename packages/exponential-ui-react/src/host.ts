@@ -1,10 +1,12 @@
 // VAPP-87: what an EMBEDDING APP provides (the host plugin) and what the
-// renderer sends it. The SDK knows no transport: actions and input edits
-// are plain objects the host forwards wherever it likes (A2UI over A2A, the
-// Exponential steer channel, a test harness).
+// renderer sends it. The plugin knows no transport: actions and input edits
+// are plain objects the host forwards wherever it likes. VAPP-91: the host
+// API (`@exponential-at/ui` `ExponentialHost`: transport, functions,
+// bindings, negotiation, policy) plugs in through `hostPlugin(host)` /
+// `<HostSurface>` (host-surface.tsx).
 
 import type { ComponentType, SVGProps } from "react"
-import type { UiNode, ResolvedTheme, ModeName } from "@exponential-at/ui"
+import type { UiNode, ResolvedTheme, ModeName, FunctionCallInfo, MediaRequest } from "@exponential-at/ui"
 import type { ClientFunction } from "./data"
 
 /** An icon component the host maps a registry name to (`lucide-react`'s
@@ -53,14 +55,39 @@ export interface HostPlugin {
   onInput?: (event: SurfaceInputEvent) => void | Promise<void>
   /** `openUrl` and `Link`; default `window.open(url, "_blank")`. */
   openUrl?: (url: string) => void
-  /** Extra or overriding client functions. */
+  /** Extra or overriding client functions, React only (`{call, args}` in a
+   *  prop; an action naming one runs it). Any OTHER action function name
+   *  goes to onFunctionCall (the portable host functions). */
   functions?: Record<string, ClientFunction>
+  /** An action `functionCall` to a name outside the built-ins (the host
+   *  function registry + its policy gate, `ExponentialHost.callFunction`).
+   *  A promise keeps the source control pending until it settles. */
+  onFunctionCall?: (call: FunctionCallInfo) => unknown | Promise<unknown>
+  /** The media loader's request for a source (absolute url + headers, e.g.
+   *  auth for /api/attachments). A request WITH headers is fetched and shown
+   *  as a blob url; without, its url is used as is. */
+  mediaRequest?: (src: string) => MediaRequest | null
   /** A richer markdown renderer than the built-in one. */
   Markdown?: ComponentType<{ text: string; className?: string }>
   /** Rewrites media URLs (relative attachment paths, signed URLs). */
   resolveUrl?: (src: string) => string
   /** Called with the node for every Unknown placeholder painted. */
   onUnknown?: (node: UiNode) => void
+  /** Round 1, FileUpload: the picked/dropped files' BYTES (the `upload`
+   *  event carries only `{name, size, type}`). Return a promise to keep the
+   *  drop zone busy until it settles. */
+  onUpload?: (files: File[], target: { nodeId: string; name: string }) => void | Promise<void>
+  /** Round 1, Select `source`: a host list id (`exp:statuses`) → its
+   *  options for a query (`""` when not searchable). */
+  optionSource?: (source: string, query: string) => SourceOption[] | Promise<SourceOption[]>
+}
+
+/** One option a host source supplies (the catalog's `option` shape). */
+export interface SourceOption {
+  label: string
+  value: string
+  icon?: string
+  disabled?: boolean
 }
 
 /** What an extension component receives: the node, its props resolved, the

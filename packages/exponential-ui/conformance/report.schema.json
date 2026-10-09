@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ui.exponential.at/conformance/report.schema.json",
+  "title": "Exponential UI conformance report",
+  "description": "VAPP-91: what a renderer's conformance runner writes. checkReport() / conformance:check decide conformance against conformance/manifest.json.",
+  "type": "object",
+  "required": [
+    "renderer",
+    "platform",
+    "version",
+    "conformanceVersion",
+    "suites"
+  ],
+  "properties": {
+    "renderer": {
+      "type": "string",
+      "description": "The renderer's package name, e.g. @exponential-at/ui-react, exponential-ui-gpui, ExponentialUI, at.exponential:ui-compose."
+    },
+    "platform": {
+      "type": "string",
+      "description": "web | desktop | ios | macos | android | \u2026"
+    },
+    "version": {
+      "type": "string",
+      "description": "The renderer's version."
+    },
+    "conformanceVersion": {
+      "type": "integer"
+    },
+    "suites": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "cases",
+          "passed",
+          "failed"
+        ],
+        "properties": {
+          "cases": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The failed cases' names (and a short reason)."
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

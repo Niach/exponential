@@ -12,7 +12,19 @@ keywords = ["a2ui", "gpui", "generative-ui"]
 # gpui-component where it already paints a control the catalog uses) and on
 # NOTHING from the Exponential app's crates (`ui`, `theme`, `domain`, …): the
 # IDE links it like a third party and installs its own `Chrome`.
+# Not on crates.io (VAPP-91): `gpui` and `gpui-component` are GIT dependencies
+# (pinned through apps/desktop/Cargo.lock), and crates.io refuses a crate with
+# git dependencies. Publishing waits for crates.io releases of both at
+# compatible versions; until then a third party takes it as a git/path
+# dependency (samples/exponential-ui/gpui shows how).
 publish = false
+
+[features]
+default = ["net"]
+# The network transports (JSONL / SSE over HTTP, WebSocket, MCP) and the
+# media loader's http(s) fetches. Off = MemoryTransport + your own Transport
+# impls, file:// media only.
+net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 
 [dependencies]
 exponential-ui = { path = "../exponential-ui", version = "0.1.0" }
@@ -20,8 +32,46 @@ gpui.workspace = true
 gpui-component.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# CSS-aligned break opportunities (UAX #14) for min-content and the
+# painter's own line wrapping; already in the lock via cosmic-text.
+unicode-linebreak = "0.1.5"
+# Round 2 §2: the bidi paragraph direction of a text = its node's direction
+# (gpui shapes with the first strong character's); already in the lock via
+# cosmic-text.
+unicode-bidi = "0.3.18"
+# VAPP-91 host runtime: transport threads and source emits hand their events
+# to the gpui main thread through one channel (already in the tree).
+flume.workspace = true
+# `net`: the blocking client on transport threads (its own private runtime,
+# never gpui's executors), a current-thread tokio runtime per WebSocket.
+reqwest = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The conformance runner replays the core's shared round-2 cases
+# (`exponential-ui/tests/support/round2.rs`), which use it.
+indexmap = { version = "2", features = ["serde"] }
 # `#[gpui::test]` needs test-support; it only widens the TEST build's gpui
 # variant (same package id — a compile-time cost, not an identity split).
 gpui = { workspace = true, features = ["test-support"] }
+# `examples/kitchen_sink.rs` (a real window: the platform backend and
+# gpui-component's icon assets, the same crates the IDE links).
+gpui_platform.workspace = true
+gpui-component-assets.workspace = true
+
+# The conformance harness (packages/exponential-ui/conformance): the painter's
+# frames under gpui's REAL Linux text system (cosmic-text), headless, loaded
+# with ONLY the conformance font files (no system fonts) so the dump is
+# deterministic. Already in the lock (gpui_linux's text system).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
+gpui_wgpu = { git = "https://github.com/zed-industries/zed" }
+
+[[example]]
+name = "conformance_dump"
+path = "examples/conformance_dump.rs"
+
+[[example]]
+name = "bench_list"
+path = "examples/bench_list.rs"

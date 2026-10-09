@@ -1,8 +1,11 @@
 //! The painter against the shared fixtures, in a headless gpui test window:
-//! every catalog case and the kitchen sink paint (in every built-in theme ×
-//! mode), presses reach the host, overlays open and close, and the bench
-//! tree's cold pass stays in budget. Text fields are never focused here (a
-//! focused gpui-component input asks a test window for a native view).
+//! every catalog case and the kitchen sink paint in every built-in theme ×
+//! mode with no `Unknown` (and again with every overlay open), the
+//! geometry fixtures paint every node exactly at the core's frame (LTR and
+//! RTL), presses reach the host, overlays open and close, the bench tree's
+//! cold pass stays in budget. Interaction and keyboard tests live in
+//! `tests/interaction.rs`. Text fields are never focused here (a focused
+//! gpui-component input asks a test window for a native view).
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -49,10 +52,10 @@ impl HostPlugin for Recorder {
     }
 }
 
-/// The extension fixture's `Sparkline`, painted as a bar row.
-struct Sparkline;
+/// The extension fixture's `TrendLine`, painted as a bar row.
+struct TrendLine;
 
-impl ExtensionPainter for Sparkline {
+impl ExtensionPainter for TrendLine {
     fn measure(&self, leaf: &LeafRequest, wrap: Option<f32>, _: &mut Window, _: &mut App) -> Option<(f32, f32)> {
         let n = leaf.props.get("values").and_then(Value::as_array).map(|a| a.len()).unwrap_or(0) as f32;
         Some((wrap.filter(|w| *w > 0.0).unwrap_or(n * 6.0), 24.0))
@@ -127,21 +130,57 @@ struct ExtensionCase {
     components: Vec<FlatComponent>,
 }
 
+/// Every overlay the surface could open, opened (triggers' targets and
+/// the natives with an `open` prop or a popup).
+fn open_everything(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) {
+    view.update(cx, |v, cx| {
+        let nodes = v.surface_mut().nodes();
+        let mut ids: Vec<String> = nodes.iter().filter(|n| !n.removed).filter_map(|n| n.trigger_for.clone()).collect();
+        ids.extend(nodes.iter().filter(|n| !n.removed && n.part.is_none() && matches!(n.component.as_str(), "Select" | "DatePicker" | "DateRangePicker" | "TimePicker" | "Dialog" | "Drawer" | "Popover" | "Tooltip" | "DropdownMenu" | "ContextMenu" | "ChipInput" | "Toast")).map(|n| n.id.clone()));
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            v.surface_mut().set_open(&id, true);
+        }
+        cx.notify();
+    });
+}
+
+fn unknown_ids(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) -> Vec<String> {
+    view.update(cx, |v, _| v.surface_mut().nodes().into_iter().filter(|n| !n.removed && n.component == "Unknown").map(|n| n.id).collect())
+}
+
 #[gpui::test]
-fn every_catalog_component_and_macro_case_paints(cx: &mut TestAppContext) {
+fn every_catalog_component_and_macro_case_paints_in_every_theme_and_mode(cx: &mut TestAppContext) {
     init(cx);
-    let (view, cx) = open(cx, SurfaceViewOptions::default());
     let components: Vec<ComponentCase> = serde_json::from_value(fixture("catalog-components.json")["cases"].clone()).unwrap();
     let macros: Vec<MacroCase> = serde_json::from_value(fixture("catalog-macros.json")["cases"].clone()).unwrap();
     let cases: Vec<(String, NestedNode)> = components.into_iter().map(|c| (c.name, c.node)).chain(macros.into_iter().map(|c| (c.name, c.input))).collect();
     assert!(cases.len() > 400);
-    for (name, node) in cases {
-        view.update(cx, |v, cx| {
-            v.set_nested(node, cx);
-        });
-        draw(cx);
-        assert!(nodes(&view, cx) > 0, "{name}");
+    let mut painted = 0;
+    for theme in ["neutral", "exponential", "playful"] {
+        for mode in [Mode::Light, Mode::Dark] {
+            let (view, vcx) = open(cx, SurfaceViewOptions { theme: Some(builtin_theme(theme).unwrap()), mode, ..Default::default() });
+            for (name, node) in &cases {
+                view.update(vcx, |v, cx| {
+                    v.set_nested(node.clone(), cx);
+                });
+                draw(vcx);
+                assert!(nodes(&view, vcx) > 0, "{name}");
+                let lower = name.to_lowercase();
+                if !lower.contains("unknown") && !lower.contains("placeholder") && !lower.contains("not see") {
+                    let unknown = unknown_ids(&view, vcx);
+                    assert!(unknown.is_empty(), "{theme}/{mode:?} {name}: Unknown {unknown:?}");
+                }
+                if theme == "neutral" && mode == Mode::Light {
+                    open_everything(&view, vcx);
+                    draw(vcx);
+                }
+                painted += 1;
+            }
+        }
     }
+    assert!(painted > 2400, "{painted}");
 }
 
 #[gpui::test]
@@ -170,7 +209,7 @@ fn every_extension_case_paints_with_a_registered_painter(cx: &mut TestAppContext
         let options = SurfaceViewOptions { catalog_id: c.catalog_id.clone(), extensions: vec![ext.clone()], host: Rc::new(log.clone()), ..Default::default() };
         let (view, vcx) = open(cx, options);
         view.update(vcx, |v, cx| {
-            v.register_painter("Sparkline", Box::new(Sparkline));
+            v.register_painter("TrendLine", Box::new(TrendLine));
             v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
         });
         draw(vcx);
@@ -182,7 +221,7 @@ fn every_extension_case_paints_with_a_registered_painter(cx: &mut TestAppContext
                 let f = v.surface().last_frame(i).unwrap();
                 (f.w, f.h)
             });
-            assert!(w > 0.0 && h == 24.0, "the Sparkline painter measured it: {w}x{h}");
+            assert!(w > 0.0 && h == 24.0, "the TrendLine painter measured it: {w}x{h}");
         }
         if c.name.contains("placeholder") {
             assert!(!log.0.borrow().unknown.is_empty(), "on_unknown fired");
@@ -202,8 +241,12 @@ fn the_kitchen_sink_paints_in_every_theme_and_mode(cx: &mut TestAppContext) {
             draw(vcx);
             let n = nodes(&view, vcx);
             assert!(n > 100, "{theme}/{mode:?}: {n} nodes");
-            let windowed = view.read_with(vcx, |v, _| v.surface().structure_version());
-            assert!(windowed > 0);
+            assert!(unknown_ids(&view, vcx).is_empty(), "{theme}/{mode:?}: Unknown nodes");
+            open_everything(&view, vcx);
+            draw(vcx);
+            draw(vcx);
+            let layers = view.read_with(vcx, |v, _| v.layers().len());
+            assert!(layers > 5, "{theme}/{mode:?}: {layers} layers open");
         }
     }
     // Geometry mode (no theme) paints too.
@@ -211,6 +254,70 @@ fn the_kitchen_sink_paints_in_every_theme_and_mode(cx: &mut TestAppContext) {
     load_kitchen(&view, vcx);
     draw(vcx);
     assert!(nodes(&view, vcx) > 50);
+}
+
+/// A geometry fixture case replayed through the PAINTER with the fixture's
+/// fixed measure: every node's painted bounds = the fixture's frame.
+fn replay_geometry(cx: &mut TestAppContext, file: &str) -> usize {
+    let fx = fixture(file);
+    let round1 = file.contains("round1");
+    let mut checked = 0;
+    for (name, case) in fx["cases"].as_object().unwrap() {
+        let width = case["width"].as_f64().unwrap() as f32;
+        let direction = case["direction"].as_str().unwrap();
+        let measures = if round1 { &case["measures"] } else { &fx["measures"] };
+        let sizes: std::collections::HashMap<String, (f32, f32)> = measures.as_object().unwrap().iter().map(|(id, m)| (id.clone(), (m["w"].as_f64().unwrap() as f32, m["h"].as_f64().unwrap() as f32))).collect();
+        let mut tree = fx["surface"].clone();
+        tree["style"]["direction"] = json!(direction);
+        let tree: NestedNode = serde_json::from_value(tree).unwrap();
+        let theme = if round1 { builtin_theme("neutral") } else { None };
+        let settings = exponential_ui::surface::SurfaceSettings { hover: case["context"]["hover"].as_bool().unwrap_or(true), ..Default::default() };
+        let options = SurfaceViewOptions {
+            theme,
+            mode: Mode::Light,
+            expand_controls: round1.then_some(false),
+            fixed_measure: Some(exponential_ui::measure::FixedMeasure::with_sizes(sizes)),
+            settings: Some(settings),
+            width: Some(width),
+            ..Default::default()
+        };
+        let (view, vcx) = open(cx, options);
+        view.update(vcx, |v, cx| {
+            v.record_bounds(true);
+            let outcome = v.set_nested(tree, cx);
+            assert!(outcome.issues.is_empty(), "{name}: {:?}", outcome.issues);
+            if round1 {
+                v.set_data("", Some(fx["data"].clone()), cx);
+            }
+        });
+        draw(vcx);
+        draw(vcx);
+        // gpui snaps element bounds to whole device pixels (scale 1 here).
+        let tol = (fx["tolerancePx"].as_f64().unwrap_or(0.0) as f32).max(0.51);
+        view.read_with(vcx, |v, _| {
+            assert_eq!(v.is_rtl(), direction == "rtl", "{name}: direction");
+            let o = v.origin();
+            for want in case["frames"].as_array().unwrap() {
+                let id = want["id"].as_str().unwrap();
+                let b = v.painted_bounds(id).unwrap_or_else(|| panic!("{file} {name}: {id} was not painted"));
+                let got = [f32::from(b.origin.x - o.x), f32::from(b.origin.y - o.y), f32::from(b.size.width), f32::from(b.size.height)];
+                for (k, key) in ["x", "y", "w", "h"].iter().enumerate() {
+                    let e = want[*key].as_f64().unwrap() as f32;
+                    assert!((got[k] - e).abs() <= tol, "{file} {name}: {id}.{key} painted at {}, the core put it at {e}", got[k]);
+                }
+                checked += 1;
+            }
+        });
+    }
+    checked
+}
+
+#[gpui::test]
+fn the_geometry_fixtures_paint_every_node_at_its_frame_ltr_and_rtl(cx: &mut TestAppContext) {
+    init(cx);
+    let a = replay_geometry(cx, "layout-geometry.json");
+    let b = replay_geometry(cx, "layout-geometry-round1.json");
+    assert!(a > 150 && b > 150, "{a} + {b} frames checked");
 }
 
 #[gpui::test]
@@ -245,13 +352,14 @@ fn presses_reach_the_host_and_overlays_open_and_close(cx: &mut TestAppContext) {
         })
     });
     draw(cx);
-    let (layers, confirm) = view.read_with(cx, |v, _| (v.layers().len(), v.surface().get_data("/ui/confirmOpen").cloned()));
-    assert_eq!(layers, 1, "the dialog's layer is open");
+    let dialog_open = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext| view.read_with(cx, |v, _| v.layers().iter().any(|l| l.kind == "Dialog"));
+    let confirm = view.read_with(cx, |v, _| v.surface().get_data("/ui/confirmOpen").cloned());
+    assert!(dialog_open(&view, cx), "the dialog's layer is open");
     assert_eq!(confirm, Some(json!(true)), "the bound open prop wrote through");
     let closed = cx.update(|window, cx| view.update(cx, |v, cx| v.escape(window, cx)));
     assert!(closed);
     draw(cx);
-    assert_eq!(view.read_with(cx, |v, _| v.layers().len()), 0, "Escape closed it");
+    assert!(!dialog_open(&view, cx), "Escape closed it");
     draw(cx);
     let (focused, trigger) = view.read_with(cx, |v, _| (v.focused(), v.index_of("dialog-trigger")));
     assert_eq!(focused, trigger, "focus went back to the trigger");

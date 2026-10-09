@@ -1,4 +1,5 @@
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 // Shared glass controls (EXP-604) — the iOS twins of Android's
 // ui/components/CircleIconButton.kt and GlassTextField.kt, which were
@@ -179,27 +180,31 @@ public struct GlassToggleStyle: ToggleStyle {
         .accessibilityValue(configuration.isOn ? "On" : "Off")
     }
 
+    /// SLOP-18 / VAPP-88: the track is the SDK's `DrawnSwitchStyle`; this
+    /// style keeps only the interaction shell (whole-row tap, motion,
+    /// disabled dimming, accessibility).
     private func track(isOn: Bool) -> some View {
-        Capsule()
-            .fill(isOn ? DesignTokens.Palette.primary : GlassTokens.fillCard)
-            .overlay(
-                Capsule()
-                    .stroke(
-                        isOn ? Color.clear : GlassTokens.strokeCard,
-                        lineWidth: GlassTokens.hairline
-                    )
-            )
-            .overlay(alignment: isOn ? .trailing : .leading) {
-                Circle()
-                    .fill(
-                        isOn
-                            ? DesignTokens.Palette.primaryForeground
-                            : DesignTokens.Palette.mutedForeground
-                    )
-                    .frame(width: 27, height: 27)
-                    .padding(2)
-            }
-            .frame(width: 51, height: 31)
+        Self.drawn.track(isOn: isOn)
+    }
+
+    /// The UISwitch geometry (51×31, 27pt thumb, 2pt inset) in the glass
+    /// paint. No animation of its own: `makeBody` toggles inside
+    /// `withAnimation(motion.fast)`, which a track animation would override.
+    static var drawn: DrawnSwitchStyle {
+        DrawnSwitchStyle(
+            trackWidth: 51,
+            trackHeight: 31,
+            thumbSize: 27,
+            trackOn: DesignTokens.Palette.primary,
+            trackOff: GlassTokens.fillCard,
+            thumb: DesignTokens.Palette.mutedForeground,
+            thumbOn: DesignTokens.Palette.primaryForeground,
+            trackStroke: GlassTokens.strokeCard,
+            trackStrokeOn: nil,
+            trackStrokeWidth: GlassTokens.hairline,
+            trackStrokeCentered: true,
+            animation: nil
+        )
     }
 }
 
@@ -503,19 +508,18 @@ public struct GlassTextField<Leading: View, Trailing: View>: View {
 
         func body(content: Content) -> some View {
             if shows {
+                // SLOP-18 / VAPP-88: the box is the SDK's `fieldChrome`.
                 content
                     .padding(.horizontal, horizontalPadding)
                     .padding(.vertical, verticalPadding)
-                    .background(
-                        GlassTokens.fillCard,
-                        in: RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: GlassTokens.fieldRadius)
-                            .stroke(
-                                focused ? GlassTokens.strokeActive : GlassTokens.strokeCard,
-                                lineWidth: GlassTokens.hairline
-                            )
+                    .fieldChrome(
+                        fill: GlassTokens.fillCard,
+                        stroke: GlassTokens.strokeCard,
+                        focusedStroke: GlassTokens.strokeActive,
+                        strokeWidth: GlassTokens.hairline,
+                        radius: GlassTokens.fieldRadius,
+                        focused: focused,
+                        strokeCentered: true
                     )
             } else {
                 content

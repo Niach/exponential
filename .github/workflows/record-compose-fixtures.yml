@@ -1,0 +1,63 @@
+name: record-compose-fixtures
+
+# The Compose painter's snapshot fixtures (Roborazzi images, the Compose
+# snapshot, the swift-parity-pending list, the real-font ratchet) compare
+# pixel- and layout-exact under Robolectric, so they must be recorded on the
+# same platform CI verifies them on (ubuntu). A Mac-recorded set fails the
+# `compose` job. This workflow re-records them on ubuntu, verifies the
+# re-recorded set passes, and uploads it as the `compose-fixtures` artifact
+# to commit by hand (`workflow_dispatch`, or a push that edits this file).
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - '.github/workflows/record-compose-fixtures.yml'
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Host build of the facade (the JVM tests load it through JNA)
+        working-directory: apps/desktop
+        run: cargo build --locked -p exponential-ui-ffi --release
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0'
+      - name: Re-record the Compose fixtures
+        working-directory: packages/exponential-ui-compose
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-compose.json
+          EXPONENTIAL_UI_RECORD: '1'
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :ui-compose:testDebugUnitTest --no-daemon
+      - name: Verify the re-recorded fixtures pass
+        working-directory: packages/exponential-ui-compose
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
+          EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-compose.json
+        run: ./gradlew :ui-compose:testDebugUnitTest :ui-compose-primitives:testDebugUnitTest --no-daemon --rerun-tasks
+      - name: What changed
+        run: git status --short
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-fixtures
+          path: |
+            packages/exponential-ui-compose/ui-compose/src/test/snapshots/
+            packages/exponential-ui-compose/ui-compose/conformance/
+            .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default

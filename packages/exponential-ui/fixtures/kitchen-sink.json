@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the kitchen sink, extended from the VAPP-4 spike (packages/domain-contract/fixtures/vapp-kitchen-sink.json on exp/VAPP-4) to the FULL core catalog: every visible component at least once, in the nested authoring form (id, component, props, style, children, slots, on). The spike's layout cases stay: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons. Every renderer paints this once as the view `exponential-ui-kitchen-sink`; kitchen-sink.expanded.json is what it receives.",
+  "$comment": "VAPP-85: the kitchen sink, extended from the VAPP-4 spike (packages/domain-contract/fixtures/vapp-kitchen-sink.json on exp/VAPP-4) to the FULL core catalog: every visible component at least once, in the nested authoring form (id, component, props, style, children, slots, on). The spike's layout cases stay: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons. Every renderer paints this once as the view `exponential-ui-kitchen-sink`; kitchen-sink.expanded.json is what it receives. Round 1 (docs/round-1-contract.md) adds the app shell (AppBar, Breadcrumb, TabBar), a RESPONSIVE section every renderer must prove at three widths (a Grid of cards 1 → 2 → 3 columns via a responsive `columns`, a Sidebar that collapses below md, a Stack that turns horizontal at md, nodes hidden on narrow or on wide surfaces, hover/focus-visible/orientation/hover-capability blocks, a Drawer whose side is responsive), a Form of the new fields, the data Table with typed, sortable, selectable columns and a slot cell, the new chart kinds, the CodeBlock, the overlay newcomers and BOUND macros (Collapsible open, Pagination page, TabBar value, Progress value: two-way through the `set` action).",
   "id": "root",
   "component": "Box",
   "style": {
@@ -12,6 +12,74 @@
     "direction": "ltr"
   },
   "children": [
+    {
+      "id": "shell",
+      "component": "Box",
+      "style": {
+        "display": "flex",
+        "flexDirection": "column",
+        "gap": "$spacing.sm"
+      },
+      "children": [
+        {
+          "id": "app-bar",
+          "component": "AppBar",
+          "props": {
+            "title": "Inbox",
+            "subtitle": {
+              "path": "/ui/teamName"
+            },
+            "back": true
+          },
+          "slots": {
+            "trailing": {
+              "id": "app-bar-search",
+              "component": "Button",
+              "props": {
+                "icon": "search",
+                "variant": "ghost",
+                "size": "icon",
+                "label": "Search"
+              }
+            }
+          },
+          "on": {
+            "back": {
+              "event": {
+                "name": "back"
+              }
+            }
+          }
+        },
+        {
+          "id": "breadcrumb",
+          "component": "Breadcrumb",
+          "props": {
+            "items": [
+              {
+                "label": "Boards",
+                "value": "boards"
+              },
+              {
+                "label": "Sprint 12",
+                "value": "sprint-12"
+              },
+              {
+                "label": "EXP-42",
+                "value": "exp-42"
+              }
+            ]
+          },
+          "on": {
+            "select": {
+              "event": {
+                "name": "navigate"
+              }
+            }
+          }
+        }
+      ]
+    },
     {
       "id": "header",
       "component": "Stack",
@@ -878,7 +946,9 @@
           "component": "Collapsible",
           "props": {
             "title": "Advanced",
-            "open": true,
+            "open": {
+              "path": "/ui/advancedOpen"
+            },
             "count": 2
           },
           "children": [
@@ -897,7 +967,9 @@
           "component": "Pagination",
           "props": {
             "totalPages": 5,
-            "page": 2
+            "page": {
+              "path": "/ui/page"
+            }
           },
           "on": {
             "change": {
@@ -943,6 +1015,26 @@
             "icon": "ui-pin",
             "pressed": true,
             "variant": "outline"
+          }
+        },
+        {
+          "id": "stepper",
+          "component": "Stepper",
+          "props": {
+            "steps": [
+              {
+                "label": "Account"
+              },
+              {
+                "label": "Team",
+                "description": "Invite people"
+              },
+              {
+                "label": "Done"
+              }
+            ],
+            "current": 1,
+            "orientation": "horizontal"
           }
         }
       ]
@@ -1047,23 +1139,82 @@
           "component": "Table",
           "props": {
             "columns": [
-              "Name",
-              "Role",
-              "Runs"
+              {
+                "key": "name",
+                "label": "Name",
+                "sortable": true
+              },
+              {
+                "key": "role",
+                "label": "Role",
+                "type": "badge"
+              },
+              {
+                "key": "runs",
+                "label": "Runs",
+                "type": "number",
+                "align": "end",
+                "sortable": true,
+                "width": 80
+              },
+              {
+                "key": "status",
+                "label": "Status",
+                "type": "slot",
+                "slot": "statusCell"
+              }
             ],
             "rows": [
-              [
-                "Alice",
-                "Owner",
-                "12"
-              ],
-              [
-                "Bob",
-                "Member",
-                "3"
-              ]
+              {
+                "id": "alice",
+                "name": "Alice",
+                "role": "Owner",
+                "runs": 12,
+                "status": "Online"
+              },
+              {
+                "id": "bob",
+                "name": "Bob",
+                "role": "Member",
+                "runs": 3,
+                "status": "Away"
+              }
             ],
-            "caption": "Two members"
+            "rowKey": "id",
+            "selectable": "multiple",
+            "selected": {
+              "path": "/ui/selectedMembers"
+            },
+            "sort": {
+              "key": "runs",
+              "direction": "desc"
+            },
+            "caption": "Two members",
+            "striped": true
+          },
+          "slots": {
+            "statusCell": {
+              "id": "table-status",
+              "component": "Pill",
+              "props": {
+                "label": {
+                  "path": "status"
+                },
+                "tone": "success"
+              }
+            }
+          },
+          "on": {
+            "sort": {
+              "event": {
+                "name": "sortMembers"
+              }
+            },
+            "select": {
+              "event": {
+                "name": "selectMembers"
+              }
+            }
           }
         },
         {
@@ -1098,6 +1249,127 @@
             "title": "This week",
             "height": 160
           }
+        },
+        {
+          "id": "charts-row",
+          "component": "Grid",
+          "props": {
+            "columns": {
+              "base": 1,
+              "md": 2
+            },
+            "gap": "md"
+          },
+          "children": [
+            {
+              "id": "chart-line",
+              "component": "Chart",
+              "props": {
+                "kind": "line",
+                "categories": [
+                  "Mon",
+                  "Tue",
+                  "Wed",
+                  "Thu"
+                ],
+                "series": [
+                  {
+                    "name": "Open",
+                    "values": [
+                      4,
+                      6,
+                      5,
+                      8
+                    ]
+                  },
+                  {
+                    "name": "Closed",
+                    "values": [
+                      2,
+                      3,
+                      6,
+                      7
+                    ]
+                  }
+                ],
+                "showValues": true,
+                "yLabel": "Issues"
+              }
+            },
+            {
+              "id": "chart-donut",
+              "component": "Chart",
+              "props": {
+                "kind": "donut",
+                "categories": [
+                  "Done",
+                  "In progress",
+                  "Backlog"
+                ],
+                "series": [
+                  {
+                    "name": "Issues",
+                    "values": [
+                      12,
+                      5,
+                      9
+                    ]
+                  }
+                ],
+                "height": 180
+              }
+            }
+          ]
+        },
+        {
+          "id": "spark-row",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "align": "center",
+            "gap": "sm"
+          },
+          "children": [
+            {
+              "id": "spark-label",
+              "component": "Text",
+              "props": {
+                "text": "Runs this week",
+                "variant": "muted"
+              }
+            },
+            {
+              "id": "sparkline",
+              "component": "Sparkline",
+              "props": {
+                "values": [
+                  1,
+                  3,
+                  2,
+                  5,
+                  4,
+                  6
+                ],
+                "tone": "success"
+              },
+              "style": {
+                "width": 96
+              }
+            },
+            {
+              "id": "progress-bound",
+              "component": "Progress",
+              "props": {
+                "value": {
+                  "path": "/ui/upload"
+                },
+                "label": "Upload"
+              },
+              "style": {
+                "flexGrow": 1
+              }
+            }
+          ]
         }
       ]
     },
@@ -1521,8 +1793,745 @@
               }
             }
           }
+        },
+        {
+          "id": "alert-dialog",
+          "component": "AlertDialog",
+          "props": {
+            "title": "Discard draft?",
+            "description": "Your text will be lost.",
+            "destructive": true,
+            "open": {
+              "path": "/ui/discardOpen"
+            }
+          },
+          "slots": {
+            "trigger": {
+              "id": "alert-dialog-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Discard",
+                "variant": "outline"
+              }
+            }
+          },
+          "on": {
+            "confirm": {
+              "event": {
+                "name": "discard"
+              }
+            }
+          }
+        },
+        {
+          "id": "hover-card",
+          "component": "HoverCard",
+          "props": {
+            "side": "top"
+          },
+          "slots": {
+            "trigger": {
+              "id": "hover-card-trigger",
+              "component": "Link",
+              "props": {
+                "label": "@alex"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "hover-card-body",
+              "component": "Stack",
+              "props": {
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "center"
+              },
+              "children": [
+                {
+                  "id": "hover-card-avatar",
+                  "component": "Avatar",
+                  "props": {
+                    "name": "Alex Chen"
+                  }
+                },
+                {
+                  "id": "hover-card-name",
+                  "component": "Text",
+                  "props": {
+                    "text": "Alex Chen · Owner",
+                    "variant": "body"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "context-menu",
+          "component": "ContextMenu",
+          "props": {
+            "items": [
+              {
+                "label": "Copy",
+                "value": "copy",
+                "shortcut": "⌘C",
+                "icon": "ui-copy"
+              },
+              {
+                "kind": "separator"
+              },
+              {
+                "kind": "label",
+                "label": "View"
+              },
+              {
+                "label": "Show done",
+                "value": "showDone",
+                "kind": "checkbox",
+                "checked": {
+                  "path": "/ui/showDone"
+                }
+              },
+              {
+                "label": "Sort by",
+                "kind": "submenu",
+                "items": [
+                  {
+                    "label": "Priority",
+                    "value": "priority"
+                  },
+                  {
+                    "label": "Updated",
+                    "value": "updated"
+                  }
+                ]
+              },
+              {
+                "kind": "separator"
+              },
+              {
+                "label": "Delete",
+                "value": "delete",
+                "destructive": true
+              }
+            ]
+          },
+          "on": {
+            "select": {
+              "event": {
+                "name": "contextMenu"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "context-menu-target",
+              "component": "Card",
+              "props": {
+                "title": "Right-click me"
+              }
+            }
+          ]
+        },
+        {
+          "id": "toast",
+          "component": "Toast",
+          "props": {
+            "title": "Saved",
+            "description": "Your changes are live.",
+            "type": "success",
+            "open": {
+              "path": "/ui/toastOpen"
+            },
+            "actionLabel": "Undo",
+            "duration": 5000
+          },
+          "on": {
+            "action": {
+              "event": {
+                "name": "undo"
+              }
+            }
+          }
         }
       ]
+    },
+    {
+      "id": "responsive",
+      "component": "Card",
+      "props": {
+        "title": "Responsive"
+      },
+      "children": [
+        {
+          "id": "resp-grid",
+          "component": "Grid",
+          "props": {
+            "columns": {
+              "base": 1,
+              "sm": 2,
+              "lg": 3
+            },
+            "gap": {
+              "base": "sm",
+              "md": "md"
+            }
+          },
+          "children": [
+            {
+              "id": "resp-card-1",
+              "component": "Card",
+              "props": {
+                "title": "Throughput",
+                "description": "Runs per day"
+              },
+              "children": [
+                {
+                  "id": "resp-value-1",
+                  "component": "Text",
+                  "props": {
+                    "text": "128",
+                    "variant": "title"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "resp-card-2",
+              "component": "Card",
+              "props": {
+                "title": "Latency",
+                "description": "p95 in ms"
+              },
+              "children": [
+                {
+                  "id": "resp-value-2",
+                  "component": "Text",
+                  "props": {
+                    "text": "412",
+                    "variant": "title"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "resp-card-3",
+              "component": "Card",
+              "props": {
+                "title": "Errors",
+                "description": "Last 24 h"
+              },
+              "children": [
+                {
+                  "id": "resp-value-3",
+                  "component": "Text",
+                  "props": {
+                    "text": "3",
+                    "variant": "title"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "resp-shell",
+          "component": "Sidebar",
+          "props": {
+            "width": 200,
+            "collapseBelow": "md",
+            "collapsed": {
+              "path": "/ui/sidebarCollapsed"
+            }
+          },
+          "style": {
+            "minHeight": 160
+          },
+          "slots": {
+            "sidebar": {
+              "id": "resp-nav",
+              "component": "Box",
+              "style": {
+                "display": "flex",
+                "flexDirection": "column",
+                "gap": "$spacing.xxs",
+                "padding": "$spacing.xs"
+              },
+              "children": [
+                {
+                  "id": "resp-nav-inbox",
+                  "component": "NavRow",
+                  "props": {
+                    "label": "Inbox",
+                    "icon": "nav-inbox",
+                    "selected": true,
+                    "count": 2
+                  }
+                },
+                {
+                  "id": "resp-nav-issues",
+                  "component": "NavRow",
+                  "props": {
+                    "label": "Issues",
+                    "icon": "nav-issues"
+                  }
+                }
+              ]
+            }
+          },
+          "children": [
+            {
+              "id": "resp-main",
+              "component": "Stack",
+              "props": {
+                "direction": {
+                  "base": "vertical",
+                  "md": "horizontal"
+                },
+                "gap": "md",
+                "align": {
+                  "base": "stretch",
+                  "md": "center"
+                }
+              },
+              "style": {
+                "padding": "$spacing.md"
+              },
+              "children": [
+                {
+                  "id": "resp-main-text",
+                  "component": "Text",
+                  "props": {
+                    "text": "The column hides below md; this stack turns into a row at md.",
+                    "variant": "body"
+                  }
+                },
+                {
+                  "id": "resp-only-wide",
+                  "component": "Badge",
+                  "props": {
+                    "text": "Wide",
+                    "variant": "secondary"
+                  },
+                  "style": {
+                    "display": "none",
+                    "@media (min-width: $breakpoint.md)": {
+                      "display": "flex"
+                    }
+                  }
+                },
+                {
+                  "id": "resp-only-narrow",
+                  "component": "Badge",
+                  "props": {
+                    "text": "Narrow",
+                    "variant": "outline"
+                  },
+                  "style": {
+                    "@media (min-width: $breakpoint.md)": {
+                      "display": "none"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "resp-states",
+          "component": "Box",
+          "props": {
+            "pressable": true
+          },
+          "style": {
+            "display": "flex",
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": "$spacing.sm",
+            "padding": "$spacing.md",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard",
+            "@media (max-width: $breakpoint.sm)": {
+              "flexDirection": "column",
+              "alignItems": "flex-start"
+            },
+            "@media (orientation: portrait)": {
+              "paddingVertical": "$spacing.lg"
+            },
+            "@media (hover: none)": {
+              "minHeight": 44
+            },
+            "@media (prefers-reduced-motion: reduce)": {
+              "transform": "scale(1)"
+            },
+            ":hover": {
+              "backgroundColor": "$color.accent"
+            },
+            ":focus-visible": {
+              "borderColor": "$color.ring"
+            },
+            ":pressed": {
+              "transform": "scale(0.98)"
+            }
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "tapCard"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "resp-states-icon",
+              "component": "Icon",
+              "props": {
+                "name": "ui-info",
+                "tone": "info"
+              }
+            },
+            {
+              "id": "resp-states-text",
+              "component": "Text",
+              "props": {
+                "text": "Hover, keyboard focus and press restyle this box; it stacks below sm.",
+                "variant": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "resp-drawer",
+          "component": "Drawer",
+          "props": {
+            "title": "Filters",
+            "side": {
+              "base": "bottom",
+              "md": "right"
+            },
+            "open": {
+              "path": "/ui/filtersOpen"
+            },
+            "dragToDismiss": true
+          },
+          "slots": {
+            "trigger": {
+              "id": "resp-drawer-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Filters",
+                "icon": "ui-properties",
+                "variant": "outline"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "resp-drawer-body",
+              "component": "Text",
+              "props": {
+                "text": "A bottom sheet on phones, a side panel from md.",
+                "variant": "body"
+              }
+            }
+          ]
+        },
+        {
+          "id": "resp-scroll",
+          "component": "ScrollArea",
+          "props": {
+            "direction": "horizontal"
+          },
+          "children": [
+            {
+              "id": "resp-chip-0",
+              "component": "Pill",
+              "props": {
+                "label": "Bug"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-1",
+              "component": "Pill",
+              "props": {
+                "label": "iOS"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-2",
+              "component": "Pill",
+              "props": {
+                "label": "Android"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-3",
+              "component": "Pill",
+              "props": {
+                "label": "Desktop"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-4",
+              "component": "Pill",
+              "props": {
+                "label": "Web"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-5",
+              "component": "Pill",
+              "props": {
+                "label": "Infra"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            },
+            {
+              "id": "resp-chip-6",
+              "component": "Pill",
+              "props": {
+                "label": "Docs"
+              },
+              "style": {
+                "flexShrink": 0
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "new-form",
+      "component": "Form",
+      "props": {
+        "name": "settings",
+        "summary": true,
+        "busy": {
+          "path": "/ui/saving"
+        }
+      },
+      "on": {
+        "submit": {
+          "event": {
+            "name": "saveSettings"
+          }
+        },
+        "invalid": {
+          "event": {
+            "name": "invalidSettings"
+          }
+        }
+      },
+      "children": [
+        {
+          "id": "nf-label",
+          "component": "Label",
+          "props": {
+            "text": "Seats",
+            "for": "nf-seats",
+            "required": true
+          }
+        },
+        {
+          "id": "nf-seats",
+          "component": "NumberField",
+          "props": {
+            "label": "Seats",
+            "name": "seats",
+            "value": {
+              "path": "/form/seats"
+            },
+            "min": 1,
+            "max": 50,
+            "unit": "seats",
+            "checks": [
+              {
+                "condition": {
+                  "call": "numeric",
+                  "args": {
+                    "value": {
+                      "path": "/form/seats"
+                    },
+                    "min": 1,
+                    "max": 50
+                  }
+                },
+                "message": "Between 1 and 50"
+              }
+            ]
+          }
+        },
+        {
+          "id": "nf-stack",
+          "component": "Grid",
+          "props": {
+            "columns": {
+              "base": 1,
+              "md": 2
+            },
+            "gap": "md"
+          },
+          "children": [
+            {
+              "id": "nf-time",
+              "component": "TimePicker",
+              "props": {
+                "label": "Daily digest",
+                "name": "digestAt",
+                "value": {
+                  "path": "/form/digestAt"
+                },
+                "step": 30
+              }
+            },
+            {
+              "id": "nf-range",
+              "component": "DateRangePicker",
+              "props": {
+                "label": "Sprint",
+                "name": "sprint",
+                "start": "2026-10-07",
+                "end": "2026-10-21"
+              }
+            }
+          ]
+        },
+        {
+          "id": "nf-labels",
+          "component": "ChipInput",
+          "props": {
+            "label": "Labels",
+            "name": "labels",
+            "values": {
+              "path": "/form/labels"
+            },
+            "suggestions": [
+              {
+                "label": "bug",
+                "value": "bug"
+              },
+              {
+                "label": "ios",
+                "value": "ios"
+              },
+              {
+                "label": "design",
+                "value": "design"
+              }
+            ],
+            "max": 5
+          }
+        },
+        {
+          "id": "nf-files",
+          "component": "FileUpload",
+          "props": {
+            "label": "Attachments",
+            "name": "files",
+            "accept": "image/*,.pdf",
+            "multiple": true,
+            "maxSize": 10485760,
+            "files": [
+              {
+                "name": "screenshot.png",
+                "size": 48213,
+                "type": "image/png"
+              }
+            ],
+            "hint": "PNG, JPG or PDF up to 10 MB"
+          },
+          "on": {
+            "upload": {
+              "event": {
+                "name": "upload"
+              }
+            },
+            "remove": {
+              "event": {
+                "name": "removeFile"
+              }
+            }
+          }
+        },
+        {
+          "id": "nf-rating",
+          "component": "Rating",
+          "props": {
+            "value": {
+              "path": "/form/rating"
+            },
+            "max": 5
+          }
+        },
+        {
+          "id": "nf-keys",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "align": "center",
+            "gap": "xs"
+          },
+          "children": [
+            {
+              "id": "nf-keys-text",
+              "component": "Text",
+              "props": {
+                "text": "Save with",
+                "variant": "muted"
+              }
+            },
+            {
+              "id": "nf-kbd",
+              "component": "Kbd",
+              "props": {
+                "keys": "⌘S"
+              }
+            }
+          ]
+        },
+        {
+          "id": "nf-submit",
+          "component": "Button",
+          "props": {
+            "label": "Save",
+            "submit": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "code",
+      "component": "CodeBlock",
+      "props": {
+        "code": "// the answer\nconst answer: number = 42\nexport function ask(q: string) {\n  return `${q}? ${answer}`\n}",
+        "language": "ts",
+        "title": "answer.ts",
+        "lineNumbers": true,
+        "highlight": [
+          2
+        ]
+      }
     },
     {
       "id": "composer",
@@ -1539,6 +2548,90 @@
           }
         }
       }
+    },
+    {
+      "id": "tab-bar",
+      "component": "TabBar",
+      "props": {
+        "items": [
+          {
+            "label": "Inbox",
+            "value": "inbox",
+            "icon": "nav-inbox"
+          },
+          {
+            "label": "Issues",
+            "value": "issues",
+            "icon": "nav-issues"
+          },
+          {
+            "label": "Settings",
+            "value": "settings",
+            "icon": "nav-settings"
+          }
+        ],
+        "value": {
+          "path": "/ui/tab"
+        }
+      },
+      "on": {
+        "change": {
+          "event": {
+            "name": "tab"
+          }
+        }
+      }
+    },
+    {
+      "id": "panels",
+      "component": "Resizable",
+      "props": {
+        "direction": {
+          "base": "vertical",
+          "md": "horizontal"
+        },
+        "sizes": [
+          40,
+          60
+        ],
+        "panels": [
+          {
+            "min": 20
+          },
+          {
+            "min": 30,
+            "collapsible": true
+          }
+        ],
+        "handle": true
+      },
+      "style": {
+        "height": 160
+      },
+      "children": [
+        {
+          "id": "panels-nav",
+          "component": "Text",
+          "props": {
+            "text": "Boards",
+            "variant": "label"
+          },
+          "style": {
+            "padding": "$spacing.md"
+          }
+        },
+        {
+          "id": "panels-main",
+          "component": "Text",
+          "props": {
+            "text": "Drag the handle; arrow keys move it by 10.",
+            "variant": "muted"
+          },
+          "style": {
+            "padding": "$spacing.md"
+          }
+        }
+      ]
     }
   ]
 }

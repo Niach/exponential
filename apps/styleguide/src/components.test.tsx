@@ -28,8 +28,6 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-import { contract } from "@exp/domain-contract"
-import { formatDateLabel } from "@exp/ui"
 import { GROUPS, VIEWS } from "@exp/view-catalog"
 import {
   ISLAND_CLIENT_SCRIPT,
@@ -38,6 +36,7 @@ import {
   renderIsland,
 } from "@exp/ui/island"
 import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
+import { APP_PARITY } from "../../ui-site/src/data/app-parity.ts"
 
 import { client } from "./client.ts"
 import { componentStyles } from "./component-styles.ts"
@@ -60,8 +59,9 @@ import {
   sectionOfSpec,
   sectionShortLabel,
 } from "./sections/page.ts"
-import { renderHtml } from "./render.ts"
+import { SITE_COMPONENTS_URL, SITE_GROUP_ID, renderHtml } from "./render.ts"
 import { styles } from "./styles.ts"
+import { missingPairs, readGallery } from "./store.ts"
 import type { GalleryData } from "./store.ts"
 
 const REPO_ROOT = resolve(import.meta.dir, `../../..`)
@@ -416,8 +416,8 @@ describe(`demo markup`, () => {
   })
 })
 
-describe(`the pill absorbed the chip and the header button`, () => {
-  test(`neither survives as an id or a block class`, () => {
+describe(`retired names never come back`, () => {
+  test(`the pill absorbed the chip and the header button: neither survives as an id or a block class`, () => {
     const ids = new Set(COMPONENTS.map((spec) => spec.id))
     expect(ids.has(`chip`)).toBe(false)
     expect(ids.has(`button-xs`)).toBe(false)
@@ -425,26 +425,25 @@ describe(`the pill absorbed the chip and the header button`, () => {
     expect(componentStyles).not.toContain(`.cmp-button-xs`)
   })
 
-  test(`the demo shows all six size × mode combinations, read off the real Pill`, () => {
-    const markup = islandBody(`pill`)
-    const seen = new Set<string>()
-    for (const tag of markup.matchAll(/<(?:span|button)[^>]*data-slot="pill"[^>]*>/g)) {
-      const size = tag[0].match(/data-size="([^"]+)"/)?.[1]
-      const mode = tag[0].match(/data-mode="([^"]+)"/)?.[1]
-      expect(size === undefined ? `a pill rendered no data-size` : `ok`).toBe(`ok`)
-      expect(mode === undefined ? `a pill rendered no data-mode` : `ok`).toBe(`ok`)
-      seen.add(`${size}/${mode}`)
+  test(`VAPP-93: no generic specimen that moved to ui.exponential.at is back here`, () => {
+    // The moved set IS the site's parity data: one row per old spec/entry id,
+    // each mapped onto core catalog components the SDK renders there.
+    expect(APP_PARITY.length).toBeGreaterThan(0)
+    const here = new Set([
+      ...COMPONENTS.map((spec) => spec.id),
+      ...ENTRIES.map((entry) => entry.id),
+      ...SECTION_ENTRY_IDS,
+    ])
+    for (const { id } of APP_PARITY) {
+      expect(here.has(id) ? `${id} moved to ui.exponential.at but is listed here again` : id).toBe(id)
     }
-    for (const pillSize of [`md`, `sm`]) {
-      for (const mode of [`action`, `select`, `readonly`]) {
-        const combination = `${pillSize}/${mode}`
-        expect(seen.has(combination) ? combination : `pill: ${combination} is missing`).toBe(
-          combination
-        )
-      }
+    // …and no hand-written block of theirs lingers in the stylesheet.
+    for (const block of [`.cmp-sheet`, `.cmp-dialog`, `.cmp-button-primary`]) {
+      expect(componentStyles.includes(`${block} `) || componentStyles.includes(`${block} {`) ? `${block} survives` : block).toBe(block)
     }
   })
 })
+
 
 describe(`a circle is the primary action, a rounded square is a picker (EXP-771/EXP-862)`, () => {
   test(`the hand-written icon button stays a circle, the ghost keeps only a hover wash`, () => {
@@ -458,26 +457,6 @@ describe(`a circle is the primary action, a rounded square is a picker (EXP-771/
     expect(ghost).not.toContain(`50%`)
     expect(ghost).not.toContain(`1px solid`)
     expect(ruleBody(`.cmp-ghost-icon-button:hover`)).toContain(`background: var(--active)`)
-  })
-
-  test(`the real buttons carry the shape rule: glass circle vs ghost MD corner`, () => {
-    const circle = islandBody(`icon-button`)
-    expect(occurrences(circle, `data-variant="glass" data-size="icon-sm"`)).toBe(3)
-    expect(circle).not.toContain(`data-variant="ghost"`)
-    expect(circle).toContain(`rounded-full`)
-    expect(circle).not.toContain(`rounded-md`)
-
-    const ghost = islandBody(`ghost-icon-button`)
-    expect(occurrences(ghost, `data-variant="ghost" data-size="icon-sm"`)).toBe(4)
-    expect(ghost).not.toContain(`data-variant="glass"`)
-    expect(ghost).toContain(`rounded-md`)
-    // EXP-960: the fourth is the toggle held down — `aria-pressed` is the
-    // pressed state, and the ghost variant paints it.
-    expect(occurrences(ghost, `aria-pressed="true"`)).toBe(1)
-    expect(ghost).toContain(`aria-pressed:bg-accent`)
-
-    expect(spec(`ghost-icon-button`).blurb).toContain(`SECONDARY`)
-    expect(spec(`icon-button`).blurb).toContain(`ghost icon button`)
   })
 
   test(`the picker demo shows both trigger states, the grid and a circle beside them`, () => {
@@ -497,8 +476,7 @@ describe(`a circle is the primary action, a rounded square is a picker (EXP-771/
     expect(markup).toContain(`data-variant="glass" data-size="icon-sm"`)
   })
 
-  test(`the icon button and the radius ladder both name the exception`, () => {
-    expect(spec(`icon-button`).blurb).toContain(`icon picker`)
+  test(`the radius ladder names the exception`, () => {
     expect(spec(`tokens-radius`).blurb).toContain(`PICKER corner`)
   })
 })
@@ -976,57 +954,7 @@ describe(`leftovers (EXP-941)`, () => {
   })
 })
 
-describe(`the Tier A pickers (EXP-941)`, () => {
-  test(`the combobox demo speaks the ONE highlight language and keeps the none row`, () => {
-    const markup = islandBody(`combobox`)
-    // Single select marks the picked row with a trailing check…
-    expect(occurrences(markup, `data-selected-glyph="check"`)).toBe(1)
-    // …multi marks a picked row by its own wash, never a circle pair or a box…
-    expect(occurrences(markup, `data-picked="true"`)).toBeGreaterThan(1)
-    expect(markup).not.toContain(`data-selected-glyph="selected"`)
-    expect(markup).not.toContain(`data-selected-glyph="unselected"`)
-    expect(markup).not.toContain(`data-slot="checkbox"`)
-    // …and a row on SOME of the edited issues is mixed (EXP-957).
-    expect(occurrences(markup, `data-picked="mixed"`)).toBe(1)
-    expect(spec(`combobox`).blurb).toContain(`PickerMenuRows`)
-    // And "nothing picked" is a ROW that reports null, not a sentinel string.
-    expect(occurrences(markup, `data-combobox-none="true"`)).toBe(1)
-    // A closed portal renders nothing, so the demo carries the trigger AND
-    // the bare list (the icon-picker pattern).
-    expect(occurrences(markup, `data-slot="combobox-list"`)).toBe(2)
-    expect(markup).toContain(`data-slot="popover-trigger"`)
-  })
-
-  test(`the search field shows the glyph always and the clear only when filled`, () => {
-    const markup = islandBody(`search-field`)
-    expect(occurrences(markup, `data-slot="search-field"`)).toBe(3)
-    // Two of the three carry a value, and only those two draw a clear.
-    expect(occurrences(markup, `data-slot="search-field-clear"`)).toBe(2)
-    expect(markup).toContain(`lucide-search`)
-    // The dense rung is the Reviews file filter, named by the contract.
-    expect(markup).toContain(contract.diffUi.filterPlaceholder)
-  })
-
-  test(`the segmented control is the component now, in both its forms`, () => {
-    const markup = islandBody(`segmented`)
-    expect(markup).toContain(`data-slot="segmented-control"`)
-    // The embedded arm is a glass group's first row, not a second component.
-    expect(markup).toContain(`data-slot="glass-tabs-row"`)
-    expect(occurrences(markup, `data-slot="tabs-trigger"`)).toBe(5)
-    const web = COMPONENTS.find((entry) => entry.id === `segmented`)?.status.web
-    expect(web?.symbol).toBe(`SegmentedControl`)
-    expect(web?.file).toBe(`packages/ui/src/segmented-control.tsx`)
-  })
-
-  test(`the date picker shows both trigger states and the grid they open`, () => {
-    const markup = islandBody(`date-picker`)
-    // `Mar 8` is formatDateLabel's own output — a literal here would be the
-    // one place the page could disagree with the component.
-    expect(markup).toContain(formatDateLabel(new Date(`2026-03-08T00:00:00`)))
-    expect(markup).toContain(`Due date`)
-    expect(occurrences(markup, `data-slot="calendar"`)).toBe(1)
-  })
-
+describe(`the typeahead (EXP-941)`, () => {
   test(`the typeahead demo is a menu under a field, with one active row`, () => {
     const markup = islandBody(`typeahead`)
     expect(occurrences(markup, `data-slot="typeahead-menu"`)).toBe(1)
@@ -1034,12 +962,39 @@ describe(`the Tier A pickers (EXP-941)`, () => {
     expect(occurrences(markup, `data-slot="typeahead-row"`)).toBe(3)
     expect(occurrences(markup, `aria-selected="true"`)).toBe(1)
   })
+})
 
-  test(`the alert demo shows both variants, and the glyph earns its column`, () => {
-    const markup = islandBody(`alert`)
-    expect(occurrences(markup, `data-slot="alert"`)).toBe(2)
-    expect(occurrences(markup, `data-slot="alert-title"`)).toBe(1)
-    expect(occurrences(markup, `data-slot="alert-description"`)).toBe(2)
-    expect(markup).toContain(`text-destructive`)
+describe(`the core-catalog views belong to ui.exponential.at (VAPP-93)`, () => {
+  // An empty scratch store: every declared pair reads as missing.
+  const gallery = readGallery(resolve(REPO_ROOT, `apps/styleguide/.no-such-store`))
+  const siteViews = VIEWS.filter((view) => view.group === SITE_GROUP_ID)
+  const page = renderHtml(gallery, COMPONENTS)
+
+  test(`the site group exists in the catalog`, () => {
+    expect(GROUPS.some((group) => group.id === SITE_GROUP_ID)).toBe(true)
+    expect(siteViews.length).toBeGreaterThan(0)
+  })
+
+  test(`the page lists none of them, and links the site in their place`, () => {
+    for (const view of siteViews) {
+      expect(page.includes(`data-view="${view.id}"`) ? `${view.id} is listed` : view.id).toBe(view.id)
+    }
+    expect(page).not.toContain(`data-group="${SITE_GROUP_ID}"`)
+    expect(occurrences(page, `<a href="${SITE_COMPONENTS_URL}">`)).toBe(1)
+    // Every OTHER view is still listed.
+    const other = VIEWS.find((view) => view.group !== SITE_GROUP_ID)!
+    expect(page).toContain(`<a class="nav-link" href="#${other.id}" data-view="${other.id}"`)
+  })
+
+  test(`--check still gates their shots: an empty store reports them missing`, () => {
+    const missing = new Set(missingPairs(gallery).map((pair) => pair.split(`/`)[0]))
+    for (const view of siteViews) {
+      const declared = gallery.views.find((entry) => entry.view.id === view.id)
+      expect(declared === undefined ? `${view.id} left the gallery` : view.id).toBe(view.id)
+      if (declared!.shots.some((shot) => shot.state === `missing`)) {
+        expect(missing.has(view.id) ? view.id : `${view.id} escapes --check`).toBe(view.id)
+      }
+    }
+    expect(siteViews.some((view) => missing.has(view.id))).toBe(true)
   })
 })

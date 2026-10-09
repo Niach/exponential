@@ -127,6 +127,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
+import at.exponential.ui.primitives.DisclosureHeader
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -5137,29 +5138,13 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
         )
     }
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        // SLOP-18 / VAPP-89: the fold row is the SDK's `DisclosureHeader`.
+        ToolFoldHeader(caption, expanded, onToggle = { expanded = !expanded }, maxLines = Int.MAX_VALUE) {
             Icon(
                 ExpIcons.codingTool,
                 contentDescription = null,
                 modifier = Modifier.size(12.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Text(
-                caption,
-                style = transcriptToolStyle(),
-                color = MaterialTheme.colorScheme.onSurface,
             )
         }
         when {
@@ -5179,6 +5164,38 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
 }
 
 /**
+ * The tool-group fold row (VAPP-89): the SDK's `DisclosureHeader` with the
+ * app's 14dp right chevron (turned to point down when open), the group's
+ * [mark] and the transcript tool caption; hugs its content.
+ */
+@Composable
+private fun ToolFoldHeader(
+    caption: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    maxLines: Int,
+    mark: @Composable () -> Unit,
+) {
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    DisclosureHeader(
+        title = caption,
+        expanded = expanded,
+        onToggle = onToggle,
+        titleStyle = transcriptToolStyle(),
+        titleColor = MaterialTheme.colorScheme.onSurface,
+        maxLines = maxLines,
+        chevronSize = 14.dp,
+        chevronColor = tertiary,
+        spacing = 8.dp,
+        height = Dp.Unspecified,
+        chevron = {
+            Icon(ExpIcons.uiChevronRight, contentDescription = null, modifier = Modifier.size(14.dp), tint = tertiary)
+        },
+        leading = mark,
+    )
+}
+
+/**
  * EXP-948: a run of consecutive calls to ONE of our own MCP tools, as ONE row.
  * The generic group's fold — chevron, caption, expands to the individual rows —
  * but under the Exponential mark the single call rows already wear, and
@@ -5195,27 +5212,8 @@ private fun ExpToolGroupRow(items: List<AgentFeedItem.Tool>, nested: Boolean = f
             .fillMaxWidth()
             .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        ToolFoldHeader(caption, expanded, onToggle = { expanded = !expanded }, maxLines = 1) {
             ExponentialMark(size = 12.dp)
-            Text(
-                caption,
-                style = transcriptToolStyle(),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
         if (expanded) {
             Column(modifier = Modifier.padding(start = 22.dp)) {

@@ -12,12 +12,13 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP="$(cd "$HERE/../.." && pwd)"
 TARGET="${CARGO_TARGET_DIR:-$DESKTOP/target}"
 export CARGO_TARGET_DIR="$TARGET"
+case "$(uname -s)" in Darwin) EXT=dylib ;; *) EXT=so ;; esac
 FIXTURES="$(cd "$HERE/../../../../packages/exponential-ui/fixtures" && pwd)"
 OUT="$HERE/out/tests"
 mkdir -p "$OUT"
 
 (cd "$DESKTOP" && cargo build -p exponential-ui-ffi --release --features cli 2>&1 | tail -1)
-DYLIB="$TARGET/release/libexponential_ui_ffi.dylib"
+DYLIB="$TARGET/release/libexponential_ui_ffi.$EXT"
 [ -f "$DYLIB" ] || { echo "no $DYLIB"; exit 1; }
 
 if [ "$WHICH" = swift ] || [ "$WHICH" = all ]; then

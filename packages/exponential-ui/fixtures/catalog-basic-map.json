@@ -75,6 +75,10 @@
                 "props": {
                   "level": "h1"
                 }
+              },
+              "accessibility": {
+                "role": "heading",
+                "level": 1
               }
             },
             {
@@ -91,6 +95,10 @@
                 "props": {
                   "level": "h4"
                 }
+              },
+              "accessibility": {
+                "role": "heading",
+                "level": 4
               }
             },
             {
@@ -559,7 +567,7 @@
                     "display": "flex",
                     "flexDirection": "column",
                     "gap": "$spacing.md",
-                    "padding": "$spacing.none"
+                    "padding": "$spacing.lg"
                   },
                   "recipe": {
                     "macro": "Card",
@@ -578,6 +586,9 @@
                 "macro": "Card",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "group"
               }
             },
             {
@@ -595,6 +606,9 @@
                 "macro": "Separator",
                 "part": "root",
                 "props": {}
+              },
+              "accessibility": {
+                "role": "separator"
               }
             },
             {
@@ -625,7 +639,20 @@
             "props": {}
           }
         },
-        "issues": []
+        "issues": [],
+        "templates": {
+          "item": {
+            "id": "item",
+            "component": "Text",
+            "props": {
+              "text": {
+                "path": "name"
+              },
+              "variant": "body"
+            },
+            "children": []
+          }
+        }
       }
     },
     {

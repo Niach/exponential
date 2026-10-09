@@ -430,6 +430,20 @@ pub const REMOVE_SERVER: Spec = Spec {
     focus: "cancel",
 };
 
+pub const EXPONENTIAL_UI_CONSENT: Spec = Spec {
+    id: "exponential-ui-consent",
+    copy: &[
+        ("title", "Allow this surface to run {tool}?"),
+        ("body", "It acts as you, with your access to this team."),
+    ],
+    params: &["tool"],
+    actions: &[
+        Action { id: "deny", label: "Deny", role: Role::Cancel },
+        Action { id: "allow", label: "Allow", role: Role::Default },
+    ],
+    focus: "deny",
+};
+
 /// Every entry, in fixture order (the lock test walks it).
 pub const ALL: &[Spec] = &[
     DELETE_ISSUE,
@@ -456,6 +470,7 @@ pub const ALL: &[Spec] = &[
     REMOVE_PASSKEY,
     DELETE_ACCOUNT,
     REMOVE_SERVER,
+    EXPONENTIAL_UI_CONSENT,
 ];
 
 // ---------------------------------------------------------------------------
@@ -585,6 +600,13 @@ pub fn delete_account(server: Option<&str>) -> Prompt {
 
 pub fn remove_server(server: &str) -> Prompt {
     REMOVE_SERVER.render("title", Some("body"), &[("server", server)])
+}
+
+/// VAPP-91: a host asking before a surface acts as the person; `tool` = the
+/// MCP tool a `harness.mcp` call runs, else the function's own name. Deny
+/// takes Return.
+pub fn exponential_ui_consent(tool: &str) -> Prompt {
+    EXPONENTIAL_UI_CONSENT.render("title", Some("body"), &[("tool", tool)])
 }
 
 #[cfg(test)]
@@ -725,6 +747,7 @@ mod tests {
             delete_account(Some("Cloud")),
             delete_account(None),
             remove_server("Cloud"),
+            exponential_ui_consent("exponential_issues_list"),
         ];
         for prompt in rendered {
             assert!(

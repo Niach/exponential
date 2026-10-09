@@ -1,28 +1,16 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -30,13 +18,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassButton
+import at.exponential.ui.primitives.PillStyle
+import at.exponential.ui.primitives.PillView
+import com.exponential.app.ui.theme.PrimaryPressedAlpha
+import com.exponential.app.ui.theme.TintedStrokeAlpha
 
 /** The two pill rungs — a 32dp control and a 24dp inline badge. */
 enum class PillSize { Md, Sm }
@@ -158,24 +148,33 @@ fun GlassPill(
     // would recompose fifty capsules for nothing.
     val interactionSource = remember { MutableInteractionSource() }
     val pressed = if (emphatic) interactionSource.collectIsPressedAsState().value else false
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        // Centred, so a pill told to fillMaxWidth (the one destructive
-        // "Delete team" capsule) centres its content instead of hugging the
-        // left edge; it is a no-op on a pill that wraps its content.
-        horizontalArrangement = Arrangement.spacedBy(
-            GlassPillDefaults.spacing(size),
-            Alignment.CenterHorizontally,
+    // SLOP-18 / VAPP-89: the drawing is the SDK's `PillView`; this composable
+    // only maps the rung, mode and paint onto a `PillStyle`. Centred content,
+    // so a pill told to fillMaxWidth (the one destructive "Delete team"
+    // capsule) centres instead of hugging the left edge.
+    PillView(
+        label = label,
+        modifier = modifier,
+        style = GlassPillDefaults.pillStyle(
+            size = size,
+            label = fg,
+            active = active,
+            opaque = opaque,
+            primary = emphatic,
+            pressed = pressed,
+            tint = toned,
+            fontFamily = fontFamily,
         ),
-        modifier = modifier
-            .height(GlassPillDefaults.height(size))
-            .glassButton(
-                active = active,
-                opaque = opaque,
-                primary = emphatic,
-                pressed = pressed,
-                tint = toned,
-            )
+        dot = dot,
+        maxLines = maxLines,
+        // An icon-only capsule insets by whatever centres its glyph, so it
+        // comes out a CIRCLE, not a stubby 28x24 oval.
+        horizontalPadding = if (iconOnly) {
+            GlassPillDefaults.iconOnlyHorizontalPadding(size)
+        } else {
+            GlassPillDefaults.horizontalPadding(size)
+        },
+        innerModifier = Modifier
             .then(
                 if (tap != null) {
                     Modifier.clickable(
@@ -195,49 +194,25 @@ fun GlassPill(
                 } else {
                     Modifier
                 },
-            )
-            .padding(
-                horizontal = if (iconOnly) {
-                    GlassPillDefaults.iconOnlyHorizontalPadding(size)
-                } else {
-                    GlassPillDefaults.horizontalPadding(size)
-                },
             ),
-    ) {
-        val glyph = GlassPillDefaults.glyphSize(size)
-        when {
-            loading -> CircularProgressIndicator(
-                modifier = Modifier.size(glyph),
-                strokeWidth = 2.dp,
-                color = fg,
-            )
-            leading != null -> CompositionLocalProvider(LocalContentColor provides fg) { leading() }
-            icon != null -> Icon(icon, contentDescription = null, modifier = Modifier.size(glyph), tint = fg)
-        }
-        if (dot != null) {
-            Box(
-                Modifier
-                    .size(GlassPillDefaults.DotSize)
-                    .clip(CircleShape)
-                    .background(dot, CircleShape),
-            )
-        }
-        // An EMPTY label is the icon-only pill (the issue header's "edit
-        // properties" `+`) — it keeps the capsule, drops the text and the
-        // spacing that would otherwise sit beside nothing.
-        if (!iconOnly) {
-            Text(
-                label,
-                style = GlassPillDefaults.textStyle(size).let {
-                    if (fontFamily != null) it.copy(fontFamily = fontFamily) else it
-                },
-                color = fg,
-                maxLines = maxLines,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (trailing != null) CompositionLocalProvider(LocalContentColor provides fg) { trailing() }
-    }
+        leading = when {
+            loading -> {
+                {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
+                        strokeWidth = 2.dp,
+                        color = fg,
+                    )
+                }
+            }
+            leading != null -> leading
+            icon != null -> {
+                { Icon(icon, contentDescription = null, modifier = Modifier.size(GlassPillDefaults.glyphSize(size)), tint = fg) }
+            }
+            else -> null
+        },
+        trailing = trailing,
+    )
 }
 
 /**
@@ -279,6 +254,48 @@ object GlassPillDefaults {
 
     /** Whatever centres the glyph — an icon-only pill is a circle, not an oval. */
     fun iconOnlyHorizontalPadding(size: PillSize): Dp = (height(size) - glyphSize(size)) / 2
+
+    /**
+     * The SDK pill style for a rung in a paint (VAPP-89): the rung's geometry
+     * and font, then glass or solid, the ONE branch the old `glassButton`
+     * chain drew: [primary] = the solid primary fill (dipped while
+     * [pressed]) with no hairline; else the card fill (the active fill when
+     * [active]) over the opaque card when [opaque], under the card hairline
+     * (active stroke, or [tint] at 40%).
+     */
+    @Composable
+    fun pillStyle(
+        size: PillSize,
+        label: Color,
+        active: Boolean = false,
+        opaque: Boolean = false,
+        primary: Boolean = false,
+        pressed: Boolean = false,
+        tint: Color? = null,
+        fontFamily: FontFamily? = null,
+    ): PillStyle = PillStyle(
+        height = height(size),
+        horizontalPadding = horizontalPadding(size),
+        spacing = spacing(size),
+        fill = when {
+            primary && pressed -> DesignTokens.Palette.Primary.copy(alpha = PrimaryPressedAlpha)
+            primary -> DesignTokens.Palette.Primary
+            active -> GlassTokens.RowFillActive
+            else -> GlassTokens.CardFill
+        },
+        stroke = when {
+            primary -> null
+            tint != null -> tint.copy(alpha = TintedStrokeAlpha)
+            active -> GlassTokens.StrokeActive
+            else -> GlassTokens.StrokeCard
+        },
+        strokeWidth = GlassTokens.Hairline,
+        label = label,
+        dotSize = DotSize,
+        glyphSize = glyphSize(size),
+        textStyle = textStyle(size).let { if (fontFamily != null) it.copy(fontFamily = fontFamily) else it },
+        underlay = if (!primary && opaque) DesignTokens.Palette.Card else null,
+    )
 
     /** Medium weight on both rungs — a pill never announces itself by weight. */
     @Composable

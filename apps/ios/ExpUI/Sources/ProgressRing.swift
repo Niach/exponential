@@ -1,4 +1,5 @@
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 /// EXP-1097 — the sub-issue COMPLETION ring that leads the issue detail's
 /// "Sub-issues" band: `done` of `total` as an arc over a 20% track, ×4 (web
@@ -25,21 +26,18 @@ public struct ProgressRing: View {
         return Double(min(max(done, 0), total)) / Double(total)
     }
 
+    /// SLOP-18 / VAPP-88: the SDK's `RingView` (round caps, inset strokes
+    /// so the ring's outer edge is the drawn box).
     public var body: some View {
         // The 16-unit geometry scaled to the drawn box.
         let lineWidth = ContextRingTokens.lineWidth * size / ContextRingTokens.size
-        ZStack {
-            Circle()
-                .stroke(color.opacity(0.2), lineWidth: lineWidth)
-            if done > 0 {
-                Circle()
-                    .trim(from: 0, to: Self.fraction(done: done, total: total))
-                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-        }
-        .padding(lineWidth / 2)
+        RingView(
+            value: done > 0 ? Self.fraction(done: done, total: total) : 0,
+            lineWidth: lineWidth,
+            track: color.opacity(0.2),
+            fill: color,
+            lineCap: .round
+        )
         .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }

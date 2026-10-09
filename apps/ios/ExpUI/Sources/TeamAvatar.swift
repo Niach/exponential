@@ -1,5 +1,6 @@
 import ExpCore
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 public struct TeamAvatar: View {
     let team: TeamEntity
@@ -10,11 +11,13 @@ public struct TeamAvatar: View {
         self.size = size
     }
 
+    /// SLOP-18 / VAPP-88: the drawing is the SDK's `AvatarView`, clipped to
+    /// the team mark's rounded square (radius a quarter of the size).
     public var body: some View {
-        Group {
-            if let urlString = team.iconUrl,
-               !urlString.isEmpty,
-               let url = URL(string: urlString) {
+        if let urlString = team.iconUrl,
+           !urlString.isEmpty,
+           let url = URL(string: urlString) {
+            AvatarView(name: team.name, size: size, initials: initial, cornerRadius: size / 4) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case let .success(image):
@@ -23,23 +26,28 @@ public struct TeamAvatar: View {
                         initialsChip
                     }
                 }
-            } else {
-                initialsChip
             }
+        } else {
+            initialsChip
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size / 4))
     }
+
+    private var initial: String { team.name.prefix(1).uppercased() }
 
     /// EXP-698 r5: the WHITE chip, black initial — the same team mark web,
     /// iOS and Android draw (`bg-primary text-primary-foreground`). It used to
     /// be a `fillActive` wash, which vanished against the glass rows it sits
     /// on and read as a different avatar to the web sidebar's.
     private var initialsChip: some View {
-        Text(team.name.prefix(1).uppercased())
-            .font(.caption.weight(.bold))
-            .foregroundStyle(DesignTokens.Palette.primaryForeground)
-            .frame(width: size, height: size)
-            .background(DesignTokens.Palette.primary)
+        AvatarView(
+            name: team.name,
+            size: size,
+            fill: DesignTokens.Palette.primary,
+            ink: DesignTokens.Palette.primaryForeground,
+            initials: initial,
+            cornerRadius: size / 4,
+            font: .caption.weight(.bold),
+            minimumScaleFactor: 1
+        )
     }
 }

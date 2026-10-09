@@ -66,6 +66,15 @@
             "spread": -8,
             "color": "#00000014"
           }
+        ],
+        "xl": [
+          {
+            "x": 0,
+            "y": 20,
+            "blur": 48,
+            "spread": -12,
+            "color": "#00000014"
+          }
         ]
       }
     },
@@ -128,6 +137,15 @@
             "y": 12,
             "blur": 32,
             "spread": -8,
+            "color": "#00000066"
+          }
+        ],
+        "xl": [
+          {
+            "x": 0,
+            "y": 20,
+            "blur": 48,
+            "spread": -12,
             "color": "#00000066"
           }
         ]
@@ -210,7 +228,10 @@
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
-      "hairline": 1
+      "hairline": 1,
+      "appBar": 48,
+      "tabBar": 56,
+      "toast": 56
     },
     "opacity": {
       "primary": 1,
@@ -228,6 +249,26 @@
       "fast": 120,
       "standard": 180,
       "slow": 280
+    },
+    "ease": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "decelerate": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "accelerate": [
+        0.3,
+        0,
+        1,
+        1
+      ]
     }
   },
   "fonts": {
@@ -582,6 +623,166 @@
         {
           "style": {
             "backgroundColor": "$color.secondary"
+          }
+        }
+      ]
+    },
+    "NumberField": {
+      "field": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.input",
+            "boxShadow": "$shadow.none"
+          }
+        }
+      ]
+    },
+    "ChipInput": {
+      "field": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.input",
+            "boxShadow": "$shadow.none"
+          }
+        }
+      ],
+      "chip": [
+        {
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.foreground"
+          }
+        }
+      ]
+    },
+    "TimePicker": {
+      "trigger": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.input",
+            "boxShadow": "$shadow.none"
+          }
+        }
+      ],
+      "item": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        }
+      ]
+    },
+    "DateRangePicker": {
+      "trigger": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.input",
+            "boxShadow": "$shadow.none"
+          }
+        }
+      ]
+    },
+    "ContextMenu": {
+      "item": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ]
+    },
+    "Toast": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.popover",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.xl"
+          }
+        }
+      ]
+    },
+    "CodeBlock": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.border"
+          }
+        }
+      ]
+    },
+    "Table": {
+      "row": [
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
+          }
+        },
+        {
+          "when": {
+            "striped": true
+          },
+          "style": {
+            "backgroundColor": "$color.card"
+          }
+        }
+      ]
+    },
+    "FileUpload": {
+      "dropzone": [
+        {
+          "style": {
+            "backgroundColor": "$color.card",
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "state": "dragover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "borderColor": "$color.ring"
+          }
+        }
+      ]
+    },
+    "Sidebar": {
+      "sidebar": [
+        {
+          "style": {
+            "backgroundColor": "$color.card"
+          }
+        }
+      ]
+    },
+    "TabBar": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.card"
           }
         }
       ]

@@ -16,7 +16,7 @@ describe(`defineExtension`, () => {
   })
 
   test(`refuses a core name, a missing macro template, a wrong base and a bad id`, () => {
-    const shadow: ExtensionDef = { ...example, components: { ...example.components, Button: example.components.Sparkline } }
+    const shadow: ExtensionDef = { ...example, components: { ...example.components, Button: example.components.TrendLine } }
     expect(validateExtension(shadow)).toContain(`Button: shadows a core component`)
     const noTemplate: ExtensionDef = { ...example, macros: {} }
     expect(validateExtension(noTemplate)).toContain(`StatCard: a macro needs a template in macros`)
@@ -31,7 +31,7 @@ describe(`defineExtension`, () => {
     const schema = extensionSchema(example, [`ui-check`, `ui-chevron-up`, `ui-chevron-down`, `ui-minus`]) as { $id: string; extends: string; components: Record<string, unknown>; $defs: { anyComponent: { oneOf: { $ref: string }[] } } }
     expect(schema.$id).toBe(example.id)
     expect(schema.extends).toBe(CORE_CATALOG_ID)
-    expect(Object.keys(schema.components)).toEqual([`Sparkline`, `StatCard`])
+    expect(Object.keys(schema.components)).toEqual([`TrendLine`, `StatCard`])
     expect(schema.$defs.anyComponent.oneOf[0].$ref).toBe(`${CORE_CATALOG_ID}#/$defs/anyComponent`)
   })
 })

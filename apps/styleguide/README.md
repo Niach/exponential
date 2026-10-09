@@ -5,12 +5,12 @@ from one segmented bar at the top of the sidebar (EXP-941):
 
 | mode | what it holds | where it comes from |
 | --- | --- | --- |
-| **Views** | every screen in `@exp/view-catalog`, with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
-| **Components** | the glass control set — the REAL `@exp/ui` component wherever one owns the form | rendered live at build time (EXP-698 / EXP-887) |
+| **Views** | every screen in `@exp/view-catalog` (bar the site-owned `exponential-ui-catalog` group), with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
+| **Components** | the Exponential app's specialised controls (the generic ones live on [ui.exponential.at](https://ui.exponential.at/components/), VAPP-93) — the REAL `@exp/ui` component wherever one owns the form | rendered live at build time (EXP-698 / EXP-887) |
 | **Style** | the values the controls are made of: colour, shape & size, type, motion, and the icon registry | `@exp/design-tokens` and `packages/icons` |
 
 Everything the page does happens WITHIN the current mode: the filter, `j`/`k`,
-the summary line. A hash always wins — `#pill` switches to Components and then
+the summary line. A hash always wins — `#issue-chip` switches to Components and then
 shows the entry — and `1` / `2` / `3` switch modes, with the last one
 remembered in `localStorage`.
 
@@ -70,88 +70,53 @@ that is the only way the dot goes away.
 
 ## Components
 
-Nothing in this mode is a screenshot. Since EXP-887 most entries are
-**islands**: the REAL `@exp/ui`
-component, rendered to static markup inside a declarative shadow root and
-painted by the package's own stylesheet, compiled once per build
+**Generic specimens live on ui.exponential.at (VAPP-93).** Every control that
+is part of the Exponential UI SDK's core catalog — buttons, fields, checkbox,
+switch, select / combobox / the picker shell, date picker, pill, badge, avatar,
+card, separator, dialog, sheet, alert, empty states, skeleton, meters, rings,
+segmented controls and tabs, the row family (list, card, property, picker,
+input and toggle rows), group bands, disclosure headers, tree guides, entity
+chips, the composer and the menu — is documented at
+[`https://ui.exponential.at/components/`](https://ui.exponential.at/components/),
+where it renders live through the SDK beside its four platform shots. Their
+per-platform status tables moved with them, verbatim, to
+`apps/ui-site/src/data/app-parity.ts`, one row per old id. The view-catalog
+group `exponential-ui-catalog` (the core-catalog specimens and the kitchen
+sink) is owned by the site too: the Views nav links there instead of listing
+it, while `--check` still gates its shots like every other view.
+
+**This page holds the app extension:** the Exponential app's own specialised
+components — the board / status / assignee / … pickers, issue chips and group
+bands, run rows and marks, the work bar and header, the session bar, results
+tiles, the diff cards, usage bars, the GitHub surfaces, brand marks, the auth
+shell, the decision dialogs — plus toasts (host-owned, no core component) and
+the Style mode. `components.test.tsx` fails if a moved id comes back.
+
+Nothing in this mode is a screenshot. Most entries are **islands**: the REAL
+`@exp/ui` component, rendered to static markup inside a declarative shadow root
+and painted by the package's own stylesheet, compiled once per build
 (`@exp/ui/island`). The page shows the control the product ships, not a
-lookalike of it — a lookalike drifts silently, a component cannot disagree with
-itself.
+lookalike of it.
 
 What stays hand-written HTML/CSS driven by `@exp/design-tokens`
 (`src/components.tsx` + `src/component-styles.ts`) is what no single component
 owns: the **compositions** (app shell, settings page header, comment card,
-sheet shell, composer, markdown blocks, tab bar, bulk bar, usage
-bar, session bar, relations card, the GitHub connect pair) and the **token**
-swatch tables. Two entries — **sheet shell** and **dialog** — have their web
-symbol in `packages/ui` and still keep a demo, because a closed Radix portal
-renders nothing at all statically; `PORTAL_ONLY_IDS` names them and the test
-checks the exception stays honest. The **menu** (and the **issue context
-menu** under Special) is no exception: since EXP-1249 `MenuPanel` draws the
-menu at rest (the same entries and row classes the live `Menu` renders, picker
-bodies as `PickerMenuRows`), in both densities the `menu` tokens define.
+markdown blocks, tab bar, bulk bar, session bar, relations card, the GitHub
+connect pair) and the **token** swatch tables. `PORTAL_ONLY_IDS` would name an
+entry whose `packages/ui` symbol is a closed Radix portal (renders nothing
+statically) and so keeps a demo; it is empty since its two members, sheet and
+dialog, moved to the site. The **issue context menu** and the composer's "+"
+(in **composer-dialog**, rows off `composer-menu.json`) draw the menu at rest
+through `MenuPanel`: the same entries and row classes the live `Menu` renders,
+picker bodies as `PickerMenuRows`.
 
-`shots/` holds nothing for these, `views.json` declares nothing — the two
-synthetic modes have no catalog entry at all — and `--check` never sees them.
-
-The set is deliberately SMALL, and shrinking it counts as progress. There is no
-chip and no header button: both were the **pill** under a second name, so the
-pill is now one 2×3 matrix — size `md` 32 or `sm` 24 × mode `action` / `select`
-/ `readonly` — and a status chip is `sm readonly`, a header action `sm action`,
-a conversation tab `sm select`. The other four entries that are not a single
-control are **rich tab** (the terminal and top strips, the only place a tab
-carries a state and a close), **text area** (the field's recipe grown, borderless
-inside a group), **composer** (ONE surface for comments, steering and support
-replies, with an opaque variant for mobile bottom bars) and **markdown blocks**
-(the chat-sized narration / bubble / plan / question / tool / fold set the steer
-feed is built from).
-
-Two rules the entries carry rather than restate, both from EXP-771 (the first
-narrowed by EXP-862):
-
-- **Shape says what a control does.** A circle marks the PRIMARY action and
-  nothing else: play / start, send, the rail's New issue and Search, a mobile
-  FAB, the "+" that adds. Every secondary icon button is a **ghost icon
-  button**: no circle, no border, hover fill only. That is the "…" overflow,
-  close, the folder and file-list toggles, the chevrons (back, fold, reorder),
-  trash and remove, and anything refresh-shaped. A rounded square at the radius
-  ladder's MD step is a PICKER trigger: the **icon picker**, the colour picker
-  beside it (EXP-862 made the board form's two triggers one control repeated),
-  and every cell of the glyph grid. Colour swatches stay circles, because a
-  colour has no shape to read. **A text button is a rounded rectangle at MD**
-  on every client and at every size (EXP-1176: web `Button`, desktop
-  `web_md`/`web_sm`/`web_xs`, iOS `GlassSubmitButton`, Android
-  `GlassSubmitButton` and the Material buttons); the capsule at 9999 belongs
-  to the **pill** (chips, header actions, picker triggers), the tabs, the
-  badge and the phone bars, never to a button with words in it.
-- **Chrome sits on the ground, not in the card.** The title strip above the
-  content card and the **session bar** below it are 36px bands on the bare page
-  gradient with no fill and no border, their chips inset 8; the card stops 6px
-  short of the bottom band, and the band runs to the window bottom. See **app
-  shell**, which draws both symmetrically.
-
-**Settings page header** is the third entry of that kind: the one header every
-settings page opens with on web and desktop, on a centred 56rem column (896 at a 16px root) inside a
-full-width scroll region.
-
-**GitHub connection** and **Add-repository picker** (FEED-42) are the Settings › Repositories block and
-its picker, one canonical form on all four clients (tap adds, the ✕ always confirms).
-
-EXP-903 added two islands for primitives the app used to copy-paste: **glass card**, the ONE translucent
-card box — shown bare and again as the grouped-rows variant the call site makes with `divide-y` — and
-**icon disc**, the 48px heading circle in all four tones, whose wash and glyph colour are one choice.
-EXP-904 added **floating chrome** (`FAB_CHROME_CLASS`, the phone bar's glass paint; size and radius stay at the
-call site) and **attachment thumbnail**, the composers' 64px pending tile with its corner remove badge.
-
-EXP-941 added the picker set the app had been copy-pasting: **combobox** (the
-ONE searchable picker — its demo puts both triggers beside the two bare
-`ComboboxList`s, because a closed portal renders nothing, and the test pins the
-two selection languages: a trailing check for single, the leading circle pair
-for multi), **search field**, **date picker**, **typeahead menu** and **alert**,
-plus entries for primitives the page had never shown at all (checkbox, switch,
-select, colour picker, field label, team avatar, live dot & status glyph, empty
-state, skeleton, dialog). **Segmented control** now renders the real
-`SegmentedControl`, in both its floating and its `embedded` form.
+Two rules the entries carry rather than restate (EXP-771, EXP-862): **shape
+says what a control does** — a circle marks the PRIMARY action only, every
+secondary icon button is a ghost, a rounded square at MD is a picker trigger,
+a text button is a rounded rectangle at MD (EXP-1176) and the capsule belongs
+to the pill — and **chrome sits on the ground, not in the card**: the title
+strip and the **session bar** are 36px bands on the bare page gradient with no
+fill and no border (see **app shell**).
 
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
@@ -162,13 +127,16 @@ named file exists, every platform is accounted for, notes stay one short line,
 island renders real markup, the page carries one shadow root per island and the
 stylesheet exactly once, the page's root font size still mirrors the package's,
 the hand-written demos carry no inline styles and no unused `.cmp-` rule, the
-retired names never come back, the pill demo shows all six size × mode
-combinations read off the real `Pill`, and `component-styles.ts` contains no
-colour literal — every value is a `var(--…)` declared from the tokens, and every
-radius is a ladder step.
+retired names never come back (the chip, the header button, every id that moved
+to the site), and `component-styles.ts` contains no colour literal — every
+value is a `var(--…)` declared from the tokens, and every radius is a ladder
+step.
 
 ### Adding a component entry
 
+0. **Is it generic?** If it maps onto a core catalog component
+   (`packages/exponential-ui/docs/components.generated.json`), it belongs on
+   ui.exponential.at, not here.
 1. **The component lives in `packages/ui/src/<name>.tsx`** and is exported from
    `src/index.ts`. If it is not in the package it is not an entry — put it there
    first, or the gate will refuse the spec.

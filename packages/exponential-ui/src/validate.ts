@@ -5,6 +5,9 @@
 
 import { ICON_NAMES } from "./catalog.generated"
 import { catalogView, isKnownToken, parseTokenRef } from "./catalog"
+import { isDynamic } from "./expr"
+import { BREAKPOINTS, isResponsiveValue } from "./macros"
+import { isStringRef, parseStringRef } from "./strings"
 import { validateStyle } from "./style"
 import type { CatalogView } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
@@ -18,27 +21,22 @@ export interface PropIssue {
   message: string
 }
 
-/** An A2UI dynamic value: a data binding or a function call. */
-export function isDynamic(value: unknown): boolean {
-  if (typeof value !== `object` || value === null || Array.isArray(value)) return false
-  const obj = value as Record<string, unknown>
-  if (typeof obj.path === `string` && Object.keys(obj).length === 1) return true
-  return typeof obj.call === `string`
-}
+export { isDynamic }
 
-function checkValue(
+function checkScalar(
   schema: PropSchema,
   value: unknown,
   path: string,
   view: CatalogView,
   issues: PropIssue[]
 ): void {
-  if (schema.bindable && isDynamic(value)) return
   switch (schema.type) {
     case `string`:
     case `markdown`:
     case `url`:
       if (typeof value !== `string`) issues.push({ path, message: `expected a string` })
+      else if (parseStringRef(value) !== null && !isStringRef(value))
+        issues.push({ path, message: `unknown built-in string ${value} (catalog/strings.json)` })
       return
     case `date`:
       if (typeof value !== `string` || (value !== `` && !ISO_DATE.test(value)))
@@ -84,7 +82,8 @@ function checkValue(
         issues.push({ path, message: `expected an object` })
         return
       }
-      const def = schema.shape ? view.defs[schema.shape] : undefined
+      if (!schema.shape) return
+      const def = view.defs[schema.shape]
       if (!def) {
         issues.push({ path, message: `shape ${schema.shape} is not defined` })
         return
@@ -93,6 +92,25 @@ function checkValue(
       return
     }
   }
+}
+
+function checkValue(
+  schema: PropSchema,
+  value: unknown,
+  path: string,
+  view: CatalogView,
+  issues: PropIssue[]
+): void {
+  if (schema.bindable && isDynamic(value)) return
+  if (schema.responsive && isResponsiveValue(value)) {
+    for (const [bp, v] of Object.entries(value)) checkScalar(schema, v, `${path}.${bp}`, view, issues)
+    return
+  }
+  if (schema.responsive && typeof value === `object` && value !== null && !Array.isArray(value) && !isDynamic(value)) {
+    issues.push({ path, message: `a responsive value needs base and only ${BREAKPOINTS.join(`|`)} besides` })
+    return
+  }
+  checkScalar(schema, value, path, view, issues)
 }
 
 function checkProps(

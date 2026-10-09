@@ -4,7 +4,8 @@
     "src/**/*.ts",
     "scripts/**/*.ts",
     "builder/**/*.ts",
-    "builder/**/*.tsx"
+    "builder/**/*.tsx",
+    "conformance/**/*.ts"
   ],
   "compilerOptions": {
     "lib": [

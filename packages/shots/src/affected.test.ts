@@ -297,6 +297,12 @@ describe(`native attribution`, () => {
   })
 })
 
+/** The views an SDK example app photographs (the kitchen sink + the specimens, VAPP-93). */
+const packageViews = (platform: `ios` | `android`) =>
+  viewsFor(platform)
+    .filter((view) => view.group.startsWith(`exponential-ui`))
+    .map((view) => view.id)
+
 describe(`fail-safe`, () => {
   test(`an unrecognised repo-wide path widens every lane`, () => {
     const result = scope(`docker-compose.yaml`)
@@ -309,6 +315,68 @@ describe(`fail-safe`, () => {
     const result = scope(`packages/icons/icons.json`)
     expect(views(result, `desktop`)).toHaveLength(viewsFor(`desktop`).length)
     expect(views(result, `web`).length).toBeGreaterThan(0)
+  })
+
+  test(`the Exponential UI SDK packages narrow iOS to the example app's views`, () => {
+    // VAPP-88: the iOS shot comes from the SwiftUI painter's example app.
+    const swift = affectedScope({
+      changedFiles: [`packages/exponential-ui-swift/Sources/ExponentialUI/Painter.swift`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(swift.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
+    for (const platform of PLATFORMS) {
+      if (platform !== `ios`) expect(swift.byPlatform.get(platform)).toEqual([])
+    }
+
+    // ...but the primitives target is linked by the iOS app: every iOS shot.
+    const swiftPrimitives = affectedScope({
+      changedFiles: [`packages/exponential-ui-swift/Sources/ExponentialUIPrimitives/GlassPill.swift`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(swiftPrimitives.byPlatform.get(`ios`)).toHaveLength(viewsFor(`ios`).length)
+    for (const platform of PLATFORMS) {
+      if (platform !== `ios`) expect(swiftPrimitives.byPlatform.get(platform)).toEqual([])
+    }
+    // The rest of the package (core, manifest) keeps the narrow scope.
+    for (const path of [`packages/exponential-ui-swift/Sources/ExponentialUICore/Reducer.swift`, `packages/exponential-ui-swift/Package.swift`]) {
+      const narrow = affectedScope({ changedFiles: [path], platforms: PLATFORMS, includeMissing: false })
+      expect(narrow.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
+    }
+
+    // VAPP-89: the android shot comes from the Compose painter's example app.
+    const compose = affectedScope({
+      changedFiles: [`packages/exponential-ui-compose/ui-compose/src/main/kotlin/at/exponential/ui/X.kt`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(compose.byPlatform.get(`android`)).toEqual(packageViews(`android`))
+    for (const platform of PLATFORMS) {
+      if (platform !== `android`) expect(compose.byPlatform.get(platform)).toEqual([])
+    }
+
+    // ...but the primitives module is linked by the Android app: every android shot.
+    const primitives = affectedScope({
+      changedFiles: [`packages/exponential-ui-compose/primitives/src/main/kotlin/at/exponential/ui/primitives/X.kt`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(primitives.byPlatform.get(`android`)).toHaveLength(viewsFor(`android`).length)
+    for (const platform of PLATFORMS) {
+      if (platform !== `android`) expect(primitives.byPlatform.get(platform)).toEqual([])
+    }
+
+    // The core narrows iOS + android the same way but still widens every other client.
+    const core = affectedScope({
+      changedFiles: [`packages/exponential-ui/catalog/components.json`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(core.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
+    expect(core.byPlatform.get(`android`)).toEqual(packageViews(`android`))
+    expect(core.byPlatform.get(`desktop`)).toHaveLength(viewsFor(`desktop`).length)
+    expect(core.byPlatform.get(`web`)).toHaveLength(viewsFor(`web`).length)
   })
 
   test(`the demo identity widens every lane, the relay stub the live ones`, () => {

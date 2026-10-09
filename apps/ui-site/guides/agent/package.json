@@ -1,0 +1,16 @@
+{
+  "name": "exponential-ui-guide-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@exponential-at/ui": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.2"
+  }
+}

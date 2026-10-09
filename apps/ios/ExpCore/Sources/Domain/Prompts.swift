@@ -480,6 +480,27 @@ public enum Prompts {
         }
     }
 
+    /// VAPP-91: a host asking before a surface acts as the person. Deny
+    /// takes focus and Return; Allow is the explicit `default` answer.
+    public enum ExponentialUiConsent {
+        public static let entry = PromptEntry(
+            id: "exponential-ui-consent",
+            texts: [
+                "title": "Allow this surface to run {tool}?",
+                "body": "It acts as you, with your access to this team.",
+            ],
+            params: ["tool"],
+            actions: [
+                PromptAction(id: "deny", label: "Deny", role: .cancel),
+                PromptAction(id: "allow", label: "Allow", role: .default),
+            ],
+            focus: "deny"
+        )
+        public static func copy(tool: String) -> PromptCopy {
+            entry.copy(["tool": tool])
+        }
+    }
+
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
@@ -488,6 +509,6 @@ public enum Prompts {
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,
-        RemoveServer.entry,
+        RemoveServer.entry, ExponentialUiConsent.entry,
     ]
 }

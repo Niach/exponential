@@ -9,6 +9,7 @@ import {
   deleteLabelPrompt,
   deleteTeamPrompt,
   deleteTriggerPrompt,
+  exponentialUiConsentPrompt,
   fillPromptTemplate,
   leaveTeamPrompt,
   makeMemberPrompt,
@@ -89,6 +90,9 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
     titleOnServer: () => deleteAccountPrompt(`{server}`),
   },
   "remove-server": { title: () => removeServerPrompt(`{server}`) },
+  "exponential-ui-consent": {
+    title: () => exponentialUiConsentPrompt(`{tool}`),
+  },
 }
 
 const BODY_CASES: Record<string, Record<string, () => PromptCopy>> = {

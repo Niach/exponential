@@ -1,0 +1,30 @@
+[package]
+name = "exponential-ui-guide-gpui"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# A third-party app: its own workspace, outside apps/desktop's build graph.
+[workspace]
+
+[dependencies]
+# The SDK. Path dependencies stand in for crates.io (`exponential-ui = "0.1"`,
+# `exponential-ui-gpui = "0.1"`) until gpui + gpui-component publish there;
+# a git dependency on github.com/Niach/exponential works the same way.
+exponential-ui = { path = "../../../../apps/desktop/crates/exponential-ui" }
+exponential-ui-gpui = { path = "../../../../apps/desktop/crates/exponential-ui-gpui" }
+# gpui + gpui-component at the SDK's revisions (Cargo.lock pins zed's commit).
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
+
+# zed's ztracing is GPL-3.0-or-later; any app linking gpui at this revision
+# swaps in the SDK's no-op shims.
+[patch."https://github.com/zed-industries/zed"]
+ztracing = { path = "../../../../apps/desktop/crates/ztracing" }
+ztracing_macro = { path = "../../../../apps/desktop/crates/ztracing_macro" }
+
+[profile.dev.package."*"]
+debug = false

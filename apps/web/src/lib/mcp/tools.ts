@@ -364,6 +364,10 @@ async function getActionContext(id: string) {
   return row
 }
 
+// EXP-1262: what a `file` show answer tells the agent to do next. The call
+// only mints the upload grant; nothing renders until the curl runs.
+export const SESSION_SHOW_NEXT_STEP = `Run the curl line now: the picture shows in the transcript only once it uploads.`
+
 const REUSED_PR_NOTE = (head: string) =>
   `${head} already had an open PR: linked to it (title and base unchanged; its body follows your report when you have one).`
 
@@ -4326,11 +4330,15 @@ export function registerExponentialTools(
             : new URL(request.url).origin
           const uploadUrl = `${origin}/api/session-results/${token}`
           const path = `'${(file ?? ``).replace(/'/g, `'\\''`)}'`
+          // EXP-1262: the call alone shows NOTHING; the picture lands (and
+          // every client draws it under this call) only once the curl runs.
+          // A run that moved on after ten show calls left ten empty rows.
           return ok({
             id: attachmentId,
             uploadUrl,
             expiresAt: expiresAt.toISOString(),
             curl: `curl -sS --retry 4 -F file=@${path} "${uploadUrl}"`,
+            next: SESSION_SHOW_NEXT_STEP,
             topic,
             results: resultsSummary(published),
           })

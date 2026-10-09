@@ -65,6 +65,7 @@ export type GroupId =
   | `ide`
   | `getting-started`
   | `exponential-ui`
+  | `exponential-ui-catalog`
 
 /** A section of the catalog. Purely presentational grouping. */
 export interface Group {
@@ -123,11 +124,18 @@ export interface WebCapture {
 /**
  * How a native UI test reaches the view. `store` = the 8 App Store / Play
  * listing shots; `styleguide` = the wider parity lane that exists to be
- * compared against web, not published.
+ * compared against web, not published; `package` (VAPP-88/89) = captured by
+ * the shots orchestrator from an SDK EXAMPLE app (iOS
+ * `packages/exponential-ui-swift/Example`, launched as `-shot <id>`; android
+ * `packages/exponential-ui-compose/example`, launched with the `--es shot <id>`
+ * extra), not the product app's UI tests: `shot` = the view id, group
+ * `exponential-ui` or `exponential-ui-catalog` (VAPP-93: the site's specimens).
  */
+export type NativeLane = `store` | `styleguide` | `package`
+
 export interface NativeCapture {
   shot: string
-  lane: `store` | `styleguide`
+  lane: NativeLane
 }
 
 /**

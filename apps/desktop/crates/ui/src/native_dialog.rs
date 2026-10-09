@@ -1515,7 +1515,10 @@ mod prompt_tests {
                 _ => ButtonVariant::Default,
             };
             assert_eq!(alert.ok_variant_of(), variant, "{}", spec.id);
-            let enter = if spec.focus == "cancel" { AlertEnter::Cancel } else { AlertEnter::Ok };
+            // `focus` names an action id; its ROLE decides where Return lands
+            // (the consent prompt focuses `deny`, a cancel-role action).
+            let focused_role = spec.actions.iter().find(|a| a.id == spec.focus).map(|a| a.role);
+            let enter = if focused_role == Some(Role::Cancel) { AlertEnter::Cancel } else { AlertEnter::Ok };
             assert_eq!(alert.enter_answer(), enter, "{}", spec.id);
         }
     }

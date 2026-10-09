@@ -1,5 +1,6 @@
 import ExpCore
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 // EXP-893: the steer composer's usage RING — a radial context-percentage
 // glyph in the collapsed bar's left circle and at the expanded composer's
@@ -43,19 +44,21 @@ public struct ContextRing: View {
         return min(1, max(0, fraction))
     }
 
+    /// SLOP-18 / VAPP-88: the SDK's `RingView` (round caps). The ring's
+    /// strokes are CENTRED on the 16pt circle, so the view is drawn one
+    /// line width larger and laid out at `ContextRingTokens.size`.
     public var body: some View {
-        ZStack {
-            Circle()
-                .stroke(GlassTokens.strokeStrong, lineWidth: ContextRingTokens.lineWidth)
-            Circle()
-                .trim(from: 0, to: Self.arc(fraction))
-                .stroke(
-                    Self.tone(severity),
-                    style: StrokeStyle(lineWidth: ContextRingTokens.lineWidth, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-        }
+        RingView(
+            value: Self.arc(fraction),
+            lineWidth: ContextRingTokens.lineWidth,
+            track: GlassTokens.strokeStrong,
+            fill: Self.tone(severity),
+            lineCap: .round
+        )
+        .frame(
+            width: ContextRingTokens.size + ContextRingTokens.lineWidth,
+            height: ContextRingTokens.size + ContextRingTokens.lineWidth
+        )
         .frame(width: ContextRingTokens.size, height: ContextRingTokens.size)
-        .accessibilityHidden(true)
     }
 }

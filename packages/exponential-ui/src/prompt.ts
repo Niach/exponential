@@ -5,7 +5,7 @@
 // of the full core prompt; prompt.test.ts fails when it grows past the
 // budget — cut descriptions before cutting components.
 
-import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog } from "./catalog"
+import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 export interface PromptOptions {
@@ -20,18 +20,64 @@ export interface PromptOptions {
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
   `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]}; one component has id "root".`,
-  `A component = {id, component, …props, children?: [ids] | {componentId, path}, slots?: {name: id}, on?: {event: action}, style?}. Children are ids, never inline.`,
-  `Include every required prop. A prop marked ~ may be a data binding {path: "/json/pointer"} or a function call {call, args}.`,
-  `Lay out with Stack, Grid, Card and List; use Box with a style object only for what those cannot do. Lists longer than a screen use List.`,
-  `Use the catalog's components over markdown; Markdown only for prose. Prefer labels and tones over colours.`,
+  `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item field naming it.`,
+  `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args}; bound values stay live. visible: false (or a binding) hides any component.`,
+  `Lay out with Stack, Grid, Card, Sidebar and List (anything longer than a screen); Box + style only for the rest. Wrap fields in Form.`,
+  `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
+  `Prefer catalog components over Markdown, labels and tones over colours. Built-in copy (Cancel, Search…) is localized: leave it unset.`,
 ]
+
+/** Props whose meaning is the same everywhere: described ONCE in the full
+ *  prompt (the per-prop line then carries only name, marks and type). The
+ *  catalog keeps every per-component description for the docs. */
+export const COMMON_PROPS: Readonly<Record<string, string>> = {
+  name: `form key`,
+  label: ``,
+  placeholder: ``,
+  disabled: ``,
+  checks: `validation; every failure shows`,
+  validateOn: ``,
+  style: `extra Box style`,
+  icon: ``,
+  size: ``,
+  tone: ``,
+  open: `bind it`,
+  side: ``,
+  emptyText: ``,
+  dismissible: ``,
+  busy: ``,
+  loading: ``,
+  lines: `truncate`,
+  width: `px`,
+  height: `px`,
+  value: `bind it for two-way state`,
+  title: ``,
+  subtitle: ``,
+  description: ``,
+  meta: ``,
+  count: ``,
+  min: ``,
+  max: ``,
+  step: ``,
+  src: ``,
+  alt: ``,
+  multiple: ``,
+  pressable: `fires press`,
+  durationMs: `known length`,
+  firstDayOfWeek: `0 = Sunday; else the locale's`,
+  direction: ``,
+  orientation: ``,
+  gap: ``,
+  aspectRatio: `width/height`,
+  text: ``,
+}
 
 function typeOf(schema: PropSchema, enums: Record<string, readonly string[]>): string {
   switch (schema.type) {
     case `enum`:
       return (schema.values ?? enums[schema.enum ?? ``] ?? []).join(`|`)
     case `array`:
-      return schema.items ? `[${schema.items.type === `object` ? schema.items.shape : typeOf(schema.items, enums)}]` : `[]`
+      return schema.items ? `[${schema.items.type === `object` ? (schema.items.shape ?? `object`) : typeOf(schema.items, enums)}]` : `[]`
     case `object`:
       return schema.shape ?? `object`
     default:
@@ -39,27 +85,56 @@ function typeOf(schema: PropSchema, enums: Record<string, readonly string[]>): s
   }
 }
 
+function marksOf(schema: PropSchema): string {
+  return `${schema.required ? `*` : ``}${schema.bindable ? `~` : ``}${schema.responsive ? `^` : ``}`
+}
+
+/** The default worth printing: an enum's FIRST value and a boolean's
+ *  `false` are implied (the components line says so once). */
+function defaultOf(schema: PropSchema, enums: Record<string, readonly string[]>): string {
+  if (schema.default === undefined) return ``
+  if (schema.type === `boolean` && schema.default === false) return ``
+  if (schema.type === `enum` && (schema.values ?? enums[schema.enum ?? ``] ?? [])[0] === schema.default) return ``
+  return `=${JSON.stringify(schema.default)}`
+}
+
 function propLine(name: string, schema: PropSchema, enums: Record<string, readonly string[]>): string {
-  const marks = `${schema.required ? `*` : ``}${schema.bindable ? `~` : ``}`
-  const def = schema.default !== undefined ? `=${JSON.stringify(schema.default)}` : ``
-  return `${name}${marks}: ${typeOf(schema, enums)}${def} — ${schema.description}`
+  const def = defaultOf(schema, enums)
+  const head = `${name}${marksOf(schema)}: ${typeOf(schema, enums)}${def}`
+  return name in COMMON_PROPS ? head : `${head} — ${schema.description}`
 }
 
 function componentBlock(name: string, def: ComponentDef, enums: Record<string, readonly string[]>, terse: boolean): string {
   const head = `${name}${def.kind === `macro` ? `` : ``}: ${def.description}`
   const meta: string[] = []
-  if (def.children !== `none`) meta.push(`children: ${def.children}`)
+  if (def.children !== `none`) meta.push(def.children === `one` ? `one child` : `children`)
   if (def.slots?.length) meta.push(`slots: ${def.slots.join(`, `)}`)
-  if (def.events?.length) meta.push(`events: ${def.events.join(`, `)}`)
+  if (def.events?.length) meta.push(`on: ${def.events.join(`, `)}`)
   const props = Object.entries(def.props)
   const body = terse
-    ? [`  props: ${props.map(([p, s]) => `${p}${s.required ? `*` : ``}:${typeOf(s, enums)}`).join(`, `)}`]
+    ? [`  props: ${props.map(([p, s]) => `${p}${marksOf(s)}:${typeOf(s, enums)}`).join(`, `)}`]
     : props.map(([p, s]) => `  ${propLine(p, s, enums)}`)
   return [head, ...(meta.length ? [`  ${meta.join(`; `)}`] : []), ...body].join(`\n`)
 }
 
-function defsBlock(defs: Record<string, { description: string; properties: Record<string, PropSchema> }>, enums: Record<string, readonly string[]>): string[] {
-  return Object.entries(defs).map(
+/** The shapes a prompt needs: every def a listed component's props reach
+ *  (directly, through arrays or through another def). */
+function usedShapes(components: Iterable<ComponentDef>, defs: Record<string, { properties: Record<string, PropSchema> }>): Set<string> {
+  const used = new Set<string>()
+  const visit = (schema: PropSchema | undefined) => {
+    if (!schema) return
+    if (schema.type === `array`) return visit(schema.items)
+    if (schema.type === `object` && schema.shape && !used.has(schema.shape) && defs[schema.shape]) {
+      used.add(schema.shape)
+      for (const p of Object.values(defs[schema.shape].properties)) visit(p)
+    }
+  }
+  for (const def of components) for (const p of Object.values(def.props)) visit(p)
+  return used
+}
+
+function defsBlock(defs: Record<string, { description: string; properties: Record<string, PropSchema> }>, enums: Record<string, readonly string[]>, only?: Set<string>): string[] {
+  return Object.entries(defs).filter(([name]) => !only || only.has(name)).map(
     ([name, def]) => `${name} = {${Object.entries(def.properties).map(([p, s]) => `${p}${s.required ? `*` : ``}: ${typeOf(s, enums)}`).join(`, `)}}`
   )
 }
@@ -73,15 +148,17 @@ export function catalogPrompt(options: PromptOptions = {}): string {
   lines.push(`Catalog ${id}${extensions.length ? ` with extensions ${extensions.map((e) => e.id).join(`, `)}` : ``}.`)
   lines.push(`Rules:`)
   for (const rule of PROMPT_RULES) lines.push(`- ${rule}`)
-  lines.push(`Components (props marked * are required, ~ accept a binding):`)
+  lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first value and a boolean to false):`)
+  if (!options.terse) lines.push(`Common props (no description below): ${Object.entries(COMMON_PROPS).map(([k, v]) => (v ? `${k} (${v})` : k)).join(`, `)}.`)
   for (const [name, def] of Object.entries(coreCatalog.components)) {
     if (def.hidden) continue
     if (options.lite && !def.lite) continue
     lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
   }
-  lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums).join(`; `)}`)
-  lines.push(`Functions (client-side, same as the A2UI basic catalog ${A2UI_BASIC_CATALOG_ID}): ${coreCatalog.functions.names.join(`, `)}.`)
-  lines.push(`Style keys (Box): display, flexDirection, flexWrap, justifyContent, alignItems, alignSelf, flexGrow, flexShrink, flexBasis, gap, width, height, min/max sizes, aspectRatio, position, top/right/bottom/left, padding*/margin* (+InlineStart/End), gridTemplateColumns/Rows/Areas, gridArea, overflow, backgroundColor, color, borderWidth, borderColor, borderRadius, opacity, boxShadow, fontSize, fontWeight, lineHeight, textAlign. Values: px numbers, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
+  const listed = Object.values(coreCatalog.components).filter((def) => !def.hidden && (!options.lite || def.lite))
+  lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed, coreCatalog.defs)).join(`; `)}`)
+  lines.push(`Functions (client-side, the A2UI basic ones plus core ones): ${coreCatalog.functions.names.join(`, `)}.`)
+  lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
   for (const ext of extensions) {
     lines.push(`Extension ${ext.id} (${ext.name}):`)
     for (const [name, def] of Object.entries(ext.components)) lines.push(componentBlock(name, def, view.enums, options.terse ?? false))

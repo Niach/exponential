@@ -121,3 +121,13 @@ describe(`styleToCss`, () => {
     expect(styleToCss({ display: `flex`, flexDirection: `column`, gap: 8, flexGrow: 1, paddingHorizontal: 12, native: true })).toEqual({ display: `flex`, "flex-direction": `column`, gap: `8px`, "flex-grow": `1`, "padding-left": `12px`, "padding-right": `12px` })
   })
 })
+
+describe(`round 1: diffTheme keeps the new groups and the contrast overlays`, () => {
+  test(`breakpoints, easings and contrast survive the round trip`, () => {
+    const base = builtinTheme(`neutral`)
+    const draft = loadTheme({ id: `brand`, name: `Brand`, extends: `neutral`, tokens: { breakpoint: { md: 720 }, ease: { standard: [0.4, 0, 0.2, 1] } }, contrast: { dark: { color: { ring: `#ffff00` } } } }, { themes: BUILTIN_THEMES })
+    const diff = diffTheme(draft, base, { id: `brand`, name: `Brand` })
+    expect(diff.tokens).toEqual({ breakpoint: { md: 720 }, ease: { standard: [0.4, 0, 0.2, 1] } })
+    expect(diff.contrast).toEqual({ dark: { color: { ring: `#ffff00` } } })
+  })
+})

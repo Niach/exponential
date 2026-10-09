@@ -2,6 +2,7 @@ import CoreGraphics
 import ExpCore
 import XCTest
 @testable import ExpUI
+import SwiftUI
 
 // EXP-1031: the iOS toast host's placement rules pin to the shared contract
 // (`ToastStack.Constants`, packages/domain-contract/fixtures/toast-stack.json).

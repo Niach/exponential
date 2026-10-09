@@ -17,7 +17,7 @@ pub struct ShapingMeasure {
     /// the recipe box / a fixed estimate.
     pub fallback: Option<Box<dyn Measure>>,
     id: u64,
-    cache: HashMap<(String, i64), (f32, f32)>,
+    cache: HashMap<(String, i64), (f32, f32, f32)>,
 }
 
 impl ShapingMeasure {
@@ -35,8 +35,9 @@ impl ShapingMeasure {
         matches!(leaf.component, "Text" | "Markdown" | "Button" | "Link" | "Toggle") || leaf.part.is_some_and(|p| matches!(p, "tab" | "trigger" | "item" | "label" | "title" | "description"))
     }
 
-    /// Shape `text` with the leaf's style at `width` (`None` = unbounded).
-    fn shape(&mut self, leaf: &LeafRequest, width: Option<f32>) -> (f32, f32) {
+    /// Shape `text` with the leaf's style at `width` (`None` = unbounded):
+    /// (width, height, the first line's baseline), the control box included.
+    fn shape(&mut self, leaf: &LeafRequest, width: Option<f32>) -> (f32, f32, f32) {
         let text = leaf.text().to_string();
         let key = (format!("{}|{}|{}|{}", leaf.index, text, leaf.text_style.font_size, leaf.text_style.font_weight), width.map(|w| (w * 64.0) as i64).unwrap_or(-1));
         if let Some(hit) = self.cache.get(&key) {
@@ -57,8 +58,10 @@ impl ShapingMeasure {
         buffer.shape_until_scroll(&mut self.font_system, false);
         let mut w: f32 = 0.0;
         let mut lines = 0usize;
+        let mut first_baseline: Option<f32> = None;
         for run in buffer.layout_runs() {
             w = w.max(run.line_w);
+            first_baseline.get_or_insert(run.line_y);
             lines += 1;
         }
         let lines = match leaf.lines {
@@ -67,7 +70,8 @@ impl ShapingMeasure {
         };
         let h = lines.max(1) as f32 * ts.line_height;
         let c = leaf.control;
-        let out = (w.ceil() + 2.0 * c.padding_horizontal + 2.0 * c.border_width, h + 2.0 * c.padding_vertical + 2.0 * c.border_width);
+        let baseline = c.padding[0] + c.border_width + first_baseline.unwrap_or(ts.line_height * 0.8);
+        let out = (w.ceil() + 2.0 * c.padding_horizontal + 2.0 * c.border_width, h + 2.0 * c.padding_vertical + 2.0 * c.border_width, baseline);
         self.cache.insert(key, out);
         out
     }
@@ -83,11 +87,14 @@ impl Measure for ShapingMeasure {
         let mut deferred: Vec<usize> = Vec::new();
         for (k, leaf) in leaves.iter().enumerate() {
             if Self::is_text(leaf) {
-                let (max_w, h) = self.shape(leaf, None);
-                let (min_w, _) = self.shape(leaf, Some(1.0));
+                let (max_w, h, baseline) = self.shape(leaf, None);
+                let (min_w, _, _) = self.shape(leaf, Some(1.0));
                 let c = leaf.control;
                 let clamp = |v: f32| c.width.unwrap_or(v).max(c.min_width.unwrap_or(0.0));
-                out.push(Intrinsics { min_content_width: clamp(min_w), max_content_width: clamp(max_w), height_at_max_content: c.height.unwrap_or(h).max(c.min_height.unwrap_or(0.0)) });
+                let height = c.height.unwrap_or(h).max(c.min_height.unwrap_or(0.0));
+                // A control taller than its text centres the line.
+                let baseline = baseline + ((height - h) / 2.0).max(0.0);
+                out.push(Intrinsics { min_content_width: clamp(min_w), max_content_width: clamp(max_w), height_at_max_content: height, baseline: Some(baseline) });
             } else {
                 out.push(Intrinsics::default());
                 deferred.push(k);
@@ -103,7 +110,7 @@ impl Measure for ShapingMeasure {
                         let c = l.control;
                         let w = c.width.unwrap_or(c.min_width.unwrap_or(0.0));
                         let h = c.height.unwrap_or(c.min_height.unwrap_or(0.0));
-                        Intrinsics { min_content_width: w, max_content_width: w, height_at_max_content: h }
+                        Intrinsics { min_content_width: w, max_content_width: w, height_at_max_content: h, baseline: None }
                     })
                     .collect(),
             };
@@ -122,7 +129,7 @@ impl Measure for ShapingMeasure {
                 if Self::is_text(leaf) {
                     let c = leaf.control;
                     let inner = (r.width - 2.0 * c.padding_horizontal - 2.0 * c.border_width).max(1.0);
-                    let (_, h) = self.shape(leaf, Some(inner));
+                    let (_, h, _) = self.shape(leaf, Some(inner));
                     c.height.unwrap_or(h)
                 } else if let Some(f) = &mut self.fallback {
                     f.measure_heights(std::slice::from_ref(leaf), std::slice::from_ref(r)).first().copied().unwrap_or(0.0)

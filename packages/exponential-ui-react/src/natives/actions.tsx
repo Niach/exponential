@@ -1,11 +1,14 @@
-// VAPP-87: Button, Link, Toggle. A Button is OPTIMISTIC: it goes disabled
-// (and `aria-busy`) the moment it is pressed and stays so until the host's
-// `onAction` promise settles.
+// VAPP-87 + round 1: Button, Link, Toggle. A Button is OPTIMISTIC: it goes
+// disabled (and `aria-busy`) the moment it is pressed and stays so until the
+// host's `onAction` promise settles. A `submit` Button submits the enclosing
+// Form (and shows loading while the Form is `busy`).
 
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
+import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
+import { useBoundState } from "./bound"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 
@@ -33,10 +36,12 @@ export function usePending() {
 export function ButtonNative({ node, props, rootProps, emit, children }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
+  const form = useForm()
+  const submit = bool(props.submit) && form !== null
   const { pending, track } = usePending()
   const label = str(props.label)
   const icon = str(props.icon)
-  const loading = bool(props.loading) || pending
+  const loading = bool(props.loading) || pending || (submit && form.busy)
   const disabled = bool(props.disabled) || loading
   const iconOnly = props.size === `icon`
   const Spinner = CHROME.spinner
@@ -49,9 +54,11 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
       aria-busy={loading || undefined}
       aria-label={iconOnly && label ? label : undefined}
       data-xs={[...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``].filter(Boolean).join(` `) || undefined}
+      data-submit={submit ? `true` : undefined}
       onClick={(e: MouseEvent) => {
         e.stopPropagation()
         track(emit(`press`))
+        if (submit) form.submit()
       }}
     >
       {loading ? (
@@ -94,12 +101,10 @@ export function LinkNative({ props, rootProps, emit }: NativeProps) {
   )
 }
 
-export function ToggleNative({ node, props, rootProps, emit }: NativeProps) {
+export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const external = bool(props.pressed)
-  const [pressed, setPressed] = useState(external)
-  useEffect(() => setPressed(external), [external])
+  const [pressed, setPressed] = useBoundState(node, scope, `pressed`, bool(props.pressed))
   const icon = str(props.icon)
   const label = str(props.label)
   return (
@@ -110,7 +115,7 @@ export function ToggleNative({ node, props, rootProps, emit }: NativeProps) {
         setPressed(next)
         void emit(`change`, { pressed: next })
       }}
-      aria-label={icon && !label ? label : undefined}
+      aria-label={icon && label ? label : undefined}
     >
       {icon ? (
         <span {...(part(`icon`) as Record<string, string>)}>

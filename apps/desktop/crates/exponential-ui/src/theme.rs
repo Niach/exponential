@@ -9,10 +9,15 @@
 //! Precedence a painter applies ([`resolve_node_style`]): the native's own
 //! recipe < the node's style < the macro part's recipe.
 //!
-//! Source objects are `serde_json::Value`s, whose maps are SORTED in this
-//! crate: validation walks a source object's keys in sorted order where the
-//! TS walks author order, so issues raised by sibling keys of ONE object may
-//! come out in a different order than the TS for multi-issue themes.
+//! Source objects are `serde_json::Value`s in SOURCE order (`preserve_order`),
+//! so issues come out in the TS order.
+//!
+//! Round 1 (docs/round-1-contract.md §5): `breakpoint` (px), `ease` (cubic
+//! bezier control points) and `density` (multipliers) token groups, a
+//! high-contrast `contrast` overlay per mode, recipe keys for per-side
+//! borders, text styling and motion, [`resolve_mode`] / [`apply_density`] /
+//! [`apply_contrast`] for the surface settings, and [`resolve_condition_key`]
+//! (a `$breakpoint` inside a media key resolves to px).
 
 use std::fmt;
 use std::sync::{Arc, LazyLock};
@@ -84,6 +89,10 @@ impl Serialize for Shadow {
 
 fn ser_nums<S: Serializer>(m: &IndexMap<String, f64>, s: S) -> Result<S::Ok, S::Error> {
     s.collect_map(m.iter().map(|(k, v)| (k, json::number(*v))))
+}
+
+fn ser_curves<S: Serializer>(m: &IndexMap<String, Vec<f64>>, s: S) -> Result<S::Ok, S::Error> {
+    s.collect_map(m.iter().map(|(k, v)| (k, v.iter().map(|n| json::number(*n)).collect::<Vec<_>>())))
 }
 
 fn ser_opt_nums<S: Serializer>(v: &Option<Vec<f64>>, s: S) -> Result<S::Ok, S::Error> {
@@ -168,10 +177,24 @@ pub struct ThemeTokens {
     /// Milliseconds.
     #[serde(serialize_with = "ser_nums")]
     pub motion: IndexMap<String, f64>,
+    /// Surface widths in px the style conditions may name (`$breakpoint.md`).
+    #[serde(default, serialize_with = "ser_nums")]
+    pub breakpoint: IndexMap<String, f64>,
+    /// `cubic-bezier(x1, y1, x2, y2)` control points.
+    #[serde(default, serialize_with = "ser_curves")]
+    pub ease: IndexMap<String, Vec<f64>>,
+    /// Multipliers over `control` and `spacing` for the non-default densities.
+    #[serde(default, serialize_with = "ser_nums")]
+    pub density: IndexMap<String, f64>,
+    /// Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`).
+    #[serde(default, serialize_with = "ser_nums")]
+    pub blur: IndexMap<String, f64>,
 }
 
 /// The numeric groups directly under `tokens`, in overlay order.
-const NUMBER_GROUPS: [&str; 6] = ["spacing", "radius", "control", "opacity", "border", "motion"];
+const NUMBER_GROUPS: [&str; 9] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density", "blur"];
+/// Token groups whose values are cubic-bezier tuples.
+const TUPLE_GROUPS: [&str; 1] = ["ease"];
 const TYPE_SUBS: [&str; 4] = ["size", "lineHeight", "weight", "family"];
 
 impl ThemeTokens {
@@ -184,6 +207,9 @@ impl ThemeTokens {
             "opacity" => Some(&self.opacity),
             "border" => Some(&self.border),
             "motion" => Some(&self.motion),
+            "breakpoint" => Some(&self.breakpoint),
+            "density" => Some(&self.density),
+            "blur" => Some(&self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers(sub)),
         }
     }
@@ -195,6 +221,9 @@ impl ThemeTokens {
             "opacity" => Some(&mut self.opacity),
             "border" => Some(&mut self.border),
             "motion" => Some(&mut self.motion),
+            "breakpoint" => Some(&mut self.breakpoint),
+            "density" => Some(&mut self.density),
+            "blur" => Some(&mut self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers_mut(sub)),
         }
     }
@@ -232,6 +261,9 @@ pub struct ResolvedTheme {
     /// The chain this theme was built from, root first.
     pub chain: Vec<String>,
     pub modes: Modes,
+    /// The high-contrast overlays per mode (partial tables, may be empty).
+    #[serde(default)]
+    pub contrast: Modes,
     pub tokens: ThemeTokens,
     pub fonts: IndexMap<String, FontSpec>,
     pub recipes: ThemeRecipes,
@@ -336,7 +368,12 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("color", &["color"]),
     ("borderColor", &["color"]),
     ("borderWidth", &["border", "control"]),
+    ("borderTopWidth", &["border", "control"]),
+    ("borderRightWidth", &["border", "control"]),
+    ("borderBottomWidth", &["border", "control"]),
+    ("borderLeftWidth", &["border", "control"]),
     ("borderRadius", &["radius", "spacing"]),
+    ("borderStyle", &[]),
     ("padding", &["spacing"]),
     ("paddingHorizontal", &["spacing"]),
     ("paddingVertical", &["spacing"]),
@@ -349,12 +386,27 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("fontWeight", &["type.weight"]),
     ("lineHeight", &["type.lineHeight"]),
     ("fontFamily", &["type.family"]),
+    ("letterSpacing", &[]),
+    ("textDecoration", &[]),
+    ("textTransform", &[]),
+    ("fontStyle", &[]),
     ("boxShadow", &["shadow"]),
     ("opacity", &["opacity"]),
+    ("transition", &["motion"]),
+    ("transitionEasing", &["ease"]),
+    ("transform", &[]),
+    ("backdropBlur", &["blur"]),
+    ("animation", &[]),
 ];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
-const TOKEN_ONLY_KEYS: [&str; 2] = ["fontFamily", "boxShadow"];
-const THEME_KEYS: [&str; 9] = ["$schema", "$comment", "id", "name", "extends", "modes", "tokens", "fonts", "recipes"];
+const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
+const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
+const THEME_KEYS: [&str; 10] = ["$schema", "$comment", "id", "name", "extends", "modes", "contrast", "tokens", "fonts", "recipes"];
+
+/// The enum a style key takes (`borderStyle` → solid|dashed|dotted).
+fn style_key_enum(key: &str) -> Vec<Value> {
+    crate::style_check::STYLE_SPECS.get(key).and_then(|s| s.enum_.clone()).unwrap_or_default()
+}
 
 fn key_groups(key: &str) -> &'static [&'static str] {
     KEY_GROUPS.iter().find(|(k, _)| *k == key).map(|(_, g)| *g).unwrap_or(&[])
@@ -420,6 +472,21 @@ fn check_number_map(value: &Value, path: &str, names: &[String], issues: &mut Ve
     }
 }
 
+fn check_easing_map(value: &Value, path: &str, names: &[String], issues: &mut Vec<ThemeIssue>) {
+    let Some(obj) = value.as_object() else {
+        issues.push(issue(path, "expected an object of easing curves"));
+        return;
+    };
+    for (name, v) in obj {
+        let at = format!("{path}.{name}");
+        if !names_include(names, name) {
+            issues.push(issue(at, format!("unknown token; known: {}", known(names))));
+        } else if !v.as_array().is_some_and(|a| a.len() == 4 && a.iter().all(|n| is_finite_number(n).is_some())) {
+            issues.push(issue(at, "expected [x1, y1, x2, y2]"));
+        }
+    }
+}
+
 fn check_shadow(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
     let Some(layers) = value.as_array() else {
         issues.push(issue(path, "expected a list of shadow layers"));
@@ -466,6 +533,20 @@ fn check_mode(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
             } else if group == "shadow" {
                 check_shadow(v, &at, issues);
             }
+        }
+    }
+}
+
+fn check_modes(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
+    let Some(modes) = value.as_object() else {
+        issues.push(issue(path, "expected {light, dark}"));
+        return;
+    };
+    for (mode, v) in modes {
+        if Mode::parse(mode).is_none() {
+            issues.push(issue(format!("{path}.{mode}"), "unknown mode; known: light|dark"));
+        } else {
+            check_mode(v, &format!("{path}.{mode}"), issues);
         }
     }
 }
@@ -518,7 +599,15 @@ fn check_tokens(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
             issues.push(issue(at, format!("unknown token group; known: {}|type", known(&groups))));
             continue;
         };
-        let range = if group == "opacity" { Some((0.0, 1.0)) } else { None };
+        if TUPLE_GROUPS.contains(&group.as_str()) {
+            check_easing_map(entries, &at, names, issues);
+            continue;
+        }
+        let range = match group.as_str() {
+            "opacity" => Some((0.0, 1.0)),
+            "density" => Some((0.5, 2.0)),
+            _ => None,
+        };
         check_number_map(entries, &at, names, issues, range);
     }
 }
@@ -562,10 +651,28 @@ fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<The
         }
         return;
     }
+    if ENUM_KEYS.contains(&key) {
+        let allowed = style_key_enum(key);
+        if !allowed.iter().any(|a| json::strict_eq(a, value)) {
+            let names: Vec<String> = allowed.iter().map(json::to_js_string).collect();
+            issues.push(issue(path, format!("expected {}", known(&names))));
+        }
+        return;
+    }
+    if key == "transform" {
+        if !value.as_str().is_some_and(crate::style_check::is_transform) {
+            issues.push(issue(path, "expected translate(Xpx, Ypx), scale(N) and/or rotate(Ndeg)"));
+        }
+        return;
+    }
     let groups = key_groups(key);
     if let Some((group, name)) = parse_token_ref(value) {
         if !groups.contains(&group.as_str()) {
-            issues.push(issue(path, format!("expected a ${} token, got ${group}", groups.join("|$"))));
+            if groups.is_empty() {
+                issues.push(issue(path, "expected a number, not a token"));
+            } else {
+                issues.push(issue(path, format!("expected a ${} token, got ${group}", groups.join("|$"))));
+            }
         } else if !token_names(&group).is_some_and(|names| names_include(names, &name)) {
             let names = token_names(&group).map(Vec::as_slice).unwrap_or(&[]);
             issues.push(issue(path, format!("unknown token {}; known: {}", value.as_str().unwrap_or(""), known(names))));
@@ -582,11 +689,14 @@ fn check_recipe_value(key: &str, value: &Value, path: &str, issues: &mut Vec<The
         issues.push(issue(path, format!("expected a ${}.<name> token", groups.first().copied().unwrap_or(""))));
         return;
     }
+    let weights = style_key_enum("fontWeight");
     match is_finite_number(value) {
+        None if groups.is_empty() => issues.push(issue(path, "expected a number")),
         None => issues.push(issue(path, format!("expected a number or a ${} token", groups.join("|$")))),
         Some(n) if key == "opacity" && !(0.0..=1.0).contains(&n) => issues.push(issue(path, "expected 0–1")),
-        Some(n) if key == "fontWeight" && ![400.0, 500.0, 600.0, 700.0].contains(&n) => {
-            issues.push(issue(path, "expected 400|500|600|700 or $type.weight.<name>"))
+        Some(n) if key == "fontWeight" && !weights.iter().any(|w| w.as_f64() == Some(n)) => {
+            let names: Vec<String> = weights.iter().map(json::to_js_string).collect();
+            issues.push(issue(path, format!("expected {} or $type.weight.<name>", known(&names))))
         }
         Some(_) => {}
     }
@@ -703,7 +813,7 @@ pub fn validate_theme(source: &Value, options: &ThemeOptions) -> Vec<ThemeIssue>
     }
     for key in src.keys() {
         if !THEME_KEYS.contains(&key.as_str()) {
-            issues.push(issue(key.clone(), "unknown theme key; known: id|name|extends|modes|tokens|fonts|recipes"));
+            issues.push(issue(key.clone(), "unknown theme key; known: id|name|extends|modes|contrast|tokens|fonts|recipes"));
         }
     }
     if let Some(ext) = src.get("extends") {
@@ -716,18 +826,10 @@ pub fn validate_theme(source: &Value, options: &ThemeOptions) -> Vec<ThemeIssue>
         }
     }
     if let Some(modes) = src.get("modes") {
-        match modes.as_object() {
-            None => issues.push(issue("modes", "expected {light, dark}")),
-            Some(modes) => {
-                for (mode, value) in modes {
-                    if Mode::parse(mode).is_none() {
-                        issues.push(issue(format!("modes.{mode}"), "unknown mode; known: light|dark"));
-                    } else {
-                        check_mode(value, &format!("modes.{mode}"), &mut issues);
-                    }
-                }
-            }
-        }
+        check_modes(modes, "modes", &mut issues);
+    }
+    if let Some(contrast) = src.get("contrast") {
+        check_modes(contrast, "contrast", &mut issues);
     }
     if let Some(tokens) = src.get("tokens") {
         check_tokens(tokens, "tokens", &mut issues);
@@ -753,18 +855,31 @@ fn empty_theme(source: &Map<String, Value>) -> ResolvedTheme {
     }
 }
 
+fn overlay_mode_source(tm: &mut ThemeMode, m: Option<&Value>) {
+    let Some(m) = m else { return };
+    for (name, v) in m.get("color").and_then(Value::as_object).into_iter().flatten() {
+        tm.color.insert(name.clone(), v.as_str().unwrap_or_default().to_string());
+    }
+    for (name, v) in m.get("shadow").and_then(Value::as_object).into_iter().flatten() {
+        let layers: Vec<Shadow> = serde_json::from_value(v.clone()).unwrap_or_default();
+        tm.shadow.insert(name.clone(), layers);
+    }
+}
+
+fn overlay_mode(tm: &mut ThemeMode, from: &ThemeMode) {
+    for (k, v) in &from.color {
+        tm.color.insert(k.clone(), v.clone());
+    }
+    for (k, v) in &from.shadow {
+        tm.shadow.insert(k.clone(), v.clone());
+    }
+}
+
 /// Merge a VALIDATED source over the target (TS `overlay`).
 fn overlay(target: &mut ResolvedTheme, source: &Value) {
     for mode in Mode::ALL {
-        let Some(m) = source.get("modes").and_then(|ms| ms.get(mode.as_str())) else { continue };
-        let tm = target.modes.get_mut(mode);
-        for (name, v) in m.get("color").and_then(Value::as_object).into_iter().flatten() {
-            tm.color.insert(name.clone(), v.as_str().unwrap_or_default().to_string());
-        }
-        for (name, v) in m.get("shadow").and_then(Value::as_object).into_iter().flatten() {
-            let layers: Vec<Shadow> = serde_json::from_value(v.clone()).unwrap_or_default();
-            tm.shadow.insert(name.clone(), layers);
-        }
+        overlay_mode_source(target.modes.get_mut(mode), source.get("modes").and_then(|ms| ms.get(mode.as_str())));
+        overlay_mode_source(target.contrast.get_mut(mode), source.get("contrast").and_then(|ms| ms.get(mode.as_str())));
     }
     if let Some(t) = source.get("tokens") {
         for group in NUMBER_GROUPS {
@@ -772,6 +887,10 @@ fn overlay(target: &mut ResolvedTheme, source: &Value) {
             for (name, v) in t.get(group).and_then(Value::as_object).into_iter().flatten() {
                 table.insert(name.clone(), v.as_f64().unwrap_or_default());
             }
+        }
+        for (name, v) in t.get("ease").and_then(Value::as_object).into_iter().flatten() {
+            let curve: Vec<f64> = v.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+            target.tokens.ease.insert(name.clone(), curve);
         }
         for sub in TYPE_SUBS {
             let entries = t.get("type").and_then(|ty| ty.get(sub)).and_then(Value::as_object);
@@ -799,14 +918,8 @@ fn overlay(target: &mut ResolvedTheme, source: &Value) {
 
 fn overlay_resolved(target: &mut ResolvedTheme, parent: &ResolvedTheme) {
     for mode in Mode::ALL {
-        let from = parent.modes.get(mode);
-        let tm = target.modes.get_mut(mode);
-        for (k, v) in &from.color {
-            tm.color.insert(k.clone(), v.clone());
-        }
-        for (k, v) in &from.shadow {
-            tm.shadow.insert(k.clone(), v.clone());
-        }
+        overlay_mode(target.modes.get_mut(mode), parent.modes.get(mode));
+        overlay_mode(target.contrast.get_mut(mode), parent.contrast.get(mode));
     }
     target.tokens = parent.tokens.clone();
     target.fonts = parent.fonts.clone();
@@ -830,6 +943,8 @@ fn completeness(theme: &ResolvedTheme) -> Vec<ThemeIssue> {
             }
             let present = if group == "type.family" {
                 theme.tokens.r#type.family.contains_key(name)
+            } else if group == "ease" {
+                theme.tokens.ease.contains_key(name)
             } else {
                 theme.tokens.numbers(group).is_some_and(|t| t.contains_key(name))
             };
@@ -946,6 +1061,7 @@ pub fn resolve_token(theme: &ResolvedTheme, reference: &Value, mode: Mode) -> Op
         "color" => m.color.get(&name).map(|c| Value::String(c.clone())),
         "shadow" => m.shadow.get(&name).map(|l| serde_json::to_value(l).expect("shadow")),
         "type.family" => theme.tokens.r#type.family.get(&name).map(|f| Value::String(f.clone())),
+        "ease" => theme.tokens.ease.get(&name).map(|c| Value::Array(c.iter().map(|n| json::number(*n)).collect())),
         // `$type.size` names a whole sub-table, like the TS lookup does.
         "type" => match name.as_str() {
             "family" => serde_json::to_value(&theme.tokens.r#type.family).ok(),
@@ -955,19 +1071,137 @@ pub fn resolve_token(theme: &ResolvedTheme, reference: &Value, mode: Mode) -> Op
     }
 }
 
+/// A media key with its `$breakpoint.<name>` replaced by the theme's px
+/// (`resolveConditionKey`); any other key passes.
+pub fn resolve_condition_key(theme: &ResolvedTheme, key: &str) -> String {
+    let Some(condition) = crate::conditions::parse_media_condition(key) else { return key.to_string() };
+    let Some(name) = crate::conditions::breakpoint_ref(&condition.value) else { return key.to_string() };
+    match theme.tokens.breakpoint.get(name) {
+        Some(px) => key.replace(&condition.value, &format!("{}px", json::number_to_string(*px))),
+        None => key.to_string(),
+    }
+}
+
+fn resolve_style_value(theme: &ResolvedTheme, value: &Value, mode: Mode) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(|v| resolve_style_value(theme, v, mode)).collect()),
+        Value::Object(nested) => Value::Object(resolve_style_values(theme, nested, mode)),
+        Value::String(s) if s.starts_with('$') => resolve_token(theme, value, mode).unwrap_or_else(|| value.clone()),
+        other => other.clone(),
+    }
+}
+
 /// Every token reference in a style object replaced by its value for the
-/// mode (nested condition blocks included); other values pass through.
+/// mode (nested condition blocks, gradients and arrays included, and the
+/// `$breakpoint` tokens inside media keys); other values pass through.
 pub fn resolve_style_values(theme: &ResolvedTheme, style: &Props, mode: Mode) -> Props {
     let mut out = Props::new();
     for (key, value) in style {
-        let v = match value {
-            Value::Object(nested) => Value::Object(resolve_style_values(theme, nested, mode)),
-            Value::String(s) if s.starts_with('$') => resolve_token(theme, value, mode).unwrap_or_else(|| value.clone()),
-            other => other.clone(),
-        };
-        out.insert(key.clone(), v);
+        out.insert(resolve_condition_key(theme, key), resolve_style_value(theme, value, mode));
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Surface settings: mode, density, contrast (round 1)
+// ---------------------------------------------------------------------------
+
+/// What a host asks for: a mode, or `system` = the platform's preference.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModeSetting {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+impl ModeSetting {
+    pub fn parse(s: &str) -> Option<ModeSetting> {
+        match s {
+            "light" => Some(ModeSetting::Light),
+            "dark" => Some(ModeSetting::Dark),
+            "system" => Some(ModeSetting::System),
+            _ => None,
+        }
+    }
+}
+
+/// `system` → what the platform prefers; a mode stays itself.
+pub fn resolve_mode(setting: ModeSetting, system_prefers_dark: bool) -> Mode {
+    match setting {
+        ModeSetting::Light => Mode::Light,
+        ModeSetting::Dark => Mode::Dark,
+        ModeSetting::System => {
+            if system_prefers_dark {
+                Mode::Dark
+            } else {
+                Mode::Light
+            }
+        }
+    }
+}
+
+/// The surface density; `default` = the tokens as written.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Density {
+    Compact,
+    #[default]
+    Default,
+    Comfortable,
+}
+
+impl Density {
+    pub fn parse(s: &str) -> Option<Density> {
+        match s {
+            "compact" => Some(Density::Compact),
+            "default" => Some(Density::Default),
+            "comfortable" => Some(Density::Comfortable),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Density::Compact => "compact",
+            Density::Default => "default",
+            Density::Comfortable => "comfortable",
+        }
+    }
+}
+
+fn scaled(table: &IndexMap<String, f64>, factor: f64) -> IndexMap<String, f64> {
+    table.iter().map(|(k, v)| (k.clone(), crate::expr::js_round(v * factor))).collect()
+}
+
+/// The theme a surface of this density runs with: `control` and `spacing`
+/// scaled by the theme's `$density.<name>` multiplier and rounded to whole
+/// px; `default` (or a theme without the multiplier) returns it unchanged.
+/// Done once per surface, so every resolver and fixture stays
+/// density-agnostic.
+pub fn apply_density(theme: &ResolvedTheme, density: Density) -> ResolvedTheme {
+    let Some(factor) = (density != Density::Default).then(|| theme.tokens.density.get(density.as_str()).copied()).flatten() else {
+        return theme.clone();
+    };
+    let mut out = theme.clone();
+    out.tokens.control = scaled(&theme.tokens.control, factor);
+    out.tokens.spacing = scaled(&theme.tokens.spacing, factor);
+    out
+}
+
+/// The theme with its high-contrast overlays merged into the modes (the
+/// platform asked for more contrast). A theme without overlays is unchanged.
+pub fn apply_contrast(theme: &ResolvedTheme) -> ResolvedTheme {
+    let mut out = theme.clone();
+    for mode in Mode::ALL {
+        overlay_mode(out.modes.get_mut(mode), theme.contrast.get(mode));
+    }
+    out
+}
+
+/// An easing as CSS `cubic-bezier(…)`.
+pub fn easing_css(curve: &[f64]) -> String {
+    format!("cubic-bezier({})", curve.iter().map(|n| json::number_to_string(*n)).collect::<Vec<_>>().join(", "))
 }
 
 fn matches(rule: &RecipeRule, props: &Props, states: &[String]) -> bool {
@@ -1029,6 +1263,31 @@ pub fn recipe_style(theme: &ResolvedTheme, query: &RecipeQuery) -> Props {
         }
     }
     out
+}
+
+/// Does the query's recipe change under interaction `state` (`hover`)? True
+/// when a rule names the state in `when.state` and every other `when` key
+/// matches the query's props (the rule's OTHER states are not required: a
+/// `[hover, checked]` rule counts while unchecked). Painters ask it to know
+/// which nodes to track the pointer over.
+pub fn recipe_reacts_to(theme: &ResolvedTheme, query: &RecipeQuery, state: &str) -> bool {
+    let Some(rules) = theme.recipes.get(&query.component).and_then(|p| p.get(&query.part)) else { return false };
+    rules.iter().any(|rule| {
+        let Some(when) = &rule.when else { return false };
+        let names_state = match when.get("state") {
+            Some(Value::Array(list)) => list.iter().any(|s| s.as_str() == Some(state)),
+            Some(v) => v.as_str() == Some(state),
+            None => false,
+        };
+        names_state
+            && when.iter().filter(|(k, _)| k.as_str() != "state").all(|(key, want)| match query.props.get(key) {
+                None => false,
+                Some(actual) => match want {
+                    Value::Array(list) => list.iter().any(|w| json::strict_eq(w, actual)),
+                    w => json::strict_eq(w, actual),
+                },
+            })
+    })
 }
 
 /// A part's concrete visuals for one mode (`theme-recipes.json` locks it).

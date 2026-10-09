@@ -1,0 +1,45 @@
+{
+  "$comment": "VAPP-91 sample: the ONE custom extension every sample host registers (catalog + a painter per platform). Not part of the SDK.",
+  "id": "https://ui.exponential.at/catalogs/sample/v1",
+  "name": "Sample extension",
+  "extends": "https://ui.exponential.at/catalogs/core/v1",
+  "components": {
+    "TrendLine": {
+      "kind": "native",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "A tiny line chart of recent readings.",
+      "props": {
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "required": true,
+          "bindable": true,
+          "description": "The readings, oldest first."
+        },
+        "color": {
+          "type": "color",
+          "description": "The line colour; the theme's primary when omitted."
+        },
+        "height": {
+          "type": "number",
+          "default": 48,
+          "description": "The chart height in points."
+        }
+      },
+      "example": {
+        "values": [
+          3,
+          5,
+          4,
+          8,
+          6,
+          9
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$comment": "VAPP-93: the home page demo of ui.exponential.at, in the nested authoring form. The site replays it as A2UI v0.9 messages (createSurface, then updateComponents in growing chunks, the answer an agent would stream for the prompt `How did last night's release go?`); generate.ts copies it into fixtures/specimens.json as `exponential-ui-demo`, so every renderer paints the same surface for the shots beside the replay.",
+  "id": "demo",
+  "component": "Box",
+  "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.lg", "padding": "$spacing.xl", "maxWidth": 560 },
+  "children": [
+    {
+      "id": "demo-card",
+      "component": "Card",
+      "props": { "title": "Release 0.18.84", "description": "Shipped 02:14 · 3 platforms" },
+      "children": [
+        {
+          "id": "demo-status",
+          "component": "Stack",
+          "props": { "direction": "horizontal", "gap": "sm", "align": "center" },
+          "children": [
+            { "id": "demo-badge", "component": "Badge", "props": { "text": "Healthy", "variant": "default", "icon": "check" } },
+            { "id": "demo-badge-2", "component": "Badge", "props": { "text": "0 incidents", "variant": "outline" } }
+          ]
+        },
+        { "id": "demo-row-errors", "component": "PropertyRow", "props": { "label": "Error rate", "value": "0.04 %" } },
+        { "id": "demo-row-p95", "component": "PropertyRow", "props": { "label": "p95 latency", "value": "182 ms" } },
+        { "id": "demo-rollout", "component": "Progress", "props": { "value": 80, "max": 100, "label": "Rollout", "tone": "primary" } },
+        {
+          "id": "demo-chart",
+          "component": "Chart",
+          "props": {
+            "kind": "line",
+            "title": "Requests per minute",
+            "height": 140,
+            "categories": ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00"],
+            "series": [{ "name": "Requests", "values": [420, 380, 510, 640, 590, 610, 700] }]
+          }
+        },
+        {
+          "id": "demo-actions",
+          "component": "Stack",
+          "props": { "direction": "horizontal", "gap": "sm", "justify": "end" },
+          "children": [
+            { "id": "demo-rollback", "component": "Button", "props": { "label": "Roll back", "variant": "outline" } },
+            { "id": "demo-promote", "component": "Button", "props": { "label": "Promote to 100 %", "variant": "default" } }
+          ]
+        }
+      ]
+    }
+  ]
+}

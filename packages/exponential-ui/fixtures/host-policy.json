@@ -1,0 +1,578 @@
+{
+  "$comment": "VAPP-91: the pure host rules (catalog/host.json functions, urls, media, sources, negotiation). Inputs hand-written; `expected` filled by the generator from src/host/{policy,sources,package}.ts.",
+  "functions": [
+    {
+      "name": "a built-in always runs",
+      "policy": {
+        "deny": [
+          "*"
+        ]
+      },
+      "fn": "formatDate",
+      "registered": false,
+      "expected": "allow"
+    },
+    {
+      "name": "openUrl is a built-in",
+      "fn": "openUrl",
+      "registered": false,
+      "expected": "allow"
+    },
+    {
+      "name": "an unregistered name",
+      "fn": "harness.mcp",
+      "registered": false,
+      "expected": "not_found"
+    },
+    {
+      "name": "registered, no policy = allow",
+      "fn": "harness.toast",
+      "registered": true,
+      "expected": "allow"
+    },
+    {
+      "name": "a prefix ask",
+      "policy": {
+        "ask": [
+          "harness.*"
+        ]
+      },
+      "fn": "harness.mcp",
+      "registered": true,
+      "expected": "ask"
+    },
+    {
+      "name": "allow beats ask",
+      "policy": {
+        "allow": [
+          "harness.toast"
+        ],
+        "ask": [
+          "harness.*"
+        ]
+      },
+      "fn": "harness.toast",
+      "registered": true,
+      "expected": "allow"
+    },
+    {
+      "name": "deny beats allow",
+      "policy": {
+        "allow": [
+          "harness.*"
+        ],
+        "deny": [
+          "harness.mcp"
+        ]
+      },
+      "fn": "harness.mcp",
+      "registered": true,
+      "expected": "deny"
+    },
+    {
+      "name": "the default when nothing matches",
+      "policy": {
+        "allow": [
+          "harness.toast"
+        ],
+        "default": "deny"
+      },
+      "fn": "harness.openIssue",
+      "registered": true,
+      "expected": "deny"
+    },
+    {
+      "name": "a package allowlist",
+      "policy": {
+        "allow": [
+          "harness.toast",
+          "acme.*"
+        ],
+        "default": "deny"
+      },
+      "fn": "acme.refresh",
+      "registered": true,
+      "expected": "allow"
+    },
+    {
+      "name": "a star alone matches everything",
+      "policy": {
+        "ask": [
+          "*"
+        ]
+      },
+      "fn": "x",
+      "registered": true,
+      "expected": "ask"
+    }
+  ],
+  "combine": [
+    {
+      "a": "allow",
+      "b": "allow",
+      "expected": "allow"
+    },
+    {
+      "a": "allow",
+      "b": "ask",
+      "expected": "ask"
+    },
+    {
+      "a": "allow",
+      "b": "deny",
+      "expected": "deny"
+    },
+    {
+      "a": "allow",
+      "b": "not_found",
+      "expected": "not_found"
+    },
+    {
+      "a": "ask",
+      "b": "allow",
+      "expected": "ask"
+    },
+    {
+      "a": "ask",
+      "b": "ask",
+      "expected": "ask"
+    },
+    {
+      "a": "ask",
+      "b": "deny",
+      "expected": "deny"
+    },
+    {
+      "a": "ask",
+      "b": "not_found",
+      "expected": "not_found"
+    },
+    {
+      "a": "deny",
+      "b": "allow",
+      "expected": "deny"
+    },
+    {
+      "a": "deny",
+      "b": "ask",
+      "expected": "deny"
+    },
+    {
+      "a": "deny",
+      "b": "deny",
+      "expected": "deny"
+    },
+    {
+      "a": "deny",
+      "b": "not_found",
+      "expected": "not_found"
+    },
+    {
+      "a": "not_found",
+      "b": "allow",
+      "expected": "not_found"
+    },
+    {
+      "a": "not_found",
+      "b": "ask",
+      "expected": "not_found"
+    },
+    {
+      "a": "not_found",
+      "b": "deny",
+      "expected": "not_found"
+    },
+    {
+      "a": "not_found",
+      "b": "not_found",
+      "expected": "not_found"
+    }
+  ],
+  "urls": [
+    {
+      "name": "https",
+      "url": "https://exponential.at/docs",
+      "expected": {
+        "allowed": true,
+        "url": "https://exponential.at/docs"
+      }
+    },
+    {
+      "name": "mailto",
+      "url": "mailto:hi@exponential.at",
+      "expected": {
+        "allowed": true,
+        "url": "mailto:hi@exponential.at"
+      }
+    },
+    {
+      "name": "javascript is never a default scheme",
+      "url": "javascript:alert(1)",
+      "expected": {
+        "allowed": false,
+        "url": "javascript:alert(1)",
+        "reason": "scheme"
+      }
+    },
+    {
+      "name": "data is not a default scheme",
+      "url": "data:text/html,hi",
+      "expected": {
+        "allowed": false,
+        "url": "data:text/html,hi",
+        "reason": "scheme"
+      }
+    },
+    {
+      "name": "file is not a default scheme",
+      "url": "file:///etc/passwd",
+      "expected": {
+        "allowed": false,
+        "url": "file:///etc/passwd",
+        "reason": "scheme"
+      }
+    },
+    {
+      "name": "upper-case scheme",
+      "url": "HTTPS://Example.com/A",
+      "expected": {
+        "allowed": true,
+        "url": "https://example.com/A"
+      }
+    },
+    {
+      "name": "relative without a base",
+      "url": "/api/attachments/a1",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    },
+    {
+      "name": "relative against the base",
+      "policy": {
+        "baseUrl": "https://app.exponential.at"
+      },
+      "url": "/api/attachments/a1",
+      "expected": {
+        "allowed": true,
+        "url": "https://app.exponential.at/api/attachments/a1"
+      }
+    },
+    {
+      "name": "a host allowlist",
+      "policy": {
+        "hosts": [
+          "exponential.at",
+          "*.exponential.at"
+        ]
+      },
+      "url": "https://ui.exponential.at/catalogs",
+      "expected": {
+        "allowed": true,
+        "url": "https://ui.exponential.at/catalogs"
+      }
+    },
+    {
+      "name": "outside the host allowlist",
+      "policy": {
+        "hosts": [
+          "exponential.at"
+        ]
+      },
+      "url": "https://evil.example/",
+      "expected": {
+        "allowed": false,
+        "url": "https://evil.example/",
+        "reason": "host"
+      }
+    },
+    {
+      "name": "a wildcard host does not match its apex",
+      "policy": {
+        "hosts": [
+          "*.exponential.at"
+        ]
+      },
+      "url": "https://exponential.at/",
+      "expected": {
+        "allowed": false,
+        "url": "https://exponential.at/",
+        "reason": "host"
+      }
+    },
+    {
+      "name": "hosts do not gate mailto",
+      "policy": {
+        "hosts": [
+          "exponential.at"
+        ]
+      },
+      "url": "mailto:a@b.c",
+      "expected": {
+        "allowed": true,
+        "url": "mailto:a@b.c"
+      }
+    },
+    {
+      "name": "a custom scheme list",
+      "policy": {
+        "schemes": [
+          "https",
+          "exponential"
+        ]
+      },
+      "url": "exponential://issue/EXP-1",
+      "expected": {
+        "allowed": true,
+        "url": "exponential://issue/EXP-1"
+      }
+    },
+    {
+      "name": "garbage",
+      "url": "::not a url",
+      "expected": {
+        "allowed": false,
+        "reason": "invalid"
+      }
+    }
+  ],
+  "media": [
+    {
+      "name": "relative attachment gets the bearer",
+      "options": {
+        "baseUrl": "https://app.exponential.at",
+        "rules": [
+          {
+            "prefix": "https://app.exponential.at/api/attachments/",
+            "headers": {
+              "authorization": "Bearer expu_test"
+            }
+          }
+        ]
+      },
+      "url": "/api/attachments/a1?poster=1",
+      "expected": {
+        "url": "https://app.exponential.at/api/attachments/a1?poster=1",
+        "headers": {
+          "authorization": "Bearer expu_test"
+        }
+      }
+    },
+    {
+      "name": "another origin gets nothing",
+      "options": {
+        "baseUrl": "https://app.exponential.at",
+        "rules": [
+          {
+            "prefix": "https://app.exponential.at/api/",
+            "headers": {
+              "authorization": "Bearer t"
+            }
+          }
+        ]
+      },
+      "url": "https://cdn.example/x.png",
+      "expected": {
+        "url": "https://cdn.example/x.png",
+        "headers": {}
+      }
+    },
+    {
+      "name": "later rules win per header",
+      "options": {
+        "rules": [
+          {
+            "prefix": "https://a.example/",
+            "headers": {
+              "x-a": "1",
+              "x-b": "1"
+            }
+          },
+          {
+            "prefix": "https://a.example/p/",
+            "headers": {
+              "x-b": "2"
+            }
+          }
+        ]
+      },
+      "url": "https://a.example/p/q.png",
+      "expected": {
+        "url": "https://a.example/p/q.png",
+        "headers": {
+          "x-a": "1",
+          "x-b": "2"
+        }
+      }
+    },
+    {
+      "name": "relative without a base",
+      "options": {},
+      "url": "x.png",
+      "expected": null
+    }
+  ],
+  "sources": [
+    {
+      "uri": "exp:issues?board=b1&limit=20",
+      "expected": {
+        "uri": "exp:issues?board=b1&limit=20",
+        "scheme": "exp",
+        "name": "issues",
+        "params": {
+          "board": "b1",
+          "limit": "20"
+        }
+      }
+    },
+    {
+      "uri": "exp:devices",
+      "expected": {
+        "uri": "exp:devices",
+        "scheme": "exp",
+        "name": "devices",
+        "params": {}
+      }
+    },
+    {
+      "uri": "EXP:Members?team=t%201",
+      "expected": {
+        "uri": "EXP:Members?team=t%201",
+        "scheme": "exp",
+        "name": "Members",
+        "params": {
+          "team": "t 1"
+        }
+      }
+    },
+    {
+      "uri": "exp:issues?q=a+b&q=c",
+      "expected": {
+        "uri": "exp:issues?q=a+b&q=c",
+        "scheme": "exp",
+        "name": "issues",
+        "params": {
+          "q": "c"
+        }
+      }
+    },
+    {
+      "uri": "exp:records?vapp=v1&kind=recipe&empty=&flag",
+      "expected": {
+        "uri": "exp:records?vapp=v1&kind=recipe&empty=&flag",
+        "scheme": "exp",
+        "name": "records",
+        "params": {
+          "empty": "",
+          "flag": "",
+          "kind": "recipe",
+          "vapp": "v1"
+        }
+      }
+    },
+    {
+      "uri": "acme.data:list/items?x=%E2%9C%93",
+      "expected": {
+        "uri": "acme.data:list/items?x=%E2%9C%93",
+        "scheme": "acme.data",
+        "name": "list/items",
+        "params": {
+          "x": "✓"
+        }
+      }
+    },
+    {
+      "uri": "exp:",
+      "expected": null
+    },
+    {
+      "uri": "noscheme",
+      "expected": null
+    },
+    {
+      "uri": "1exp:issues",
+      "expected": null
+    },
+    {
+      "uri": "exp:issues?bad=%zz",
+      "expected": {
+        "uri": "exp:issues?bad=%zz",
+        "scheme": "exp",
+        "name": "issues",
+        "params": {
+          "bad": "%zz"
+        }
+      }
+    }
+  ],
+  "negotiation": [
+    {
+      "extensionIds": [],
+      "expected": {
+        "supportedCatalogIds": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://ui.exponential.at/catalogs/core-lite/v1",
+          "https://a2ui.org/specification/v0_9/basic_catalog.json"
+        ],
+        "clientCapabilities": {
+          "v0.9": {
+            "supportedCatalogIds": [
+              "https://ui.exponential.at/catalogs/core/v1",
+              "https://ui.exponential.at/catalogs/core-lite/v1",
+              "https://a2ui.org/specification/v0_9/basic_catalog.json"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "extensionIds": [
+        "https://ui.exponential.at/catalogs/exponential-app/v1"
+      ],
+      "expected": {
+        "supportedCatalogIds": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://ui.exponential.at/catalogs/core-lite/v1",
+          "https://a2ui.org/specification/v0_9/basic_catalog.json",
+          "https://ui.exponential.at/catalogs/exponential-app/v1"
+        ],
+        "clientCapabilities": {
+          "v0.9": {
+            "supportedCatalogIds": [
+              "https://ui.exponential.at/catalogs/core/v1",
+              "https://ui.exponential.at/catalogs/core-lite/v1",
+              "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "https://ui.exponential.at/catalogs/exponential-app/v1"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "extensionIds": [
+        "https://acme.example/catalog/v1",
+        "https://acme.example/catalog/v1",
+        "https://ui.exponential.at/catalogs/core/v1"
+      ],
+      "expected": {
+        "supportedCatalogIds": [
+          "https://ui.exponential.at/catalogs/core/v1",
+          "https://ui.exponential.at/catalogs/core-lite/v1",
+          "https://a2ui.org/specification/v0_9/basic_catalog.json",
+          "https://acme.example/catalog/v1"
+        ],
+        "clientCapabilities": {
+          "v0.9": {
+            "supportedCatalogIds": [
+              "https://ui.exponential.at/catalogs/core/v1",
+              "https://ui.exponential.at/catalogs/core-lite/v1",
+              "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "https://acme.example/catalog/v1"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,342 @@
+{
+  "$comment": "The SwiftUI conformance RATCHET (packages/exponential-ui-swift/Tests/ExponentialUITests/RealFontConformanceTests.swift): per case, the divergence counts of the SwiftUI painter (SurfaceModel + the CoreText measurer, the conformance fonts only) against the web baseline (packages/exponential-ui/fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix with EXPONENTIAL_UI_WRITE_FIXTURES=1 swift test --filter RealFont. `onlyRef`/`onlyCand` = nodes only the web / only Swift placed (coverage, not compared).",
+  "renderer": "swiftui-coretext",
+  "cases": {
+    "kitchen-sink/exponential/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    }
+  }
+}

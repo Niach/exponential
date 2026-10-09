@@ -1,0 +1,54 @@
+{
+  "$comment": "Round 1 (docs/round-1-contract.md §3, CodeBlock): the BUILT-IN tokenizer every renderer mirrors so a CodeBlock colours the same on every platform (a host may still supply its own tokenizer; its kinds must be the `codeToken` enum). ONE scanner over the source (CRLF → LF), first rule that matches at the position wins: (1) `lineKinds` — at a line start (after spaces/tabs) a listed prefix makes the rest of the line that kind; (2) `lineComment` prefixes → comment to the end of the line; (3) `blockComment` [open, close] pairs → comment through close (or the end); (4) a quote in `strings` → string through the same unescaped quote (`\\` escapes the next char), stopping before a line break unless the quote is in `multiline`; with `keyStrings` a string followed by optional spaces and `:` is a `property`; (5) with `markup`, `<` followed by a letter, `/` or `!` opens a tag: `<`/`</` punctuation, the name `tag`, then whitespace plain, quotes string, `=` operator, names `attribute`, until `>`/`/>` punctuation (text outside tags is plain); (6) numbers (unless `numbers` is false): a digit, or `.` before a digit, then every [0-9A-Za-z_.]; (7) identifiers: [A-Za-z_$] plus `identExtra`, then the same plus digits: `keywords` (lower-cased first when `caseInsensitive`) → keyword; with `keyIdents` followed by spaces and a single `:` → property; followed by spaces and `(` → function; right after a `.` punctuation → property; in `typeNames` or (with `types: capitalized`) starting A–Z → type; else plain; (8) a run of spaces/tabs → plain; (9) a run of `operators` chars → operator; (10) one `punctuation` char → punctuation; (11) anything else, one char → plain. Then tokens split at line breaks into LINES and adjacent tokens of one kind merge; a line's tokens concatenate to exactly its text. src/code.ts is the reference, fixtures/code-tokens.json locks it.",
+  "defaults": { "operators": "+-*/%=&|<>!?^~:@#", "punctuation": "()[]{},.;" },
+  "languages": {
+    "plain": { "plain": true },
+    "json": { "strings": ["\""], "keywords": ["true", "false", "null"], "keyStrings": true },
+    "js": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\"", "'", "`"], "multiline": ["`"], "types": "capitalized",
+      "keywords": ["async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "false", "finally", "for", "from", "function", "if", "import", "in", "instanceof", "let", "new", "null", "of", "return", "static", "super", "switch", "this", "throw", "true", "try", "typeof", "undefined", "var", "void", "while", "with", "yield"]
+    },
+    "ts": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\"", "'", "`"], "multiline": ["`"], "types": "capitalized",
+      "typeNames": ["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"],
+      "keywords": ["abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "from", "function", "if", "implements", "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let", "namespace", "new", "null", "of", "private", "protected", "public", "readonly", "return", "satisfies", "static", "super", "switch", "this", "throw", "true", "try", "type", "typeof", "undefined", "var", "void", "while", "yield"]
+    },
+    "tsx": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\"", "'", "`"], "multiline": ["`"], "types": "capitalized",
+      "typeNames": ["any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "unknown"],
+      "keywords": ["abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "false", "finally", "for", "from", "function", "if", "implements", "import", "in", "infer", "instanceof", "interface", "is", "keyof", "let", "namespace", "new", "null", "of", "private", "protected", "public", "readonly", "return", "satisfies", "static", "super", "switch", "this", "throw", "true", "try", "type", "typeof", "undefined", "var", "void", "while", "yield"]
+    },
+    "rust": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\""], "multiline": ["\""], "types": "capitalized",
+      "typeNames": ["bool", "char", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize", "str", "u8", "u16", "u32", "u64", "u128", "usize"],
+      "keywords": ["as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while"]
+    },
+    "swift": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\""], "types": "capitalized",
+      "keywords": ["any", "as", "associatedtype", "async", "await", "break", "case", "catch", "class", "continue", "default", "defer", "do", "else", "enum", "extension", "fallthrough", "false", "for", "func", "guard", "if", "import", "in", "init", "inout", "internal", "is", "let", "nil", "private", "protocol", "public", "repeat", "rethrows", "return", "self", "Self", "some", "static", "struct", "subscript", "super", "switch", "throw", "throws", "true", "try", "typealias", "var", "where", "while"]
+    },
+    "kotlin": {
+      "lineComment": ["//"], "blockComment": [["/*", "*/"]], "strings": ["\"", "'"], "types": "capitalized",
+      "keywords": ["as", "break", "by", "catch", "class", "companion", "constructor", "continue", "data", "do", "else", "enum", "false", "finally", "for", "fun", "if", "import", "in", "init", "interface", "internal", "is", "lateinit", "null", "object", "open", "override", "package", "private", "protected", "public", "return", "sealed", "super", "suspend", "this", "throw", "true", "try", "typealias", "val", "var", "when", "while"]
+    },
+    "python": {
+      "lineComment": ["#"], "strings": ["\"", "'"], "types": "capitalized",
+      "keywords": ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "self", "try", "while", "with", "yield"]
+    },
+    "bash": {
+      "lineComment": ["#"], "strings": ["\"", "'"], "multiline": ["\"", "'"],
+      "keywords": ["case", "do", "done", "echo", "elif", "else", "esac", "exit", "export", "fi", "for", "function", "if", "in", "local", "readonly", "return", "then", "until", "while"]
+    },
+    "html": { "markup": true, "blockComment": [["<!--", "-->"]], "strings": ["\"", "'"], "numbers": false },
+    "css": {
+      "blockComment": [["/*", "*/"]], "strings": ["\"", "'"], "identExtra": "-@", "keyIdents": true, "operators": "+*/%=&|<>!?^~:#",
+      "keywords": ["@container", "@font-face", "@import", "@keyframes", "@layer", "@media", "@supports", "auto", "important", "inherit", "initial", "none", "unset"]
+    },
+    "sql": {
+      "lineComment": ["--"], "blockComment": [["/*", "*/"]], "strings": ["'", "\""], "caseInsensitive": true,
+      "keywords": ["all", "alter", "and", "as", "asc", "between", "by", "case", "create", "default", "delete", "desc", "distinct", "drop", "else", "end", "exists", "foreign", "from", "group", "having", "in", "index", "inner", "insert", "into", "is", "join", "key", "left", "like", "limit", "not", "null", "offset", "on", "or", "order", "outer", "primary", "references", "returning", "right", "select", "set", "table", "then", "union", "update", "values", "when", "where", "with"]
+    },
+    "yaml": { "lineComment": ["#"], "strings": ["\"", "'"], "keyIdents": true, "identExtra": "-", "keywords": ["true", "false", "null", "yes", "no"] },
+    "markdown": { "lineKinds": { "#": "keyword", ">": "comment" }, "strings": ["`"], "numbers": false, "operators": "", "punctuation": "" }
+  }
+}

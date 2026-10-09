@@ -1,5 +1,6 @@
 import ExpCore
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 // EXP-909: THE meter primitive. One bar shape draws every usage number the app
 // prints — the Usage overlay's rate-limit windows, its Context line, and the
@@ -26,17 +27,19 @@ public struct AgentUsageTrack: View {
         self.height = height
     }
 
+    /// SLOP-18 / VAPP-88: the SDK's `MeterTrack` with one capsule segment
+    /// (the used share keeps its round end), over the `strokeStrong` rail.
     public var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(GlassTokens.strokeStrong)
-                Capsule()
-                    .fill(ContextRing.tone(severity))
-                    .frame(width: geo.size.width * min(max((percent ?? 0) / 100, 0), 1))
-            }
-        }
-        .frame(height: height)
-        .accessibilityHidden(true)
+        MeterTrack(
+            segments: [MeterSegment(id: 0, fraction: Self.fraction(percent), color: ContextRing.tone(severity))],
+            height: height,
+            track: GlassTokens.strokeStrong,
+            capsuleSegments: true
+        )
+    }
+
+    /// The used share, 0…1 — an absent percentage draws an empty rail.
+    static func fraction(_ percent: Double?) -> Double {
+        min(max((percent ?? 0) / 100, 0), 1)
     }
 }
