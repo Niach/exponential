@@ -23,7 +23,7 @@
       "headers": {
         "Authorization": "Bearer ${EXPONENTIAL_API_KEY}"
       },
-      "requestTimeoutMs": 60000
+      "requestTimeoutMs": 660000
     }
   },
   "themes": [

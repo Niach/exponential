@@ -40,8 +40,11 @@ its tools appear as `exponential__exponential_*`.
 
 `exponential_sessions_start` hands an issue to a coding agent on one of the
 person's devices (`exponential_devices_list` names them and their agent
-accounts). The run opens a pull request; follow it with
-`exponential_sessions_get`.
+accounts). The run opens a pull request; follow it with ONE
+`exponential_sessions_get` call with `waitForIdle: true` and `timeoutS: 600`:
+it returns when the run's turn ends, it asks a question or it ends, so the
+person sees a single report view instead of one per poll. `timedOut: true`
+means it is still working; call it again the same way.
 
 ## Connection
 

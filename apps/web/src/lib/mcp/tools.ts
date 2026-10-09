@@ -660,11 +660,13 @@ function sleep(ms: number) {
 }
 
 // EXP-1216: sessions_get({waitForIdle}) re-reads the row this often, for at
-// most SESSION_WAIT_MAX_S (well inside Bun.serve's 255s idleTimeout,
-// server-bun.ts).
+// most SESSION_WAIT_MAX_S. FEED-83: the default stays under the common 60s
+// MCP client request timeout; a longer wait answers over SSE with keepalives
+// (routes/api/mcp.ts) so Bun.serve's 255s idleTimeout never fires, plus a
+// progress notification per poll when the client sent a progressToken.
 const SESSION_WAIT_POLL_MS = 2_000
-const SESSION_WAIT_DEFAULT_S = 60
-const SESSION_WAIT_MAX_S = 120
+export const SESSION_WAIT_DEFAULT_S = 45
+const SESSION_WAIT_MAX_S = 600
 // A run that reads idle on the FIRST read may simply not have picked up the
 // message the starter just sent (relay → device → turn start → setAgentBusy):
 // wait this long for the turn to start before calling it settled.
@@ -4464,7 +4466,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 60, max 120; a run idle at the call first gets 10s to start the turn your message began); answers waited + timedOut. What it said: exponential_sessions_messages.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 45, max 600: keep it under your client's request timeout, often 60s; a run idle at the call first gets 10s to start the turn your message began); answers waited + timedOut. What it said: exponential_sessions_messages.`,
       inputSchema: strictInput({
         id: uuidString,
         waitForIdle: z.boolean().optional(),
@@ -4477,7 +4479,7 @@ export function registerExponentialTools(
       }),
       _meta: appMeta(`run`),
     },
-    async ({ id, waitForIdle, timeoutS }) => {
+    async ({ id, waitForIdle, timeoutS }, extra) => {
       try {
         // `hostUserId` is read for the grant predicate only — it is a
         // server-only column and never reaches the response.
@@ -4529,8 +4531,26 @@ export function registerExponentialTools(
         let waited = false
         let timedOut = false
         if (waitForIdle) {
-          const deadline =
-            Date.now() + (timeoutS ?? SESSION_WAIT_DEFAULT_S) * 1000
+          const waitMs = (timeoutS ?? SESSION_WAIT_DEFAULT_S) * 1000
+          const startedAt = Date.now()
+          const deadline = startedAt + waitMs
+          // FEED-83: clients that reset their request timeout on progress
+          // (and asked for it with a progressToken) can wait the full max.
+          const progressToken = extra?._meta?.progressToken
+          const reportProgress = async () => {
+            if (progressToken === undefined) return
+            await extra
+              .sendNotification({
+                method: `notifications/progress`,
+                params: {
+                  progressToken,
+                  progress: Math.min(waitMs, Date.now() - startedAt) / 1000,
+                  total: waitMs / 1000,
+                  message: `Waiting for the run to settle`,
+                },
+              })
+              .catch(() => {})
+          }
           // Idle on the first read: the message just sent may not have
           // reached the agent yet. Give the turn a grace window to start
           // (agentBusy flips, or the row moves on) before trusting "idle".
@@ -4542,6 +4562,8 @@ export function registerExponentialTools(
               if (left <= 0) break
               await sleep(Math.min(SESSION_WAIT_POLL_MS, left))
               waited = true
+              if (extra?.signal?.aborted) throw new Error(`Request cancelled`)
+              await reportProgress()
               const next = await loadRow()
               if (!next) throw new Error(`Session not found`)
               row = next
@@ -4564,6 +4586,8 @@ export function registerExponentialTools(
             }
             await sleep(Math.min(SESSION_WAIT_POLL_MS, left))
             waited = true
+            if (extra?.signal?.aborted) throw new Error(`Request cancelled`)
+            await reportProgress()
             const next = await loadRow()
             if (!next) throw new Error(`Session not found`)
             row = next
