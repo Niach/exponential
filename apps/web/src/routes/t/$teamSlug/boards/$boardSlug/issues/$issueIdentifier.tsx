@@ -294,9 +294,9 @@ function IssueDetailPage() {
   const sectionPage = useMemo(
     () =>
       showGuide && search.section !== undefined
-        ? guideSectionPage(guideGroups, guideFiles, search.section)
+        ? guideSectionPage(guideGroups, guideFiles, search.section, hasRunResults)
         : null,
-    [showGuide, search.section, guideGroups, guideFiles]
+    [showGuide, search.section, guideGroups, guideFiles, hasRunResults]
   )
   // The file in focus on a section page: seeded by `?file=`, then the tree /
   // sheet / cards own it. The route is reused across issues, so issue B

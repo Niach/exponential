@@ -445,6 +445,8 @@ describe(`guideSectionPage`, () => {
   })
 
   it(`is null for a stale section or while the diff loads`, () => {
+    // The PR-body fallback is an unnumbered Guide: its page has no caption.
+    expect(guideSectionPage(groups, files, 2, false)?.caption).toBeNull()
     expect(guideSectionPage(groups, files, 7)).toBeNull()
     expect(guideSectionPage(groups, null, 1)).toBeNull()
     expect(guideSectionPage([{ topic: `Model`, files: [`a.ts`, `b.ts`, `c.ts`] }], files, `other`)).toBeNull()

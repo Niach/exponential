@@ -158,6 +158,9 @@ pub(crate) fn guide_page_view(
     groups: &[SessionResultGroup],
     diff: &[GuideDiffFile],
     page: GuidePage,
+    // The PR-body fallback (an unnumbered Guide): its page carries no
+    // `01 / 01` caption, as its band carries no number.
+    unnumbered: bool,
 ) -> Option<GuidePageView> {
     let coverage = guide_coverage(
         groups,
@@ -192,7 +195,7 @@ pub(crate) fn guide_page_view(
             .and_then(|section| {
                 section.changes.as_ref().map(|set| {
                     view(
-                        Some(guide_section_caption(section.index, section.total)),
+                        (!unnumbered).then(|| guide_section_caption(section.index, section.total)),
                         section.group.topic.clone(),
                         set,
                     )

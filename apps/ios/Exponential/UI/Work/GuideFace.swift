@@ -84,7 +84,10 @@ struct GuideFace<Merge: View>: View {
     var body: some View {
         let prGroup = prGroup
         let shown = prGroup.map { [$0] } ?? groups
-        if let section, let page = WorkFaces.guideSectionPage(shown, files: files, section: section) {
+        if let section,
+           let page = WorkFaces.guideSectionPage(
+               shown, files: files, section: section, numbered: prGroup == nil
+           ) {
             GuideSectionDiffView(
                 page: page,
                 truncatedLines: section == .all ? truncatedLines : nil,
@@ -201,6 +204,10 @@ private struct GuideBody: View {
                     VStack(alignment: .leading, spacing: 0) {
                         groupBody(lead.group, changes: lead.changes, key: .lead)
                     }
+                    // `.contain`: a bare identifier on a stack propagates to
+                    // every element inside and REPLACES theirs (the Changes
+                    // row lost `guide-changes-row`); a container keeps them.
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("guide-lead")
                 }
                 // By position: one topic can repeat.
@@ -223,6 +230,7 @@ private struct GuideBody: View {
                         groupBody(section.group, changes: section.changes, key: .section(section.index))
                             .padding(.top, 4)
                     }
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(
                         prBody ? "session-results-pr-body" : "guide-section-\(section.index)"
                     )
@@ -234,6 +242,7 @@ private struct GuideBody: View {
                         GuideChangesRow(changes: other.changes) { onOpen(.other) }
                             .padding(.top, 4)
                     }
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("guide-other-changes")
                 }
                 // No report: the one Changes section already is the whole diff.

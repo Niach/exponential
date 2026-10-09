@@ -438,10 +438,13 @@ public extension WorkFaces {
     /// same coverage the Guide's rows read, so a page never shows a file its
     /// row did not count. nil = no such section (a stale link) or no diff
     /// loaded.
+    /// `numbered` false = the PR-body fallback (an unnumbered Guide): its
+    /// page carries no `01 / 01` caption, as its band carries no number.
     static func guideSectionPage(
         _ groups: [SessionResultGroup],
         files: [Diff.File]?,
-        section: GuideSectionKey
+        section: GuideSectionKey,
+        numbered: Bool = true
     ) -> GuideSectionPage? {
         guard let files else { return nil }
         let coverage = guideCoverage(groups, files)
@@ -462,7 +465,9 @@ public extension WorkFaces {
             return page(lead.group.topic, nil, lead.changes)
         case let .section(index):
             guard let hit = coverage.sections.first(where: { $0.index == index }) else { return nil }
-            return page(hit.group.topic, guideSectionCaption(hit.index, hit.total), hit.changes)
+            return page(
+                hit.group.topic, numbered ? guideSectionCaption(hit.index, hit.total) : nil, hit.changes
+            )
         }
     }
 

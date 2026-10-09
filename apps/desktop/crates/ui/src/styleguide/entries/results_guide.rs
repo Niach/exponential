@@ -117,7 +117,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
         },
         cx,
     );
-    let view = guide_page_view(&groups(), &guide_diff_files(&loaded()), GuidePage::Section(1))
+    let view = guide_page_view(&groups(), &guide_diff_files(&loaded()), GuidePage::Section(1), false)
         .expect("section 1 names loaded files");
     let back = crate::session_results::guide_page_header(&view, std::rc::Rc::new(|_, _| {}), cx);
     let fallback = pr_body_block(
@@ -169,7 +169,7 @@ mod tests {
         let (title, other) = coverage.other.as_ref().unwrap();
         assert_eq!((*title, other.file_count()), ("Other changes", 1));
         assert_eq!(coverage.complete.as_ref().unwrap().file_count(), 3);
-        let page = guide_page_view(&groups, &diff, GuidePage::Section(2)).unwrap();
+        let page = guide_page_view(&groups, &diff, GuidePage::Section(2), false).unwrap();
         assert_eq!(page.caption.as_deref(), Some("02 / 02"));
         assert_eq!(page.paths, vec!["apps/desktop/crates/ui/src/session_results.rs"]);
         let issues = stack();

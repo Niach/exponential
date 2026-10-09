@@ -3003,12 +3003,14 @@ impl SteerSessionView {
             &groups,
             &crate::session_results::guide_diff_files(&all),
             page,
+            false,
         )
         .or_else(|| {
             crate::session_results::guide_page_view(
                 &groups,
                 &crate::session_results::guide_diff_files(&all),
                 crate::session_results::GuidePage::All,
+                false,
             )
         })?;
         let filtered = page != crate::session_results::GuidePage::All;

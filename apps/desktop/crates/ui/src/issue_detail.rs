@@ -775,7 +775,7 @@ impl IssueDetailView {
         // A diff page: the back row over the pane, filtered to the page.
         if let (Some(page), Some(changes), Some(files)) = (self.guide_page, changes.as_ref(), diff.as_ref()) {
             let diff_files = crate::session_results::guide_diff_files(files);
-            match crate::session_results::guide_page_view(&groups, &diff_files, page) {
+            match crate::session_results::guide_page_view(&groups, &diff_files, page, unnumbered) {
                 Some(view) => {
                     let paths = (page != crate::session_results::GuidePage::All).then(|| view.paths.clone());
                     changes.update(cx, |pane, cx| pane.set_paths(paths, cx));

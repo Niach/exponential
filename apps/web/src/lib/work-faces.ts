@@ -156,7 +156,10 @@ export function guideSectionPage<
 >(
   groups: readonly G[],
   files: readonly F[] | null | undefined,
-  section: GuideSectionKey
+  section: GuideSectionKey,
+  /** False for the PR-body fallback (an unnumbered Guide): no `01 / 01`
+   *  caption on its page, as its band carries no number. */
+  numbered = true
 ): GuideSectionPage<F> | null {
   if (!files) return null
   const coverage = guideCoverage(groups, files)
@@ -177,7 +180,11 @@ export function guideSectionPage<
   }
   const hit = coverage.sections.find((entry) => entry.index === section)
   return hit
-    ? page(hit.group.topic, guideSectionCaption(hit.index, hit.total), hit.changes)
+    ? page(
+        hit.group.topic,
+        numbered ? guideSectionCaption(hit.index, hit.total) : null,
+        hit.changes
+      )
     : null
 }
 
