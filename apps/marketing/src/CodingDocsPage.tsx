@@ -551,9 +551,9 @@ export function CodingDocsPage() {
             </p>
 
             <DocShot
-              view="review-diff"
+              view="guide"
               platform="desktop"
-              caption="A PR's diff in the desktop IDE, with Merge in its header"
+              caption="A PR's Guide in the desktop IDE: the sections, a Changes row each, Merge in the header"
             />
           </DocsSection>
 
