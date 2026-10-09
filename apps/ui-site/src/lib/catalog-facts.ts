@@ -13,7 +13,7 @@ export const NATIVE_COUNT = 44
 export const MACRO_COUNT = 26
 /** Built-in functions: the A2UI basic 14 plus the core ones. */
 export const BASIC_FUNCTION_COUNT = 14
-export const FUNCTION_COUNT = 31
+export const FUNCTION_COUNT = 32
 
 /** A component's page: its slug is its name in kebab case (`AlertDialog` → `alert-dialog`). */
 export const componentSlugOf = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()

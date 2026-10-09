@@ -122,7 +122,7 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   if (!action) return undefined
   const base = resolveContextOf(ctx, scope)
   const rctx: ResolveContext = payload ? { ...base, data: withOwnWrites(ctx.data, node.props, payload, scope ? { base: scope } : {}) } : base
-  const fn = (action as { functionCall?: { call: string; args?: Record<string, unknown> } }).functionCall ?? action.function
+  const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   let pending: unknown

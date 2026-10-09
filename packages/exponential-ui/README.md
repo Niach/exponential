@@ -162,6 +162,17 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   The template language is documented in `macros.json`'s `$comment` and
   implemented in `expr.ts` (pure, line-by-line mirrorable in Rust).
 - `validateProps(def, props)` — the mini schema (`types.ts` `PropSchema`).
+- Round 4 (VAPP-103, `fixtures/round4-contract.json`): `validateNode(node)`
+  (the reducer runs it on every authored node: the node's style, every
+  function its props / `visible` / actions call — a catalog function or a
+  namespaced host function, `isCallableName` — and a Table's slot columns);
+  colours in a node are `$color.*` tokens only; the core function
+  `filter{items, query?, fields?, where?}`; `withOwnWrites` (an action's
+  context resolves AFTER the component's own write) and
+  `submitClosesOverlay` (a valid Form submit closes the Dialog/Drawer around
+  it); `themeOrDefault` (never throws: the default theme + the issues); a
+  theme must name `$schema` = `THEME_SCHEMA_ID`; an action's function is
+  `functionCall` only (no legacy `function` key).
 - `validateStyle` / `create` / `props` — the VAPP-4 `vapp-css` over the whitelist.
 - `defineExtension(def)` — an extension catalog: own id, `extends` the core,
   components (+ macro templates), no core name shadowed.
@@ -270,6 +281,7 @@ so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 | `virtual-list.json` | round 2: the one-axis window, scrollToIndex, sections, the sticky header |
 | `animations.json` | round 2: timing + sampled frames of every `animation` per built-in theme, reduced motion, the CSS @keyframes |
 | `bench-list.json` | round 2: the 100,000-row List every renderer benches (numbers in each renderer's README) |
+| `round4-contract.json` | round 4 (VAPP-103): authored trees → the validator's issues; `filter` args → items; an Input/Switch change → the data + the action context after the own write; a Form submit → which Dialog/Drawer closes |
 | `conformance-known.json` | the gpui ratchet + round 2's 53 divergence decisions (`causes`, `rules`) |
 
 ## Commands

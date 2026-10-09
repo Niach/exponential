@@ -421,7 +421,7 @@ cd packages/exponential-ui-compose
         <>
           <p>
             A surface calls a function with <code>{`{"functionCall": {"call": "cart.add", "args": {…}}}`}</code> on
-            an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name must be registered, and passes the gate
+            an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name is namespaced (<code>cart.add</code>), must be registered, and passes the gate
             first: <strong>deny</strong> wins, then <strong>allow</strong>, then <strong>ask</strong> (your{` `}
             <code>onFunctionCall</code> consent hook), then <code>default</code>. Patterns are exact names or prefixes
             ending in <code>*</code>. A function may be async; the button stays pending until it settles.

@@ -5745,7 +5745,7 @@
             },
             "dot": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$",
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$",
               "description": "A colour dot before the text (a label chip)."
             },
             "icon": {
@@ -12323,7 +12323,7 @@
       ]
     },
     "ActionFunctionCall": {
-      "description": "A function an action runs: a catalog function (built in) or a host function (any other name; the host registers it and its policy gates it, catalog/host.json).",
+      "description": "A function an action runs: a catalog function (built in) or a host function (namespaced, `app.toast`; the host registers it and its policy gates it, catalog/host.json).",
       "type": "object",
       "properties": {
         "call": {
@@ -12376,7 +12376,7 @@
       ]
     },
     "Action": {
-      "description": "A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched. `functionCall` = A2UI's key; `function` = the legacy one (`functionCall` wins when both are present).",
+      "description": "A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched. `functionCall` = A2UI's key, the only one (round 4: no legacy `function`).",
       "type": "object",
       "properties": {
         "event": {
@@ -12395,9 +12395,6 @@
         },
         "functionCall": {
           "$ref": "#/$defs/ActionFunctionCall"
-        },
-        "function": {
-          "$ref": "#/$defs/ActionFunctionCall"
         }
       },
       "anyOf": [
@@ -12409,11 +12406,6 @@
         {
           "required": [
             "functionCall"
-          ]
-        },
-        {
-          "required": [
-            "function"
           ]
         }
       ],
@@ -13008,7 +13000,7 @@
         },
         "backgroundColor": {
           "type": "string",
-          "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
         },
         "backgroundGradient": {
           "type": "object",
@@ -13024,7 +13016,7 @@
                 "properties": {
                   "color": {
                     "type": "string",
-                    "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+                    "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
                   },
                   "offset": {
                     "type": "number",
@@ -13048,7 +13040,7 @@
         },
         "color": {
           "type": "string",
-          "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
         },
         "borderWidth": {
           "oneOf": [
@@ -13107,7 +13099,7 @@
         },
         "borderColor": {
           "type": "string",
-          "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+          "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
         },
         "borderStyle": {
           "enum": [
@@ -13917,7 +13909,7 @@
             },
             "backgroundColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "backgroundGradient": {
               "type": "object",
@@ -13933,7 +13925,7 @@
                     "properties": {
                       "color": {
                         "type": "string",
-                        "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+                        "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
                       },
                       "offset": {
                         "type": "number",
@@ -13957,7 +13949,7 @@
             },
             "color": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderWidth": {
               "oneOf": [
@@ -14016,7 +14008,7 @@
             },
             "borderColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderStyle": {
               "enum": [
@@ -14829,7 +14821,7 @@
             },
             "backgroundColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "backgroundGradient": {
               "type": "object",
@@ -14845,7 +14837,7 @@
                     "properties": {
                       "color": {
                         "type": "string",
-                        "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+                        "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
                       },
                       "offset": {
                         "type": "number",
@@ -14869,7 +14861,7 @@
             },
             "color": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderWidth": {
               "oneOf": [
@@ -14928,7 +14920,7 @@
             },
             "borderColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderStyle": {
               "enum": [
@@ -15741,7 +15733,7 @@
             },
             "backgroundColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "backgroundGradient": {
               "type": "object",
@@ -15757,7 +15749,7 @@
                     "properties": {
                       "color": {
                         "type": "string",
-                        "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+                        "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
                       },
                       "offset": {
                         "type": "number",
@@ -15781,7 +15773,7 @@
             },
             "color": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderWidth": {
               "oneOf": [
@@ -15840,7 +15832,7 @@
             },
             "borderColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderStyle": {
               "enum": [
@@ -16655,7 +16647,7 @@
             },
             "backgroundColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "backgroundGradient": {
               "type": "object",
@@ -16671,7 +16663,7 @@
                     "properties": {
                       "color": {
                         "type": "string",
-                        "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+                        "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
                       },
                       "offset": {
                         "type": "number",
@@ -16695,7 +16687,7 @@
             },
             "color": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderWidth": {
               "oneOf": [
@@ -16754,7 +16746,7 @@
             },
             "borderColor": {
               "type": "string",
-              "pattern": "^(#[0-9a-fA-F]{3,8}|\\$color\\.[a-zA-Z0-9]+)$"
+              "pattern": "^\\$color\\.[a-zA-Z0-9]+$"
             },
             "borderStyle": {
               "enum": [

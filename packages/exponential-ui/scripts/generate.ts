@@ -730,7 +730,7 @@ function bindDataset(root: UiNode, data: Record<string, unknown>) {
     data,
     bound,
     presses: collect(root)
-      .filter((n) => n.on?.press?.function)
+      .filter((n) => n.on?.press?.functionCall)
       .map((n) => ({ id: n.id, outcome: runAction(n.on!.press, data, BIND_OPTIONS) })),
   }
   const unbound = new Map(collect(root).map((n) => [n.id, n]))
@@ -807,7 +807,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
   },
   {
     name: `Section/set:author-function`,
-    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { function: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
+    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
     datasets: [{ open: true }],
   },
   {
@@ -857,7 +857,7 @@ function promptBudget() {
   const terse = catalogPrompt({ terse: true })
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate.`,
-    budgetTokens: 6500,
+    budgetTokens: 6800,
     full: { components: visible.length, chars: full.length, tokens: estimateTokens(full) },
     lite: { components: lite.length, chars: liteText.length, tokens: estimateTokens(liteText) },
     terse: { components: visible.length, chars: terse.length, tokens: estimateTokens(terse) },

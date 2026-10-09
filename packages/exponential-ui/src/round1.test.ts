@@ -79,8 +79,8 @@ describe(`bound macro inputs (§1)`, () => {
   test(`$set: a bound prop gets the write-back, the author's event keeps its routed context`, () => {
     const withHandler = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, on: { change: { event: { name: `toggled` } } } })
     const press = byId(withHandler, `c.trigger`)!.on!.press as Action
-    expect(Object.keys(press)).toEqual([`event`, `function`])
-    expect(press.function).toEqual({ call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } })
+    expect(Object.keys(press)).toEqual([`event`, `functionCall`])
+    expect(press.functionCall).toEqual({ call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } })
     const outcome = runAction(press, { open: false })
     expect(outcome.data).toEqual({ open: true })
     expect(outcome.event).toEqual({ name: `toggled`, context: { open: true } })

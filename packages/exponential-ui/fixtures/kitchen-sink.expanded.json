@@ -3122,7 +3122,7 @@
                     },
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/ui/advancedOpen",
@@ -3256,7 +3256,7 @@
                             }
                           }
                         },
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/ui/page",
@@ -3403,7 +3403,7 @@
                             }
                           }
                         },
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/ui/page",
@@ -6165,7 +6165,7 @@
                     },
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/ui/discardOpen",
@@ -6198,7 +6198,7 @@
                         "event": {
                           "name": "discard"
                         },
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/ui/discardOpen",
@@ -8046,7 +8046,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/form/rating",
@@ -8154,7 +8154,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/form/rating",
@@ -8262,7 +8262,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/form/rating",
@@ -8370,7 +8370,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/form/rating",
@@ -8478,7 +8478,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/form/rating",

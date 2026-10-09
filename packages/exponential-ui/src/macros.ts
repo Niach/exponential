@@ -232,9 +232,8 @@ function buildNode(
       const bound = exp.baseProps[spec.prop]
       if (!isBinding(bound)) continue
       const on = (node.on ??= {})
-      if (on[partEvent]?.functionCall ?? on[partEvent]?.function) {
-        // An Action carries ONE function (`functionCall`, or the legacy
-        // `function` key): the author's routed function call
+      if (on[partEvent]?.functionCall) {
+        // An Action carries ONE `functionCall`: the author's routed function call
         // wins and the bound prop is not written back (reported, never lost
         // silently). Route an `event` to keep the two-way write.
         const macroEvent = tpl.$on?.[partEvent] ?? partEvent
@@ -243,7 +242,7 @@ function buildNode(
         continue
       }
       const value = evalValue(spec.value, ctx)
-      on[partEvent] = { ...(on[partEvent] ?? {}), function: { call: `set`, args: value === undefined ? { path: bound.path } : { path: bound.path, value } } }
+      on[partEvent] = { ...(on[partEvent] ?? {}), functionCall: { call: `set`, args: value === undefined ? { path: bound.path } : { path: bound.path, value } } }
     }
   }
   if (tpl.$a11y) {

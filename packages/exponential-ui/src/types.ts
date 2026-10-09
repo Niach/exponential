@@ -158,10 +158,8 @@ export interface FunctionCall {
  *  function, then dispatches the event. */
 export interface Action {
   event?: { name: string; context?: Record<string, unknown> }
-  /** A2UI v0.9's client function action. */
+  /** A2UI v0.9's client function action (round 4: the ONLY key). */
   functionCall?: FunctionCall
-  /** The legacy key the core also reads. */
-  function?: FunctionCall
 }
 
 /** A data-driven child list: one `component` per item at `path`; `key` = a

@@ -31,7 +31,10 @@ describe(`catalog prompt`, () => {
       expect(full).toContain(`\n${name}: ${def.description}`)
       for (const prop of Object.keys(def.props)) expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
     }
-    expect(full).toContain(`Functions (client-side`)
+    // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.
+    for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app.toast`])
+      expect(full, needle).toContain(needle)
+    for (const name of coreCatalog.functions.names) expect(full, name).toMatch(new RegExp(`[ (]${name}\\(`))
   })
 
   test(`the lite prompt drops overlays, media, Chart, data tables and the rarer controls`, () => {

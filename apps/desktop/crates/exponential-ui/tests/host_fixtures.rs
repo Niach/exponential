@@ -156,10 +156,12 @@ fn a_host_function_call_fires_function_call_with_the_resolved_args() {
     let call = events.iter().find(|e| matches!(e, OutEvent::FunctionCall { .. })).expect("a FunctionCall");
     assert_eq!(call, &OutEvent::FunctionCall { component_id: "b".into(), name: "harness.toast".into(), args: json!({"message": "hi", "n": 2}) });
     assert_eq!(serde_json::to_value(call).unwrap(), json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi", "n": 2}}));
-    // No args = `{}`; the legacy `function` key works the same.
-    let (mut surface, b) = button_surface(json!({"function": {"call": "acme.refresh"}}));
+    // No args = `{}`; a legacy `function` key is not an action (round 4).
+    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "acme.refresh"}}));
     let events = surface.event(b, "press", None);
     assert!(events.contains(&OutEvent::FunctionCall { component_id: "b".into(), name: "acme.refresh".into(), args: json!({}) }));
+    let (mut surface, b) = button_surface(json!({"function": {"call": "acme.refresh"}}));
+    assert!(!surface.event(b, "press", None).iter().any(|e| matches!(e, OutEvent::FunctionCall { .. })));
 }
 
 #[test]

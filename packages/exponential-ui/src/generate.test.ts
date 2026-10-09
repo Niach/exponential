@@ -70,10 +70,10 @@ describe(`generated outputs (VAPP-85)`, () => {
 describe(`core.schema.json actions (VAPP-99)`, () => {
   const schema = JSON.parse(readFileSync(join(pkgRoot, `catalog/core.schema.json`), `utf8`)) as { $defs: Record<string, Record<string, unknown>> }
 
-  test(`an Action takes A2UI's functionCall beside the legacy function key`, () => {
+  test(`an Action takes A2UI's functionCall, never a legacy function key (round 4)`, () => {
     const action = schema.$defs.Action as { properties: Record<string, unknown>; anyOf: unknown[] }
     expect(action.properties.functionCall).toEqual({ $ref: `#/$defs/ActionFunctionCall` })
-    expect(action.properties.function).toEqual({ $ref: `#/$defs/ActionFunctionCall` })
+    expect(action.properties.function).toBeUndefined()
     expect(action.anyOf).toContainEqual({ required: [`functionCall`] })
   })
 

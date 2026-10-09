@@ -15780,7 +15780,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/open",
@@ -15899,7 +15899,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -16019,7 +16019,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -17338,7 +17338,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -17368,7 +17368,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -17753,7 +17753,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -17861,7 +17861,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -17969,7 +17969,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -18077,7 +18077,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -18185,7 +18185,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",

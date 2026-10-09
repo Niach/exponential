@@ -282,8 +282,8 @@ describe(`Exponential UI conformance: @exponential-at/ui-react`, () => {
     const press = (node: UiNode, data: unknown) => {
       let out = data as DataModel
       let call: { call: string; args: Record<string, unknown> } | undefined
-      const fn = (node.on?.press as { functionCall?: { call: string }; function?: { call: string } } | undefined)
-      const name = (fn?.functionCall ?? fn?.function)?.call
+      const fn = node.on?.press as { functionCall?: { call: string } } | undefined
+      const name = fn?.functionCall?.call
       const functions = Object.fromEntries(Object.entries(CLIENT_FUNCTIONS).map(([k, f]) => [k, (args: Record<string, unknown>, c: ResolveContext) => {
         if (k === name) call = { call: k, args }
         return f(args, { ...c, openUrl: () => {} })

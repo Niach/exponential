@@ -332,7 +332,7 @@ mod tests {
             v(json!({"width": "12em"})),
             vec![StyleIssue { path: "style.width".into(), message: "width: expected px, \"N%\", \"auto\" or a numeric token".into() }]
         );
-        assert!(v(json!({"color": "$spacing.md"}))[0].message.contains("#hex or $color"));
+        assert_eq!(v(json!({"color": "$spacing.md"}))[0].message, "color: expected $color.<name>");
         assert_eq!(v(json!({"gap": "$spacing.huge"})).len(), 1);
         assert!(v(json!({"display": "inline"}))[0].message.contains("expected one of"));
         assert_eq!(v(json!({"zIndex": 2})), vec![StyleIssue { path: "style.zIndex".into(), message: "not in the Box style whitelist".into() }]);

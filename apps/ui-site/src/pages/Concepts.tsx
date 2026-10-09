@@ -172,8 +172,8 @@ export default function ConceptsPage({ path }: PageProps) {
           <p>
             A <strong>function call</strong> runs on the client. {FUNCTION_COUNT} functions are built in on every
             renderer: the {BASIC_FUNCTION_COUNT} A2UI basic ones (checks, formatting, <code>openUrl</code>,{` `}
-            <code>and</code>/<code>or</code>/<code>not</code>) and the core ones (value functions, <code>set</code>).
-            A host can register its own behind a policy gate (see{` `}
+            <code>and</code>/<code>or</code>/<code>not</code>) and the core ones (value functions, <code>filter</code>,{` `}
+            <code>set</code>). A host can register its own, always namespaced (<code>app.toast</code>), behind a policy gate (see{` `}
             <a href="#host-plugins">host plugins</a>):
           </p>
           <DocsCode language="json">{FUNCTION_CALL}</DocsCode>

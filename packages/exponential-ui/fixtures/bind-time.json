@@ -2489,7 +2489,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/open",
@@ -2618,7 +2618,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -2759,7 +2759,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -2870,7 +2870,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -2974,7 +2974,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -3094,7 +3094,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -3165,7 +3165,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -3232,7 +3232,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -3326,7 +3326,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -3393,7 +3393,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -3485,7 +3485,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -3552,7 +3552,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -5984,7 +5984,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -6014,7 +6014,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/open",
@@ -6085,7 +6085,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -6115,7 +6115,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -6218,7 +6218,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -6248,7 +6248,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -6348,7 +6348,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -6378,7 +6378,7 @@
                     "children": [],
                     "on": {
                       "press": {
-                        "function": {
+                        "functionCall": {
                           "call": "set",
                           "args": {
                             "path": "/open",
@@ -7480,7 +7480,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -7588,7 +7588,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -7696,7 +7696,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -7804,7 +7804,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -7912,7 +7912,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/value",
@@ -8013,7 +8013,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8070,7 +8070,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8127,7 +8127,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8184,7 +8184,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8241,7 +8241,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8370,7 +8370,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8427,7 +8427,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8484,7 +8484,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8541,7 +8541,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8598,7 +8598,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8725,7 +8725,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8782,7 +8782,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8839,7 +8839,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8896,7 +8896,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -8953,7 +8953,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/value",
@@ -12205,7 +12205,7 @@
         },
         "on": {
           "change": {
-            "function": {
+            "functionCall": {
               "call": "openUrl",
               "args": {
                 "url": "https://example.com"
@@ -12329,7 +12329,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "openUrl",
                   "args": {
                     "url": "https://example.com"
@@ -12572,7 +12572,7 @@
                 },
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "openUrl",
                       "args": {
                         "url": "https://example.com"
@@ -12784,7 +12784,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -12904,7 +12904,7 @@
             },
             "on": {
               "press": {
-                "function": {
+                "functionCall": {
                   "call": "set",
                   "args": {
                     "path": "/page",
@@ -12976,7 +12976,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13043,7 +13043,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13137,7 +13137,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13204,7 +13204,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13298,7 +13298,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13365,7 +13365,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13457,7 +13457,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
@@ -13524,7 +13524,7 @@
                 "children": [],
                 "on": {
                   "press": {
-                    "function": {
+                    "functionCall": {
                       "call": "set",
                       "args": {
                         "path": "/page",
