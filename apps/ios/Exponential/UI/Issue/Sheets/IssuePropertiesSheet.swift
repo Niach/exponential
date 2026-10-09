@@ -85,12 +85,26 @@ struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
                     if !singleMemberTeam {
                         GlassDivider()
 
-                        GlassMetaRow(
-                            label: "Assignee",
-                            icon: issue.assigneeId == nil ? AppIcons.uiUnassigned : AppIcons.uiAssignee,
-                            iconColor: .white.opacity(TextOpacity.secondary),
-                            value: issue.assigneeId.map { memberDisplayName(assignee, id: $0) } ?? "Unassigned"
-                        ) { activeChild = .assignee }
+                        // P55: a set assignee leads with the member's
+                        // avatar, as every chip does; the empty state keeps
+                        // the unassigned glyph.
+                        if let assigneeId = issue.assigneeId {
+                            GlassMetaRow(
+                                label: "Assignee",
+                                value: memberDisplayName(assignee, id: assigneeId)
+                            ) {
+                                UserAvatar(user: assignee, id: assigneeId, size: 16)
+                            } action: {
+                                activeChild = .assignee
+                            }
+                        } else {
+                            GlassMetaRow(
+                                label: "Assignee",
+                                icon: AppIcons.uiUnassigned,
+                                iconColor: .white.opacity(TextOpacity.secondary),
+                                value: "Unassigned"
+                            ) { activeChild = .assignee }
+                        }
                     }
 
                     GlassDivider()

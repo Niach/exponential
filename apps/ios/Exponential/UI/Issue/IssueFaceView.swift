@@ -220,6 +220,9 @@ struct IssueFaceView: View {
                     singleMemberTeam: vm.singleMemberTeam,
                     estimationType: vm.estimationType,
                     isModerator: vm.permissions.isModerator,
+                    // P46: the face wears the board chip too (web/desktop),
+                    // last; a tap opens the move-board picker.
+                    board: vm.board,
                     onTapProperty: { directChild = $0 },
                     onOpenProperties: { activeSheet = .properties }
                 )

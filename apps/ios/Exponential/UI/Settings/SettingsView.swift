@@ -147,7 +147,7 @@ struct SettingsView: View {
                 Text("No teams synced yet.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 12)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { group in
@@ -167,7 +167,7 @@ struct SettingsView: View {
                 Text(group.hostname)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 12)
             }
 
             VStack(spacing: 0) {
@@ -221,12 +221,13 @@ struct SettingsView: View {
         }
     }
 
-    /// EXP-698: the header is the ONE shared `GlassSectionHeader` (which
-    /// carries its own bottom inset), so the stack only owns the content gap.
+    /// The filled group band (`GlassSectionBand`) over each section — the
+    /// team/account screens' and Android's settings root idiom. The band
+    /// carries its own 4pt bottom inset; the stack adds the rest of the gap.
     @ViewBuilder
     private func sectionStack<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionHeader(title)
+        VStack(alignment: .leading, spacing: 4) {
+            GlassSectionBand(title)
             content()
         }
     }

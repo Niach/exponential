@@ -332,8 +332,6 @@ struct DeviceSettingsSheet: View {
                     }
                 }
             }
-        } header: {
-            GlassSectionHeader("Name")
         }
         .listRowBackground(glassFormRowFill)
     }

@@ -288,7 +288,9 @@ private struct GuideBody: View {
         _ group: SessionResultGroup, changes: GuideChangeSet?, key: GuideSectionKey
     ) -> some View {
         if let text = group.text {
-            AgentMarkdownText(text: text, context: markdownContext)
+            AgentMarkdownText(
+                text: text, context: markdownContext, overrides: AgentMarkdownText.guideReport
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 4)
         }

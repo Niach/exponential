@@ -114,7 +114,7 @@ struct ReviewsListContent: View {
                 ForEach(snapshot.runs) { group in
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand("Agent runs") {
-                            AppIcon(AppIcons.navActions, size: 13)
+                            AppIcon(AppIcons.prOpen, size: 13)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         } trailing: {
                             bandCaption(multiTeam ? group.team.name : ReviewsQueue.runBandCaption)

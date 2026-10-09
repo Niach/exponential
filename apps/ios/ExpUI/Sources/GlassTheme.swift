@@ -211,17 +211,21 @@ extension GlassSectionHeader where Trailing == EmptyView {
 public struct GlassSectionBand<Leading: View, Trailing: View>: View {
     let title: String
     let count: Int?
+    /// The Danger zone band ×4: the same fill, the label in the app's red.
+    let danger: Bool
     let leading: Leading
     let trailing: Trailing
 
     public init(
         _ title: String,
         count: Int? = nil,
+        danger: Bool = false,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
         self.count = count
+        self.danger = danger
         self.leading = leading()
         self.trailing = trailing()
     }
@@ -235,7 +239,7 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
                 // (`text-foreground/85`) and desktop (`foreground.opacity(0.85)`)
                 // paint their band label with, brighter than a plain header's
                 // `TextOpacity.secondary` because the fill sits behind it.
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(danger ? DesignTokens.Palette.destructive : Color.white.opacity(0.85))
                 .lineLimit(1)
             if let count {
                 Text("\(count)")
@@ -257,8 +261,8 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
 }
 
 extension GlassSectionBand where Leading == EmptyView, Trailing == EmptyView {
-    public init(_ title: String, count: Int? = nil) {
-        self.init(title, count: count) { EmptyView() } trailing: { EmptyView() }
+    public init(_ title: String, count: Int? = nil, danger: Bool = false) {
+        self.init(title, count: count, danger: danger) { EmptyView() } trailing: { EmptyView() }
     }
 }
 

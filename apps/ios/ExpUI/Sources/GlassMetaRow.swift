@@ -28,7 +28,26 @@ public struct GlassMetaRow: View {
     let icon: String
     let iconColor: Color
     let value: String
+    /// A VIEW leading the value instead of the registry glyph — the Assignee
+    /// row's member avatar (polish round P55, web's phone sheet). nil draws
+    /// `icon` as before.
+    let glyph: AnyView?
     let action: () -> Void
+
+    /// The value led by a custom view (an avatar) rather than a registry glyph.
+    public init<Glyph: View>(
+        label: String,
+        value: String,
+        @ViewBuilder glyph: () -> Glyph,
+        action: @escaping () -> Void
+    ) {
+        self.label = label
+        self.icon = ""
+        self.iconColor = .clear
+        self.value = value
+        self.glyph = AnyView(glyph())
+        self.action = action
+    }
 
     public init(
         label: String,
@@ -41,6 +60,7 @@ public struct GlassMetaRow: View {
         self.icon = icon
         self.iconColor = iconColor
         self.value = value
+        self.glyph = nil
         self.action = action
     }
 
@@ -54,8 +74,12 @@ public struct GlassMetaRow: View {
 
                 Spacer(minLength: 8)
 
-                AppIcon(icon, size: GlassMetaRowTokens.glyphSize)
-                    .foregroundStyle(iconColor)
+                if let glyph {
+                    glyph
+                } else {
+                    AppIcon(icon, size: GlassMetaRowTokens.glyphSize)
+                        .foregroundStyle(iconColor)
+                }
 
                 Text(value)
                     .font(.subheadline)

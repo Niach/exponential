@@ -276,7 +276,6 @@ struct ActionDetailView: View {
     private func addTriggerButton(_ action: ActionDto, vm: ActionDetailViewModel) -> some View {
         GlassPill(
             "Add trigger",
-            icon: AppIcons.uiAdd,
             mode: .action {
                 formTarget = TriggerFormTarget(
                     id: ActionDetailViewModel.newTriggerKey, trigger: nil
@@ -370,7 +369,7 @@ struct ActionDetailView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     HStack(spacing: 5) {
                         Circle()
                             .fill(boundDevice?.isOnline == true
@@ -380,8 +379,9 @@ struct ActionDetailView: View {
                         Text(deviceLabel(boundDevice, deviceId: trigger.deviceId))
                             .lineLimit(1)
                     }
+                    // "{device} · {agent}" ×4 (web prefixes the same "· ").
                     if let launch = launchCaption(trigger) {
-                        Text(launch)
+                        Text("· \(launch)")
                             .lineLimit(1)
                     }
                 }

@@ -366,15 +366,12 @@ struct AgentsView: View {
                                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                                     .accessibilityLabel("Default device")
                             }
-                            // EXP-432: a teammate's machine is attributed to its owner;
-                            // one of the caller's own that is shared with any team just
-                            // says so (the per-team toggles live in the settings sheet).
-                            if let owner = device.owner {
-                                Text("shared by \(owner.name)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                    .lineLimit(1)
-                            } else if !device.sharedTeamIds.isEmpty {
+                            // EXP-432: a teammate's machine is attributed to its owner
+                            // in the row's accessibility label only (no inline
+                            // qualifier, as web + desktop); one of the caller's own
+                            // that is shared with any team just says so (the per-team
+                            // toggles live in the settings sheet).
+                            if device.owner == nil, !device.sharedTeamIds.isEmpty {
                                 Text("Shared")
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
@@ -395,7 +392,9 @@ struct AgentsView: View {
                 // target, so VoiceOver reads it as one and says what it opens.
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(device.deviceLabel)
+                .accessibilityLabel(
+                    device.owner.map { "\(device.deviceLabel), shared by \($0.name)" } ?? device.deviceLabel
+                )
                 .accessibilityIdentifier("device-row-\(device.deviceId)")
 
                 // EXP-909: the settings gear, and nothing else. Starting a run
@@ -555,9 +554,7 @@ struct AgentsView: View {
         // Electric syncs timestamps as Postgres text (space separator,
         // hour-only offset), which ISO8601DateFormatter alone rejects —
         // WireTimestamps handles both wire forms (EXP-169).
-        guard let date = WireTimestamps.parse(s) else { return "" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        // Polish pin: list captions are COMPACT ×4 ("Last seen 5h").
+        RelativeTime.compact(wire: s)
     }
 }

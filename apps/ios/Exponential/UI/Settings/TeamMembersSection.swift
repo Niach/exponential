@@ -7,9 +7,10 @@ struct TeamMembersSection: View {
     let teamId: String
     let members: [TeamMemberEntity]
     let users: [UserEntity]
-    /// The team's synced invites — read for the "Invited" / "Invite expired" /
-    /// "Not invited" badge alone (EXP-630 placeholder members, EXP-1076 import
-    /// seats). Minting and resending stay web-only surfaces.
+    /// The team's synced invites — the "Invited" / "Invite expired" / "Not
+    /// invited" badge (EXP-630 placeholder members, EXP-1076 import seats) and
+    /// the owner's read-only "Pending invites" rows. Emailing, resending and
+    /// revoking stay web-only surfaces.
     var invites: [TeamInviteEntity] = []
     let currentUserId: String?
     let membersApi: TeamMembersApi
@@ -52,13 +53,26 @@ struct TeamMembersSection: View {
                 GlassSectionBand("Members")
 
                 let byMember = placeholders
-                ForEach(members, id: \.id) { member in
+                // Join order ×4 (web `membersInJoinOrder`): oldest first.
+                ForEach(TeamMemberOrder.joinOrder(members), id: \.id) { member in
                     memberRow(member, placeholder: byMember[member.userId])
                 }
             }
 
             if isOwner {
                 InviteLinkCreator(accountId: accountId, teamId: teamId)
+
+                // The still-open invites, web's "Pending invites" list.
+                // Read-only here: revoking stays a web surface.
+                let pending = PendingInvites.pending(invites)
+                if !pending.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) {
+                        GlassSectionBand("Pending invites")
+                        ForEach(pending, id: \.id) { invite in
+                            inviteRow(invite)
+                        }
+                    }
+                }
             }
         }
         // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
@@ -87,14 +101,36 @@ struct TeamMembersSection: View {
             UserAvatar(user: user, id: member.userId, size: 32)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Text(displayName)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                    if isSelf {
-                        Text("(you)")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                // ×4: name · muted "(you)" · the role pill with its role
+                // glyph right after the name, then the placeholder badge
+                // (web members-section.tsx).
+                HStack(spacing: 6) {
+                    HStack(spacing: 4) {
+                        Text(displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if isSelf {
+                            Text("(you)")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    rolePill(member.role)
+                    // EXP-630: an emailed invite puts its recipient on the
+                    // roster at once, so a row can be a member who has not
+                    // joined yet; EXP-1076: a row the Linear import seated
+                    // without ever mailing reads "Not invited". Resending is
+                    // a web surface (EXP-725), so the badge is all iOS shows.
+                    if let placeholder {
+                        GlassPill(
+                            placeholder.label,
+                            icon: AppIcons.uiMail,
+                            tint: .white.opacity(TextOpacity.tertiary)
+                        )
+                        .fixedSize()
                     }
                 }
                 // Skip the email sub-line when it IS the display name — a
@@ -107,24 +143,7 @@ struct TeamMembersSection: View {
                 }
             }
 
-            Spacer()
-
-            // Role badge
-            GlassPill(member.role)
-
-            // EXP-630: an emailed invite puts its recipient on the roster at
-            // once, so a row can be a member who has not joined yet. The badge
-            // says which — muted, right after the role, web parity
-            // (members-section.tsx); EXP-1076: a row the Linear import seated
-            // without ever mailing reads "Not invited". Resending is a web
-            // surface (EXP-725), so the badge is all iOS shows.
-            if let placeholder {
-                GlassPill(
-                    placeholder.label,
-                    icon: AppIcons.uiMail,
-                    tint: .white.opacity(TextOpacity.tertiary)
-                )
-            }
+            Spacer(minLength: 0)
 
             // Actions menu — only rendered when there is at least one action to
             // offer. Each action is a precomputed boolean, and the ellipsis is
@@ -162,6 +181,45 @@ struct TeamMembersSection: View {
                         .accessibilityLabel("Member actions")
                 }
             }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .flatRow()
+    }
+
+    /// The role pill ×4: the role glyph (owner crown, member shield) leading
+    /// the role, member and invite rows alike.
+    private func rolePill(_ role: String) -> some View {
+        GlassPill(
+            role,
+            icon: role == DomainContract.teamRoleOwner ? AppIcons.uiOwner : AppIcons.uiMember
+        )
+        .fixedSize()
+    }
+
+    // MARK: - Invite row
+
+    /// ×4 anatomy: email or "Link invite" · role pill · "Expires Mon D"; a
+    /// link invite wears the link glyph, an emailed one the mail glyph.
+    private func inviteRow(_ invite: TeamInviteEntity) -> some View {
+        let email = invite.email.flatMap { $0.isEmpty ? nil : $0 }
+        return HStack(spacing: 8) {
+            AppIcon(email == nil ? AppIcons.uiLink : AppIcons.uiMail, size: AppIcon.Size.small)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text(email ?? PendingInvites.linkInviteLabel)
+                .font(.subheadline)
+                .foregroundStyle(email == nil ? Color.white.opacity(TextOpacity.tertiary) : Color.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            rolePill(invite.role)
+            if let expiry = PendingInvites.expiryLabel(invite.expiresAt) {
+                Text(expiry)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

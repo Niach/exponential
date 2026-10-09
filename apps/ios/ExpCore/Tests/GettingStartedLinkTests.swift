@@ -18,6 +18,12 @@ final class GettingStartedLinkTests: XCTestCase {
         )
     }
 
+    // packages/ui/src/auth-form-shell.tsx — the sign-in "Privacy · Terms" pair.
+    func testTheSignInLegalPairMatchesTheWebShell() {
+        XCTAssertEqual(AppConstants.privacyUrl.absoluteString, "https://exponential.at/privacy/")
+        XCTAssertEqual(AppConstants.termsUrl.absoluteString, "https://exponential.at/terms/")
+    }
+
     // apps/web/src/components/my-machines.tsx — `buildServerInstallSnippet`.
     // The script is served by the CLOUD marketing site for every instance, so
     // the target is always named explicitly via EXP_INSTANCE.

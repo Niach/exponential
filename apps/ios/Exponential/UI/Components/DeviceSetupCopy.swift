@@ -8,6 +8,8 @@ import Foundation
 /// string: no interpolation, no concatenation, no escapes.
 enum DeviceSetupCopy {
     static let copyCommand = "Copy install command"
+    /// The desktop card's outline link to every release asset (web device-setup.tsx).
+    static let allPlatforms = "All platforms"
     static let codeLabel = "If the CLI shows a code, enter it here"
     static let codePlaceholder = "XXXX-XXXX"
     static let approve = "Approve"

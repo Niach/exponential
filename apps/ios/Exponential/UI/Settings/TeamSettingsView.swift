@@ -90,17 +90,17 @@ struct TeamSettingsView: View {
                     // web parity). No slug is exempt: EXP-364 killed every
                     // feedback-team special case, an owner may delete ANY team.
                     if team != nil, isOwner {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Danger Zone")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.red.opacity(0.8))
+                        // ×4: the Danger zone heading is a filled band
+                        // with its label in the danger red.
+                        VStack(alignment: .leading, spacing: 8) {
+                            GlassSectionBand("Danger zone", danger: true)
 
                             Button {
                                 showDeleteTeam = true
                             } label: {
                                 HStack {
                                     AppIcon(AppIcons.uiDelete, size: AppIcon.Size.medium)
-                                    Text("Delete Team")
+                                    Text("Delete team")
                                 }
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.red)
@@ -227,7 +227,9 @@ struct TeamSettingsView: View {
         })
         observationTasks.append(Task {
             let obs = ValueObservation.tracking { db in
-                try TeamMemberEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                // Members ×4 list in JOIN order.
+                try TeamMemberEntity.filter(Column("team_id") == teamId)
+                    .order(Column("created_at"), Column("id")).fetchAll(db)
             }
             do {
                 for try await items in obs.values(in: pool) {

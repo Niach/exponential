@@ -191,12 +191,18 @@ final class StyleguideScreenshots: XCTestCase {
             teamSetupSheet.waitForExistence(timeout: 20),
             "New team row did not open the team setup sheet"
         )
-        // Gate on real content, not the container: the sheet chrome renders
-        // before the two forms do.
-        let createTeamHeading = app.staticTexts["Create a team"]
+        // The sheet opens on the choice page (polish round ×4); its "Create
+        // a team" button PUSHES the create form this view photographs. Gate
+        // on real content, not the container.
+        let createTeamChoice = app.buttons["team-setup-create"]
         XCTAssertTrue(
-            createTeamHeading.waitForExistence(timeout: 15),
-            "Team setup sheet never rendered its Create a team form"
+            createTeamChoice.waitForExistence(timeout: 15),
+            "Team setup sheet never rendered its Create a team choice"
+        )
+        createTeamChoice.tap()
+        XCTAssertTrue(
+            app.staticTexts["Team name"].waitForExistence(timeout: 15),
+            "Create a team never pushed its form"
         )
         snapshot("sg_onboarding-create-team", settle: 1)
         // Nothing was submitted, so no team is created and the next steps start
@@ -346,15 +352,15 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_search", settle: 2)
         goBack(app)
 
-        // ── sg_my-issues: Inbox → the "My Issues" segment ────────────────────
+        // ── sg_my-issues: Inbox → the "My issues" segment ────────────────────
         // The segment is a GlassSegmentedControl button carrying only an
         // accessibility LABEL. Its choice is persisted in @AppStorage, so the
         // tap is deliberately unconditional (it is idempotent).
         let myWorkTab = app.buttons["tab-mywork"]
         XCTAssertTrue(myWorkTab.waitForExistence(timeout: 15), "Inbox tab missing")
         myWorkTab.tap()
-        let myIssuesSegment = app.buttons["My Issues"]
-        XCTAssertTrue(myIssuesSegment.waitForExistence(timeout: 15), "My Issues segment missing")
+        let myIssuesSegment = app.buttons["My issues"]
+        XCTAssertTrue(myIssuesSegment.waitForExistence(timeout: 15), "My issues segment missing")
         myIssuesSegment.tap()
         XCTAssertTrue(
             app.staticTexts[Self.myIssueTitle].firstMatch.waitForExistence(timeout: 60),
@@ -814,22 +820,15 @@ final class StyleguideScreenshots: XCTestCase {
             email: ScreenshotSeed.newcomerEmail,
             password: ScreenshotSeed.newcomerPassword
         )
-        let getStarted = app.buttons["Get started"]
+        // The wizard opens on web's choice page: the mark over "Welcome to
+        // Exponential" and the two outline buttons (polish round ×4).
         XCTAssertTrue(
-            getStarted.waitForExistence(timeout: 90),
+            app.staticTexts["Welcome to Exponential"].waitForExistence(timeout: 90),
             "The onboarding wizard never appeared for \(ScreenshotSeed.newcomerEmail) — reseed with `bun run seed:screenshots`"
         )
-        getStarted.tap()
         XCTAssertTrue(
-            app.staticTexts["Set up your team"].waitForExistence(timeout: 30),
-            "The wizard never reached its team step"
-        )
-        // The mobile wizard shows the Create and Join cards on ONE step — this
-        // single shot is the whole `onboarding` view on iOS/Android (there is
-        // no separate create-team / join screen to photograph).
-        XCTAssertTrue(
-            app.buttons["Create team"].waitForExistence(timeout: 30),
-            "The team step never rendered its Create card"
+            app.buttons["team-setup-create"].waitForExistence(timeout: 30),
+            "The team step never rendered its Create a team choice"
         )
         snapshot("sg_onboarding", settle: 2)
 
@@ -857,16 +856,9 @@ final class StyleguideScreenshots: XCTestCase {
         app.launchArguments += ["-uiTestingOnboardingStep", "invite"]
         app.launch()
 
-        let starterGetStarted = app.buttons["Get started"]
-        XCTAssertTrue(
-            starterGetStarted.waitForExistence(timeout: 90),
-            "The onboarding wizard never appeared for \(ScreenshotSeed.starterEmail) — reseed with `bun run seed:screenshots`"
-        )
-        starterGetStarted.tap()
-
         let inviteStep = app.otherElements["onboarding-invite-step"]
         XCTAssertTrue(
-            inviteStep.waitForExistence(timeout: 60),
+            inviteStep.waitForExistence(timeout: 90),
             "The wizard never parked on its invite step — is -uiTestingOnboardingStep wired?"
         )
         // Gate on the real control, not just the container: at the seat cap
@@ -937,14 +929,17 @@ final class StyleguideScreenshots: XCTestCase {
 
     @MainActor
     private func openGuideDiff(_ app: XCUIApplication, failure: String) {
+        // run-changes = the COMPLETE diff page (section=all), as web; a
+        // report-less Guide's one Changes section already is the whole diff.
         let changesRow = anyElement(app, identified: "guide-changes-row")
         let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
-        if changesRow.exists {
-            changesRow.tap()
-        } else {
-            XCTAssertTrue(completeDiff.exists, failure)
+        revealGuideRow(app, [completeDiff], deadline: Date().addingTimeInterval(45))
+        if completeDiff.exists {
             completeDiff.tap()
+        } else {
+            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(15))
+            XCTAssertTrue(changesRow.exists, failure)
+            changesRow.tap()
         }
         XCTAssertTrue(
             anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),

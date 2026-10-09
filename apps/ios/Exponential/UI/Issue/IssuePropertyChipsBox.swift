@@ -5,16 +5,18 @@ import SwiftUI
 /// The top property chip box (EXP-240) — one glass box of wrapping capsule
 /// chips replacing the old properties/times/labels sections: Status, Priority,
 /// Assignee (hidden on solo teams, EXP-50), Due date (only when set), Estimate
-/// (EXP-630: only while the team's scale is on), one chip per assigned label,
-/// and a "+" chip. A chip opens its per-property sheet;
+/// (EXP-630: only while the team's scale is on), one chip per assigned label
+/// (a labelled "Label" chip while there are none), a "+" chip and the board
+/// chip. Polish round order ×4: status · priority · assignee · labels · due
+/// date · estimate · board. A chip opens its per-property sheet;
 /// the box background (and "+") opens the combined Properties sheet.
 /// Non-moderators see it dimmed and inert, with the "+" chip hidden.
 ///
 /// EXP-1170: the New issue page wears the SAME box over its draft (a
 /// `Subject` instead of an issue row): no estimate (the draft passes
 /// `issueEstimationNone`), a due-date chip even while unset, a board chip
-/// iff the team has more than one board, and "+" adds a label (there is no
-/// Properties sheet behind a draft).
+/// iff the team has more than one board (the face always passes its board),
+/// and "+" adds a label (there is no Properties sheet behind a draft).
 struct IssuePropertyChipsBox: View {
     /// The values the chips read — an issue row's, or a draft's.
     struct Subject {
@@ -51,7 +53,8 @@ struct IssuePropertyChipsBox: View {
     /// chip is HIDDEN while it is `none` — the web's `EstimateControl`.
     let estimationType: String
     let isModerator: Bool
-    /// EXP-1170: the board chip (the draft page, on a multi-board team);
+    /// The board chip (the face always; the draft page on a multi-board
+    /// team): the board's own glyph in its colour + its name, no chevron.
     /// nil = no board chip.
     var board: BoardEntity? = nil
     /// EXP-1170: show the due-date chip ("Due date") while it is unset — the
@@ -60,12 +63,15 @@ struct IssuePropertyChipsBox: View {
     /// The box's dead space opens Properties too; the draft page turns it
     /// off (its "+" only adds a label).
     var backgroundOpensProperties: Bool = true
-    /// EXP-1170: the draft's chip order — labels and "+" before the due
-    /// date, the board chip last. The face keeps due date · estimate · labels.
-    var labelsBeforeDueDate: Bool = false
+    /// Polish round P46: labels and "+" before the due date, the board chip
+    /// last — the web/desktop order, now the default on the face too.
+    var labelsBeforeDueDate: Bool = true
 
     /// The due-date chip's label while unset (the draft page only).
     static let unsetDueDateLabel = "Due date"
+    /// P45: the empty chips' copy ×4 (web assignee-picker / label-picker).
+    static let unsetAssigneeLabel = "Assignee"
+    static let unsetLabelsLabel = "Label"
     /// A chip opens its per-property picker directly (EXP-687: the pickers
     /// are their own enum now — the combined sheet is not one of them).
     let onTapProperty: (IssuePropertyChild) -> Void
@@ -88,14 +94,14 @@ struct IssuePropertyChipsBox: View {
                         UserAvatar(user: assignee, id: assigneeId, size: 16)
                     }
                 } else {
-                    chip(target: .assignee, label: "Unassigned") {
+                    chip(target: .assignee, label: Self.unsetAssigneeLabel) {
                         AppIcon(AppIcons.uiUnassigned, size: GlassPillTokens.glyphSm)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     }
                 }
             }
-            // EXP-1170: the draft draws the labels before the due date and
-            // the board chip LAST (web/desktop order); the face keeps its own.
+            // Labels before the due date and the board chip LAST (the
+            // web/desktop order ×4, P46).
             if labelsBeforeDueDate { labelChips }
             if let dueDate = subject.dueDate {
                 // The urgency color rides the GLYPH, the way the status and
@@ -124,9 +130,11 @@ struct IssuePropertyChipsBox: View {
             }
             if !labelsBeforeDueDate { labelChips }
             if let board {
+                // P44: the board's own glyph tinted with its colour, as the
+                // search rows and web/desktop draw it.
                 chip(target: .moveBoard, label: board.name) {
-                    AppIcon(AppIcons.navBoards, size: GlassPillTokens.glyphSm)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    AppIcon(BoardTypeDisplay.iconName(for: board), size: GlassPillTokens.glyphSm)
+                        .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
                 }
             }
         }
@@ -145,9 +153,17 @@ struct IssuePropertyChipsBox: View {
         .disabled(!isModerator)
     }
 
-    /// The assigned labels' chips, then "+".
+    /// The assigned labels' chips, then "+"; with none assigned, ONE labelled
+    /// "Label" chip instead (P45: web/desktop's empty label chip, never a
+    /// bare "+").
     @ViewBuilder
     private var labelChips: some View {
+        if assignedLabels.isEmpty {
+            chip(target: .labels, label: Self.unsetLabelsLabel) {
+                AppIcon(AppIcons.settingsLabels, size: GlassPillTokens.glyphSm)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
         ForEach(assignedLabels, id: \.id) { label in
             GlassPill(
                 label.name,
@@ -155,7 +171,7 @@ struct IssuePropertyChipsBox: View {
                 dot: Color(hex: label.color) ?? .gray
             )
         }
-        if isModerator {
+        if isModerator, !assignedLabels.isEmpty {
             GlassPill("", mode: .action { onOpenProperties() }) {
                 AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphSm, weight: .medium)
             }

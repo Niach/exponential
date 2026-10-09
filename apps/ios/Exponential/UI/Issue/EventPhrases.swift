@@ -10,7 +10,7 @@ import Foundation
 /// an event has no payload to render richly).
 func eventVerb(_ type: String) -> String {
     switch type {
-    case "status_changed": return "changed the status"
+    case "status_changed": return "changed status"
     case "assignee_changed": return "changed the assignee"
     case "label_added": return "added a label"
     case "label_removed": return "removed a label"
@@ -21,23 +21,6 @@ func eventVerb(_ type: String) -> String {
     case "relation_removed": return "removed a relation"
     case "estimate_changed": return "changed the estimate"
     default: return type.replacingOccurrences(of: "_", with: " ")
-    }
-}
-
-/// Human label for an issue_status enum value.
-func statusLabel(_ s: String) -> String {
-    switch s {
-    case "backlog": return "Backlog"
-    // EXP-685: `todo` is retired from the vocabulary, but HISTORIC
-    // status_changed events carry the bare enum payload and must still read
-    // "Todo" instead of falling through to the generic capitalizer.
-    case "todo": return "Todo"
-    case "in_progress": return "In Progress"
-    case "in_review": return "In Review"
-    case "done": return "Done"
-    case "cancelled": return "Cancelled"
-    case "duplicate": return "Duplicate"
-    default: return s.replacingOccurrences(of: "_", with: " ").capitalized
     }
 }
 
@@ -130,18 +113,15 @@ func eventPhrase(
         // issue itself (which predates these events and covers old issues).
         return nil
     case "status_changed":
-        // EXP-314: newer events carry the real status NAMES (custom statuses
-        // have no enum label at all); older rows only have the enum anchors, so
-        // fall back to the munge.
-        let toName = eventField(event.payload, "toName")
-        let fromName = eventField(event.payload, "fromName")
-        guard let to = toName ?? eventField(event.payload, "to").map(statusLabel) else {
-            return "changed the status"
-        }
-        if let from = fromName ?? eventField(event.payload, "from").map(statusLabel) {
-            return "changed status from \(from) to \(to)"
-        }
-        return "changed status to \(to)"
+        // ×4 (polish round): `changed status from {from} to {to}` — the
+        // payload's name snapshot (EXP-314), else the builtin row's display
+        // name; the shared ExpCore rule, unit-tested.
+        return StatusChangePhrase.phrase(
+            fromName: eventField(event.payload, "fromName"),
+            fromAnchor: eventField(event.payload, "from"),
+            toName: eventField(event.payload, "toName"),
+            toAnchor: eventField(event.payload, "to")
+        )
     case "assignee_changed":
         guard let to = eventField(event.payload, "to") else { return "unassigned this issue" }
         return "assigned \(memberDisplayName(users[to], id: to))"

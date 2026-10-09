@@ -188,7 +188,7 @@ extension XCTestCase {
         // instance picker nor the main UI. Its persistent "Sign out" is the
         // way back to the login flow this helper expects.
         let wizardSignOut = app.buttons["Sign out"]
-        if app.buttons["Get started"].waitForExistence(timeout: 5), wizardSignOut.exists {
+        if app.staticTexts["onboarding-signed-in-as"].waitForExistence(timeout: 5), wizardSignOut.exists {
             wizardSignOut.firstMatch.tap()
         }
         if awaitLaunchStage(app) == .alreadySignedIn {

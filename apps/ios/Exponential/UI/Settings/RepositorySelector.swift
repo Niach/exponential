@@ -180,7 +180,7 @@ struct BoardRepoField: View {
                     AppIcon(AppIcons.uiPrivate, size: 11)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
-                AppIcon(AppIcons.uiChevronDown, size: 12)
+                AppIcon(AppIcons.uiChevronRight, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
@@ -357,7 +357,7 @@ private struct BranchPickerRow: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                AppIcon(AppIcons.uiChevronDown, size: 12)
+                AppIcon(AppIcons.uiChevronRight, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)

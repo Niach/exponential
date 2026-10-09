@@ -151,6 +151,10 @@ struct TriggerForm: View {
                 onSelect: { draft.kind = $0 }
             )
             .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            // The hairline under the strip starts at the inset its sibling rows'
+            // dividers use (the default row inset, 12pt past this row's 8pt),
+            // not at the first segment's label.
+            .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] + 12 }
             if draft.kind == "schedule" {
                 scheduleRows
             } else {

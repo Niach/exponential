@@ -208,7 +208,8 @@ struct LaunchOptionsSection: View {
                             AccountPickerTriggerLabel(
                                 option: currentAccount,
                                 mark: currentAccount.flatMap { AgentBrandMark.image($0.agent) },
-                                chevron: accountOptions.count > 1
+                                chevron: accountOptions.count > 1,
+                                style: .rowValue
                             )
                         }
                     }
@@ -235,6 +236,10 @@ struct LaunchOptionsSection: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("start-coding-agent-picker")
                 .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                // The hairline under the strip starts at the inset its sibling rows'
+                // dividers use (the default row inset, 12pt past this row's 8pt),
+                // not at the first segment's label.
+                .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] + 12 }
             }
             GlassPickerRow(
                 "Model",

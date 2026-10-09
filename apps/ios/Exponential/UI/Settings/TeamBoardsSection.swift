@@ -45,21 +45,26 @@ struct TeamBoardsSection: View {
                         AppIcon(BoardTypeDisplay.iconName(for: board), size: 16)
                             .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
 
-                        // Board name
-                        Text(board.name)
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
+                        // EXP-698 (Android parity): the NAME owns the first
+                        // line and the backing repo (one board = one repo)
+                        // sits under it — side by side, an `owner/repo` chip
+                        // ellipsized the board it belongs to.
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(board.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            if let repositoryId = board.repositoryId, !repositoryId.isEmpty {
+                                BoardRepoLine(
+                                    accountId: accountId,
+                                    teamId: board.teamId,
+                                    repositoryId: repositoryId,
+                                    repositoriesApi: repositoriesApi
+                                )
+                            }
+                        }
 
-                        Spacer()
-
-                        // Backing repo (v4: one board = one repo). Read-only
-                        // chip resolving the synced repositoryId to owner/name.
-                        RepoNameChip(
-                            accountId: accountId,
-                            teamId: board.teamId,
-                            repositoryId: board.repositoryId
-                        )
+                        Spacer(minLength: 8)
 
                         // Member-level repo + branch editing → boards.setRepository
                         // / boards.update (mutate_resources server-side).
@@ -100,6 +105,68 @@ struct TeamBoardsSection: View {
         .sheet(isPresented: $showCreate) {
             CreateBoardSheet(accountId: accountId, teamId: teamId)
         }
+    }
+}
+
+/// A linked board's repo under its name: the `owner/name` chip once the
+/// tRPC registry resolves the synced id, and the FEED-32 `BoardRepoLabel`
+/// fallback ("Loading repository…" / "Repository unavailable") until then —
+/// never NOTHING. A miss re-lists the registry ONCE (a repo connected on
+/// another client a moment ago), Android's `ensureRepoKnown` twin.
+private struct BoardRepoLine: View {
+    let accountId: String
+    let teamId: String
+    let repositoryId: String
+    let repositoriesApi: RepositoriesApi
+
+    @State private var repo: TeamRepo?
+    @State private var loaded = false
+    @State private var resolving = false
+
+    var body: some View {
+        Group {
+            if let repo {
+                GlassPill(
+                    repo.fullName,
+                    mode: .action {
+                        if let url = URL(string: "https://github.com/\(repo.fullName)") {
+                            Platform.open(url)
+                        }
+                    }
+                ) {
+                    AppIcon(AppIcons.uiRepository, size: GlassPillTokens.glyphSm)
+                } trailing: {
+                    AppIcon(AppIcons.uiExternalLink, size: GlassPillTokens.glyphSm)
+                }
+            } else {
+                Text(
+                    BoardRepoLabel.trigger(
+                        selectedName: nil,
+                        repositoryId: repositoryId,
+                        loading: !loaded,
+                        resolving: resolving
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+            }
+        }
+        .task(id: "\(accountId)|\(teamId)|\(repositoryId)") { await resolve() }
+    }
+
+    private func resolve() async {
+        repo = await RepositoryDirectory.repo(
+            accountId: accountId, teamId: teamId, repositoryId: repositoryId, api: repositoriesApi
+        )
+        loaded = true
+        guard repo == nil else { return }
+        resolving = true
+        RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
+        repo = await RepositoryDirectory.repo(
+            accountId: accountId, teamId: teamId, repositoryId: repositoryId, api: repositoriesApi
+        )
+        resolving = false
     }
 }
 

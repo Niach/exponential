@@ -173,7 +173,7 @@ final class StoreScreenshots: XCTestCase {
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────
         // EXP-1251: a Reviews row opens the issue's Work screen on its Guide;
-        // its Changes row opens the diff as the section page (the cards over
+        // its "Show complete diff" row opens the whole diff page (the cards over
         // `[files][Merge PR]`). The file list comes from GitHub via
         // issues.prFiles — the seed points APP-14 at a real public PR so
         // there is an actual diff to show.
@@ -264,14 +264,19 @@ final class StoreScreenshots: XCTestCase {
 
     @MainActor
     private func openGuideDiff(_ app: XCUIApplication, failure: String) {
-        let changesRow = anyElement(app, identified: "guide-changes-row")
+        // The catalog's review-diff view = the COMPLETE diff page ("Changes",
+        // section=all), as web — the Guide's last row, under every section.
+        // A report-less Guide has no such row: its ONE Changes section
+        // already is the whole diff.
         let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
-        if changesRow.exists {
-            changesRow.tap()
-        } else {
-            XCTAssertTrue(completeDiff.exists, failure)
+        let changesRow = anyElement(app, identified: "guide-changes-row")
+        revealGuideRow(app, [completeDiff], deadline: Date().addingTimeInterval(45))
+        if completeDiff.exists {
             completeDiff.tap()
+        } else {
+            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(15))
+            XCTAssertTrue(changesRow.exists, failure)
+            changesRow.tap()
         }
         XCTAssertTrue(
             anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
