@@ -142,7 +142,7 @@ fn button_surface(on_press: Value) -> (Surface, u32) {
     let mut surface = Surface::new("s", SurfaceOptions::default());
     let outcome = surface.set_nested(tree);
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
-    surface.set_data("/m", Some(json!("hi")));
+    surface.set_data("/m", Some(json!("hi"))).unwrap();
     surface.set_viewport(400.0, 0.0, None);
     surface.layout(&mut exponential_ui::measure::FixedMeasure::default());
     let index = surface.index_of("b").unwrap();

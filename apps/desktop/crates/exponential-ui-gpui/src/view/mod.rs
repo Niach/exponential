@@ -567,6 +567,15 @@ impl SurfaceView {
         out
     }
 
+    /// An `updateComponents` payload: replaces components BY ID, keeps the
+    /// rest; the tree reduces on the next layout.
+    pub fn update_components(&mut self, components: Vec<FlatComponent>, cx: &mut Context<Self>) -> ApplyOutcome {
+        let out = self.surface.update_components(components);
+        self.nodes_dirty = true;
+        cx.notify();
+        out
+    }
+
     /// The nested authoring form (fixtures, templates).
     pub fn set_nested(&mut self, tree: NestedNode, cx: &mut Context<Self>) -> ApplyOutcome {
         let out = self.surface.set_nested(tree);
@@ -574,10 +583,13 @@ impl SurfaceView {
         out
     }
 
-    /// Write `value` at `path` of the data model (`None` removes).
-    pub fn set_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) {
-        self.surface.set_data(path, value);
+    /// Write `value` at `path` of the data model (`None` removes); a
+    /// refused write (VAPP-103: pointer limits, an index past the end of an
+    /// array) changes nothing and returns the reason.
+    pub fn set_data(&mut self, path: &str, value: Option<serde_json::Value>, cx: &mut Context<Self>) -> Result<(), String> {
+        self.surface.set_data(path, value)?;
         cx.notify();
+        Ok(())
     }
 
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {

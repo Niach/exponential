@@ -28,7 +28,7 @@
 // (the registry is the Icon prop's vocabulary); the package has no runtime
 // dependency on it.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -48,6 +48,7 @@ import { renderRound2 } from "./generate-round2"
 import { ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
+import { LIMITS } from "../src/limits"
 import { treeGuides } from "../src/tree-guides"
 import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
@@ -229,6 +230,9 @@ const rows = {
   formatFunctionNames: [...FORMAT_FUNCTION_NAMES],
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
+  // VAPP-103: the input limits (catalog/limits.json).
+  limitNames: Object.keys(LIMITS),
+  limitValues: Object.values(LIMITS).map(String),
 }
 const liteFlags = components.map(([, d]) => d.lite && !d.hidden && !d.deprecated)
 const scalars: [string, string][] = [
@@ -306,6 +310,7 @@ function embeddedCatalogJson(): [string, string][] {
     [`CODE_JSON`, rustJson(read(`catalog/code.json`))],
     [`A11Y_JSON`, rustJson(read(`catalog/a11y.json`))],
     [`LAYOUT_JSON`, rustJson(read(`catalog/layout.json`))],
+    [`LIMITS_JSON`, rustJson(read(`catalog/limits.json`))],
   ]
 }
 
@@ -942,13 +947,23 @@ function renderFiles(): Record<string, string> {
   }
 }
 
+/** Write `content` to `path` through a sibling temp file and a rename. */
+export function writeAtomic(path: string, content: string): void {
+  const temp = `${path}.${process.pid}.tmp`
+  writeFileSync(temp, content)
+  renameSync(temp, path)
+}
+
 if (import.meta.main) {
   const files = render()
   for (const [rel, content] of Object.entries(files)) {
     const path = join(pkgRoot, rel)
     mkdirSync(dirname(path), { recursive: true })
     const before = existsSync(path) ? readFileSync(path, `utf8`) : null
-    writeFileSync(path, content)
+    // VAPP-103: never rewrite an unchanged file, and write a changed one
+    // ATOMICALLY (temp + rename): a test reading a fixture while the
+    // generator runs sees the old file or the new one, never half of it.
+    if (before !== content) writeAtomic(path, content)
     console.log(`${before === content ? `unchanged` : `wrote    `} ${rel}`)
   }
 }

@@ -249,7 +249,9 @@ impl ExponentialUiKitchenSink {
         let view = cx.new(|cx| {
             let mut view = SurfaceView::new(options, window, cx);
             for (path, value) in seed_data(posts) {
-                view.set_data(path, Some(value), cx);
+                if let Err(e) = view.set_data(path, Some(value), cx) {
+                    log::warn!("[exponential-ui kitchen sink] {path}: {e}");
+                }
             }
             let outcome = view.set_nested(tree, cx);
             for issue in &outcome.issues {
@@ -278,7 +280,9 @@ impl ExponentialUiKitchenSink {
             other => other.to_string(),
         };
         if let Some(path) = path {
-            self.view.update(cx, |view, cx| view.set_data(path, Some(value), cx));
+            if let Err(e) = self.view.update(cx, |view, cx| view.set_data(path, Some(value), cx)) {
+                log::warn!("[exponential-ui kitchen sink] {path}: {e}");
+            }
         }
         cx.notify();
     }

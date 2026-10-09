@@ -407,8 +407,9 @@ fn a_constructor_package_that_fails_validation_is_a_hard_error() {
 }
 
 #[gpui::test]
-#[should_panic(expected = "package acme.bad is unusable")]
-fn the_host_panics_on_a_constructor_package_that_fails_validation(cx: &mut TestAppContext) {
+fn the_host_reports_a_constructor_package_that_fails_validation_and_skips_it(cx: &mut TestAppContext) {
     init(cx);
-    host_with(cx, HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() });
+    let host = host_with(cx, HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() });
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert!(!issues.is_empty() && issues.iter().all(|i| i.code == PACKAGE_INVALID && i.package_id.as_deref() == Some("acme.bad")), "{issues:?}");
 }

@@ -10,6 +10,7 @@ use super::contract::{error_message, INVALID_MESSAGE, MESSAGE_KINDS, SURFACE_NOT
 use super::package::{supported_catalog_ids, template_messages, validate_package, PackageIssue};
 use super::sources::parse_source;
 use crate::catalog::A2UI_VERSION;
+use crate::limits;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +41,26 @@ fn invalid(surface_id: &str, message: &str) -> Value {
 
 fn missing(surface_id: &str) -> Value {
     send(error_message(SURFACE_NOT_FOUND, surface_id, &format!("no surface {surface_id}; send createSurface first"), None))
+}
+
+/// Is the message's JSON past `maxMessageBytes`? (Counted while
+/// serializing; the count stops at the limit.)
+fn oversized(message: &Value) -> bool {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            if self.0 > limits::MAX_MESSAGE_BYTES {
+                return Err(std::io::Error::other("over the limit"));
+            }
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, message).is_err()
 }
 
 fn surface_id_of(message: &Map<String, Value>) -> String {
@@ -101,7 +122,13 @@ impl HostRouter {
     }
 
     /// One server message → the ops to perform, in order. Never fails.
+    /// VAPP-103: a message past `maxMessageBytes` (as UTF-8 JSON) is
+    /// refused: INVALID_MESSAGE.
     pub fn route(&mut self, message: &Value) -> Vec<Value> {
+        if oversized(message) {
+            let sid = message.as_object().map(surface_id_of).unwrap_or_default();
+            return vec![invalid(&sid, &limits::message_bytes_issue())];
+        }
         let Some(message) = message.as_object() else { return vec![invalid("", "a message is a JSON object")] };
         if let Some(version) = message.get("version") {
             if version.as_str() != Some(A2UI_VERSION) {

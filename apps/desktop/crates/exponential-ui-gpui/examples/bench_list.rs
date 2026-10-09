@@ -72,7 +72,7 @@ mod linux {
 
         let t = Instant::now();
         frame(&mut cx, &mut |view, _, cx| {
-            view.set_data("/rows", Some(Value::Array(rows.clone())), cx);
+            view.set_data("/rows", Some(Value::Array(rows.clone())), cx).expect("data");
             view.set_components(components.clone(), cx);
             view.set_viewport_height(h, cx);
         });

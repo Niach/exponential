@@ -81,7 +81,7 @@ fn bench_100k(measure: &mut FixedMeasure) {
     let theme = builtin_theme(fixture["theme"].as_str().unwrap());
     let t = Instant::now();
     let mut s = Surface::new("bench", SurfaceOptions { theme, catalog_id: fixture["catalogId"].as_str().unwrap().to_string(), ..SurfaceOptions::default() });
-    s.set_data("", Some(json!({"rows": rows})));
+    s.set_data("", Some(json!({"rows": rows}))).unwrap();
     s.set_components(components);
     s.set_viewport(w, h, None);
     s.layout(measure);

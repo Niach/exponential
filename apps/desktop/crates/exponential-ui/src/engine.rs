@@ -13,8 +13,102 @@
 use taffy::prelude::*;
 use taffy::{
     compute_block_layout, compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout, compute_leaf_layout,
-    compute_root_layout, round_layout, Cache, CacheTree, LayoutInput, LayoutOutput,
+    compute_root_layout, round_layout, CacheTree, LayoutInput, LayoutOutput, RunMode,
 };
+
+/// VAPP-103: the per-slot layout CACHE. taffy 0.12's own `Cache` keys
+/// every size request on the PARENT size too, and nested flex items get
+/// asked once with the parent's width known and once without: both land in
+/// the same slot, evict each other, and every level re-measures its subtree
+/// twice (layout time doubled per level: 20 nested Stacks = 0.6 s, 14
+/// nested Cards = 160 s). The parent size only matters to a node whose OWN
+/// style holds a percentage (its size, insets, margins, padding, border,
+/// gap or flex basis resolve against it), so only those nodes key on it, in
+/// a second bank of slots per parent-width state. A request HITS when its
+/// known dimensions equal the entry's and each unknown dimension's
+/// available space is roughly equal (taffy's own rule otherwise).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct CacheEntry<T> {
+    known: Size<Option<f32>>,
+    available: Size<AvailableSpace>,
+    parent: Size<Option<f32>>,
+    content: T,
+}
+
+impl<T> CacheEntry<T> {
+    fn matches(&self, input: &LayoutInput, percent: bool) -> bool {
+        let known = input.known_dimensions;
+        known.width == self.known.width
+            && known.height == self.known.height
+            && (known.width.is_some() || self.available.width.is_roughly_equal(input.available_space.width))
+            && (known.height.is_some() || self.available.height.is_roughly_equal(input.available_space.height))
+            && (!percent || self.parent == input.parent_size)
+    }
+}
+
+/// taffy's nine size slots, twice (parent width known / unknown).
+const CACHE_SIZE: usize = 18;
+
+#[derive(Debug, Clone, Default)]
+struct Cache {
+    layout: Option<CacheEntry<LayoutOutput>>,
+    sizes: [Option<CacheEntry<Size<f32>>>; CACHE_SIZE],
+}
+
+impl Cache {
+    /// taffy's slot choice (by how many dimensions are known and whether
+    /// an unknown one is sized under min-content), per parent-width state
+    /// for a percentage-sensitive node.
+    fn slot(input: &LayoutInput, percent: bool) -> usize {
+        use AvailableSpace::MinContent;
+        let (known, available) = (input.known_dimensions, input.available_space);
+        let base = match (known.width.is_some(), known.height.is_some()) {
+            (true, true) => 0,
+            (true, false) => 1 + (available.height == MinContent) as usize,
+            (false, true) => 3 + (available.width == MinContent) as usize,
+            (false, false) => 5 + (available.height == MinContent) as usize + 2 * (available.width == MinContent) as usize,
+        };
+        base + if percent && input.parent_size.width.is_some() { 9 } else { 0 }
+    }
+
+    fn get(&self, input: &LayoutInput, percent: bool) -> Option<LayoutOutput> {
+        match input.run_mode {
+            RunMode::PerformLayout => self.layout.filter(|e| e.matches(input, percent)).map(|e| e.content),
+            RunMode::ComputeSize => self.sizes.iter().flatten().find(|e| e.matches(input, percent)).map(|e| LayoutOutput::from_outer_size(e.content)),
+            RunMode::PerformHiddenLayout => None,
+        }
+    }
+
+    fn store(&mut self, input: &LayoutInput, output: LayoutOutput, percent: bool) {
+        let (known, available, parent) = (input.known_dimensions, input.available_space, input.parent_size);
+        match input.run_mode {
+            RunMode::PerformLayout => self.layout = Some(CacheEntry { known, available, parent, content: output }),
+            RunMode::ComputeSize => self.sizes[Self::slot(input, percent)] = Some(CacheEntry { known, available, parent, content: output.size }),
+            RunMode::PerformHiddenLayout => {}
+        }
+    }
+
+    fn clear(&mut self) {
+        *self = Cache::default();
+    }
+}
+
+/// Does any length of the node's OWN style resolve against its parent's size?
+fn percent_sensitive(style: &Style) -> bool {
+    let rect = |r: &Rect<LengthPercentage>| [r.left, r.right, r.top, r.bottom].iter().any(|v| v.into_raw().uses_percentage());
+    let rect_auto = |r: &Rect<LengthPercentageAuto>| [r.left, r.right, r.top, r.bottom].iter().any(|v| v.into_raw().uses_percentage());
+    let size = |s: &Size<Dimension>| s.width.into_raw().uses_percentage() || s.height.into_raw().uses_percentage();
+    size(&style.size)
+        || size(&style.min_size)
+        || size(&style.max_size)
+        || rect(&style.padding)
+        || rect(&style.border)
+        || rect_auto(&style.margin)
+        || rect_auto(&style.inset)
+        || style.flex_basis.into_raw().uses_percentage()
+        || style.gap.width.into_raw().uses_percentage()
+        || style.gap.height.into_raw().uses_percentage()
+}
 
 /// What a measured leaf answers for one taffy request.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -35,18 +129,21 @@ struct ENode {
     parent: Option<u32>,
     /// A measured leaf (its size comes from the measure callback).
     measured: bool,
+    /// Its own style resolves a percentage against the parent size.
+    percent: bool,
 }
 
 impl Default for ENode {
     fn default() -> Self {
         ENode {
             style: Style::default(),
-            cache: Cache::new(),
+            cache: Cache::default(),
             unrounded: Layout::with_order(0),
             rounded: Layout::with_order(0),
             children: Vec::new(),
             parent: None,
             measured: false,
+            percent: false,
         }
     }
 }
@@ -120,7 +217,13 @@ impl taffy::LayoutPartialTree for View<'_, '_> {
     }
 
     fn compute_child_layout(&mut self, node: NodeId, inputs: LayoutInput) -> LayoutOutput {
-        if inputs.run_mode == taffy::RunMode::PerformHiddenLayout {
+        crate::deep(|| self.compute_child(node, inputs))
+    }
+}
+
+impl View<'_, '_> {
+    fn compute_child(&mut self, node: NodeId, inputs: LayoutInput) -> LayoutOutput {
+        if inputs.run_mode == RunMode::PerformHiddenLayout {
             return compute_hidden_layout(self, node);
         }
         compute_cached_layout(self, node, inputs, |view, node, inputs| {
@@ -165,11 +268,13 @@ impl taffy::LayoutPartialTree for View<'_, '_> {
 
 impl CacheTree for View<'_, '_> {
     fn cache_get(&self, node: NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
-        self.engine.nodes[slot(node)].cache.get(input)
+        let n = &self.engine.nodes[slot(node)];
+        n.cache.get(input, n.percent)
     }
 
     fn cache_store(&mut self, node: NodeId, input: &LayoutInput, output: LayoutOutput) {
-        self.engine.nodes[slot(node)].cache.store(input, output)
+        let n = &mut self.engine.nodes[slot(node)];
+        n.cache.store(input, output, n.percent)
     }
 
     fn cache_clear(&mut self, node: NodeId) {
@@ -277,6 +382,7 @@ impl Engine {
         if self.nodes[i as usize].style == style {
             return false;
         }
+        self.nodes[i as usize].percent = percent_sensitive(&style);
         self.nodes[i as usize].style = style;
         self.mark_dirty(i);
         true
@@ -405,5 +511,42 @@ mod tests {
         e.mark_dirty(3);
         e.compute(0, Size { width: AvailableSpace::Definite(100.0), height: AvailableSpace::MaxContent }, &mut measure);
         assert!(calls.get() > first, "the dirty leaf is measured again");
+    }
+}
+
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// VAPP-103: nested flex columns measure their leaf a constant number
+    /// of times at any depth (taffy 0.12's cache made it 2^depth), with and
+    /// without percentages in every level's own style.
+    #[test]
+    fn nested_flex_columns_measure_the_leaf_a_constant_number_of_times() {
+        for percent in [false, true] {
+            for depth in [4usize, 30, 50] {
+                let mut e = Engine::new();
+                e.resize(depth + 1);
+                for i in 0..depth {
+                    let mut style = Style { display: Display::Flex, flex_direction: FlexDirection::Column, ..Style::default() };
+                    if percent {
+                        style.size.width = Dimension::percent(1.0);
+                        style.padding.left = LengthPercentage::percent(0.01);
+                    }
+                    e.set_style(i as u32, style);
+                    e.set_children(i as u32, &[(i + 1) as u32]);
+                }
+                e.set_measured(depth as u32, true);
+                let calls = std::cell::Cell::new(0);
+                let mut measure = |_i: u32, _k: Size<Option<f32>>, _a: Size<AvailableSpace>| {
+                    calls.set(calls.get() + 1);
+                    LeafAnswer { size: Size { width: 10.0, height: 10.0 }, baseline: None }
+                };
+                e.compute(0, Size { width: AvailableSpace::Definite(400.0), height: AvailableSpace::MaxContent }, &mut measure);
+                assert!(calls.get() <= 8, "depth {depth} (percent {percent}): {} measures", calls.get());
+                assert_eq!(e.layout(depth as u32).size.height, 10.0);
+            }
+        }
     }
 }

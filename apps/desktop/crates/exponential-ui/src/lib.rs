@@ -46,6 +46,24 @@
 
 pub mod generated;
 
+/// VAPP-103: run one step of a recursive pass with at least 64 KB of stack
+/// left, else on a fresh 1 MB segment: the recursion never ends in the
+/// guard page, however the tree nests.
+#[inline]
+pub(crate) fn deep<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(64 * 1024, 1024 * 1024, f)
+}
+
+/// VAPP-103: run a whole pass (a reduce, a rebuild, a layout) with at
+/// least 1 MB of stack, else on a fresh 8 MB segment (mapped lazily): a
+/// surface `maxDepth` deep reduces and lays out on any host thread (an iOS
+/// secondary thread has 512 KB; a debug build's frames are several KB per
+/// level). One check per pass, so the per-level [`deep`] rarely switches.
+#[inline]
+pub(crate) fn roomy<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(1024 * 1024, 8 * 1024 * 1024, f)
+}
+
 pub mod a11y;
 pub mod animation;
 pub mod basic_map;
@@ -65,6 +83,7 @@ pub mod host;
 pub mod json;
 pub mod layout;
 pub mod layout_tree;
+pub mod limits;
 pub mod list;
 pub mod locale;
 pub mod macros;

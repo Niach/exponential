@@ -82,8 +82,8 @@ pub const PACKAGE_INVALID: &str = "PACKAGE_INVALID";
 pub const MAX_ISSUES: usize = 100;
 
 /// A package passed in [`HostOptions::packages`] that failed validation
-/// (the TS `PackageError`): [`ExponentialHost::new`] panics with it, so
-/// check first with [`HostOptions::validate_packages`].
+/// (the TS `PackageError`): [`HostOptions::validate_packages`] returns it;
+/// [`ExponentialHost::new`] reports it as issues instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageError {
     pub package_id: String,
@@ -161,7 +161,7 @@ pub struct HostOptions {
 
 impl HostOptions {
     /// Validate [`HostOptions::packages`] against these options' catalogs
-    /// (what [`ExponentialHost::new`] would panic on).
+    /// (what [`ExponentialHost::new`] would report and skip).
     pub fn validate_packages(&self) -> Result<(), PackageError> {
         let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
         let mut router = HostRouter::new(&ids);
@@ -225,8 +225,6 @@ struct SurfaceEntry {
     /// The server's `createSurface.theme`, resolved (wins over the host's
     /// theme, [`ExponentialHost::set_theme`] included).
     theme: Option<Arc<ResolvedTheme>>,
-    /// The flat components so far (`components` ops merge by id).
-    components: Vec<FlatComponent>,
 }
 
 /// The host runtime entity. Create it with `cx.new(|cx|
@@ -262,9 +260,10 @@ pub struct ExponentialHost {
 }
 
 impl ExponentialHost {
-    /// Panics with a [`PackageError`] when a package in
-    /// [`HostOptions::packages`] fails validation (the TS constructor
-    /// throws); [`HostOptions::validate_packages`] checks first.
+    /// A package in [`HostOptions::packages`] that fails validation is not
+    /// installed: it is reported as PACKAGE_INVALID issues (`on_issue`,
+    /// [`Self::issues`]), never a panic; [`HostOptions::validate_packages`]
+    /// turns it into a [`PackageError`] before the host exists.
     pub fn new(options: HostOptions, cx: &mut Context<Self>) -> Self {
         let (tx, rx) = flume::unbounded::<Inbound>();
         let pump = cx.spawn(async move |this, cx| {
@@ -302,11 +301,11 @@ impl ExponentialHost {
             this: cx.entity().downgrade(),
             _pump: pump,
         };
+        // VAPP-103: never a panic. A package that fails validation is not
+        // installed and is reported (PACKAGE_INVALID issues, `on_issue`);
+        // `HostOptions::validate_packages` is the hard check.
         for pkg in &options.packages {
-            let issues = host.install_package(pkg);
-            if !issues.is_empty() {
-                panic!("{}", PackageError { package_id: package_id(pkg).unwrap_or_else(|| "?".into()), issues });
-            }
+            host.install_package(pkg);
         }
         host
     }
@@ -525,7 +524,10 @@ impl ExponentialHost {
                     return;
                 }
                 if let Some(view) = self.surface(&surface_id) {
-                    view.update(cx, |v, cx| v.set_data(&path, Some(value), cx));
+                    if let Err(e) = view.update(cx, |v, cx| v.set_data(&path, Some(value), cx)) {
+                        let at = if path.is_empty() { "/" } else { path.as_str() };
+                        self.send(error_message(VALIDATION_FAILED, &surface_id, &e, Some(at)));
+                    }
                 }
             }
         }
@@ -596,11 +598,11 @@ impl ExponentialHost {
                     v
                 });
                 let package_id = self.router.package_id_of(&sid);
-                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme, components: Vec::new() });
+                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme });
                 cx.notify();
             }
             "components" => {
-                let Some(entry) = self.surfaces.iter_mut().find(|s| s.id == sid) else { return };
+                let Some(entry) = self.surfaces.iter().find(|s| s.id == sid) else { return };
                 let incoming: Vec<FlatComponent> = match serde_json::from_value(op["components"].clone()) {
                     Ok(c) => c,
                     Err(e) => {
@@ -609,22 +611,19 @@ impl ExponentialHost {
                         return;
                     }
                 };
-                for c in incoming {
-                    match entry.components.iter_mut().find(|x| x.id == c.id) {
-                        Some(slot) => *slot = c,
-                        None => entry.components.push(c),
-                    }
-                }
-                let list = entry.components.clone();
+                // By id, reduced lazily (VAPP-103: a streamed surface costs linear).
                 entry.view.update(cx, |v, cx| {
-                    v.set_components(list, cx);
+                    v.update_components(incoming, cx);
                 });
             }
             "data" => {
                 if let Some(view) = self.surface(&sid) {
                     let path = op["path"].as_str().unwrap_or("").to_string();
                     let value = op.get("value").cloned();
-                    view.update(cx, |v, cx| v.set_data(&path, value, cx));
+                    if let Err(e) = view.update(cx, |v, cx| v.set_data(&path, value, cx)) {
+                        let at = if path.is_empty() { "/" } else { path.as_str() };
+                        self.send(error_message(VALIDATION_FAILED, &sid, &e, Some(at)));
+                    }
                 }
             }
             "bind" => {

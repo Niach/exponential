@@ -39,5 +39,10 @@ indexmap = { version = "2", features = ["serde"] }
 # the version already in apps/desktop/Cargo.lock, ONE url in the tree.
 url = "2.5"
 cosmic-text = { version = "0.19", optional = true }
+# VAPP-103: the recursive passes (reduce, macro expansion, the layout-tree
+# build, taffy's descent) grow the stack on the heap when a host thread's
+# runs low (iOS secondary threads have 512 KB); the version already in
+# apps/desktop/Cargo.lock.
+stacker = "0.1"
 
 [dev-dependencies]

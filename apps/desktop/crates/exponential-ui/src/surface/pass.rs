@@ -95,6 +95,7 @@ impl Surface {
 
     /// The measurer check, the rebuild and the restyle every pass starts with.
     fn prepare(&mut self, measurer: u64) {
+        self.ensure_reduced();
         if self.last_measurer.is_some_and(|m| m != measurer) {
             self.invalidate_measures();
         }
@@ -143,6 +144,10 @@ impl Surface {
     /// Phase 2: the main tree and every layer against the memo; the height
     /// requests (deduplicated) the memo could only guess.
     fn compute_all(&mut self) -> (Vec<Frame>, Vec<Placed>, Vec<HeightRequest>) {
+        crate::roomy(|| self.compute_all_now())
+    }
+
+    fn compute_all_now(&mut self) -> (Vec<Frame>, Vec<Placed>, Vec<HeightRequest>) {
         let (vw, vh) = self.viewport;
         let guesses = RefCell::new(Vec::<HeightRequest>::new());
         let mut frames = vec![Frame::default(); self.nodes.len()];

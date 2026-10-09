@@ -1085,8 +1085,7 @@ impl Surface {
             Some(v) => Some(parse::<Value>(&v)?),
             None => None,
         };
-        self.core().set_data(&path, value);
-        Ok(())
+        self.core().set_data(&path, value).map_err(invalid)
     }
 
     pub fn data_json(&self) -> String {
@@ -1094,7 +1093,7 @@ impl Surface {
     }
 
     pub fn issues_json(&self) -> String {
-        serde_json::to_string(&self.core().issues).unwrap_or_default()
+        serde_json::to_string(self.core().issues()).unwrap_or_default()
     }
 
     /// Height ≤ 0 = as tall as the content; `max_height` bounds a card.
@@ -1983,8 +1982,13 @@ impl HostRouter {
     /// array (`[{op: create|components|data|bind|delete|send, …}]`). Never
     /// fails: unparseable text is an INVALID_MESSAGE `send` op.
     pub fn route(&self, message_json: String) -> String {
+        // VAPP-103: an oversized message is refused before it is parsed.
+        if message_json.len() > exponential_ui::limits::MAX_MESSAGE_BYTES {
+            let message = h::error_message(h::INVALID_MESSAGE, "", &exponential_ui::limits::message_bytes_issue(), None);
+            return Value::Array(vec![serde_json::json!({"op": "send", "message": message})]).to_string();
+        }
         let ops = match serde_json::from_str::<Value>(&message_json) {
-            Ok(message) => self.inner.lock().unwrap().route(&message),
+            Ok(message) => self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message),
             Err(_) => vec![serde_json::json!({"op": "send", "message": h::error_message(h::INVALID_MESSAGE, "", "a message is a JSON object", None)})],
         };
         Value::Array(ops).to_string()
@@ -1994,25 +1998,25 @@ impl HostRouter {
     /// array `[{path, message}]` (installed only when empty).
     pub fn install_package(&self, package_json: String) -> Result<String, UiError> {
         let pkg: Value = parse(&package_json)?;
-        Ok(json_string(&self.inner.lock().unwrap().install_package(&pkg)))
+        Ok(json_string(&self.inner.lock().unwrap_or_else(|e| e.into_inner()).install_package(&pkg)))
     }
 
     pub fn register_extension(&self, id: String) {
-        self.inner.lock().unwrap().register_extension(&id)
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).register_extension(&id)
     }
 
     pub fn supported_catalog_ids(&self) -> Vec<String> {
-        self.inner.lock().unwrap().supported_catalog_ids()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).supported_catalog_ids()
     }
 
     /// The live surfaces, in creation order.
     pub fn surface_ids(&self) -> Vec<String> {
-        self.inner.lock().unwrap().surface_ids()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).surface_ids()
     }
 
     /// The package whose template created the surface (its function policy).
     pub fn package_id_of(&self, surface_id: String) -> Option<String> {
-        self.inner.lock().unwrap().package_id_of(&surface_id)
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).package_id_of(&surface_id)
     }
 }
 
@@ -2031,11 +2035,11 @@ impl JsonlDecoder {
     }
 
     pub fn push(&self, chunk: String) -> String {
-        self.inner.lock().unwrap().push(&chunk).to_json().to_string()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
     }
 
     pub fn end(&self) -> String {
-        self.inner.lock().unwrap().end().to_json().to_string()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
     }
 }
 
@@ -2054,11 +2058,11 @@ impl SseDecoder {
     }
 
     pub fn push(&self, chunk: String) -> String {
-        self.inner.lock().unwrap().push(&chunk).to_json().to_string()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
     }
 
     pub fn end(&self) -> String {
-        self.inner.lock().unwrap().end().to_json().to_string()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
     }
 }
 

@@ -302,7 +302,7 @@ pub mod setup {
         let outcome = view.set_nested(tree, cx);
         assert!(outcome.issues.is_empty(), "{}: {:?}", case.key, outcome.issues);
         for (k, v) in data {
-            view.set_data(&format!("/{k}"), Some(v), cx);
+            view.set_data(&format!("/{k}"), Some(v), cx).expect("data");
         }
         // Unbounded: the web surface grows with its content.
         view.set_viewport_height(1_000_000.0, cx);

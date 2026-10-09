@@ -410,7 +410,7 @@ fn replay_suite(p: &mut Painter) -> Vec<Case> {
                 let mut issues = Vec::new();
                 let view = p.paint(SurfaceViewOptions { surface_id: "ks".into(), theme: Some(builtin_theme(id).ok_or("not a built-in")?), mode, ..Default::default() }, 900.0, |v, cx| {
                     issues = v.set_nested(sink.clone(), cx).issues;
-                    v.set_data("", Some(json!({"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}, "draft": {"title": ""}})), cx);
+                    v.set_data("", Some(json!({"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false}, "draft": {"title": ""}})), cx).unwrap();
                     v.set_viewport_height(800.0, cx);
                 });
                 ensure(issues.is_empty(), || format!("issues {issues:?}"))?;

@@ -71,7 +71,7 @@ fn bound_macro_inputs_bind_at_layout_time() {
             {"id": "c", "component": "Collapsible", "props": {"title": "More", "open": {"path": "/open"}}, "children": [{"id": "body", "component": "Text", "props": {"text": "Body"}}]}
         ]
     }));
-    s.set_data("", Some(json!({"done": 2, "page": 2, "open": false})));
+    s.set_data("", Some(json!({"done": 2, "page": 2, "open": false}))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     let out = s.layout(&mut m);
@@ -111,13 +111,13 @@ fn visible_drops_a_node_and_its_subtree_and_brings_it_back() {
     let out = s.layout(&mut m);
     assert!(s.index_of("b").is_none() && s.index_of("b1").is_none() && s.index_of("c").is_none());
     let a = s.index_of("a").unwrap();
-    s.set_data("/show", Some(json!(1)));
+    s.set_data("/show", Some(json!(1))).unwrap();
     let out2 = s.layout(&mut m);
     assert!(s.index_of("b1").is_some(), "0 and 1 are truthy");
     assert_eq!(s.index_of("a"), Some(a), "a stays in its slot");
     assert_eq!(out2.delta.added.len(), 2);
     assert!(out2.surface_height > out.surface_height);
-    s.set_data("/show", Some(json!("")));
+    s.set_data("/show", Some(json!(""))).unwrap();
     let out3 = s.layout(&mut m);
     assert!(s.index_of("b").is_none());
     assert_eq!(out3.delta.removed.len(), 2);
@@ -282,11 +282,11 @@ fn a_data_write_through_and_a_tab_switch_reuse_every_unchanged_node() {
             {"id": "other", "component": "Text", "props": {"text": "Static"}}
         ]
     }));
-    s.set_data("/name", Some(json!("Ada")));
+    s.set_data("/name", Some(json!("Ada"))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     let first = s.layout(&mut m);
-    s.set_data("/name", Some(json!("Grace")));
+    s.set_data("/name", Some(json!("Grace"))).unwrap();
     let renamed = s.layout(&mut m);
     assert_eq!(renamed.structure_version, first.structure_version);
     assert_eq!(renamed.delta.changed, vec![s.index_of("name").unwrap()]);
@@ -546,7 +546,7 @@ fn number_field_steps_clamp_and_mirror_in_rtl() {
     for dir in ["ltr", "rtl"] {
         let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "direction": dir},
             "children": [{"id": "n", "component": "NumberField", "props": {"label": "Seats", "name": "seats", "value": {"path": "/n"}, "min": 1, "max": 3, "unit": "seats"}}]}));
-        s.set_data("/n", Some(json!(2)));
+        s.set_data("/n", Some(json!(2))).unwrap();
         s.set_viewport(390.0, 0.0, None);
         let mut m = fixed();
         let out = s.layout(&mut m);
@@ -571,7 +571,7 @@ fn number_field_steps_clamp_and_mirror_in_rtl() {
 fn chip_input_adds_removes_and_suggests() {
     let mut s = field_surface(json!({"id": "c", "component": "ChipInput", "props": {"label": "Labels", "name": "labels", "values": {"path": "/labels"}, "max": 3,
         "suggestions": [{"label": "bug", "value": "bug"}, {"label": "build", "value": "build"}, {"label": "ios", "value": "ios"}]}}));
-    s.set_data("/labels", Some(json!(["ios"])));
+    s.set_data("/labels", Some(json!(["ios"]))).unwrap();
     let mut m = fixed();
     s.layout(&mut m);
     let input = s.index_of("c.input").unwrap();
@@ -658,7 +658,7 @@ fn a_form_refuses_a_submit_with_failing_checks_then_submits_its_values() {
                 {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"path": "/agree"}, "checks": [{"condition": {"path": "/agree"}, "message": "Required"}]}},
                 {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
             ]}]}));
-    s.set_data("", Some(json!({"email": "nope", "agree": false})));
+    s.set_data("", Some(json!({"email": "nope", "agree": false}))).unwrap();
     s.set_viewport(390.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
@@ -862,12 +862,12 @@ fn template_keys_keep_a_rows_slot_when_the_items_reorder() {
         {"id": "root", "component": "Box", "children": {"componentId": "row", "path": "/items", "key": "id"}},
         {"id": "row", "component": "Text", "text": {"path": "name"}}
     ])).unwrap());
-    s.set_data("/items", Some(json!([{"id": "a", "name": "Ann"}, {"id": "b", "name": "Bo"}])));
+    s.set_data("/items", Some(json!([{"id": "a", "name": "Ann"}, {"id": "b", "name": "Bo"}]))).unwrap();
     s.set_viewport(300.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
     let a = s.index_of("row.a").expect("ids carry the key");
-    s.set_data("/items", Some(json!([{"id": "b", "name": "Bo"}, {"id": "a", "name": "Ann"}])));
+    s.set_data("/items", Some(json!([{"id": "b", "name": "Bo"}, {"id": "a", "name": "Ann"}]))).unwrap();
     let out = s.layout(&mut m);
     assert_eq!(s.index_of("row.a"), Some(a), "same slot after the reorder");
     assert_eq!(out.upcalls, 0, "nothing re-measured");
@@ -951,7 +951,7 @@ fn every_pressable_part_of_the_kitchen_sink_survives_a_press_and_a_relayout() {
     let ks: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     for width in [390.0f32, 900.0] {
         let mut s = surface(ks.clone());
-        s.set_data("", Some(json!({"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false, "toastOpen": true, "showDone": false, "sidebarCollapsed": false}, "form": {"seats": 3, "labels": ["bug"], "rating": 2}})));
+        s.set_data("", Some(json!({"posts": [{"title": "One"}, {"title": "Two"}], "ui": {"confirmOpen": false, "toastOpen": true, "showDone": false, "sidebarCollapsed": false}, "form": {"seats": 3, "labels": ["bug"], "rating": 2}}))).unwrap();
         s.set_viewport(width, 800.0, None);
         let mut m = fixed();
         s.layout(&mut m);
@@ -978,7 +978,7 @@ fn every_pressable_part_of_the_kitchen_sink_survives_a_press_and_a_relayout() {
 fn a_busy_form_shows_its_submit_loading_and_a_disabled_one_makes_fields_inert() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "f", "component": "Form", "props": {"name": "f", "busy": {"path": "/busy"}, "disabled": {"path": "/off"}}, "on": {"submit": {"event": {"name": "save"}}},
         "children": [{"id": "x", "component": "Input", "props": {"label": "X", "name": "x"}}, {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}]}]}));
-    s.set_data("", Some(json!({"busy": true, "off": false})));
+    s.set_data("", Some(json!({"busy": true, "off": false}))).unwrap();
     s.set_viewport(390.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
@@ -987,7 +987,7 @@ fn a_busy_form_shows_its_submit_loading_and_a_disabled_one_makes_fields_inert() 
     assert_eq!(go.props["loading"], json!(true));
     assert!(!go.pressable);
     assert!(s.submit_form("f").is_empty(), "a busy form refuses");
-    s.set_data("", Some(json!({"busy": false, "off": true})));
+    s.set_data("", Some(json!({"busy": false, "off": true}))).unwrap();
     s.layout(&mut m);
     let nodes = s.nodes();
     assert_eq!(nodes.iter().find(|n| n.id == "x.field").unwrap().props["disabled"], json!(true));
@@ -999,12 +999,12 @@ fn an_opening_toast_and_a_changing_live_text_announce() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
         {"id": "status", "component": "Text", "props": {"text": {"path": "/status"}, "live": "polite"}},
         {"id": "t", "component": "Toast", "props": {"title": "Failed", "description": "Try again", "type": "error", "open": {"path": "/open"}}}]}));
-    s.set_data("", Some(json!({"status": "Idle", "open": false})));
+    s.set_data("", Some(json!({"status": "Idle", "open": false}))).unwrap();
     s.set_viewport(390.0, 800.0, None);
     let mut m = fixed();
     s.layout(&mut m);
     s.take_events();
-    s.set_data("", Some(json!({"status": "Saving…", "open": true})));
+    s.set_data("", Some(json!({"status": "Saving…", "open": true}))).unwrap();
     s.layout(&mut m);
     let events = s.take_events();
     assert!(events.contains(&OutEvent::Announce { text: "Saving…".into(), live: "polite".into() }));
@@ -1058,7 +1058,7 @@ fn a_nested_surface_instantiates_its_list_template_per_item() {
         {"id": "feed", "component": "List", "template": {"component": "row", "path": "/rows"}, "children": []},
         {"id": "row", "component": "Text", "props": {"text": {"path": "label"}}}
     ]})).unwrap());
-    s.set_data("/rows", Some(json!([{"label": "One"}, {"label": "Two"}])));
+    s.set_data("/rows", Some(json!([{"label": "One"}, {"label": "Two"}]))).unwrap();
     s.set_viewport(300.0, 0.0, None);
     s.layout(&mut FixedMeasure::default());
     let nodes = s.nodes();

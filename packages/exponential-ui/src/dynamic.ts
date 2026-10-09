@@ -16,6 +16,7 @@ import { CORE_FUNCTIONS, isBinding, isCall, isDynamic, truthy } from "./expr"
 import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter } from "./format"
 import { resolveString } from "./strings"
 import type { Action, ComponentDef, ExtensionDef, PropSchema, UiNode } from "./types"
+import { MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS } from "./limits"
 
 /** Where relative paths resolve: the pointer of the current template item
  *  (`/rows/3`), or the root; `item` (when the key is present) = a LITERAL
@@ -62,21 +63,87 @@ export function readPointer(data: unknown, pointer: string): unknown {
   return cur
 }
 
-/** A copy of `data` with `value` written at the absolute pointer (missing
- *  objects are created; an array index past the end appends). */
-export function writePointer(data: unknown, pointer: string, value: unknown): unknown {
-  if (pointer === ``) return value
-  const [raw, ...rest] = pointer.slice(1).split(`/`)
-  const token = unescape(raw)
-  const tail = rest.length ? `/${rest.join(`/`)}` : ``
-  if (Array.isArray(data)) {
-    const out = [...data]
-    const index = Number(token)
-    out[index] = writePointer(out[index], tail, value)
-    return out
+/** A pointer write: the new data model, or `error` (data unchanged). */
+export interface PointerWrite {
+  data: unknown
+  error?: string
+}
+
+const utf8Length = (text: string) => new TextEncoder().encode(text).length
+
+/** A pointer's tokens (`` and `/` = the whole model), or the limit it breaks. */
+export function writeTokens(pointer: string): string[] | string {
+  if (utf8Length(pointer) > MAX_POINTER_BYTES) return POINTER_ISSUES.bytes
+  if (pointer === `` || pointer === `/`) return []
+  const tokens = (pointer.startsWith(`/`) ? pointer.slice(1) : pointer).split(`/`)
+  if (tokens.length > MAX_POINTER_SEGMENTS) return POINTER_ISSUES.segments
+  return tokens.map(unescape)
+}
+
+/** VAPP-103: the pointer-write refusals, byte-identical in every core. */
+export const POINTER_ISSUES = {
+  bytes: `data: pointer longer than ${MAX_POINTER_BYTES} bytes`,
+  segments: `data: pointer has more than ${MAX_POINTER_SEGMENTS} segments`,
+  notIndex: (token: string) => `data: ${JSON.stringify(token)} is not an array index`,
+  pastEnd: (token: string, length: number) => `data: index ${token} is past the end of the array (${length} items)`,
+} as const
+
+/** The index a token names in an array of `length` items: digits up to
+ *  `length` (`length` and `-` append), else the refusal (JSON Pointer:
+ *  never a gap, never a key). */
+function arrayIndex(token: string, length: number): number | string {
+  if (token === `-`) return length
+  if (!/^[0-9]+$/.test(token)) return POINTER_ISSUES.notIndex(token)
+  const index = Number(token)
+  return index <= length ? index : POINTER_ISSUES.pastEnd(token, length)
+}
+
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true })
+}
+
+/** A copy of `data` with `value` written at the absolute pointer
+ *  (`undefined` removes). Missing containers are OBJECTS; an array takes an
+ *  index up to its length (`length` and `-` append). Refused (data
+ *  unchanged, `error` set): a pointer past `maxPointerBytes` /
+ *  `maxPointerSegments`, a non-index token or an index past the end of an
+ *  array. Iterative: any depth, no recursion. */
+export function writePointer(data: unknown, pointer: string, value: unknown): PointerWrite {
+  const tokens = writeTokens(pointer)
+  if (typeof tokens === `string`) return { data, error: tokens }
+  if (tokens.length === 0) return { data: value === undefined ? {} : value }
+  const chain: (unknown[] | Record<string, unknown>)[] = []
+  const keys: (number | string)[] = []
+  let cur: unknown = data
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]!
+    const last = i === tokens.length - 1
+    if (Array.isArray(cur)) {
+      const index = arrayIndex(token, cur.length)
+      if (typeof index === `string`) return { data, error: index }
+      const next = [...cur]
+      if (!last) cur = next[index]
+      else if (value === undefined) {
+        if (index < next.length) next.splice(index, 1)
+      } else next[index] = value
+      chain.push(next)
+      keys.push(index)
+    } else {
+      const next: Record<string, unknown> = {}
+      if (cur !== null && typeof cur === `object`) for (const [k, v] of Object.entries(cur)) setOwn(next, k, v)
+      if (!last) cur = Object.prototype.hasOwnProperty.call(next, token) ? next[token] : undefined
+      else if (value === undefined) delete next[token]
+      else setOwn(next, token, value)
+      chain.push(next)
+      keys.push(token)
+    }
   }
-  const obj = typeof data === `object` && data !== null ? (data as Record<string, unknown>) : {}
-  return { ...obj, [token]: writePointer(obj[token], tail, value) }
+  for (let i = chain.length - 2; i >= 0; i--) {
+    const parent = chain[i]!
+    if (Array.isArray(parent)) parent[keys[i] as number] = chain[i + 1]
+    else setOwn(parent, keys[i] as string, chain[i + 1])
+  }
+  return { data: chain[0] }
 }
 
 /** The basic catalog's logic functions as the core evaluates them (the
@@ -163,6 +230,8 @@ export function isVisible(visible: unknown, data: unknown, options: ResolveOptio
 export interface ActionOutcome {
   /** The data model after the action's `set` (unchanged without one). */
   data: unknown
+  /** VAPP-103: the `set` was refused (writePointer's reason). */
+  error?: string
   /** The event to dispatch, its context resolved BEFORE the write. */
   event?: { name: string; context?: Record<string, unknown> }
   /** A function other than `set` the host must run (openUrl…), args resolved. */
@@ -182,8 +251,15 @@ export function runAction(action: Action, data: unknown, options: ResolveOptions
     const args = resolveDynamic(fn.args ?? {}, data, options) as Record<string, unknown>
     if (fn.call === `set`) {
       // A relative path under a literal-item scope names no data: no write.
-      if (typeof args.path === `string` && (args.path.startsWith(`/`) || !hasItem(options.scope)))
-        out.data = writePointer(data, absolutePath(args.path, options.scope), args.value)
+      if (typeof args.path === `string` && (args.path.startsWith(`/`) || !hasItem(options.scope))) {
+        const pointer = absolutePath(args.path, options.scope)
+        // No value: the key exists without one, which JSON drops (the
+        // containers on the way are still created).
+        const written = writePointer(data, pointer, args.value === undefined ? null : args.value)
+        const final = args.value === undefined && !written.error ? writePointer(written.data, pointer, undefined) : written
+        out.data = final.data
+        if (final.error) out.error = final.error
+      }
     } else out.call = { call: fn.call, args }
   }
   if (event) out.event = event

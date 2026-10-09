@@ -97,9 +97,9 @@ fn load_kitchen(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) {
         let outcome = v.set_nested(kitchen_sink(), cx);
         assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
         let posts: Vec<Value> = (0..30).map(|i| json!({"title": format!("Post {i} about self-hosting"), "score": format!("{}", 10 + i)})).collect();
-        v.set_data("/posts", Some(Value::Array(posts)), cx);
-        v.set_data("/draft/title", Some(json!("Hello")), cx);
-        v.set_data("/ui/confirmOpen", Some(json!(false)), cx);
+        v.set_data("/posts", Some(Value::Array(posts)), cx).unwrap();
+        v.set_data("/draft/title", Some(json!("Hello")), cx).unwrap();
+        v.set_data("/ui/confirmOpen", Some(json!(false)), cx).unwrap();
         v.set_viewport_height(800.0, cx);
     });
 }
@@ -287,7 +287,7 @@ fn replay_geometry(cx: &mut TestAppContext, file: &str) -> usize {
             let outcome = v.set_nested(tree, cx);
             assert!(outcome.issues.is_empty(), "{name}: {:?}", outcome.issues);
             if round1 {
-                v.set_data("", Some(fx["data"].clone()), cx);
+                v.set_data("", Some(fx["data"].clone()), cx).unwrap();
             }
         });
         draw(vcx);
@@ -501,7 +501,7 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
     };
     with_view(cx, &|v, window, cx| {
         v.set_nested(kitchen_sink(), cx);
-        v.set_data("/draft/title", Some(json!("Hello")), cx);
+        v.set_data("/draft/title", Some(json!("Hello")), cx).unwrap();
         v.layout_now(window, cx);
     });
     let field = "echo-field.field";
@@ -527,14 +527,14 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
     with_view(cx, &|v, _, _| assert_eq!(v.surface().get_data("/draft/title"), Some(&json!("Hello world")), "the bound value wrote through"));
     // A host echo lands in the idle, unfocused field.
     with_view(cx, &|v, window, cx| {
-        v.set_data("/draft/title", Some(json!("Echoed")), cx);
+        v.set_data("/draft/title", Some(json!("Echoed")), cx).unwrap();
         v.layout_now(window, cx);
     });
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Echoed")));
     // An edit outstanding (inside the debounce) wins over a stale echo.
     with_view(cx, &|v, window, cx| {
         v.type_into(field, "!", window, cx);
-        v.set_data("/draft/title", Some(json!("Stale")), cx);
+        v.set_data("/draft/title", Some(json!("Stale")), cx).unwrap();
         v.layout_now(window, cx);
     });
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Echoed!")));

@@ -74,6 +74,10 @@ impl Surface {
     /// Restyle what is dirty (everything after a theme/mode/settings or a
     /// direction change).
     pub(super) fn restyle(&mut self) {
+        crate::roomy(|| self.restyle_now())
+    }
+
+    fn restyle_now(&mut self) {
         let direction = self.surface_direction();
         if direction != self.direction {
             self.direction = direction;
