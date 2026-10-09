@@ -1,5 +1,11 @@
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
-import { SessionResultsView, type SessionResultGroup } from "@exp/ui"
+import {
+  conceptIcon,
+  GlassSectionHeader,
+  SessionResultsView,
+  StackRail,
+  type SessionResultGroup,
+} from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -9,6 +15,17 @@ import type { StyleguideEntry } from "./types.ts"
 // its text, ONE `Changes · N files · +A −D ›` row (the files it names, by
 // path or rename source) and its tiles; the file no topic names lands in the
 // unnumbered `Other changes` band and `Show complete diff` closes the page.
+// EXP-1248: the Stack card leads while the PR sits in an open stack — the
+// band (no count) over the ONE `StackRail`, the current member washed, a
+// hovered member offering `Merge through here` (apps/web `GuideStackCard`).
+
+const PrStackIcon = conceptIcon(`pr-stack`)
+
+const STACK = [
+  { key: `top`, identifier: `APP-13`, title: `Topic screen error state`, current: true },
+  { key: `mid`, identifier: `APP-11`, title: `Shared ErrorState component` },
+  { key: `low`, identifier: `APP-9`, title: `Topic repository retries` },
+]
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
@@ -72,13 +89,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1154`,
   title: `Guide`,
-  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). The \`Summary\` topic leads as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). An issue with an open PR and no report shows the GitHub PR body as one unnumbered band.`,
+  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A Stack card comes first while the pull request sits in an open stack of two or more (the band, no count, over the stack rail: top first, the current member on the active wash, the base branch last; a member row swaps the subject in place, a hovered one offers \`Merge through here\`). The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). An issue with an open PR and no report shows the GitHub PR body as one unnumbered band.`,
   status: {
     web: {
       state: `ok`,
-      symbol: `SessionResultsView / GuideSectionHeader / GuideChangesRow / GuideShowCompleteDiffRow`,
-      file: `packages/ui/src/session-results-view.tsx`,
-      note: `pure rules guideSections / guideSectionCaption / guideCoverage in session-results.ts`,
+      symbol: `GuideBody / GuideStackCard over SessionResultsView`,
+      file: `apps/web/src/components/guide-face.tsx`,
+      note: `section page: guide-section-diff.tsx; rules: guideCoverage (ui), guideSectionPage (web lib/work-faces.ts)`,
     },
     desktop: {
       state: `ok`,
@@ -100,11 +117,28 @@ export const entry: StyleguideEntry = {
     },
   },
   island: () => (
-    <SessionResultsView
-      groups={GROUPS}
-      files={FILES}
-      onOpenChanges={() => {}}
-      attachmentSrc={() => SHOT}
-    />
+    <div className="flex flex-col">
+      <div className="flex flex-col px-7 pt-5 md:px-5">
+        <GlassSectionHeader
+          label="Stack"
+          className="-mx-3 w-auto md:mx-0"
+          leading={<PrStackIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+        />
+        <StackRail
+          className="pt-1"
+          members={STACK}
+          baseBranch="main"
+          onOpen={() => {}}
+          onMergeThrough={() => {}}
+          defaultHoveredKey="mid"
+        />
+      </div>
+      <SessionResultsView
+        groups={GROUPS}
+        files={FILES}
+        onOpenChanges={() => {}}
+        attachmentSrc={() => SHOT}
+      />
+    </div>
   ),
 }

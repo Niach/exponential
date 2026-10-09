@@ -365,6 +365,8 @@ app.post(`/start`, async (c) => {
     planMode: asBoolean(body?.planMode),
     resume: asBoolean(body?.resume),
     ...(mcpServerIds ? { mcpServerIds } : {}),
+    // EXP-1249: per-run computer use; absent = the device's own default.
+    computerUse: asBoolean(body?.computerUse),
     ...(account ? { account } : {}),
     ...(prompt ? { prompt } : {}),
     ...(startId ? { startId } : {}),

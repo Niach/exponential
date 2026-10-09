@@ -26,8 +26,9 @@ describe(`chat suggestions`, () => {
       return seed / 2147483647
     }
     const picked = pickChatSuggestions(CHAT_SUGGESTION_COUNT, random)
-    expect(picked).toHaveLength(4)
-    expect(new Set(picked).size).toBe(4)
+    // EXP-1249: three quiet rows under the composer (composer-menu.json).
+    expect(picked).toHaveLength(3)
+    expect(new Set(picked).size).toBe(3)
     for (const suggestion of picked) expect(CHAT_SUGGESTION_POOL).toContain(suggestion)
     const order = picked.map((s) => CHAT_SUGGESTION_POOL.indexOf(s))
     expect([...order].sort((a, b) => a - b)).toEqual(order)

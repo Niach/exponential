@@ -292,9 +292,12 @@ export function InboxView({
                   onClick={() => {
                     void markGroupRead(g)
                     if (g.session) {
+                      // EXP-1246/1250: like an issue row, the run opens
+                      // beside the list in the inbox's one preview tab.
                       void navigate({
                         to: `/t/$teamSlug/sessions/$sessionId`,
                         params: g.session,
+                        search: from ? { from } : {},
                       })
                     }
                   }}
@@ -398,7 +401,7 @@ export function InboxView({
                   search={{
                     ...(from ? { from } : {}),
                     ...(latest.type === `agent_message`
-                      ? { view: `results` as const }
+                      ? { view: `guide` as const }
                       : {}),
                   }}
                   onClick={() => void markGroupRead(g)}

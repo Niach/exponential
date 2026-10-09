@@ -49,10 +49,6 @@ use crate::slide_swap::{self, SwapAnim};
 /// wall expiring) — the 5s the session lists ride.
 const LIVE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// EXP-923: the gap between strip chips. (EXP-877's agent CLUSTERS are gone
-/// with the live tabs — the strip is a flat list of plain chips again.)
-const STRIP_GAP: f32 = 4.;
-
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
 
@@ -598,6 +594,50 @@ fn opens_no_tab(
             // Any REAL navigation elsewhere opens its tab as it always did.
             Some(_) => false,
         }
+}
+
+/// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
+/// leaving team's non-terminal tabs are PARKED under its id, the arriving
+/// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
+/// is not team-scoped) stay in the strip throughout. Pure.
+fn swap_team_tabs(
+    tabs: Vec<TabEntry>,
+    parked: &mut HashMap<String, Vec<TabEntry>>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Vec<TabEntry> {
+    let (terminals, team_tabs): (Vec<TabEntry>, Vec<TabEntry>) = tabs
+        .into_iter()
+        .partition(|tab| matches!(tab.screen, Screen::Terminal { .. }));
+    if let Some(from) = from {
+        if team_tabs.is_empty() {
+            parked.remove(from);
+        } else {
+            parked.insert(from.to_string(), team_tabs);
+        }
+    }
+    let mut next = to.and_then(|to| parked.remove(to)).unwrap_or_default();
+    next.extend(terminals);
+    next
+}
+
+/// EXP-1250 — the Inbox's ONE reusable tab (a preview slot): a detail opened
+/// FROM the Inbox list (an explicit Inbox origin) replaces the tab another
+/// Inbox pick opened, instead of growing the strip by one chip per step.
+/// `None` = push a new tab. (An existing tab for the SAME work is found
+/// before this and simply focused.) Pure.
+fn inbox_slot(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+    let Some(PendingOrigin::Explicit(origin)) = pending else {
+        return None;
+    };
+    if origin.tool != crate::sidebar::ToolWindow::Inbox {
+        return None;
+    }
+    tabs.iter().position(|tab| {
+        tab.origin
+            .as_ref()
+            .is_some_and(|origin| origin.tool == crate::sidebar::ToolWindow::Inbox)
+    })
 }
 
 /// EXP-923 — the tabs a MERGE end takes with it: the ones bound to a run in
@@ -1188,8 +1228,11 @@ pub struct ScreensPanel {
     /// as of the last tick — those move with the clock, not with a row.
     live_chip_facts: Vec<(String, crate::queries::LiveSig)>,
     _live_tick: gpui::Task<()>,
-    /// The team the tabs belong to — a switch drops them.
+    /// The team the strip's tabs belong to ([`crate::navigation::tabs_team_id`]).
     tabs_team: Option<String>,
+    /// EXP-1250: the OTHER teams' tabs, parked on a team switch and restored
+    /// on the way back ([`swap_team_tabs`]) — a switch never drops a tab.
+    parked_tabs: HashMap<String, Vec<TabEntry>>,
     /// The screen shown at the last nav notify (EXP-369): the panes are
     /// long-lived, so a transition INTO one is the only "opened" signal a
     /// pane that fetches server-only data gets.
@@ -1391,6 +1434,7 @@ impl ScreensPanel {
                 }
             }),
             tabs_team: None,
+            parked_tabs: HashMap::new(),
             active_screen: None,
             slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             resize_drag: None,
@@ -1492,8 +1536,9 @@ impl ScreensPanel {
         });
     }
 
-    /// Reconcile tabs with the navigation state: drop tabs on a team
-    /// switch, open (or keep) a tab for the active DETAIL screen, and
+    /// Reconcile tabs with the navigation state: swap the strip to the new
+    /// team's tabs on a team switch (EXP-1250: parked, never dropped), open
+    /// (or keep) a tab for the active DETAIL screen, and
     /// re-point the shared views at it. Runs in observers (never
     /// mid-render). MUST never call `activate_tool`/`select_*` — the rail
     /// observer + this nav observer would feed back.
@@ -1503,7 +1548,9 @@ impl ScreensPanel {
         // unconditionally, so a marker left by a navigation that never
         // reached its issue can't survive to the next one.
         let mut pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
-        let team = active_team_id(&self.nav, cx);
+        // EXP-1250: the window's CHOSEN team — `active_team_id`'s fallback
+        // (its row still syncing) never counts as a switch.
+        let team = crate::navigation::tabs_team_id(&self.nav, cx);
         if team != self.tabs_team {
             // EXP-1192: a window that opened on a detail BEFORE its team
             // synced (a dev-seeded launch) rebuilds that tab below — it keeps
@@ -1513,21 +1560,22 @@ impl ScreensPanel {
                     .and_then(|screen| self.origin_of(&screen))
                     .map(PendingOrigin::Explicit);
             }
-            // Dropping the tabs tears the issue detail down without a blur —
+            // Parking the tabs tears the issue detail down without a blur —
             // flush a pending description edit first (EXP-68).
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+            // EXP-1250: the leaving team's tabs are PARKED and the arriving
+            // team's come back (EXP-769: terminals stay put throughout).
+            let previous = self.tabs_team.take();
+            let tabs = std::mem::take(&mut self.tabs);
+            self.tabs =
+                swap_team_tabs(tabs, &mut self.parked_tabs, previous.as_deref(), team.as_deref());
             self.tabs_team = team;
-            // EXP-769: terminal tabs SURVIVE a team switch — a PTY is not
-            // team-scoped, and dropping its chip would orphan a running shell
-            // (the manager would keep it alive, invisibly). Everything else
-            // is team data and goes.
-            self.tabs
-                .retain(|tab| matches!(tab.screen, Screen::Terminal { .. }));
             self.pending_run_face = None;
             self.tabless = None;
-            // EXP-746: the session views go with their tabs (a dropped tab
-            // must not keep a relay socket or an engine drain alive).
+            // EXP-746: the session views go (a parked tab must not keep a
+            // relay socket or an engine drain alive); they rebuild lazily
+            // when their tab is activated again.
             self.shutdown_all_sessions(cx);
             // EXP-894: the per-tab drafts go with their tabs.
             self.issue_detail
@@ -1628,11 +1676,20 @@ impl ScreensPanel {
             }
             None if opens_no_tab => {}
             None => {
-                self.tabs.push(TabEntry::new(
+                let entry = TabEntry::new(
                     screen.clone(),
                     resolve_tab_origin(pending_origin.as_ref(), None, derived),
                     issue_of_screen.clone(),
-                ));
+                );
+                match inbox_slot(&self.tabs, pending_origin.as_ref()) {
+                    // EXP-1250: the Inbox's preview slot — the step replaces
+                    // the tab the previous Inbox pick opened.
+                    Some(ix) => {
+                        let replaced = std::mem::replace(&mut self.tabs[ix], entry);
+                        self.forget_tab(&replaced, cx);
+                    }
+                    None => self.tabs.push(entry),
+                }
             }
         }
         match screen {
@@ -2505,7 +2562,8 @@ impl ScreensPanel {
         let mut strip = h_flex()
             .id("center-tab-strip")
             .max_w_full()
-            .gap(px(STRIP_GAP))
+            // EXP-1250: paint the gap the packer measured, so "fits" fits.
+            .gap(px(chip_gap(window)))
             .items_center();
         for pos in 0..top.len() {
             if shown.contains(&pos) {
@@ -2971,7 +3029,7 @@ impl ScreensPanel {
         // already showing its rows. A no-op while nothing changed; never
         // called for `None`, so an outgoing list keeps its rows through its
         // slide out.
-        if let Some(kind @ (SecondSidebar::Inbox | SecondSidebar::Reviews)) = side {
+        if let Some(kind @ SecondSidebar::Inbox) = side {
             let tab = self.side_inbox_tab(kind, cx);
             self.side_list
                 .update(cx, |list, cx| list.set_side(kind, tab, cx));
@@ -3013,7 +3071,7 @@ impl ScreensPanel {
     /// load-bearing for entity children (the dock wrapper's flex-child rule).
     fn side_child(&self, kind: SecondSidebar, width: f32) -> gpui::AnyElement {
         let child = match kind {
-            SecondSidebar::Inbox | SecondSidebar::Reviews => {
+            SecondSidebar::Inbox => {
                 self.side_list.clone().into_any_element()
             }
             SecondSidebar::RecentRuns => self.recent_runs.clone().into_any_element(),
@@ -3893,10 +3951,10 @@ impl Render for ScreensPanel {
 }
 
 /// EXP-1192: the resize panel (and remembered width) of each second sidebar
-/// — the Inbox and Reviews share the `list` column, Recent runs has its own.
+/// — the Inbox owns the `list` column, Recent runs has its own.
 fn side_panel(kind: SecondSidebar) -> crate::resize_edge::SidebarPanel {
     match kind {
-        SecondSidebar::Inbox | SecondSidebar::Reviews => crate::resize_edge::SidebarPanel::List,
+        SecondSidebar::Inbox => crate::resize_edge::SidebarPanel::List,
         SecondSidebar::RecentRuns => crate::resize_edge::SidebarPanel::Recent,
     }
 }
@@ -3964,14 +4022,13 @@ mod tests {
         takes_over_tab, ChipLead, DevDialog, RunFace, DEV_DIALOG_SPECS,
     };
 
-    /// EXP-1192: the Inbox and Reviews sidebars share the `list` column's
-    /// remembered width; Recent runs keeps its own.
+    /// EXP-1192: the Inbox sidebar keeps the `list` column's remembered
+    /// width; Recent runs keeps its own.
     #[test]
     fn each_second_sidebar_resizes_its_panel() {
         use crate::navigation::SecondSidebar;
         use crate::resize_edge::SidebarPanel;
         assert_eq!(side_panel(SecondSidebar::Inbox), SidebarPanel::List);
-        assert_eq!(side_panel(SecondSidebar::Reviews), SidebarPanel::List);
         assert_eq!(side_panel(SecondSidebar::RecentRuns), SidebarPanel::Recent);
     }
 
@@ -3985,7 +4042,6 @@ mod tests {
         assert_eq!(side_slot_width(None, 1200.), 0.);
         for kind in [
             SecondSidebar::Inbox,
-            SecondSidebar::Reviews,
             SecondSidebar::RecentRuns,
         ] {
             for extent in [400., 800., 1200., 3000.] {
@@ -4034,9 +4090,10 @@ mod tests {
         assert_eq!(parse_run_face(None), None);
     }
     use super::{
-        live_tab_plan, opens_no_tab, tabs_closed_by_merge, LivePlanOp, TabEntry, TabLiveView,
-        TablessWork,
+        inbox_slot, live_tab_plan, opens_no_tab, swap_team_tabs, tabs_closed_by_merge,
+        LivePlanOp, TabEntry, TabLiveView, TablessWork,
     };
+    use std::collections::HashMap;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
     use crate::sidebar::ToolWindow;
 
@@ -4048,6 +4105,71 @@ mod tests {
         }
     }
 
+    fn issue_tab(id: &str, origin: Option<TabOrigin>) -> TabEntry {
+        TabEntry::new(
+            Screen::IssueDetail {
+                issue_id: id.to_string(),
+            },
+            origin,
+            None,
+        )
+    }
+
+    fn tab_ids(tabs: &[TabEntry]) -> Vec<String> {
+        tabs.iter()
+            .map(|tab| tab.issue_id.clone().unwrap_or_default())
+            .collect()
+    }
+
+    /// EXP-1250: a team switch PARKS the strip and the way back RESTORES it,
+    /// in order; the other team's tabs never leak across.
+    #[test]
+    fn a_team_switch_and_back_restores_the_tabs() {
+        let mut parked = HashMap::new();
+        let team_a = vec![issue_tab("a1", None), issue_tab("a2", Some(origin(ToolWindow::Inbox)))];
+        let on_b = swap_team_tabs(team_a, &mut parked, Some("A"), Some("B"));
+        assert!(on_b.is_empty(), "B has no tabs yet");
+        let on_b = vec![issue_tab("b1", None)];
+        let back_on_a = swap_team_tabs(on_b, &mut parked, Some("B"), Some("A"));
+        assert_eq!(tab_ids(&back_on_a), ["a1", "a2"]);
+        assert_eq!(
+            back_on_a[1].origin.as_ref().map(|origin| origin.tool),
+            Some(ToolWindow::Inbox),
+            "a tab keeps its list across the round trip"
+        );
+        let again_on_b = swap_team_tabs(back_on_a, &mut parked, Some("A"), Some("B"));
+        assert_eq!(tab_ids(&again_on_b), ["b1"]);
+        // The first sync (no team before) parks nothing.
+        let mut fresh = HashMap::new();
+        let first = swap_team_tabs(vec![issue_tab("x", None)], &mut fresh, None, Some("A"));
+        assert!(first.is_empty());
+        assert!(fresh.is_empty());
+    }
+
+    /// EXP-1250: N issues opened from the Inbox list = ONE tab (the preview
+    /// slot is replaced in place); any other open still pushes its own.
+    #[test]
+    fn n_inbox_opens_keep_one_tab() {
+        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
+        let mut tabs: Vec<TabEntry> = vec![issue_tab("pinned", None)];
+        for id in ["i1", "i2", "i3", "i4"] {
+            let entry = issue_tab(id, Some(origin(ToolWindow::Inbox)));
+            match inbox_slot(&tabs, Some(&inbox)) {
+                Some(ix) => tabs[ix] = entry,
+                None => tabs.push(entry),
+            }
+        }
+        assert_eq!(tab_ids(&tabs), ["pinned", "i4"]);
+        // A derived or rail open is not an Inbox step: it pushes.
+        assert_eq!(inbox_slot(&tabs, Some(&PendingOrigin::Derive)), None);
+        assert_eq!(inbox_slot(&tabs, Some(&PendingOrigin::Rail)), None);
+        assert_eq!(inbox_slot(&tabs, None), None);
+        assert_eq!(
+            inbox_slot(&tabs, Some(&PendingOrigin::Explicit(origin(ToolWindow::RecentRuns)))),
+            None
+        );
+    }
+
     /// EXP-851: which list a tab ends up with. A REAL navigation re-derives
     /// (latest wins), an explicit marker overrides, and a screen change that
     /// is not a navigation at all — a tab click, a go-back, the reactivation
@@ -4056,7 +4178,7 @@ mod tests {
     /// tab keeps its origin, and the card reads the sidebar off it.
     #[test]
     fn a_tab_keeps_its_list_unless_a_navigation_says_otherwise() {
-        let reviews = origin(ToolWindow::Reviews);
+        let reviews = origin(ToolWindow::RecentRuns);
         let inbox = origin(ToolWindow::Inbox);
         // Tab click / go-back: no marker, the tab keeps what it has.
         assert_eq!(
@@ -4279,7 +4401,7 @@ mod tests {
         assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, false));
         assert!(!opens_no_tab(Some(&PendingOrigin::Derive), None, false));
         assert!(!opens_no_tab(
-            Some(&PendingOrigin::Explicit(origin(ToolWindow::Reviews))),
+            Some(&PendingOrigin::Explicit(origin(ToolWindow::RecentRuns))),
             None,
             false
         ));

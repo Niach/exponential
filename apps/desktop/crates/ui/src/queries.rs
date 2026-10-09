@@ -909,6 +909,7 @@ pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
 /// in `domain::reviews_queue::representative_order` (newest first, id
 /// ascending); [`representative`](Self::representative) (the first) carries
 /// the shared `pr_number`/`branch` and is the merge/dismiss target.
+#[derive(Clone)]
 pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
 }
@@ -926,11 +927,28 @@ impl ReviewEntry {
     }
 }
 
+/// EXP-1248: one display item of a board band (`domain::reviews_queue`
+/// rule 9, web `ReviewItem`).
+#[derive(Clone)]
+pub enum ReviewItem {
+    /// A lone PR (depth 0) or a PR TREE member, pre-order under its root.
+    Pr { entry: ReviewEntry, depth: usize },
+    /// A linear STACK: entries TOP first, then the base-branch row.
+    Stack {
+        entries: Vec<ReviewEntry>,
+        base_branch: Option<String>,
+    },
+}
+
 /// One Reviews page section: a board and its open-PR entries (the
 /// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
 pub struct ReviewGroup {
     pub board: domain::rows::Board,
+    /// Every entry, flat, newest first.
     pub entries: Vec<ReviewEntry>,
+    /// EXP-1248: the same entries as the band draws them (trees nested,
+    /// stacks railed).
+    pub items: Vec<ReviewItem>,
 }
 
 /// EXP-1244: the Reviews page read, the shared `domain::reviews_queue` (×4,
@@ -968,15 +986,33 @@ pub(crate) fn reviews_queue_from<'a>(
         groups: queue
             .board_groups
             .into_iter()
-            .map(|group| ReviewGroup {
-                board: group.board.clone(),
-                entries: group
-                    .entries
-                    .into_iter()
-                    .map(|entry| ReviewEntry {
-                        issues: entry.issues.into_iter().cloned().collect(),
-                    })
-                    .collect(),
+            .map(|group| {
+                let own = |entry: domain::reviews_queue::QueueEntry<'_>| ReviewEntry {
+                    issues: entry.issues.into_iter().cloned().collect(),
+                };
+                ReviewGroup {
+                    board: group.board.clone(),
+                    items: group
+                        .items
+                        .into_iter()
+                        .map(|item| match item {
+                            domain::reviews_queue::QueueItem::Pr { entry, depth } => {
+                                ReviewItem::Pr {
+                                    entry: own(entry),
+                                    depth,
+                                }
+                            }
+                            domain::reviews_queue::QueueItem::Stack {
+                                entries,
+                                base_branch,
+                            } => ReviewItem::Stack {
+                                entries: entries.into_iter().map(own).collect(),
+                                base_branch,
+                            },
+                        })
+                        .collect(),
+                    entries: group.entries.into_iter().map(own).collect(),
+                }
             })
             .collect(),
         runs: queue

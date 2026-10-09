@@ -1,14 +1,18 @@
 import { useRouterState } from "@tanstack/react-router"
 import { sidebarOccupant, type SidebarOccupant } from "@/lib/detail-origin"
-import { useReviewFilesSubjectId } from "@/lib/review-files-slot"
 import { useRecentRunsPanelOpen } from "@/lib/recent-runs-panel"
 
 // EXP-851 / EXP-870: which panel sits beside the rail — derived from the URL
-// alone (pathname + `?from=` + `?view=`), never click state, so every entry point drives
-// the same swap and a deep link lands settled. Pathname off the router STATE,
-// not useMatchRoute: the matches lag the eagerly updated location during a
-// pending navigation. Shared by the team layout (the sidebar's width) and the
-// sidebar itself (the rail's compact state and the sliding panel).
+// (pathname + `?from=` + the Inbox page's `?tab=`), never click state, so
+// every entry point drives the same swap and a deep link lands settled.
+// Pathname off the router STATE, not useMatchRoute: the matches lag the
+// eagerly updated location during a pending navigation. Shared by the team
+// layout (the sidebar's width) and the sidebar itself (the rail's compact
+// state and the sliding panel).
+//
+// EXP-1246: the one input that is not the URL is the Agent page's Recent
+// panel flag (`lib/recent-runs-panel.ts`), and it only counts ON that page —
+// a run opened from Recent carries `?from=agent:recent` instead.
 export function useSidebarOccupant(): SidebarOccupant {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const fromToken = useRouterState({
@@ -17,35 +21,12 @@ export function useSidebarOccupant(): SidebarOccupant {
       return typeof value === `string` ? value : null
     },
   })
-  // EXP-945: a run's (EXP-1154: or an issue's) Changes face (`?view=diff`)
-  // puts its file tree in the panel.
-  const viewToken = useRouterState({
+  const tabToken = useRouterState({
     select: (s) => {
-      const value = (s.location.search as { view?: unknown }).view
+      const value = (s.location.search as { tab?: unknown }).tab
       return typeof value === `string` ? value : null
     },
   })
-  // A subject publishes its tree only while its Changes face really draws (the
-  // owner's live view). A teammate's read-only run, or a run still loading,
-  // has nothing to put in the panel, so the URL alone must not swap it in or
-  // the panel would sit on "Loading changes" for good. Only the published
-  // SUBJECT is read (a primitive), never the slot: the slot republishes a
-  // fresh object on every diff tick and file pick, and this hook sits under
-  // the whole team layout. It must be THIS subject's tree (a run's id, an
-  // issue's identifier) — a slot left over from the previous one would
-  // otherwise swap the panel in for a frame.
-  const subjectId = useReviewFilesSubjectId()
-  const subjectKey =
-    /\/(?:sessions|issues)\/([^/]+)$/.exec(pathname)?.[1] ?? null
-  // EXP-923: the ONE occupant the URL does not decide — the Agent page's
-  // Recent panel, opened by that page's history button and dropped when the
-  // page unmounts (`lib/recent-runs-panel.ts`). It can only be up while that
-  // route is, so a deep link still lands settled.
   const recentOpen = useRecentRunsPanelOpen()
-  if (recentOpen && /\/agent$/.test(pathname)) return { kind: `recent` }
-  return sidebarOccupant(
-    pathname,
-    fromToken,
-    subjectKey !== null && subjectId !== subjectKey ? null : viewToken
-  )
+  return sidebarOccupant(pathname, fromToken, { tab: tabToken, recentOpen })
 }

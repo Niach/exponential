@@ -813,6 +813,9 @@ export interface StartSessionOptions {
    * `exponential` (≤16; the web server validated them against the subject's
    * team). Pass-through — the device resolves ids to its held secrets. */
   mcpServerIds?: string[]
+  /** EXP-1249: computer use for this run; absent = the device's
+   * `launch_defaults.computerUse`. Pass-through. */
+  computerUse?: boolean
   /** EXP-792 (EXP-747 B7): the agent account profile to launch on; absent
    * or `system` = the ambient login. Pass-through. */
   account?: string

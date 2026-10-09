@@ -566,6 +566,11 @@ pub struct Attachment {
     /// EXP-824: non-null when a poster frame exists (`/api/attachments/{id}?poster=1`).
     #[serde(default)]
     pub poster_storage_key: Option<String>,
+    /// EXP-1247: uploaded through a FILE button (paperclip / Attach file):
+    /// never inlined, listed under Files even when it is an image. `None` on
+    /// an older server's row = false.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub as_file: Option<bool>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1132,6 +1137,16 @@ mod tests {
         assert_eq!(narrow.duration_ms, None);
         assert_eq!(narrow.poster_storage_key, None);
         assert_eq!(narrow.board_id, None);
+        assert_eq!(narrow.as_file, None);
+    }
+
+    /// EXP-1247: the file-mode marker hydrates from every wire form.
+    #[test]
+    fn attachment_row_hydrates_as_file_tolerantly() {
+        for (wire, want) in [(json!(true), Some(true)), (json!("t"), Some(true)), (json!("false"), Some(false))] {
+            let row: Attachment = serde_json::from_value(json!({ "id": "a", "as_file": wire })).unwrap();
+            assert_eq!(row.as_file, want);
+        }
     }
 
     #[test]

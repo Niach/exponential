@@ -1,22 +1,17 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-// EXP-923: the Recent runs panel is the ONE sidebar occupant the URL does not
-// decide — a disclosure on the Agent page, held in a module store. The rules
-// it has to keep: only on that route, only while the toggle is on, and never
-// after the page is left.
+// EXP-923 / EXP-1246: the sidebar occupant off the router state. The Recent
+// panel flag is the one input the URL does not decide, and it only counts on
+// the Agent page; a run opened from Recent carries `?from=agent:recent`.
 
 const location = vi.hoisted(() => ({
   value: { pathname: `/t/acme/agent`, search: {} as Record<string, unknown> },
 }))
-const published = vi.hoisted(() => ({ subjectId: null as string | null }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location: location.value }),
-}))
-vi.mock(`@/lib/review-files-slot`, () => ({
-  useReviewFilesSubjectId: () => published.subjectId,
 }))
 
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
@@ -25,56 +20,57 @@ import {
   toggleRecentRunsPanel,
 } from "@/lib/recent-runs-panel"
 
+const recent = { kind: `list`, origin: { kind: `agent`, tab: `recent` } }
+
 afterEach(() => {
   setRecentRunsPanelOpen(false)
   location.value = { pathname: `/t/acme/agent`, search: {} }
-  published.subjectId = null
 })
 
-describe(`useSidebarOccupant (EXP-923)`, () => {
+describe(`useSidebarOccupant`, () => {
   it(`is the main menu on the Agent page until the toggle is on`, () => {
     const { result } = renderHook(() => useSidebarOccupant())
     expect(result.current).toEqual({ kind: `main` })
     act(() => toggleRecentRunsPanel())
-    expect(result.current).toEqual({ kind: `recent` })
+    expect(result.current).toEqual(recent)
     act(() => toggleRecentRunsPanel())
     expect(result.current).toEqual({ kind: `main` })
   })
 
-  it(`never takes the panel to another route`, () => {
+  it(`never takes the flag to another route`, () => {
     setRecentRunsPanelOpen(true)
     for (const pathname of [
       `/t/acme`,
-      `/t/acme/inbox`,
       `/t/acme/sessions/s1`,
       `/t/acme/boards/web/issues/MET-1`,
-      `/t/acme/settings`,
+      `/t/acme/boards/web`,
     ]) {
       location.value = { pathname, search: {} }
       const { result } = renderHook(() => useSidebarOccupant())
-      expect(result.current.kind, pathname).not.toBe(`recent`)
+      expect(result.current, pathname).toEqual({ kind: `main` })
     }
   })
 
-  it(`still yields to settings and to a review's file tree`, () => {
+  it(`keeps Recent beside a run opened from it`, () => {
+    location.value = {
+      pathname: `/t/acme/sessions/s1`,
+      search: { from: `agent:recent` },
+    }
+    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual(
+      recent
+    )
+  })
+
+  it(`yields to settings`, () => {
     setRecentRunsPanelOpen(true)
     location.value = { pathname: `/t/acme/settings/general`, search: {} }
     expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
       kind: `settings`,
     })
-    location.value = {
-      pathname: `/t/acme/sessions/s1`,
-      search: { view: `diff` },
-    }
-    published.subjectId = `s1`
-    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
-      kind: `review`,
-    })
   })
 
-  // EXP-1154: an issue's Changes face takes the tree only once THAT issue
-  // published it (keyed by identifier); a phone never publishes.
-  it(`gives an issue's changes face the tree it published`, () => {
+  // EXP-1246: the diff face no longer swaps the panel — the inbox stays.
+  it(`keeps the inbox beside an issue on any face`, () => {
     location.value = {
       pathname: `/t/acme/boards/web/issues/MET-1`,
       search: { view: `diff`, from: `inbox` },
@@ -83,18 +79,16 @@ describe(`useSidebarOccupant (EXP-923)`, () => {
       kind: `list`,
       origin: { kind: `inbox` },
     })
-    published.subjectId = `MET-1`
-    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
-      kind: `review`,
-    })
-    published.subjectId = `MET-2`
-    expect(renderHook(() => useSidebarOccupant()).result.current.kind).toBe(
-      `list`
-    )
   })
 
-  // EXP-923: a run opened from the sidebar's Running section keeps the main
-  // menu — the section it came from IS in the main menu.
+  it(`reads the inbox page's tab`, () => {
+    location.value = { pathname: `/t/acme/inbox`, search: { tab: `my-issues` } }
+    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
+      kind: `list`,
+      origin: { kind: `inbox`, tab: `my-issues` },
+    })
+  })
+
   it(`keeps the main menu for a running-origin detail`, () => {
     location.value = {
       pathname: `/t/acme/sessions/s1`,

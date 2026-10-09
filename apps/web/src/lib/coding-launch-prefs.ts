@@ -28,6 +28,10 @@ export interface CodingLaunchPrefs {
   /** EXP-792: the team MCP servers the run connects to (row ids). Omitted
    * when nothing is picked; the server refuses ids outside the team. */
   mcpServerIds?: string[]
+  /** EXP-1249: computer use for THIS run (the composer's "+" toggle);
+   * omitted = the device's `launch_defaults.computerUse`. Only sent to a
+   * device advertising `contract.codingSession.computerUseCap`. */
+  computerUse?: boolean
   /** EXP-825 (EXP-747 B7): the agent account PROFILE the run launches on —
    * one of the device's reported `agentAccounts[agent].profiles` ids,
    * `SYSTEM_PROFILE_ID` naming the ambient login (EXP-1158). Omitted = the

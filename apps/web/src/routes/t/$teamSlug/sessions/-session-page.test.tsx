@@ -1,13 +1,13 @@
-// EXP-1154: a teammate's run. The live view stays the owner's (EXP-312), but
-// `?view=results` (where a run without an issue links its PR body footer)
-// shows the synced report read-only. Lives under a `-` prefix so the route
+// EXP-1154/1251: a teammate's run. The live view stays the owner's
+// (EXP-312), but `?view=guide` (where a run without an issue links its PR body
+// footer) shows the synced report read-only as the Guide. Lives under a `-` prefix so the route
 // generator ignores it.
 import type { ComponentType } from "react"
 import { render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  search: { current: {} as { view?: `diff` | `results` } },
+  search: { current: {} as { view?: `guide` } },
   session: { current: null as Record<string, unknown> | null },
 }))
 
@@ -65,13 +65,17 @@ for (const path of [
   `@/components/pr-graph-badge`,
   `@/hooks/use-open-composer`,
   `@/hooks/use-open-session`,
-  `@/hooks/use-review-files`,
   `@/hooks/use-issue-property-handlers`,
   `@/hooks/use-team-permissions`,
   `@/lib/collections`,
 ]) {
   vi.doMock(path, () => ({}))
 }
+
+vi.doMock(`@/hooks/use-review-files`, () => ({
+  useReviewFiles: () => ({ state: { kind: `none` }, reload: () => {} }),
+  useSessionPrFiles: () => ({ state: { kind: `none` }, reload: () => {} }),
+}))
 
 const { Route } = await import(`@/routes/t/$teamSlug/sessions/$sessionId`)
 const Page = (Route as unknown as { component: ComponentType }).component
@@ -92,17 +96,17 @@ beforeEach(() => {
 })
 
 describe(`a teammate's run`, () => {
-  it(`shows the synced report read-only on ?view=results`, () => {
-    mocks.search.current = { view: `results` }
+  it(`shows the synced report read-only on ?view=guide`, () => {
+    mocks.search.current = { view: `guide` }
     render(<Page />)
-    expect(screen.getByTestId(`issue-results-face`)).toBeTruthy()
+    expect(screen.getByTestId(`guide-body`)).toBeTruthy()
     expect(screen.getByTestId(`report-markdown`).textContent).toBe(`Shipped the chat fix.`)
     expect(screen.queryByText(`Only the owner can steer this session.`)).toBeNull()
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
   })
 
   it(`says so when the run has no report yet`, () => {
-    mocks.search.current = { view: `results` }
+    mocks.search.current = { view: `guide` }
     mocks.session.current = { ...mocks.session.current!, results: null }
     render(<Page />)
     expect(screen.getByText(`This run has no report yet.`)).toBeTruthy()
@@ -110,12 +114,9 @@ describe(`a teammate's run`, () => {
   })
 
   it(`keeps the owner-only stub on every other view`, () => {
-    for (const search of [{}, { view: `diff` as const }]) {
-      mocks.search.current = search
-      const { unmount } = render(<Page />)
-      expect(screen.getByText(`Only the owner can steer this session.`)).toBeTruthy()
-      expect(screen.queryByTestId(`issue-results-face`)).toBeNull()
-      unmount()
-    }
+    mocks.search.current = {}
+    render(<Page />)
+    expect(screen.getByText(`Only the owner can steer this session.`)).toBeTruthy()
+    expect(screen.queryByTestId(`guide-body`)).toBeNull()
   })
 })

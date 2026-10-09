@@ -94,6 +94,8 @@ object DomainContract {
 
     const val issueStatusStartedMax: Int = 4
     const val codingSessionStaleMs: Long = 7200000L
+    val codingSessionLaunchKeys: List<String> = listOf("agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse")
+    const val codingSessionComputerUseCap: String = "computer-use-run"
     const val deviceOnlineWindowMs: Long = 90000L
     const val builtinCreateActionId: String = "builtin:create-action"
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"

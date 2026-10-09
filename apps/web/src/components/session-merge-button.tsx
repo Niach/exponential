@@ -14,14 +14,24 @@ import {
   conceptIcon,
   Button,
   FabButton,
+  MOBILE_WORK_CAPSULE_CLASS,
   Pill,
+  PILL_PRIMARY_PAINT,
   type buttonVariants,
   Prompt,
   toast,
 } from "@exp/ui"
+import { contract } from "@exp/domain-contract"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
-import type { StackMergeConfirm } from "@/lib/pr-stack"
+import { MERGE_STACK_LABEL, type StackMergeConfirm } from "@/lib/pr-stack"
+import {
+  PLACEMENT_SIZE,
+  placementClass,
+  type RunPillPlacement,
+} from "@/components/run-action-pills"
+import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useStackMergeConfirm } from "@/hooks/use-stack-merge-choice"
@@ -53,6 +63,11 @@ export function canOfferFixConflicts({
 }): boolean {
   return Boolean(failure?.conflict && issueId && branch && steerEnabled)
 }
+
+/** The merge control's verb (byte-identical ×4); `MERGE_STACK_LABEL` once
+ *  the pull request sits in an open stack. */
+export const MERGE_PR_LABEL = contract.diffUi.mergePr
+export { MERGE_STACK_LABEL }
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
@@ -91,6 +106,13 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 // armed by the click so a list of these buttons costs no live queries) and
 // opens `StackMergeConfirmDialog`: "Merge stack" lands the whole open chain
 // through its top. A run's own chore PR is in no stack.
+//
+// EXP-1251: this file is THE merge control. A LABELLED control (the tray /
+// header pill, the phone capsule) reads the stack eagerly so its word is
+// right before the click: `Merge stack` while the PR sits in an open stack,
+// else `Merge PR`. Its three dresses (`MergePrPill`, `MergeCapsule`,
+// `MobileMergeCircle`) live below; the Guide's stack rail asks the same one
+// confirm through `useMergeThrough`.
 
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
  *  `Pill mode="action" primary` every Changes surface uses (the review's top
@@ -217,7 +239,11 @@ export function SessionMergeButton({
   const [stackConfirm, setStackConfirm] = useState<StackMergeConfirm | null>(
     null
   )
-  const stack = useStackMergeConfirm(issueId, armed)
+  // EXP-1251: a labelled control knows its word before the click.
+  const eager = Boolean(label) && Boolean(issueId) && prState === `open`
+  const stack = useStackMergeConfirm(issueId, armed || eager)
+  const shownLabel =
+    label && eager && stack.ready && stack.confirm ? MERGE_STACK_LABEL : label
   // Armed with the stack read, so a batch PR's body counts its issues on the
   // confirm's first paint instead of flipping after it opens.
   const linkedCount = useLinkedIssueCount(issueId, armed || confirmOpen)
@@ -250,8 +276,11 @@ export function SessionMergeButton({
   // The click itself: a session PR goes straight to the plain confirm, an
   // issue PR first asks the synced rows about its stack.
   const arm = () => {
-    if (issueId) setArmed(true)
-    else setConfirmOpen(true)
+    if (!issueId) setConfirmOpen(true)
+    else if (eager && stack.ready) {
+      if (stack.confirm) setStackConfirm(stack.confirm)
+      else setConfirmOpen(true)
+    } else setArmed(true)
   }
 
   const merge = async () => {
@@ -327,8 +356,14 @@ export function SessionMergeButton({
         size={size}
         className={className}
         disabled={merging}
-        ariaLabel={merging ? `Merging…` : `Merge pull request`}
-        title={merging ? `Merging…` : `Merge`}
+        ariaLabel={
+          merging
+            ? `Merging…`
+            : shownLabel === MERGE_STACK_LABEL
+              ? MERGE_STACK_LABEL
+              : `Merge pull request`
+        }
+        title={merging ? `Merging…` : (shownLabel ?? `Merge`)}
         onClick={(e) => {
           e.stopPropagation()
           arm()
@@ -339,7 +374,7 @@ export function SessionMergeButton({
         ) : (
           <PrMergedIcon />
         )}
-        {label}
+        {shownLabel}
       </MergeControl>
       {issueId ? (
         <StackMergeConfirmDialog
@@ -375,4 +410,108 @@ export function SessionMergePill(
   props: Omit<ComponentProps<typeof SessionMergeButton>, `as` | `variant` | `size`>
 ) {
   return <SessionMergeButton {...props} as="pill" />
+}
+
+/** Merge, the one look on the issue tray and the run header: the primary
+ *  `Pill` with the merge glyph, `Merge PR` / `Merge stack`. The placement
+ *  decides the box (EXP-889/EXP-926): a chip among the tray's chips, the
+ *  face toggle's own height in the work header. Self-hides unless open. */
+export function MergePrPill({
+  className,
+  steerEnabled,
+  placement = `tray`,
+  ...target
+}: SessionMergeTargetProps & {
+  className?: string
+  steerEnabled: boolean
+  placement?: RunPillPlacement
+}) {
+  return (
+    <SessionMergePill
+      {...target}
+      pillSize={PLACEMENT_SIZE[placement]}
+      label={MERGE_PR_LABEL}
+      className={cn(`shrink-0`, placementClass(placement), className)}
+      steerEnabled={steerEnabled}
+    />
+  )
+}
+
+/** The props the phone dresses take: an issue XOR a run target. */
+interface MergeTarget {
+  issueId?: string
+  sessionId?: string
+  prState: string | null
+  prNumber: number | null
+  branch: string | null
+  steerEnabled: boolean
+}
+
+/** EXP-916 / EXP-1154: the phone's white Merge capsule on the Guide bar — a
+ *  SOLID pill hugging its label (28px padding, a 20px glyph). */
+export function MergeCapsule(props: MergeTarget) {
+  return (
+    <SessionMergePill
+      {...props}
+      label={MERGE_PR_LABEL}
+      className={cn(
+        MOBILE_WORK_CAPSULE_CLASS,
+        `flex-none justify-center rounded-full px-7 font-medium [&_svg]:size-5`,
+        PILL_PRIMARY_PAINT
+      )}
+    />
+  )
+}
+
+/** EXP-1191: the phone's merge on the faces that keep a composer bar (Issue,
+ *  Run): the bar's 52px circle right of the capsule, the merge glyph alone. */
+export function MobileMergeCircle(props: MergeTarget) {
+  return <SessionMergeButton {...props} as="fab" className="[&_svg]:size-5" />
+}
+
+/**
+ * EXP-1248/1251: the stack rail's `Merge through here` — the SAME one
+ * confirm the control asks (`stackMergeConfirm` mode `through`): it lands
+ * that member and every open PR beneath it. `request(issueId)` arms the read;
+ * the dialog opens once the synced rows answer. Render `dialog` once.
+ */
+export function useMergeThrough(): {
+  request: (issueId: string) => void
+  dialog: ReactNode
+} {
+  const [target, setTarget] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<StackMergeConfirm | null>(null)
+  const [merging, setMerging] = useState(false)
+  const stack = useStackMergeConfirm(target ?? undefined, target !== null, `through`)
+  useEffect(() => {
+    if (target === null || !stack.ready) return
+    setTarget(null)
+    if (stack.confirm) setConfirm(stack.confirm)
+  }, [target, stack.ready, stack.confirm])
+  const run = async (input: StackMergeInput) => {
+    setMerging(true)
+    try {
+      await trpc.issues.mergePr.mutate(input, {
+        context: { skipErrorToast: true },
+      })
+      setConfirm(null)
+    } catch (error) {
+      const next = mergeFailure(error, `The stack could not be merged`)
+      setConfirm(null)
+      toast.error(`Couldn't merge the stack`, { description: next.message })
+    } finally {
+      setMerging(false)
+    }
+  }
+  return {
+    request: setTarget,
+    dialog: (
+      <StackMergeConfirmDialog
+        confirm={confirm}
+        busy={merging}
+        onCancel={() => setConfirm(null)}
+        onConfirm={(input) => void run(input)}
+      />
+    ),
+  }
 }

@@ -1319,7 +1319,9 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: Option<&[String]>, session_id: &s
 }
 
 /// EXP-1196: give the run this device's computer-use server when its
-/// Computer use switch is on. The grant names the run by `session_id`, so it
+/// Computer use switch is on — EXP-1249: or when the RUN asked for it
+/// (`options`' per-run `computer_use`, the composer "+" toggle; `None` =
+/// the switch decides, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
@@ -1329,11 +1331,12 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: Option<&[String]>, session_id: &s
 /// action's name, `Chat`).
 fn attach_computer_use(
     deps: &CodingDeps,
+    options: &LaunchOptions,
     team_mcp: &mut ResolvedMcp,
     session_id: &str,
     label: &str,
 ) -> bool {
-    if !deps.settings.computer_use {
+    if !options.computer_use_on(deps.settings.computer_use) {
         return false;
     }
     match computer::grant(session_id, label) {
@@ -1837,7 +1840,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
         ),
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => String::new(),
     };
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
+    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session.id, &run_label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
 
     // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
@@ -2623,7 +2626,7 @@ fn prepare_action(
         ActionRunKind::Chat => "Chat".to_string(),
         _ => req.action_name.clone(),
     };
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &run_label);
+    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session.id, &run_label);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
 
     // EXP-210: stamp THIS agent into the run worktree's recorded-agent
@@ -3028,6 +3031,8 @@ fn prepare_resume_run(
         // EXP-849: unless the caller asked to SWITCH accounts, which is what a
         // mid-session account change is (the gate is below).
         account: resume_account.clone(),
+        // EXP-1249: the registry keeps no per-run pick; the device decides.
+        computer_use: None,
     };
     // EXP-909: the LOGIN the CONTINUATION spends. On a switch `options.account`
     // is already the switch TARGET (`resume_account`), so the new row is
@@ -3437,7 +3442,7 @@ fn prepare_resume_run(
     // action's list plus shared connections): no ids named.
     let pick = (record.kind != RunKind::Team).then_some(options.mcp_server_ids.as_slice());
     let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
-    let computer_use = attach_computer_use(deps, &mut team_mcp, &session.id, &record.display_name());
+    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session.id, &record.display_name());
     let code_mode =
         attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &record.display_name());
 
@@ -4152,6 +4157,7 @@ mod tests {
                 subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
+                computer_use: None,
             },
             resume_prompt: false,
             prompt: None,
@@ -4736,6 +4742,7 @@ mod tests {
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         }
     }
 
@@ -4909,6 +4916,7 @@ mod tests {
                 subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
+                computer_use: None,
             },
             prompt: None,
         }
@@ -5208,6 +5216,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
@@ -7430,6 +7439,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -7755,6 +7765,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                 subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
+                computer_use: None,
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),
@@ -8077,6 +8088,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account,
+            computer_use: None,
         };
         req
     }

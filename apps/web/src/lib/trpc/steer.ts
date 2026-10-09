@@ -346,6 +346,10 @@ export const steerRouter = router({
           // subject's team (a foreign id would otherwise ride to the device,
           // which resolves ids against every team it can see).
           mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
+          // EXP-1249: computer use for THIS run (the composer's "+" toggle);
+          // absent/null = the device's `launch_defaults.computerUse`. Rides
+          // the relay frame beside `mcpServerIds` only as a boolean.
+          computerUse: z.boolean().nullable().optional(),
           // EXP-792 (EXP-747 B7): the agent account profile to launch on.
           // EXP-849: also rides a `resumeSessionId` start — naming a
           // DIFFERENT profile there is the account switch (claude only; the
@@ -399,6 +403,7 @@ export const steerRouter = router({
                 `ultracode`,
                 `planMode`,
                 `mcpServerIds`,
+                `computerUse`,
                 `prompt`,
               ] as const
             ).filter((key) => value[key] !== undefined)
@@ -1207,6 +1212,7 @@ export const steerRouter = router({
           ultracode: input.ultracode,
           planMode: input.planMode,
           mcpServerIds,
+          computerUse: input.computerUse ?? undefined,
           account: actionAccount,
         })
         if (!result.ok) {
@@ -1328,6 +1334,7 @@ export const steerRouter = router({
         planMode: input.planMode,
         resume: input.resume,
         mcpServerIds,
+        computerUse: input.computerUse ?? undefined,
         account,
       }
 

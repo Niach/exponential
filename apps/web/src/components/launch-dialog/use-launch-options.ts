@@ -19,6 +19,8 @@ import {
   deviceAgentIds,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
+  deviceCanToggleComputerUse,
+  deviceComputerUseDefault,
   deviceDefaultAgent,
   type SteerDevice,
 } from "@/lib/steer-devices"
@@ -85,6 +87,13 @@ export interface LaunchOptions {
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
+  /** EXP-1249: the settled device reads a per-run `computerUse` (its cap),
+   * so the composer's "+" offers the toggle. */
+  computerUseAvailable: boolean
+  /** EXP-1249: computer use for this run — seeded from the device's own
+   * `launch_defaults.computerUse` on every device change. */
+  computerUse: boolean
+  setComputerUse: (value: boolean) => void
   /** EXP-872: the ONE list the composer's account picker offers — every
    * signed-in login the settled device reports, across both agents, the
    * last used one first (`flattenAccounts`). A machine that reports no login
@@ -141,6 +150,7 @@ export function useLaunchOptions({
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
+  const [computerUse, setComputerUse] = useState(false)
   // EXP-836: two slots, not one — the explicit REQUEST and the person's PICK.
   // `resolveLaunchDeviceId` derives the selection from them on every render,
   // so no effect can settle the request away (it used to: the settle effect
@@ -182,6 +192,7 @@ export function useLaunchOptions({
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
     setPlanMode(planModeOff ? false : seed.planMode)
+    setComputerUse(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -242,6 +253,9 @@ export function useLaunchOptions({
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     setPlanMode(planModeOff ? false : seed.planMode)
+    // EXP-1249: a per-DEVICE switch, so it reseeds with the device only —
+    // an agent switch keeps whatever the person set.
+    setComputerUse(deviceComputerUseDefault(device))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device?.deviceId])
 
@@ -284,6 +298,7 @@ export function useLaunchOptions({
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
+  const computerUseAvailable = deviceCanToggleComputerUse(device)
   const availableAgentsKey = availableAgents.join(`,`)
 
   // EXP-872: the flattened login list of the settled device. The heartbeat
@@ -346,6 +361,9 @@ export function useLaunchOptions({
     ...(mcpServerIds.length > 0 && !omitMcp
       ? { mcpServerIds: [...mcpServerIds] }
       : {}),
+    // EXP-1249: only a device that reads the per-run flag gets it; anywhere
+    // else the run keeps the device's own default, exactly as before.
+    ...(computerUseAvailable ? { computerUse } : {}),
     // EXP-1158: the picked login rides out VERBATIM, `system` included (it
     // NAMES the ambient login; an absent account = the last used one).
     ...(pickedOption && pickedOption.agent === agent
@@ -376,6 +394,9 @@ export function useLaunchOptions({
     mcpServerIds,
     setMcpServerIds,
     toggleMcpServer,
+    computerUseAvailable,
+    computerUse,
+    setComputerUse,
     accountOptions,
     accountKey,
     setAccountKey,

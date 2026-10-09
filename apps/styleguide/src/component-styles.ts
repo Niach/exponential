@@ -754,30 +754,8 @@ export const componentStyles = `
    run is already picked. The tool row and the round submit ride the card, the
    muted options line hangs under it. Drawn by hand: no one component owns
    this arrangement, and the two it is made of are documented on their own. */
-.cmp-launch { display: grid; gap: 8px; }
-.cmp-launch .caption { padding: 0 4px; font-size: 12px; color: var(--fg-50); }
-.cmp-launch .header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 4px; }
-.cmp-launch .title { font-size: 18px; line-height: 22px; font-weight: 600; }
-.cmp-launch .card {
-  border-radius: var(--r-xl);
-  border: 1px solid var(--stroke);
-  background: var(--card);
-}
-.cmp-launch .field { padding: 12px 12px 4px; font-size: 14px; line-height: 20px; color: var(--fg-50); }
-.cmp-launch .tool-row { display: flex; align-items: center; gap: 2px; padding: 4px 8px 8px; }
+
 /* The ONE circle on the card is the send, and it takes the accent glyph. */
-.cmp-launch .tool-row .cmp-icon-button { margin-left: auto; color: var(--primary); }
-.cmp-launch .footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--muted-fg);
-}
-.cmp-launch .footer .value { color: var(--fg-85); }
-.cmp-launch .footer .cmp-switch { flex: none; }
 
 /* ------------------------------------------------------------------ type */
 /* The type scale as SPECIMENS, set in the page's own font: Inter is not loaded

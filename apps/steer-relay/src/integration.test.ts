@@ -1011,6 +1011,8 @@ describe(`steer relay end-to-end`, () => {
       teamId: `team-1`,
       repo,
       ultracode: true,
+      // EXP-1249: per-run computer use is a verbatim pass-through.
+      computerUse: true,
     })
     expect(batch.ok).toBe(true)
     expect(await desktopIn.nextJson()).toEqual({
@@ -1019,6 +1021,7 @@ describe(`steer relay end-to-end`, () => {
       teamId: `team-1`,
       repo,
       ultracode: true,
+      computerUse: true,
     })
 
     // 400 cases — every one is rejected before the hub is touched.

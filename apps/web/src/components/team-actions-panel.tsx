@@ -36,7 +36,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import {
   primeTabEnter,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import {
   pinLabel,
   usePinToggleVisible,

@@ -1,91 +1,114 @@
 import { contract } from "@exp/domain-contract"
-
+import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
+import type { IconConcept } from "@exp/icons"
 import {
-  escapeHtml,
-  svgCircleArrowUp,
-  svgGitMerge,
-  svgHash,
-  svgPlay,
-  svgPlus,
-  svgX,
-} from "../html.ts"
+  AccountPicker,
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+  DevicePicker,
+  Label,
+  MenuPanel,
+  ModelPicker,
+  Pill,
+  Switch,
+  conceptIcon,
+  type MenuEntry,
+} from "@exp/ui"
+
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1019 — the START-CODING DIALOG, filled from the EXP-1029 placeholder.
+// EXP-1019 — the START-CODING DIALOG; EXP-1249 — its ONE "+" menu.
 //
-// Hand-written rather than an island: the arrangement is what is special
-// here, and it belongs to no single component. The frame is `dialog`, the
-// card is `composer`, the chips are `pill`/`issue-chip` — all three are
-// documented on their own, and an island of any of them would show the part
-// instead of the ORDER.
-//
-// The words are the contract's (`contract.composerUi`, ×4) so the demo cannot
-// drift from what the four clients actually print.
+// Drawn from the REAL parts: `Composer` / `ComposerTool` / `ComposerSubmit`
+// are the card the app's `LaunchComposer` renders, the options line is the
+// typed pickers in their inline variant, and the open "+" is `MenuPanel` (the
+// app's `Menu` renderer at rest) fed the rows of `composer-menu.json`, the
+// fixture the four clients replay. The words are the contract's
+// (`contract.composerUi`, ×4) so the demo cannot drift from what the clients
+// print. The app component itself lives in apps/web and cannot be imported
+// here.
 
 const { composerUi } = contract
+const noop = (): void => {}
 
-/** An issue chip leads with its status glyph; the `pill` dot stands in here. */
-const ISSUE_DOT = `<span class="dot"></span>`
+const UiAddIcon = conceptIcon(`ui-add`)
+const SuggestionIcon = conceptIcon(composerMenu.suggestions.icon as IconConcept)
+const ActionIcon = conceptIcon(`pr-merged`)
 
-/**
- * A removable subject chip: the `pill` capsule, readonly, with a trailing ✕.
- * `leading` is the action's own icon, or the status dot an issue chip carries.
- */
-function chip(label: string, leading: string): string {
-  return [
-    `<span class="cmp-pill" data-size="sm" data-mode="readonly">`,
-    leading,
-    `<span class="label">${escapeHtml(label)}</span>`,
-    svgX,
-    `</span>`,
-  ].join(``)
+const DEVICES = [{ id: `mint`, name: `mint — This device`, kind: `desktop` }]
+const ACCOUNTS = [{ key: `claude:1`, agent: `claude`, email: `danny@example.dev` }]
+const MODELS = [
+  { value: `default`, label: `CLI default` },
+  { value: `fable`, label: `Fable` },
+]
+
+/** The value a row shows in the specimen (the app reads the model). */
+const SAMPLE_VALUES: Record<string, string> = {
+  effort: `High`,
+  subagents: `Opus`,
+  "mcp-servers": `2`,
+}
+const SAMPLE_CHECKED: Record<string, boolean> = {
+  ultracode: false,
+  "computer-use": true,
 }
 
-/** The headline: the contract's verb, then whatever the run is about. */
-function headline(verb: string, chips: string): string {
-  return `<div class="header"><span class="title">${escapeHtml(verb)}</span>${chips}</div>`
+/** The "+" rows straight from the fixture, every condition met. */
+function composerMenuEntries(): MenuEntry[] {
+  return composerMenu.rows.map((row): MenuEntry => {
+    if (row.kind === `separator`) return { kind: `separator` }
+    const base = {
+      id: row.id,
+      label: row.label ?? ``,
+      icon: conceptIcon(row.icon as IconConcept),
+    }
+    if (row.kind === `toggle`) {
+      return {
+        ...base,
+        kind: `toggle`,
+        checked: SAMPLE_CHECKED[row.id ?? ``] ?? false,
+        onChange: noop,
+      }
+    }
+    if (row.kind === `submenu`) {
+      return { ...base, kind: `submenu`, value: SAMPLE_VALUES[row.id ?? ``], entries: [] }
+    }
+    return { ...base, kind: `item`, onSelect: noop }
+  })
 }
 
-/** The card: the secondary field, the three tools and the round send. */
-function card(placeholder: string): string {
-  return [
-    `<div class="card">`,
-    `<div class="field">${escapeHtml(placeholder)}</div>`,
-    `<div class="tool-row">`,
-    `<button class="cmp-ghost-icon-button" type="button" title="Issues">${svgHash}</button>`,
-    `<button class="cmp-ghost-icon-button" type="button" title="Actions">${svgPlay}</button>`,
-    `<button class="cmp-ghost-icon-button" type="button" title="Attach image">${svgPlus}</button>`,
-    `<button class="cmp-icon-button" type="button" title="Start">${svgCircleArrowUp}</button>`,
-    `</div>`,
-    `</div>`,
-  ].join(``)
+function OptionsLine() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground">
+      <DevicePicker triggerVariant="inline" devices={DEVICES} value="mint" onChange={noop} width="sm" />
+      <AccountPicker variant="inline" value="claude:1" options={ACCOUNTS} onChange={noop} />
+      <ModelPicker models={MODELS} value="fable" onChange={noop} />
+      <Label className="gap-1.5 font-normal">
+        <span>Plan</span>
+        <Switch size="sm" checked={false} aria-label="Plan mode" />
+      </Label>
+    </div>
+  )
 }
 
-/**
- * The muted options line under the card: the machine, the login (which
- * implies the agent), the model, the Plan switch, and `⋯` for the rest.
- */
-function options(account: string, model: string): string {
-  return [
-    `<div class="footer">`,
-    `<span>Device <span class="value">buildbox</span></span>`,
-    `<span>Account <span class="value">${escapeHtml(account)}</span></span>`,
-    `<span>Model <span class="value">${escapeHtml(model)}</span></span>`,
-    `<span>Plan</span><span class="cmp-switch"></span>`,
-    `<span class="value">⋯</span>`,
-    `</div>`,
-  ].join(``)
+function Card({ placeholder }: { placeholder: string }) {
+  return (
+    <Composer
+      tools={
+        <ComposerTool aria-label={composerMenu.plusLabel} title={composerMenu.plusLabel}>
+          <UiAddIcon />
+        </ComposerTool>
+      }
+      submit={<ComposerSubmit aria-label="Start" title="Start" />}
+    >
+      <div className="min-h-20 px-3 pt-3 text-sm text-muted-foreground">{placeholder}</div>
+    </Composer>
+  )
 }
 
-function launcher(parts: { caption: string; verb: string; chips: string; account: string; model: string }): string {
-  return [
-    `<div class="cmp-launch">`,
-    `<p class="caption">${escapeHtml(parts.caption)}</p>`,
-    headline(parts.verb, parts.chips),
-    card(composerUi.instructionsPlaceholder),
-    options(parts.account, parts.model),
-    `</div>`,
-  ].join(``)
+function Caption({ children }: { children: string }) {
+  return <p className="text-xs text-muted-foreground">{children}</p>
 }
 
 export const entry: StyleguideEntry = {
@@ -93,52 +116,71 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog — a prefilled action used to be a small badge inside a prompt box, so nobody realised the thing they picked was already loaded and one press away. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder); under that the three tools (issues, actions, image) and the round send, then the muted options line: device, account, model, the Plan switch and ⋯ for the rest. A subject-LESS chat still opens the Agent page, where a chat belongs, and the same composer draws both — there is no second launcher to drift.`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › (the searchable issue picker), Run action › (the action picker), Add file or image, then the run's options (Effort ›, Subagents ›, Ultracode) and tools (MCP servers ›, Computer use for this run) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (Resume and the repository when they apply), no overflow. On the Agent page a chat (no subject) adds quiet suggestion rows under that line and a faint brand mark behind it all; the dialog has neither.`,
   status: {
     web: {
       state: `ok`,
-      symbol: `LaunchDialogHost / LaunchComposer / LaunchHeadline`,
+      symbol: `LaunchDialogHost / LaunchComposer / ComposerPlusMenu`,
       file: `apps/web/src/components/launch-dialog/launch-dialog.tsx`,
-      note: `the card is launch-composer.tsx, the headline launch-dialog/launch-headline.tsx`,
+      note: `the card is launch-composer.tsx, its "+" launch-dialog/composer-plus-menu.tsx (rows: composer-menu.ts over fixtures/composer-menu.json)`,
     },
     desktop: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `composer_dialog::open`,
       file: `apps/desktop/crates/ui/src/composer_dialog.rs`,
-      note: `the composer is ChatScreenView in its Dialog presentation (chat_screen.rs): one launcher, two presentations`,
+      note: `one launcher in two presentations (chat_screen.rs); the "+" menu (composer-menu.json) is landing in the same batch`,
     },
     ios: {
       state: `leftover`,
       symbol: `AgentComposerHeadline`,
       file: `apps/ios/Exponential/UI/Agent/AgentComposerCard.swift`,
-      note: `the headline and the secondary field are there, but the composer is a pushed page, not a dialog`,
+      note: `the headline and the secondary field are there; the composer is a pushed page, and the "+" sheet is still the three tools`,
     },
     android: {
       state: `leftover`,
       symbol: `AgentComposerHeadline`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentComposer.kt`,
-      note: `same: the headline leads the Agent screen, and the phone presents the launcher as a screen`,
+      note: `same: the phone presents the launcher as a screen, the "+" sheet is still the three tools`,
     },
   },
-  render: () =>
-    [
-      `<div class="cmp-stack">`,
-      // An ACTION: one chip, and the verb the contract spells `Run`.
-      launcher({
-        caption: `An action — one chip, and the send is the only thing left to do.`,
-        verb: composerUi.runHeadline,
-        chips: chip(`Fix merge conflicts`, svgGitMerge),
-        account: `claude · danny@exponential.dev`,
-        model: `Sonnet 4.6`,
-      }),
-      // A BATCH: two issue chips, one branch, one combined PR.
-      launcher({
-        caption: `Two issues — one batch run on one branch, one combined PR.`,
-        verb: composerUi.implementHeadline,
-        chips: `${chip(`EXP-1019`, ISSUE_DOT)}${chip(`EXP-1039`, ISSUE_DOT)}`,
-        account: `codex · danny@exponential.dev`,
-        model: `GPT-5.2 Codex`,
-      }),
-      `</div>`,
-    ].join(``),
+  island: () => (
+    <div className="flex flex-wrap items-start gap-8">
+      <div className="grid w-[34rem] max-w-full gap-2">
+        <Caption>An action: one chip, and the send is the only thing left to do.</Caption>
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <span className="text-lg font-semibold">{composerUi.runHeadline}</span>
+          <Pill size="sm" mode="readonly">
+            <ActionIcon aria-hidden />
+            Fix merge conflicts
+          </Pill>
+        </div>
+        <Card placeholder={composerUi.instructionsPlaceholder} />
+        <OptionsLine />
+      </div>
+      <div className="grid gap-2">
+        <MenuPanel entries={composerMenuEntries()} density="pointer" />
+        <Caption>the "+" open: composer-menu.json, every condition met</Caption>
+      </div>
+      <div className="grid w-[34rem] max-w-full gap-2">
+        <Caption>The Agent page: a chat, the quiet suggestion rows under the line.</Caption>
+        <Card placeholder={composerUi.chatPlaceholder} />
+        <OptionsLine />
+        <div className="flex flex-col items-start px-1 pt-1">
+          {[
+            `Set a priority on every unprioritized issue`,
+            `Do a code review of the open PRs and file the findings on a new board`,
+            `Label every issue in the backlog`,
+          ].map((suggestion) => (
+            <span
+              key={suggestion}
+              className="flex items-center gap-2 py-1 text-[13px] text-muted-foreground"
+            >
+              <SuggestionIcon aria-hidden className="size-3.5 opacity-50" />
+              {suggestion}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  ),
 }

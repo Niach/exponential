@@ -66,7 +66,7 @@ const board = { id: `b1`, slug: `met` } as unknown as Board
 const lower = issue(`lower`)
 const upper = issue(`upper`, { prBaseBranch: `exp/LOWER`, prNumber: 2 })
 
-function renderHeader(subject: Issue, face?: `issue` | `run` | `changes`) {
+function renderHeader(subject: Issue, face?: `issue` | `run` | `guide`) {
   return render(
     <IssueMobileHeader
       issue={subject}
@@ -116,7 +116,7 @@ describe(`IssueMobileHeader`, () => {
     expect(screen.getByText(`Pin`)).toBeTruthy()
     issueFace.unmount()
 
-    for (const face of [`run`, `changes`] as const) {
+    for (const face of [`run`, `guide`] as const) {
       const other = renderHeader(lower, face)
       expect(screen.queryByText(`More`), face).toBeNull()
       expect(screen.queryByText(`Pin`), face).toBeNull()

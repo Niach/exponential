@@ -10,8 +10,14 @@ import { TRPCClientError } from "@trpc/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   canOfferFixConflicts,
+  MERGE_PR_LABEL,
+  MERGE_STACK_LABEL,
+  MergeCapsule,
+  MergePrPill,
+  MobileMergeCircle,
   SessionMergeButton,
   SessionMergePill,
+  useMergeThrough,
 } from "@/components/session-merge-button"
 import {
   closeLaunchDialog,
@@ -432,21 +438,30 @@ describe(`SessionMergeButton on a stack member`, () => {
     )
   })
 
-  it(`arms the stack read on the click, not on render`, () => {
-    render(
-      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
-    )
+  it(`an icon-only control arms the stack read on the click, not on render`, () => {
+    render(<SessionMergeButton prState="open" prNumber={7} issueId="i1" />)
     expect(mockState.stackChoice).toHaveBeenCalledWith(`i1`, false)
     expect(mockState.stackChoice).not.toHaveBeenCalledWith(`i1`, true)
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     expect(mockState.stackChoice).toHaveBeenCalledWith(`i1`, true)
   })
 
+  // EXP-1251: the labelled control (tray pill, phone capsule) knows its word
+  // before the click.
+  it(`a labelled control reads the stack eagerly and says Merge stack`, () => {
+    render(
+      <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge PR" />
+    )
+    expect(mockState.stackChoice).toHaveBeenCalledWith(`i1`, true)
+    const button = screen.getByRole(`button`, { name: `Merge stack` })
+    expect(button.textContent).toBe(`Merge stack`)
+  })
+
   it(`opens the ONE stack confirm and lands the whole stack from its top member`, async () => {
     render(
       <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
     )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge stack` }))
     await screen.findByText(
       `Lands 3 pull requests, bottom-up: EXP-1105, EXP-1144, EXP-1150.`
     )
@@ -476,7 +491,7 @@ describe(`SessionMergeButton on a stack member`, () => {
     render(
       <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
     )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge stack` }))
     const dialog = await screen.findByTestId(`stack-merge-confirm-dialog`)
     fireEvent.click(within(dialog).getByRole(`button`, { name: `Merge stack` }))
     await waitFor(() => expect(toast.error).toHaveBeenCalled())
@@ -486,7 +501,7 @@ describe(`SessionMergeButton on a stack member`, () => {
     render(
       <SessionMergeButton prState="open" prNumber={7} issueId="i1" label="Merge" />
     )
-    fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
+    fireEvent.click(screen.getByRole(`button`, { name: `Merge stack` }))
     fireEvent.click(await screen.findByRole(`button`, { name: `Cancel` }))
     await waitFor(() =>
       expect(screen.queryByTestId(`stack-merge-confirm-dialog`)).toBeNull()
@@ -501,5 +516,80 @@ describe(`SessionMergeButton on a stack member`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     expect(mockState.stackChoice).not.toHaveBeenCalledWith(expect.anything(), true)
     expect(screen.getByText(`Merge PR #7?`)).toBeTruthy()
+  })
+})
+
+// EXP-1251: ONE merge control, three dresses — the tray / header pill, the
+// phone Guide bar's white capsule and the composer bar's circle — and the
+// stack rail's Merge through here on the same one confirm.
+describe(`the merge control's dresses`, () => {
+  const target = {
+    issueId: `i1`,
+    prState: `open`,
+    prNumber: 7,
+    branch: `exp/EXP-1`,
+    steerEnabled: false,
+  }
+
+  beforeEach(() => {
+    mockState.stackChoice.mockReset()
+    mockState.stackChoice.mockImplementation(() => ({ ready: true, confirm: null }))
+  })
+
+  it(`speaks the contract's words`, () => {
+    expect(MERGE_PR_LABEL).toBe(`Merge PR`)
+    expect(MERGE_STACK_LABEL).toBe(`Merge stack`)
+  })
+
+  it(`the pill and the capsule say Merge PR and hide once the PR is not open`, () => {
+    const { rerender } = render(<MergePrPill {...target} />)
+    expect(screen.getByRole(`button`).textContent).toBe(`Merge PR`)
+    rerender(<MergeCapsule {...target} />)
+    expect(screen.getByRole(`button`).textContent).toBe(`Merge PR`)
+    rerender(<MergeCapsule {...target} prState="merged" />)
+    expect(screen.queryByRole(`button`)).toBeNull()
+  })
+
+  it(`the circle is the glyph alone`, () => {
+    render(<MobileMergeCircle {...target} />)
+    const button = screen.getByRole(`button`, { name: `Merge pull request` })
+    expect(button.textContent).toBe(``)
+  })
+
+  it(`Merge through here asks the one confirm and merges through the member`, async () => {
+    const confirm = {
+      title: `Merge through here`,
+      landing: [`EXP-1`, `EXP-2`],
+      staysOpen: [`EXP-3`],
+      body: `Lands EXP-1, EXP-2; EXP-3 stays open.`,
+      input: { issueId: `m2`, mergeStack: true as const },
+    }
+    mockState.stackChoice.mockImplementation((issueId: string | undefined, enabled: boolean) =>
+      enabled && issueId === `m2` ? { ready: true, confirm } : { ready: true, confirm: null }
+    )
+    mockState.mergeMutate.mockReset()
+    mockState.mergeMutate.mockResolvedValue({ merged: true })
+    function Host() {
+      const through = useMergeThrough()
+      return (
+        <>
+          <button type="button" onClick={() => through.request(`m2`)}>
+            hover action
+          </button>
+          {through.dialog}
+        </>
+      )
+    }
+    render(<Host />)
+    fireEvent.click(screen.getByText(`hover action`))
+    const dialog = await screen.findByTestId(`stack-merge-confirm-dialog`)
+    expect(within(dialog).getByText(`Lands EXP-1, EXP-2; EXP-3 stays open.`)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole(`button`, { name: `Merge through here` }))
+    await waitFor(() =>
+      expect(mockState.mergeMutate).toHaveBeenCalledWith(
+        { issueId: `m2`, mergeStack: true },
+        { context: { skipErrorToast: true } }
+      )
+    )
   })
 })

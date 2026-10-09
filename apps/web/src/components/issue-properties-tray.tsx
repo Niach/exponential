@@ -9,7 +9,7 @@ import { useSteerConfig } from "@/components/agent-session"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { IssueCodingAction } from "@/components/issue-coding-action"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
-import { MergePrPill } from "@/components/run-action-pills"
+import { MergePrPill } from "@/components/session-merge-button"
 import { WORK_COLUMN_CLASS } from "@exp/ui"
 
 // EXP-877: row 2 of the unified work header — the issue's properties tray

@@ -84,9 +84,9 @@ pub enum MergeOp {
     /// `pr_state` leaves `open`. Merge always closes (EXP-498): the server
     /// ends the issues' live coding sessions on every merge.
     ///
-    /// EXP-1145: `stack_through` = the stack dialog's answer: `Some(id)`
-    /// posts `issues.mergePr({issueId: id, mergeStack: true})`, the open
-    /// chain merged bottom-up THROUGH `id`. `issue_id` stays the CLICKED row
+    /// EXP-1248: `stack_through` = the stack confirm's answer: `Some(id)`
+    /// posts `issues.mergePr({issueId: id, mergeStack: true})` — ONE GitHub
+    /// merge-async through `id` (it lands everything beneath it). `issue_id` stays the CLICKED row
     /// (key, spinner, failure caption): it always sits at or below `id`, so
     /// its own echo settles the spinner.
     MergeIssuePr {
@@ -452,50 +452,85 @@ pub fn fire_confirmed(op: MergeOp, cx: &mut App) -> TwoClick {
     two_click(op, None, None, cx)
 }
 
-/// EXP-1145: whether merging `issue_id`'s pull request needs the stack
-/// dialog. Reads the issue and its team's open-PR rows off the synced
-/// collections; `None` (a lone PR, or nothing synced) merges plainly.
-pub(crate) fn stack_merge_choice_for(
+/// EXP-1248: the ONE stack confirm for merging `issue_id`'s pull request in
+/// `mode` (`Stack` = the merge control, `Through` = a stack row's ghost
+/// action). Reads the issue and its team's open-PR rows off the synced
+/// collections; `None` (not in a linear open stack, or nothing synced)
+/// merges plainly.
+pub(crate) fn stack_merge_confirm_for(
     issue_id: &str,
+    mode: domain::pr_stack::StackConfirmMode,
     cx: &App,
-) -> Option<domain::pr_stack::StackMergeChoice> {
+) -> Option<domain::pr_stack::StackMergeConfirm> {
     let store = Store::try_global(cx)?;
     let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
     let team_id = queries::issue_team_id(cx, issue_id)?;
     let issues = queries::review_issues(cx, &team_id);
-    domain::pr_stack::stack_merge_choice(&issue, &issues)
+    domain::pr_stack::stack_merge_confirm(&issue, &issues, mode)
 }
 
-/// EXP-1167: the stack dialog's window width: room for the three-button
-/// footer once the primary leads with the merge glyph.
-const STACK_MERGE_CHOICE_WIDTH: f32 = 456.;
-/// The stack dialog's window height: the listing, a blank line and two
-/// sentences (the second wraps) above the three-button footer.
-const STACK_MERGE_CHOICE_HEIGHT: f32 = 290.;
+/// EXP-1248: the ONE merge control's label — `Merge stack` on a member of a
+/// linear open stack (contract `diffUi.mergeStack`), else `Merge PR`.
+pub(crate) fn merge_label_for(issue_id: &str, cx: &App) -> &'static str {
+    let stacked = Store::try_global(cx).and_then(|store| {
+        let issue = store.collections().issues.read(cx).get(issue_id).cloned()?;
+        let team_id = queries::issue_team_id(cx, issue_id)?;
+        let issues = queries::review_issues(cx, &team_id);
+        Some(domain::pr_stack::open_pr_shape(&issue, &issues) == domain::pr_stack::PrGraphShape::Stack)
+    });
+    if stacked == Some(true) {
+        domain::pr_stack::MERGE_STACK_LABEL
+    } else {
+        domain::contract::DIFF_UI_MERGE_PR
+    }
+}
 
-/// The two ops the stack dialog's answers fire, keyed on the CLICKED issue.
-/// "Merge stack" merges through the top; "Merge this pull request" is the
-/// plain merge on the bottom member, else a stack merge through itself.
-pub(crate) fn stack_merge_ops(
+/// The confirm window's size: the one-line title band, a body of one or two
+/// lines and the two-button footer.
+const STACK_CONFIRM_WIDTH: f32 = 420.;
+const STACK_CONFIRM_HEIGHT: f32 = 200.;
+
+/// The op the confirm's primary fires: `issues.mergePr({issueId:
+/// confirm.issue_id, mergeStack: true})`, keyed on the CLICKED issue (its
+/// spinner and failure caption; it always lands, so its echo settles).
+pub(crate) fn stack_confirm_op(
+    clicked: &str,
+    confirm: &domain::pr_stack::StackMergeConfirm,
+) -> MergeOp {
+    MergeOp::MergeIssuePr {
+        issue_id: clicked.to_string(),
+        stack_through: Some(confirm.issue_id.clone()),
+    }
+}
+
+/// EXP-1248: the ONE confirm (it replaced the 3-way dialog): the title is
+/// the primary button too (`Merge stack` / `Merge through here`), the body
+/// lists what lands and what stays open, Cancel beside it.
+pub(crate) fn stack_confirm_alert(
+    clicked: &str,
+    confirm: &domain::pr_stack::StackMergeConfirm,
+) -> crate::native_dialog::AlertSpec {
+    let op = stack_confirm_op(clicked, confirm);
+    crate::native_dialog::AlertSpec::new(confirm.title.clone(), confirm.body.clone(), confirm.title.clone())
+        .ok_icon(crate::icons::registry::PR_MERGED)
+        .width(gpui::px(STACK_CONFIRM_WIDTH))
+        .height(gpui::px(STACK_CONFIRM_HEIGHT))
+        .on_ok(move |_, cx| {
+            fire_confirmed(op.clone(), cx);
+            true
+        })
+}
+
+/// EXP-1248: a stack merge asks its ONE confirm. Returns `true` when the
+/// confirm took the click (it IS the confirm, so its answer fires at once);
+/// `false` = not in a linear open stack: the caller runs its plain two-click
+/// merge (or, for `Through`, nothing).
+pub(crate) fn ask_stack_merge_mode(
     issue_id: &str,
-    choice: &domain::pr_stack::StackMergeChoice,
-) -> (MergeOp, MergeOp) {
-    let stack = MergeOp::MergeIssuePr {
-        issue_id: issue_id.to_string(),
-        stack_through: Some(choice.top_issue_id.clone()),
-    };
-    let this = MergeOp::MergeIssuePr {
-        issue_id: issue_id.to_string(),
-        stack_through: (!choice.is_bottom()).then(|| issue_id.to_string()),
-    };
-    (stack, this)
-}
-
-/// EXP-1145: a Merge control on ISSUE `issue_id` asks first when its pull
-/// request is part of an open stack. Returns `true` when the dialog took the
-/// click (the dialog IS the confirm, so its answers fire at once); `false`
-/// = no stack, the caller runs its plain two-click merge.
-pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mut App) -> bool {
+    mode: domain::pr_stack::StackConfirmMode,
+    window: &mut gpui::Window,
+    cx: &mut App,
+) -> bool {
     // An in-flight merge or close of this row: the caller's guard ignores it.
     let state = MergeState::global(cx);
     if [issue_id.to_string(), close_pr_key(issue_id)]
@@ -504,43 +539,18 @@ pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mu
     {
         return false;
     }
-    let Some(choice) = stack_merge_choice_for(issue_id, cx) else {
+    let Some(confirm) = stack_merge_confirm_for(issue_id, mode, cx) else {
         return false;
     };
     MergeState::disarm(cx);
-    let spec = stack_merge_alert(issue_id, &choice);
+    let spec = stack_confirm_alert(issue_id, &confirm);
     crate::native_dialog::open_alert(window, cx, spec);
     true
 }
 
-/// The stack dialog itself: the contract's title and body, Cancel, "Merge
-/// this pull request" and the primary "Merge stack", each answer firing its
-/// op from [`stack_merge_ops`]. [`ask_stack_merge`] opens it; the styleguide
-/// specimen draws the same spec.
-pub(crate) fn stack_merge_alert(
-    issue_id: &str,
-    choice: &domain::pr_stack::StackMergeChoice,
-) -> crate::native_dialog::AlertSpec {
-    use domain::pr_stack::{MERGE_STACK_LABEL, MERGE_THIS_PR_LABEL, STACK_MERGE_CHOICE_TITLE};
-    let (stack_op, this_op) = stack_merge_ops(issue_id, choice);
-    crate::native_dialog::AlertSpec::new(
-        STACK_MERGE_CHOICE_TITLE,
-        choice.body.clone(),
-        MERGE_STACK_LABEL,
-    )
-    // EXP-1167: the primary wears the merge glyph, as on web, and the
-    // window widens so the three buttons keep their row.
-    .ok_icon(crate::icons::registry::PR_MERGED)
-    .width(gpui::px(STACK_MERGE_CHOICE_WIDTH))
-    .height(gpui::px(STACK_MERGE_CHOICE_HEIGHT))
-    .secondary(MERGE_THIS_PR_LABEL, move |_, cx| {
-        fire_confirmed(this_op.clone(), cx);
-        true
-    })
-    .on_ok(move |_, cx| {
-        fire_confirmed(stack_op.clone(), cx);
-        true
-    })
+/// The merge control's path ([`ask_stack_merge_mode`] in `Stack` mode).
+pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mut App) -> bool {
+    ask_stack_merge_mode(issue_id, domain::pr_stack::StackConfirmMode::Stack, window, cx)
 }
 
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call
@@ -706,36 +716,22 @@ mod tests {
         assert_eq!(session.failed_op(), FailedOp::Merge);
     }
 
-    /// EXP-1145: "Merge stack" merges through the TOP; "Merge this pull
-    /// request" is the plain merge on the bottom member, a stack merge
-    /// through itself anywhere above it. Both stay keyed on the clicked row.
+    /// EXP-1248: the ONE confirm's primary posts `mergePr({issueId:
+    /// confirm.issue_id, mergeStack: true})`, keyed on the clicked row.
     #[test]
-    fn the_stack_dialog_answers_map_to_merge_pr_calls() {
-        let choice = |position: usize| domain::pr_stack::StackMergeChoice {
-            members: vec!["EXP-1".into(), "EXP-2".into(), "EXP-3".into()],
-            position,
-            bottom_issue_id: "b".into(),
-            top_issue_id: "t".into(),
-            listing: String::new(),
-            stack_sentence: String::new(),
-            this_sentence: String::new(),
+    fn the_stack_confirm_maps_to_one_merge_pr_call() {
+        let confirm = domain::pr_stack::StackMergeConfirm {
+            title: domain::pr_stack::MERGE_STACK_LABEL.to_string(),
+            landing: vec!["EXP-1".into(), "EXP-2".into(), "EXP-3".into()],
+            stays_open: Vec::new(),
             body: String::new(),
+            issue_id: "t".into(),
         };
-        let through = |op: &MergeOp| match op {
-            MergeOp::MergeIssuePr {
-                issue_id,
-                stack_through,
-            } => (issue_id.clone(), stack_through.clone()),
-            _ => panic!("an issue merge"),
-        };
-        let (stack, this) = stack_merge_ops("b", &choice(1));
-        assert_eq!(through(&stack), ("b".into(), Some("t".into())));
-        assert_eq!(through(&this), ("b".into(), None));
-        let (stack, this) = stack_merge_ops("m", &choice(2));
-        assert_eq!(through(&stack), ("m".into(), Some("t".into())));
-        assert_eq!(through(&this), ("m".into(), Some("m".into())));
-        assert_eq!(stack.key(), "m");
-        assert_eq!(this.describe(), "issues.mergePr(m, stack, from m)");
+        let op = stack_confirm_op("m", &confirm);
+        assert_eq!(op.key(), "m");
+        assert_eq!(op.describe(), "issues.mergePr(t, stack, from m)");
+        let spec = stack_confirm_alert("m", &confirm);
+        assert!(!spec.is_ok_disabled());
     }
 
     #[test]

@@ -132,6 +132,23 @@ export function deviceAgentLaunchDefaults(
   return device?.launchDefaults?.agents?.[agent] ?? null
 }
 
+/** EXP-1249: the machine reads the per-run `computerUse` launch flag (the
+ * composer's "+" toggle). Older builds only know the device-level default and
+ * would silently ignore it, so the composer hides the toggle there. */
+export function deviceCanToggleComputerUse(
+  device: Pick<SteerDevice, `caps`> | undefined
+): boolean {
+  return (device?.caps ?? []).includes(contract.codingSession.computerUseCap)
+}
+
+/** EXP-1196/EXP-1249: the device's own computer-use switch — what a run
+ * gets when its start carries no `computerUse` (absent = off). */
+export function deviceComputerUseDefault(
+  device: Pick<SteerDevice, `launchDefaults`> | undefined
+): boolean {
+  return device?.launchDefaults?.computerUse === true
+}
+
 /** EXP-622: the caller's default machine among `devices`, or `null` when
  * none of them is flagged. Callers pass an already capability-filtered
  * CANDIDATE list, so an offline or incapable default simply drops out and

@@ -3,11 +3,12 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { DraftsList } from "@/components/drafts-list"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { MyIssuesView } from "@/components/my-issues-view"
+import { ListDetailEmpty } from "@/components/team/list-detail"
 import {
   TAB_BODY_TOUCH_CLASS,
   primeTabEnter,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import {
   Button,
   SEGMENTED_ROW,
@@ -40,10 +41,12 @@ const MarkReadIcon = conceptIcon(`notification-mark-read`)
 // (?tab=my-issues; absent = inbox) so both tabs stay shareable and survive
 // refresh.
 //
-// EXP-851: a LIST, nothing else. The md+ split pane (and its `?issue=`
-// selection) is gone — a row opens the issue's own route carrying
-// `?from=inbox` / `?from=inbox:my-issues`, and the sidebar shows this list
-// beside it instead of a second column inside the page.
+// EXP-1246: md+ the Inbox is the LIST-DETAIL host's page — the list sits in
+// the sidebar's panel slot (`components/team/list-detail.tsx`, from the URL:
+// `sidebarOccupant`) and this page is the detail side with nothing picked
+// (desktop's "No notification selected"). A row opens the issue's own route
+// with `?from=inbox` / `?from=inbox:my-issues`, so the very same list stays
+// beside it. Phones keep the full-width list and push the detail.
 type InboxSearch = {
   tab?: `my-issues` | `drafts`
 }
@@ -171,6 +174,14 @@ function InboxPage() {
   }, [requestedTab, draftsTabAvailable, draftsReady, navigate, teamSlug])
 
   if (!session?.user) return null
+
+  if (!isMobile) {
+    return (
+      <ListDetailEmpty tab={tab === `my-issues` ? `my-issues` : `inbox`}>
+        {tab !== `my-issues` && <MarkAllReadButton />}
+      </ListDetailEmpty>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col" {...(isMobile ? swipe : {})}>

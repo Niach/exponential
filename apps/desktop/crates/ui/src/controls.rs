@@ -185,8 +185,290 @@ pub(crate) fn danger_menu_item(
 ) -> PopupMenuItem {
     let danger = cx.theme().danger;
     let label = label.into();
-    PopupMenuItem::element(move |_, _| div().text_color(danger).child(label.clone()))
-        .icon(icon.text_color(danger))
+    PopupMenuItem::element(move |_, _| {
+        pointer_row_fill(div().text_color(danger).child(label.clone()), false)
+    })
+    .icon(icon.text_color(danger))
+}
+
+// ---------------------------------------------------------------------------
+// THE IDE menu (EXP-1249): a gpui-component `PopupMenu` whose rows POINT
+// ---------------------------------------------------------------------------
+//
+// The pinned gpui-component (rev da4f936, a git dependency, not vendored)
+// sets no cursor on any `PopupMenu` row, so every IDE menu showed the arrow
+// over its items — the web's MENU_ROW_BASE had the same bug (`cursor-default`
+// beating the base rule). Two halves fix it without forking the crate:
+//
+// 1. Rows built here are `PopupMenuItem::element` rows whose body fills the
+//    item, padding included ([`pointer_row_fill`]), under `cursor_pointer`
+//    (a disabled row keeps the arrow). Element rows are the only escape
+//    hatch; a plain `PopupMenuItem::new` row cannot carry a cursor.
+// 2. A `Submenu` row has no element form, so [`PointerMenu`] — the
+//    `dropdown_menu` twin every IDE-owned menu hangs off — lays a pointer
+//    layer OVER its menu. The layer's hitbox is a plain one (it occludes
+//    nothing: hover, click, scroll and the submenu's hover-open still reach
+//    the rows), and it only sets the cursor. A submenu paints deferred, above
+//    the layer, so its own rows answer for themselves (half 1).
+//
+// Call sites still on `gpui_component::menu::DropdownMenu` / `.context_menu`
+// move here one by one; the row helpers work inside either.
+
+/// The pointer menu's row height: the IDE control rung (32px) — the 26px
+/// crate row with the tokens' 8px side padding (`menu::pointer`).
+pub(crate) const MENU_ROW_H: f32 = t::size::CONTROL_MD;
+/// The side padding `PopupMenu` puts around an element row's body (its
+/// `INNER_PADDING`): the fill reaches over it so the WHOLE row points.
+const MENU_ROW_INSET: f32 = 8.;
+
+/// Wrap an element row's body so it fills its item (over the crate's 8px
+/// side padding) and points — the arrow stays on a `disabled` row.
+pub(crate) fn pointer_row_fill(body: impl IntoElement, disabled: bool) -> Div {
+    use gpui::prelude::FluentBuilder as _;
+    gpui_component::h_flex()
+        .flex_1()
+        .min_w_0()
+        .min_h(px(MENU_ROW_H))
+        .mx(px(-MENU_ROW_INSET))
+        .px(px(MENU_ROW_INSET))
+        .items_center()
+        .when(!disabled, |row| row.cursor_pointer())
+        .when(disabled, |row| row.cursor_default())
+        .child(body)
+}
+
+/// One pointer-menu row: an optional leading glyph, the label, and an
+/// optional trailing part (a value, a switch, a chevron) — the web `Menu`'s
+/// item anatomy. The glyph rides INSIDE the body (never `.icon()`), so no
+/// empty icon slot shifts the rows of a menu built only from these.
+pub(crate) fn menu_row(
+    icon: Option<crate::icons::ExpIcon>,
+    label: impl Into<SharedString>,
+    trailing: Option<AnyElement>,
+    disabled: bool,
+    cx: &App,
+) -> Div {
+    use gpui::prelude::FluentBuilder as _;
+    let muted = cx.theme().muted_foreground;
+    pointer_row_fill(
+        gpui_component::h_flex()
+            .flex_1()
+            .min_w_0()
+            .gap(px(t::menu::pointer::ITEM_GAP))
+            .items_center()
+            .when_some(icon, |row, icon| {
+                row.child(
+                    Icon::new(icon)
+                        .size(px(t::menu::pointer::ICON_SIZE))
+                        .flex_shrink_0()
+                        .text_color(muted),
+                )
+            })
+            .child(div().flex_1().min_w_0().truncate().child(label.into()))
+            .children(trailing),
+        disabled,
+    )
+    .when(disabled, |row| row.text_color(muted))
+}
+
+/// The muted trailing value of a row ("High", "2"), with the `›` of a row
+/// that opens more choices.
+pub(crate) fn menu_row_value(value: Option<SharedString>, chevron: bool, cx: &App) -> AnyElement {
+    use gpui::prelude::FluentBuilder as _;
+    let muted = cx.theme().muted_foreground;
+    gpui_component::h_flex()
+        .flex_shrink_0()
+        .gap_1()
+        .items_center()
+        .text_xs()
+        .text_color(muted)
+        .when_some(value, |row, value| row.child(value))
+        .when(chevron, |row| {
+            row.child(
+                Icon::new(crate::icons::registry::UI_CHEVRON_RIGHT)
+                    .size(px(14.))
+                    .text_color(muted),
+            )
+        })
+        .into_any_element()
+}
+
+/// A pointer row that does something: `on_select` runs, then the menu closes
+/// (the crate dismisses after every element row's click).
+pub(crate) fn pointer_menu_item(
+    icon: Option<crate::icons::ExpIcon>,
+    label: impl Into<SharedString>,
+    trailing: impl Fn(&App) -> Option<AnyElement> + 'static,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    let label = label.into();
+    PopupMenuItem::element(move |_, cx| menu_row(icon.clone(), label.clone(), trailing(cx), false, cx))
+        .on_click(move |_, window, cx| on_select(window, cx))
+}
+
+/// A pointer row with a switch on the right (Ultracode, Computer use): a
+/// click anywhere on the row flips it.
+pub(crate) fn pointer_toggle_item(
+    id: impl Into<SharedString>,
+    icon: Option<crate::icons::ExpIcon>,
+    label: impl Into<SharedString>,
+    on: bool,
+    on_toggle: impl Fn(bool, &mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    let id: SharedString = id.into();
+    pointer_menu_item(
+        icon,
+        label,
+        move |_| Some(web_switch(id.clone()).checked(on).into_any_element()),
+        move |window, cx| on_toggle(!on, window, cx),
+    )
+}
+
+/// A pointer row of a single-pick submenu: the label, and the check on the
+/// picked one (right side, the picker rule).
+pub(crate) fn pointer_check_item(
+    label: impl Into<SharedString>,
+    checked: bool,
+    on_select: impl Fn(&mut Window, &mut App) + 'static,
+) -> PopupMenuItem {
+    pointer_menu_item(
+        None,
+        label,
+        move |cx| {
+            checked.then(|| {
+                Icon::new(crate::icons::registry::UI_CHECK)
+                    .size(px(14.))
+                    .text_color(cx.theme().foreground)
+                    .into_any_element()
+            })
+        },
+        on_select,
+    )
+}
+
+/// THE IDE dropdown menu (EXP-1249): `trigger` opens a `PopupMenu` built by
+/// `builder` (rebuilt on every open, like upstream's `dropdown_menu`), with
+/// the pointer layer over it (see the section note). Same open/dismiss
+/// behaviour as `gpui_component::menu::DropdownMenu`: the menu takes focus,
+/// a pick or Escape or a click outside closes it.
+#[derive(IntoElement)]
+pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'static> {
+    id: ElementId,
+    trigger: T,
+    anchor: Anchor,
+    builder: std::rc::Rc<
+        dyn Fn(
+            gpui_component::menu::PopupMenu,
+            &mut Window,
+            &mut gpui::Context<gpui_component::menu::PopupMenu>,
+        ) -> gpui_component::menu::PopupMenu,
+    >,
+}
+
+impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
+    pub(crate) fn new(
+        id: impl Into<ElementId>,
+        trigger: T,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            trigger,
+            anchor: Anchor::TopLeft,
+            builder: std::rc::Rc::new(builder),
+        }
+    }
+
+    /// Which corner of the trigger the menu hangs off (upstream's anchor:
+    /// `BottomLeft` opens the menu ABOVE the trigger).
+    pub(crate) fn anchor(mut self, anchor: Anchor) -> Self {
+        self.anchor = anchor;
+        self
+    }
+}
+
+impl PointerMenu<gpui_component::button::Button> {
+    /// The menu hung off a `Button` trigger, keyed by the button's own id —
+    /// the drop-in for upstream's `button.dropdown_menu(builder)`.
+    pub(crate) fn for_button(
+        mut trigger: gpui_component::button::Button,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> Self {
+        let id = trigger
+            .interactivity()
+            .element_id
+            .clone()
+            .unwrap_or_else(|| ElementId::Name("pointer-menu".into()));
+        Self::new(id, trigger, builder)
+    }
+}
+
+/// The open menu entity, kept across frames and dropped on dismiss so the
+/// next open rebuilds it from current state.
+#[derive(Default)]
+struct PointerMenuState {
+    menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
+}
+
+impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for PointerMenu<T> {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use gpui::Focusable as _;
+        let builder = self.builder.clone();
+        let state_id = ElementId::Name(SharedString::from(format!("pointer-menu:{:?}", self.id)));
+        let menu_state =
+            window.use_keyed_state(state_id.clone(), cx, |_, _| PointerMenuState::default());
+        gpui_component::popover::Popover::new(ElementId::Name(SharedString::from(format!(
+            "pointer-menu-popover:{:?}",
+            self.id
+        ))))
+        .appearance(false)
+        .overlay_closable(false)
+        .trigger(self.trigger)
+        .anchor(self.anchor)
+        .content(move |_, window, cx| {
+            let menu = match menu_state.read(cx).menu.clone() {
+                Some(menu) => menu,
+                None => {
+                    let builder = builder.clone();
+                    let menu = gpui_component::menu::PopupMenu::build(window, cx, move |menu, window, cx| {
+                        builder(menu, window, cx)
+                    });
+                    menu_state.update(cx, |state, _| state.menu = Some(menu.clone()));
+                    menu.focus_handle(cx).focus(window, cx);
+                    let popover_state = cx.entity();
+                    let dismiss_state = menu_state.clone();
+                    window
+                        .subscribe(&menu, cx, move |_, _: &gpui::DismissEvent, window, cx| {
+                            popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                            dismiss_state.update(cx, |state, _| state.menu = None);
+                        })
+                        .detach();
+                    menu
+                }
+            };
+            with_pointer_layer(menu)
+        })
+    }
+}
+
+/// A menu surface under the pointer layer (half 2 of the section note): the
+/// layer covers the menu, sets the cursor and nothing else. Shared by
+/// [`PointerMenu`] and the styleguide's open specimens.
+pub(crate) fn with_pointer_layer(menu: impl IntoElement) -> Div {
+    div()
+        .relative()
+        .child(menu)
+        .child(div().absolute().top_0().left_0().size_full().cursor_pointer())
 }
 
 // ---------------------------------------------------------------------------

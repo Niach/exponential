@@ -1830,7 +1830,7 @@ impl MarkdownEditor {
     /// Toolbar image button — native file picker through the same path as
     /// paste (§4.5: one upload path for paste + drop + picker).
     pub(super) fn pick_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,

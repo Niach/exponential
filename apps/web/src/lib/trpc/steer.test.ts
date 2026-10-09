@@ -2469,6 +2469,54 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
   })
 })
 
+// EXP-1249: per-run computer use rides every subject's start frame beside
+// mcpServerIds (contract `codingSession.launchKeys`); absent/null = the
+// device default, so the key never reaches the relay.
+describe(`steer.startSession — computerUse (EXP-1249)`, () => {
+  it(`forwards a boolean on issue, batch and action starts`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, computerUse: true })
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, computerUse: true })
+
+    h.relayPostStart.mockClear()
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      computerUse: false,
+    })
+    expect(lastStartBody()).toMatchObject({ computerUse: false })
+
+    h.relayPostStart.mockClear()
+    queueAction()
+    queueOwnDevice()
+    await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, computerUse: true })
+    expect(lastStartBody()).toMatchObject({ actionId: ACTION_ID, computerUse: true })
+  })
+
+  it(`leaves the key off for absent and null`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, computerUse: null })
+    expect(lastStartBody().computerUse).toBeUndefined()
+    h.relayPostStart.mockClear()
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(lastStartBody().computerUse).toBeUndefined()
+  })
+
+  it(`is forbidden beside resumeSessionId`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: `77777777-7777-4777-8777-777777777777`,
+        deviceId: `dev-1`,
+        computerUse: true,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+})
+
 // EXP-804: the start-time half of the usage wall. The device's synced
 // `agent_usage` already says the agent is out of credit, so a start into it
 // produces a run that goes silent the second it launches — refuse instead.

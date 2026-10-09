@@ -1761,6 +1761,8 @@ fn handle_remote_start(
         start.account.as_deref(),
     )
     .with_mcp_servers(start.mcp_server_ids.clone())
+    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
+    .with_computer_use(start.computer_use)
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
     .with_subagent_model(start.subagent_model.as_deref());

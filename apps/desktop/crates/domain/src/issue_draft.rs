@@ -7,10 +7,11 @@
 //! `IssueDraftPage`, Android `domain/IssueDraftPage`) and locked by the
 //! contract fixture `packages/domain-contract/fixtures/issue-draft.json`.
 //!
-//! EXP-1212: a draft WITH content never goes silently. The close button asks
-//! [`exit_prompt`]'s `DiscardConfirm` first; any other way off the page is
-//! HELD behind the `Leave` question (Discard · Save draft · Create issue,
-//! Create issue the default). Each prompt is ONE question: there is no body.
+//! EXP-1212: a draft WITH content never goes silently: any way off the page
+//! is HELD behind the `Leave` question (Discard · Save draft · Create issue,
+//! Create issue the default), ONE question with no body. EXP-1247: the page
+//! has no close button any more (Back + Create only); discarding is the
+//! leave question's answer.
 
 /// The identifier slot of the collapsed title.
 pub const HEADER: &str = "New issue";
@@ -20,15 +21,8 @@ pub const TITLE_PLACEHOLDER: &str = "Issue title";
 pub const DESCRIPTION_PLACEHOLDER: &str = "Add description...";
 /// The primary button that files the draft.
 pub const CREATE: &str = "Create";
-/// The close (`ui-close`) button's tooltip (EXP-1191: no overflow menu).
-pub const DISCARD: &str = "Discard draft";
 /// A draft with no title (the collapsed title, the Drafts list).
 pub const UNTITLED: &str = "Untitled draft";
-/// EXP-1212: the close button's confirmation on a draft with content —
-/// the one-line question and the destructive button (beside the platform's
-/// Cancel).
-pub const DISCARD_CONFIRM_TITLE: &str = "Discard this draft and its files?";
-pub const DISCARD_CONFIRM: &str = "Discard";
 /// EXP-1212: the question a HELD navigation off a draft with content asks.
 pub const LEAVE_TITLE: &str = "Save this issue as a draft?";
 /// The page's Create, then the held navigation continues: the DEFAULT
@@ -77,36 +71,24 @@ pub fn draft_fate(seen: bool, present: bool, created_issue_id: Option<&str>) -> 
     }
 }
 
-/// EXP-1212: how the page is being left. The page's OWN exits (a successful
-/// Create, a confirmed Discard) are neither: they never ask.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DraftExit {
-    /// The close button ("Discard draft").
-    Discard,
-    /// Any other way off the page: Back/Forward, a rail entry, a tab, opening
-    /// another screen, a team switch.
-    Leave,
-}
-
 /// EXP-1212: what an exit asks before it happens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DraftPrompt {
     /// Nothing: the exit goes at once (an empty draft is deleted as before).
     None,
-    /// "Discard this draft and its files?" with a destructive Discard and
-    /// Cancel.
-    DiscardConfirm,
     /// The navigation is held: Discard · Save draft · Create issue.
     Leave,
 }
 
-/// EXP-1212: the ONE rule ×4. `has_content` = a non-blank title, a non-blank
-/// description or an attachment (exactly what makes the autosave write a row).
-pub fn exit_prompt(has_content: bool, exit: DraftExit) -> DraftPrompt {
-    match (has_content, exit) {
-        (false, _) => DraftPrompt::None,
-        (true, DraftExit::Discard) => DraftPrompt::DiscardConfirm,
-        (true, DraftExit::Leave) => DraftPrompt::Leave,
+/// EXP-1212: the ONE rule ×4 (web `draftExitPrompt`). `has_content` = a
+/// non-blank title, a non-blank description or an attachment (exactly what
+/// makes the autosave write a row). Every way off the page is a leave: the
+/// page's OWN exits (a successful Create) never ask.
+pub fn exit_prompt(has_content: bool) -> DraftPrompt {
+    if has_content {
+        DraftPrompt::Leave
+    } else {
+        DraftPrompt::None
     }
 }
 
@@ -138,12 +120,9 @@ mod tests {
             Some(DESCRIPTION_PLACEHOLDER)
         );
         assert_eq!(copy["create"].as_str(), Some(CREATE));
-        assert_eq!(copy["discard"].as_str(), Some(DISCARD));
         assert_eq!(copy["untitled"].as_str(), Some(UNTITLED));
-        let confirm = &copy["discardConfirm"];
-        assert_eq!(confirm["title"].as_str(), Some(DISCARD_CONFIRM_TITLE));
-        assert_eq!(confirm["confirm"].as_str(), Some(DISCARD_CONFIRM));
-        assert_eq!(confirm.as_object().unwrap().len(), 2, "a new string needs a test");
+        assert!(copy.get("discard").is_none(), "EXP-1247: the close button is gone");
+        assert!(copy.get("discardConfirm").is_none());
         let leave = &copy["leave"];
         assert_eq!(leave["title"].as_str(), Some(LEAVE_TITLE));
         assert_eq!(leave["create"].as_str(), Some(LEAVE_CREATE));
@@ -151,16 +130,13 @@ mod tests {
         assert_eq!(leave["discard"].as_str(), Some(LEAVE_DISCARD));
         assert_eq!(leave.as_object().unwrap().len(), 4, "a new string needs a test");
         assert_eq!(copy["discardedElsewhere"].as_str(), Some(DISCARDED_ELSEWHERE));
-        assert_eq!(copy.as_object().unwrap().len(), 9, "a new string needs a test");
+        assert_eq!(copy.as_object().unwrap().len(), 7, "a new string needs a test");
     }
 
     #[test]
     fn exit_prompt_table() {
-        use DraftExit::*;
-        assert_eq!(exit_prompt(false, Discard), DraftPrompt::None);
-        assert_eq!(exit_prompt(false, Leave), DraftPrompt::None);
-        assert_eq!(exit_prompt(true, Discard), DraftPrompt::DiscardConfirm);
-        assert_eq!(exit_prompt(true, Leave), DraftPrompt::Leave);
+        assert_eq!(exit_prompt(false), DraftPrompt::None);
+        assert_eq!(exit_prompt(true), DraftPrompt::Leave);
     }
 
     #[test]

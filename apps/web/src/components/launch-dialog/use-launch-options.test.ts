@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
+import { contract } from "@exp/domain-contract"
 import { useLaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import type { SteerDevice } from "@/lib/steer-devices"
 
@@ -223,5 +224,48 @@ describe(`useLaunchOptions MCP pick`, () => {
     expect(
       result.current.buildOptions({ omitMcp: true }).mcpServerIds
     ).toBeUndefined()
+  })
+})
+
+// EXP-1249: per-run computer use — the "+" menu toggle. It seeds from the
+// device's own switch, rides out only to a device that reads it (the cap),
+// and every key the payload can carry is a contract launch key.
+describe(`useLaunchOptions computer use`, () => {
+  const capable: SteerDevice = {
+    ...device,
+    caps: [contract.codingSession.computerUseCap],
+    launchDefaults: { ...device.launchDefaults, computerUse: true },
+  }
+
+  it(`seeds from the device default and sends the per-run value`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [capable] })
+    )
+    expect(result.current.computerUseAvailable).toBe(true)
+    expect(result.current.computerUse).toBe(true)
+    expect(result.current.buildOptions().computerUse).toBe(true)
+    act(() => result.current.setComputerUse(false))
+    expect(result.current.buildOptions().computerUse).toBe(false)
+  })
+
+  it(`never sends it to a device without the cap`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [{ ...capable, caps: [] }],
+      })
+    )
+    expect(result.current.computerUseAvailable).toBe(false)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
+  })
+
+  it(`builds only contract launch keys`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [capable] })
+    )
+    const keys = Object.keys(result.current.buildOptions({ resume: true }))
+    for (const key of keys) {
+      expect(contract.codingSession.launchKeys, key).toContain(key)
+    }
   })
 })

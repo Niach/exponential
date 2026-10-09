@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
-import type { DiffFile } from "@exp/domain-contract/diff"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
 import {
   createFileRoute,
   Link,
@@ -7,7 +6,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import { AgentSessionView } from "@/components/agent-session"
+import { AgentSessionView, renderResultText } from "@/components/agent-session"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssueCodingAction } from "@/components/issue-coding-action"
@@ -23,17 +22,28 @@ import {
   useIsMobile,
   WORK_COLUMN_CLASS,
 } from "@exp/ui"
-import { IssueResultsBody } from "@/components/issue-results-face"
-import { IssueChangesBody } from "@/components/issue-changes-face"
+import {
+  GuideBody,
+  GuideStackCard,
+  guideFilesOf,
+  useIssueStack,
+} from "@/components/guide-face"
+import { GuideSectionDiff } from "@/components/guide-section-diff"
+import { useMergeThrough } from "@/components/session-merge-button"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import type { WorkFace } from "@/components/team/work-face-toggle"
+import {
+  guideSearch,
+  guideSectionPage,
+  parseGuideSearch,
+  type GuideSearch,
+  type GuideSectionKey,
+} from "@/lib/work-faces"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { sessionDescendantIds, sessionTree } from "@/lib/sessions/session-tree"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { useReviewFiles, useSessionPrFiles } from "@/hooks/use-review-files"
-import { publishReviewFiles } from "@/lib/review-files-slot"
 import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
@@ -55,26 +65,22 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // every breakpoint — no shell, no list beside it. The list the run came from
 // is the SIDEBAR's job now (`?from=`, `lib/detail-origin.ts`). EXP-870: this
 // is the ONE run URL — an issue's run too, whose issue is the work tab's other
-// face. EXP-877: `?view=diff` is the run's third face, the full-column diff
-// under the same header (`work-header.tsx`); EXP-879 `?view=results` is the
-// fourth, the screenshots the run published. EXP-893: on a phone the faces
-// are the Work screen's — `replace` navigations, so Back leaves the subject.
+// face. EXP-1251: `?view=guide` is the run's Guide (its report over its diff)
+// and `&section=` a section's diff page under it (the legacy `?view=diff` /
+// `?view=results` land there, `parseGuideSearch`). EXP-893: on a phone the
+// faces are the Work screen's — `replace` navigations, so Back leaves the
+// subject.
 //
 // EXP-312: a LIVE session is visible and steerable by its OWNER alone (the
 // relay ticket mint refuses everyone else). A teammate's session id therefore
 // renders an identity stub with the synced status badge and NO view mount —
 // mounting it would try to mint a ticket the server will refuse.
-// EXP-1154: `?view=results` is the exception: the report rides the synced
-// row (results sync team-wide), and a run without an issue links its PR body
-// footer here, so a teammate reads it read-only (`TeammateRunResults`).
+// EXP-1154/1251: `?view=guide` is the exception: the report rides the synced
+// row (results sync team-wide) and the PR files are a fetch away, and a run
+// without an issue links its PR body footer here, so a teammate reads the
+// Guide read-only (`TeammateRunGuide`).
 
-type SessionSearch = {
-  from?: string
-  view?: `diff` | `results`
-  /** EXP-1154: the file the diff face opens on (a Guide file row, the
-   *  issue route's live-diff handoff); read once, never written back. */
-  file?: string
-}
+type SessionSearch = { from?: string } & GuideSearch
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
@@ -83,13 +89,9 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   // always landing on the Agent page. Absent = the Agent page's own list.
   validateSearch: (search: Record<string, unknown>): SessionSearch => ({
     from: typeof search.from === `string` && search.from ? search.from : undefined,
-    // EXP-879: `?view=results` is the fourth face; anything else normalises
+    // EXP-1251: the Guide (and its section pages); anything else normalises
     // away to the run itself.
-    view:
-      search.view === `diff` || search.view === `results`
-        ? search.view
-        : undefined,
-    file: typeof search.file === `string` && search.file ? search.file : undefined,
+    ...parseGuideSearch(search),
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -104,7 +106,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
-  const { from, view, file } = Route.useSearch()
+  const { from, view, section, file } = Route.useSearch()
   const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   const { data: authSession } = useSession()
@@ -171,22 +173,22 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
-    // EXP-1194: the diff is the PR's, not the transcript's — a teammate
-    // reviews it read-only, like the report.
-    if (view === `diff` && session.prUrl) {
+    // EXP-1194/1251: the report and the PR's diff — a teammate reads the
+    // Guide read-only.
+    if (view === `guide`) {
       return (
-        <TeammateRunChanges
+        <TeammateRunGuide
           session={session}
           title={identity.subject}
-          onBack={goBack}
-        />
-      )
-    }
-    if (view === `results`) {
-      return (
-        <TeammateRunResults
-          session={session}
-          title={identity.subject}
+          section={section}
+          file={file ?? null}
+          onSection={(next) =>
+            void navigate({
+              to: `/t/$teamSlug/sessions/$sessionId`,
+              params: { teamSlug, sessionId: session.id },
+              search: guideSearch({ from, section: next }),
+            })
+          }
           onBack={goBack}
         />
       )
@@ -226,8 +228,9 @@ function SessionPage() {
       session={session}
       currentUserId={currentUserId}
       from={from}
-      face={view === `diff` || view === `results` ? view : `run`}
-      diffFile={view === `diff` ? file ?? null : null}
+      face={view === `guide` ? `guide` : `run`}
+      guideSection={section}
+      diffFile={file ?? null}
       onBack={goBack}
     />
   )
@@ -244,6 +247,7 @@ function OwnSessionPage({
   currentUserId,
   from,
   face,
+  guideSection,
   diffFile,
   onBack,
 }: {
@@ -253,8 +257,10 @@ function OwnSessionPage({
   session: CodingSession
   currentUserId: string
   from: string | undefined
-  face: WorkFace
-  /** EXP-1154: `?file=` on the diff face. */
+  face: `run` | `guide`
+  /** EXP-1251: `?section=` on the Guide. */
+  guideSection: GuideSectionKey | undefined
+  /** EXP-1154: `?file=` on a section page. */
   diffFile: string | null
   onBack: () => void
 }) {
@@ -284,25 +290,24 @@ function OwnSessionPage({
     })
   }, [navigate, teamSlug, board, issue, from, isMobile])
 
-  // EXP-877: the run and diff faces are the same URL with `?view=` — a
-  // replace, so Back still leaves the run rather than stepping through faces.
+  // EXP-877/1251: the Run face and the Guide are the same URL with
+  // `?view=` — a replace, so Back still leaves the run rather than stepping
+  // through faces. A section page pushes on md+ (Back returns to the Guide).
   const onFace = useCallback(
-    (next: WorkFace) => {
-      if (next === `issue`) {
-        openIssue()
-        return
-      }
+    (next: `run` | `guide`, section?: GuideSectionKey) => {
       void navigate({
         to: `/t/$teamSlug/sessions/$sessionId`,
         params: { teamSlug, sessionId: session.id },
-        search: {
-          ...(from ? { from } : {}),
-          ...(next === `diff` || next === `results` ? { view: next } : {}),
-        },
-        replace: true,
+        search:
+          next === `guide`
+            ? guideSearch({ from, section })
+            : from
+              ? { from }
+              : {},
+        replace: isMobile || section === undefined,
       })
     },
-    [navigate, teamSlug, session.id, from, openIssue]
+    [navigate, teamSlug, session.id, from, isMobile]
   )
 
   // EXP-886: the issue's runs of mine — the header's Run/Runs label and the
@@ -331,12 +336,9 @@ function OwnSessionPage({
     [navigate, teamSlug, from, isMobile]
   )
 
-  // EXP-893: the phone's Changes face without a live diff — the issue's PR
+  // EXP-893/1251: the Guide's diff without a live diff — the issue's PR
   // files (a batch run's covered issue that shares the run's PR carries
-  // them). EXP-952: read
-  // as soon as a phone has an OPEN PR to count, not only on the face — the
-  // switcher's Changes row prints the same `+N −M` the face draws (a live
-  // diff still outranks them in the view).
+  // them), read while the Guide shows (a live diff still outranks them).
   const prIssue =
     issue ??
     row.batchIssues.find(
@@ -344,22 +346,43 @@ function OwnSessionPage({
     ) ??
     null
   const { state: prFilesState } = useReviewFiles(prIssue, {
-    enabled: isMobile && (face === `diff` || prIssue?.prState === `open`),
+    enabled: face === `guide`,
   })
   // EXP-1194: a run with no issue to key its PR on (a chat or action run's
-  // chore PR) reads it by the run — on EVERY width, since no issue route
-  // draws its Changes face on md+ (Reviews opens it here).
+  // chore PR) reads it by the run (Reviews opens its Guide here).
   const { state: runPrFilesState } = useSessionPrFiles(
     prIssue ? null : session,
-    {
-      enabled:
-        face === `diff` || (isMobile && session.prState === `open`),
-    }
+    { enabled: face === `guide` }
   )
   const shownPrFilesState = prIssue ? prFilesState : runPrFilesState
   const prFiles =
     shownPrFilesState.kind === `files` ? shownPrFilesState.files : null
   const prUrl = prIssue?.prUrl ?? session.prUrl ?? null
+
+  // EXP-1248: the Guide's Stack card — the PR's stack, a member REPLACES the
+  // subject in place (its issue's Guide); hovering one merges through it.
+  const { stack, memberTarget } = useIssueStack(prIssue, team.id)
+  const mergeThrough = useMergeThrough()
+  const guideStack = stack ? (
+    <GuideStackCard
+      stack={stack}
+      onOpen={(issueId) => {
+        const target = memberTarget(issueId)
+        if (!target) return
+        void navigate({
+          to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+          params: {
+            teamSlug,
+            boardSlug: target.boardSlug,
+            issueIdentifier: target.identifier,
+          },
+          search: guideSearch({ from }),
+          replace: true,
+        })
+      }}
+      onMergeThrough={prIssue && permissions.canMutateIssue(prIssue) ? mergeThrough.request : undefined}
+    />
+  ) : undefined
 
   // EXP-893: the switcher's `Start coding` row once this run ended for good
   // — a new run on the issue, through the Agent page composer.
@@ -421,7 +444,7 @@ function OwnSessionPage({
           shownFace,
           tabs,
         }: {
-          shownFace: `run` | `changes` | `results`
+          shownFace: `run` | `guide`
           tabs: ReactNode
         }) => (
           <IssueMobileHeader
@@ -456,9 +479,9 @@ function OwnSessionPage({
                   preferredSessionId={session.id}
                   showStart={false}
                 />
-              ) : shownFace === `changes` && prUrl ? (
-                /* EXP-949: GitHub belongs to the Changes face alone — the
-                   same action slot the issue route's Changes face fills. */
+              ) : shownFace === `guide` && prUrl ? (
+                /* EXP-949: GitHub belongs to the Guide alone — the same
+                   action slot the issue route's Guide fills. */
                 <PrGithubButton prUrl={prUrl} />
               ) : undefined
             }
@@ -494,7 +517,9 @@ function OwnSessionPage({
           />
         }
         face={face}
+        guideSection={guideSection}
         diffFile={diffFile}
+        guideStack={guideStack}
         onFace={onFace}
         onIssueFace={issue && board ? openIssue : undefined}
         issueHeader={issueHeader}
@@ -517,78 +542,44 @@ function OwnSessionPage({
         onBack={onBack}
       />
       {handlers.duplicatePicker}
+      {mergeThrough.dialog}
     </div>
   )
 }
 
-/** EXP-1154: a teammate's run on `?view=results`: the report the owner sees
- *  (`coding_sessions.results`, synced team-wide), read-only under the stub's
- *  header. No face toggle and no view mount, so no ticket is minted. */
-export function TeammateRunResults({
+/** EXP-1154/1251: a teammate's run on `?view=guide`: the report the owner
+ *  sees (`coding_sessions.results`, synced team-wide) over the run's PR
+ *  files (`codingSessions.prFiles`), read-only under the stub's header with
+ *  the GitHub button; a Changes row opens its section page. No face toggle
+ *  and no view mount, so no ticket is minted. */
+export function TeammateRunGuide({
   session,
   title,
+  section,
+  file,
+  onSection,
   onBack,
 }: {
   session: CodingSession
   title: string
+  section?: GuideSectionKey
+  file: string | null
+  onSection: (section: GuideSectionKey | undefined) => void
   onBack: () => void
 }) {
+  const isMobile = useIsMobile()
   const groups = useMemo(
     () => parseSessionResultGroups(session.results),
     [session.results]
   )
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <SessionStubHeader onBack={onBack} title={title} />
-      {groups.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">
-          <div className={WORK_COLUMN_CLASS}>
-            <IssueResultsBody groups={groups} />
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            This run has no report yet.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** EXP-1194: a teammate's run on `?view=diff`: its PR files
- *  (`codingSessions.prFiles`), read-only under the stub's header with the
- *  GitHub button. Like `TeammateRunResults`, no view mount, no ticket. */
-const EMPTY_FILES: readonly DiffFile[] = []
-
-function TeammateRunChanges({
-  session,
-  title,
-  onBack,
-}: {
-  session: CodingSession
-  title: string
-  onBack: () => void
-}) {
-  const isMobile = useIsMobile()
-  const { state, reload } = useSessionPrFiles(session)
-  const [selected, setSelected] = useState<string | null>(null)
-  // EXP-945: on md+ the file TREE is the sidebar's panel, as on the owner's
-  // Changes face; its back row leaves the run like the header's.
-  const files = state.kind === `files` ? state.files : EMPTY_FILES
-  useEffect(() => {
-    if (isMobile) return
-    publishReviewFiles({
-      subjectId: session.id,
-      status: state.kind,
-      files,
-      selected,
-      onSelect: setSelected,
-      back: { label: title, onBack },
-    })
-  }, [isMobile, session.id, state.kind, files, selected, title, onBack])
-  useEffect(() => () => publishReviewFiles(null), [])
+  const { state, reload } = useSessionPrFiles(session, {
+    enabled: Boolean(session.prUrl),
+  })
+  const files = guideFilesOf(state)
+  const [selected, setSelected] = useState<string | null>(file)
+  const page =
+    section !== undefined ? guideSectionPage(groups, files, section) : null
+  const empty = groups.length === 0 && !session.prUrl
   return (
     <div className="flex h-full min-h-0 flex-col">
       <MobileDetailHeader
@@ -596,16 +587,36 @@ function TeammateRunChanges({
         onBack={onBack}
         menu={session.prUrl ? <PrGithubButton prUrl={session.prUrl} /> : undefined}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className={WORK_COLUMN_CLASS}>
-          <IssueChangesBody
-            state={state}
-            selected={selected}
-            onSelect={setSelected}
-            onRetry={reload}
-          />
+      {empty ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            This run has no report yet.
+          </p>
         </div>
-      </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">
+          <div className={WORK_COLUMN_CLASS}>
+            {page ? (
+              <GuideSectionDiff
+                page={page}
+                selected={selected}
+                onSelect={setSelected}
+                onBack={() => onSection(undefined)}
+                isMobile={isMobile}
+              />
+            ) : (
+              <GuideBody
+                groups={groups}
+                files={files}
+                filesState={session.prUrl ? state : null}
+                onOpenChanges={(target) => onSection(target.section)}
+                onRetry={reload}
+                renderText={renderResultText}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

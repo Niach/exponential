@@ -1,43 +1,26 @@
 import {
   AccountPicker,
-  Button,
   DevicePicker,
-  EffortPicker,
-  GlassGroup,
-  GlassToggleRow,
-  type ValueChoice,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
   Label,
   ModelPicker,
   RepositoryPicker,
   Switch,
-  conceptIcon,
   deviceReadinessBlocker,
 } from "@exp/ui"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
 import {
-  CLI_DEFAULT_EFFORT,
   CLI_DEFAULT_MODEL,
-  effortLabel,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import { McpServerPicker } from "@/components/launch-dialog/mcp-server-picker"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { MAX_ISSUES_PER_RUN } from "@/hooks/use-launch-composer"
 import {
   agentAllowsBlankModel,
-  agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
-  agentSupportsSubagentModel,
-  agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import { contract } from "@exp/domain-contract"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
-import { subjectOwnsMcpServers } from "@/lib/mcp-servers"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,
@@ -63,10 +46,11 @@ import { subjectOwnsMcpServers } from "@/lib/mcp-servers"
 // own. None of these four ever reaches ZERO options: the whole line
 // returns early without a device, Repository and Account render behind a
 // count guard, and the model list is contract values plus the blank default.
-
-const MoreIcon = conceptIcon(`ui-more`)
-// EXP-862: a picker whose VALUE carries a glyph carries it on the menu rows
-// too — here the machine's kind, the same pair the Devices list draws.
+//
+// EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
+// servers and the new per-run Computer use live in the composer's ONE "+"
+// menu (`composer-plus-menu.tsx`). The line is Device · Account · Model ·
+// Repository · Plan · Resume and nothing else.
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   const { launch, candidateDevices, subject } = model
@@ -91,13 +75,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       label: modelLabel(value),
     })),
   ]
-  const effortOptions: ValueChoice[] = [
-    { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
-    ...agentEffortValues(agent).map((value) => ({
-      value,
-      label: effortLabel(value),
-    })),
-  ]
   const accountOptions = launch.accountOptions.map((option) => ({
     key: accountOptionKey(option),
     agent: option.agent,
@@ -107,11 +84,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     hint: healthBadgeLabel(option.health) ?? undefined,
     limits: option.limits,
   }))
-  // FEED-73: a real action brings its own MCP list, so no picker for it.
-  const showMcp =
-    model.mcpServers !== null &&
-    model.mcpServers.length > 0 &&
-    !subjectOwnsMcpServers(subject)
   // EXP-1030: the machines as THE device picker's rows (kind glyph + name,
   // EXP-432's owner suffix on a teammate's shared server).
   const deviceRows = candidateDevices.map((candidate) => ({
@@ -197,88 +169,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             />
           </Label>
         )}
-        <MobilePopover>
-          <MobilePopoverTrigger asChild>
-            {/* EXP-862: a secondary icon button is GHOST — no circle, no
-                border, a hover wash and a pointer. */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="-my-0.5 text-muted-foreground hover:text-foreground"
-              title="More options"
-              aria-label="More options"
-            >
-              <MoreIcon className="size-3.5" />
-            </Button>
-          </MobilePopoverTrigger>
-          <MobilePopoverContent
-            className="w-[20rem] p-0"
-            align="start"
-            mobileTitle="Options"
-          >
-            {/* EXP-994: the overlay IS the surface — the rows keep their
-                hairlines and nothing draws a second card inside it. */}
-            <div data-testid="agent-options-sheet">
-              <GlassGroup bare>
-                <EffortPicker
-                  mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
-                  value={
-                    launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
-                  }
-                  onChange={launch.setEffortValue}
-                  efforts={effortOptions}
-                  disabled={launch.ultracode && agentSupportsUltracode(agent)}
-                />
-                {agentSupportsSubagentModel(agent) && (
-                  /* EXP-981: the model the run's SUBAGENTS get — claude only
-                     (it is that CLI's env var), blank = the CLI's own
-                     default, and then it never reaches the start payload. */
-                  <ModelPicker
-                    triggerVariant="row"
-                    width="md"
-                    mobileTitle="Subagent model"
-                    value={
-                      launch.subagentModel === ``
-                        ? CLI_DEFAULT_MODEL
-                        : launch.subagentModel
-                    }
-                    onChange={(value) =>
-                      launch.setSubagentModel(
-                        value === CLI_DEFAULT_MODEL ? `` : value
-                      )
-                    }
-                    models={[
-                      { value: CLI_DEFAULT_MODEL, label: `Default` },
-                      ...contract.codingModel.values.map((value) => ({
-                        value,
-                        label: modelLabel(value),
-                      })),
-                    ]}
-                  />
-                )}
-                {agentSupportsUltracode(agent) && (
-                  <GlassToggleRow
-                    id="agent-composer-ultracode"
-                    label="Ultracode"
-                    checked={launch.ultracode}
-                    onCheckedChange={launch.setUltracode}
-                  />
-                )}
-                {showMcp && (
-                  /* EXP-792: WHICH team servers the run connects to — the
-                     picker greys the ones the caller has not connected. */
-                  <McpServerPicker
-                    servers={model.mcpServers!}
-                    selectedIds={launch.mcpServerIds}
-                    onToggle={launch.toggleMcpServer}
-                    connectHref={model.mcpConnectHref}
-                  />
-                )}
-              </GlassGroup>
-            </div>
-          </MobilePopoverContent>
-        </MobilePopover>
         {/* EXP-773: a not-ready combination cannot start at all — the
             submit is disabled on the same predicate. EXP-1196: with a doctor
             report the failing ROW renders under the line instead. */}

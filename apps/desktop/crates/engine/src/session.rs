@@ -161,6 +161,7 @@ impl EngineSession {
                 subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
+                computer_use: None,
             },
             // A replay never talks to MCP: it reads history and stops.
             mcp: coding::AgentMcp::ClaudeFile,

@@ -241,7 +241,16 @@ pub(crate) struct Picker<T: Clone> {
     /// At the cap every UNPICKED row goes disabled; a picked one still
     /// toggles off.
     pub max: Option<usize>,
+    /// EXP-1249: SEARCH surface only — opened by the caller rather than by
+    /// a click on the trigger (the composer "+" menu's "Implement issue ›"
+    /// opens the issue picker anchored to the +). The callback fires once
+    /// the surface closes (a pick, Escape, a click outside), so the caller
+    /// stops mounting it.
+    pub opened: Option<PickerOnClose>,
 }
+
+/// EXP-1249: what a caller-opened picker runs when its surface closes.
+pub(crate) type PickerOnClose = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// Which surface a picker mounts — the IDE's answer to the web primitive's
 /// `data-picker-*` markers, and what the contract test asserts on.
@@ -279,6 +288,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             rank: None,
             footer: None,
             max: None,
+            opened: None,
         }
     }
 
@@ -308,6 +318,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             rank: None,
             footer: None,
             max: None,
+            opened: None,
         }
     }
 
@@ -315,6 +326,14 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// the field is what its keyboard model is bound to.
     pub(crate) fn search(mut self, search: bool) -> Self {
         self.search = search || self.mode == PickerMode::Multi;
+        self
+    }
+
+    /// EXP-1249: mount the search surface OPEN, as the caller's doing
+    /// rather than the trigger's (see [`Picker::opened`]); the field takes
+    /// focus on the first frame. `on_close` runs when it closes.
+    pub(crate) fn open(mut self, on_close: PickerOnClose) -> Self {
+        self.opened = Some(on_close);
         self
     }
 
@@ -403,7 +422,11 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// primitive: a caller asks for `search` or for `multi`, never for a
     /// popover.
     pub(crate) fn surface(&self) -> PickerSurface {
-        if self.search || self.mode == PickerMode::Multi || self.panel.is_some() {
+        if self.search
+            || self.mode == PickerMode::Multi
+            || self.panel.is_some()
+            || self.opened.is_some()
+        {
             PickerSurface::Search
         } else {
             PickerSurface::Menu
@@ -485,8 +508,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     let on_change = on_change.clone();
                     let body = item.clone();
                     let render_item = render_item.clone();
+                    let disabled = item.disabled;
                     menu = menu.item(
-                        PopupMenuItem::element(move |_, cx| draw_item(&render_item, &body, cx))
+                        // EXP-1249: the whole row points (the crate sets no
+                        // cursor on any `PopupMenu` row).
+                        PopupMenuItem::element(move |_, cx| {
+                            crate::controls::pointer_row_fill(
+                                draw_item(&render_item, &body, cx),
+                                disabled,
+                            )
+                        })
                             .checked(checked)
                             .disabled(item.disabled)
                             .on_click(move |_, window, cx| {
@@ -520,6 +551,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             rank,
             footer,
             max,
+            opened,
             ..
         } = self;
         let multi = mode == PickerMode::Multi;
@@ -547,6 +579,14 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         if let Some((anchor, _)) = fit {
             popover = popover.anchor(anchor);
         }
+        // EXP-1249: a caller-opened surface is CONTROLLED open until it
+        // closes itself; its close tells the caller to stop mounting it.
+        if opened.is_some() {
+            popover = popover.open(true);
+        }
+        let caller_open = opened.is_some();
+        let query_for_focus = query.clone();
+        let state_for_focus = state.clone();
         popover
             .trigger(PickerTrigger::new(key("trigger"), trigger))
             .on_open_change(move |open, window, cx| {
@@ -558,8 +598,18 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 if *open && search {
                     query_for_open.read(cx).focus_handle(cx).focus(window, cx);
                 }
+                if !*open {
+                    if let Some(on_close) = &opened {
+                        on_close(window, cx);
+                    }
+                }
             })
             .content(move |_, window, cx| {
+                // A caller-opened surface never ran the open handler above,
+                // so its field takes focus on the first frame here.
+                if caller_open && search && state_for_focus.update(cx, |state, _| state.claim_focus()) {
+                    query_for_focus.read(cx).focus_handle(cx).focus(window, cx);
+                }
                 use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
                 let popover_state = cx.entity();
                 // The view this popover paints inside: a keyboard or hover
@@ -1070,6 +1120,8 @@ struct PickerSurfaceState {
     /// paints nothing ([`Self::cursor_visible`]).
     reached: bool,
     query: String,
+    /// EXP-1249: the caller-opened surface already took focus this open.
+    focused: bool,
 }
 
 impl PickerSurfaceState {
@@ -1101,7 +1153,14 @@ impl PickerSurfaceState {
         changed
     }
 
+    /// EXP-1249: `true` exactly once per open — the caller-opened surface's
+    /// first frame, when its field takes focus.
+    fn claim_focus(&mut self) -> bool {
+        !std::mem::replace(&mut self.focused, true)
+    }
+
     fn reset(&mut self) {
+        self.focused = false;
         self.cursor = 0;
         self.reached = false;
         self.query.clear();
@@ -1245,6 +1304,15 @@ pub(crate) fn item_keywords<T: Clone>(item: &PickerItem<T>) -> Vec<SharedString>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_caller_opened_surface_claims_focus_once_per_open() {
+        let mut state = PickerSurfaceState::default();
+        assert!(state.claim_focus(), "the first frame takes focus");
+        assert!(!state.claim_focus(), "later frames leave it alone");
+        state.reset();
+        assert!(state.claim_focus(), "a new open takes it again");
+    }
 
     #[test]
     fn a_row_matches_on_its_keywords_else_on_its_label() {

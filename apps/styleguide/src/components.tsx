@@ -148,7 +148,6 @@ import {
   WORK_COLUMN_CLASS,
   WorkHeader,
   CollapsedTitle,
-  ChangesFaceLabel,
   DropdownMenuContent,
   DropdownMenuItem,
   WorkFaceStrip,
@@ -1348,12 +1347,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Changes segment is the review of its pull request (the Reviews detail screen is gone).`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
     status: {
       web: ok(
         `WorkFaceStrip`,
         `packages/ui/src/work-face-strip.tsx`,
-        `WorkFaceToggle + MobileFaceTabs in apps/web plug the run menu and the phone pager`
+        `apps/web/src/components/work-faces.tsx plugs in the run menu and the phone pager`
       ),
       desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
@@ -1364,19 +1363,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <WorkFaceStrip
-        face="diff"
+        face="guide"
         // A run waiting on a person, and an open pull request.
-        dots={{ run: `needs_input`, results: `review` }}
+        dots={{ run: `needs_input`, guide: `review` }}
         run={{ agent: `claude`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: noop },
           { face: `run`, label: `Runs`, onSelect: noop },
-          {
-            face: `diff`,
-            label: <ChangesFaceLabel counts={{ additions: 12, deletions: 2 }} />,
-            onSelect: noop,
-          },
-          { face: `results`, label: `Results`, onSelect: noop },
+          { face: `guide`, label: `Guide`, onSelect: noop },
         ]}
         runMenu={{
           // A portal: nothing renders at rest, the caret is the specimen.
@@ -3979,7 +3973,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
     leftovers: [
       {
-        file: `apps/web/src/components/issue-changes-face.tsx`,
+        file: `apps/web/src/components/session-merge-button.tsx`,
         note: `the white MergeCapsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill, not MobileWorkCapsule`,
       },
     ],

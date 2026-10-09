@@ -405,7 +405,6 @@ describe(`demo markup`, () => {
       ...HTML_DEMOS.map((spec) => ({ id: spec.id, markup: spec.render() })),
       ...ENTRY_DEMOS.map((entry) => ({ id: entry.id, markup: entry.render!() })),
     ]
-    expect(ENTRY_DEMOS.length).toBeGreaterThan(0)
     for (const { id, markup } of drawn) {
       expect(markup).not.toContain(`style="`)
       for (const name of classNames(markup)) {

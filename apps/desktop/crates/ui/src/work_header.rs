@@ -76,40 +76,26 @@ pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
 // Face toggle
 // ---------------------------------------------------------------------------
 
-/// Which face of a top tab is up. `Diff` = the CHANGES face — the run's
-/// worktree diff while a run of mine has one, else (EXP-889) the issue's own
-/// open pull request; `Results` (EXP-879) = a run's published report: my
-/// run's sub-face, or (EXP-933) a teammate's report shown on the issue.
+/// Which face of a top tab is up. EXP-1251: `Guide` = Changes + Results
+/// merged — the report with ONE Changes row per section over the diff (the
+/// run's worktree diff, else the issue's open pull request).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Face {
     Issue,
     Run,
-    Diff,
-    Results,
+    Guide,
 }
 
 /// What the toggle offers: an `Issue` item for an issue-bound tab, a `Run`
-/// item when a run exists (its id), a Changes item when there is a diff to
-/// read. Unavailable items are HIDDEN, never disabled.
+/// item when a run exists (its id), a `Guide` item when there is a report or
+/// a diff to read. Unavailable items are HIDDEN, never disabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FaceToggle {
     pub issue: bool,
     pub run: Option<String>,
-    /// The RUN's worktree diff (`+N −M`) when it has changes. `Some` also
-    /// means the Changes item OPENS that run's diff face.
-    pub diff: Option<(u32, u32)>,
-    /// EXP-889: the ISSUE has an open pull request, so its FILES are a
-    /// Changes face of their own — independent of any run (the web
-    /// `work-faces.ts`: `hasChanges = diffStats.fileCount > 0 || prState ===
-    /// 'open'`, `availableFaces` pushes `changes` outside the `hasRun`
-    /// branch). Counts are not known until the files are fetched, so the
-    /// item wears the word [`CHANGES_FACE_LABEL`] until `diff` is `Some`.
-    pub pr_changes: bool,
-    /// EXP-879/EXP-933: the issue's results run
-    /// ([`issue_results_run`]) or this run has published something (a
-    /// picture or report text), so the Results item exists — with or
-    /// without a run of mine, like the web `availableFaces`.
-    pub results: bool,
+    /// EXP-1251: a report (results) OR a diff (a run's worktree diff, an
+    /// open PR) exists — the web `availableFaces` `hasResults || hasDiff`.
+    pub guide: bool,
     pub active: Face,
     /// EXP-886 / EXP-950: the issue's runs of mine
     /// ([`crate::run_rows::issue_run_entries`]); EXP-974: for an issue-less
@@ -173,13 +159,8 @@ pub(crate) struct RunEntry {
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
 pub(crate) const RUN_FACE_LABEL: &str = "Run";
 pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
-/// EXP-889, byte-identical with the web `CHANGES_FACE_LABEL` (`work-faces.ts`)
-/// and the natives — the Changes face's ONE name, worn whenever its counts
-/// are not (yet) known.
-pub(crate) const CHANGES_FACE_LABEL: &str = "Changes";
-/// EXP-879, byte-identical with the web `RESULTS_FACE_LABEL` and with the
-/// iOS/Android strings — the fourth face's ONE name on every client.
-pub(crate) const RESULTS_FACE_LABEL: &str = "Results";
+/// EXP-1251: the Guide face's ONE name (contract `diffUi.guideFace`, ×4).
+pub(crate) const GUIDE_FACE_LABEL: &str = domain::contract::DIFF_UI_GUIDE_FACE;
 
 /// The Run item's label: the plural once the issue has several runs of mine.
 pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
@@ -204,34 +185,20 @@ impl FaceToggle {
         items.len() > 1 || (self.multiple_runs() && items.contains(&Face::Run))
     }
 
-    /// EXP-889: is there a Changes face at all? The web rule verbatim
-    /// (`hasChanges = diffStats.fileCount > 0 || issue.prState === 'open'`):
-    /// the run's worktree diff OR the issue's open PR.
-    pub(crate) fn has_changes(&self) -> bool {
-        self.diff.is_some() || self.pr_changes
-    }
-
     /// The items in web order, pure so the visibility rule can be pinned —
     /// the web `availableFaces` (`lib/work-faces.ts`) one for one: issue,
-    /// run, changes, results. Changes is INDEPENDENT of the run (EXP-889:
-    /// "an issue with an open PR and no run of mine still has its PR
-    /// files"); Results stays a sub-face of the run.
+    /// run, guide. The Guide is INDEPENDENT of a run of mine (a teammate's
+    /// report, the issue's own open PR).
     pub(crate) fn items(&self) -> Vec<Face> {
-        let mut items = Vec::with_capacity(4);
+        let mut items = Vec::with_capacity(3);
         if self.issue {
             items.push(Face::Issue);
         }
         if self.run.is_some() {
             items.push(Face::Run);
         }
-        if self.has_changes() {
-            items.push(Face::Diff);
-        }
-        // EXP-879: Results comes LAST — issue, run, changes, results.
-        // EXP-933: independent of a run of MINE — a teammate's report is the
-        // issue's Results too (web `availableFaces`).
-        if self.results {
-            items.push(Face::Results);
+        if self.guide {
+            items.push(Face::Guide);
         }
         items
     }
@@ -246,8 +213,7 @@ impl FaceToggle {
             .map(|face| match face {
                 Face::Issue => DetailFace::Issue,
                 Face::Run => DetailFace::Run,
-                Face::Diff => DetailFace::Changes,
-                Face::Results => DetailFace::Results,
+                Face::Guide => DetailFace::Guide,
             })
             .collect();
         domain::detail_chrome::face_dots(
@@ -261,8 +227,7 @@ impl FaceToggle {
             let face = match face {
                 DetailFace::Issue => Face::Issue,
                 DetailFace::Run => Face::Run,
-                DetailFace::Changes => Face::Diff,
-                DetailFace::Results => Face::Results,
+                DetailFace::Guide => Face::Guide,
             };
             (face, tone)
         })
@@ -402,7 +367,7 @@ pub(crate) type OnPickFace = Rc<dyn Fn(Face, &mut Window, &mut App)>;
 /// caller decides what picking the checked run means.
 pub(crate) type OnPickRun = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// The `Issue | Run | +N -M` segmented control. `None` below two items — a
+/// The `Issue | Run | Guide` segmented control. `None` below two items — a
 /// one-item toggle names nothing to switch to — unless (EXP-950) the lone
 /// Run item carries the run menu ([`FaceToggle::is_shown`]).
 pub(crate) fn face_toggle(
@@ -468,8 +433,7 @@ pub(crate) fn face_toggle(
             .id(match face {
                 Face::Issue => "tab-face-issue",
                 Face::Run => "tab-face-run",
-                Face::Diff => "tab-face-diff",
-                Face::Results => "tab-face-results",
+                Face::Guide => "tab-face-guide",
             })
             .flex_none()
             .px_3()
@@ -480,18 +444,8 @@ pub(crate) fn face_toggle(
             .map(|item| match face {
                 Face::Issue => item.child("Issue"),
                 Face::Run => item.child(run_face_label(false)),
-                Face::Diff => match spec.diff {
-                    // EXP-895: the ONE counts renderer — the contract's
-                    // labels (`+N` / `−M`, U+2212) in the shared tints.
-                    Some((additions, deletions)) => {
-                        item.child(crate::diff_pane::counts(additions, deletions, cx))
-                    }
-                    // EXP-889: the issue's PR files are fetched when the face
-                    // opens, so the item names itself until they land — the
-                    // web's own `CHANGES_FACE_LABEL` row.
-                    None => item.child(CHANGES_FACE_LABEL),
-                },
-                Face::Results => item.child(RESULTS_FACE_LABEL),
+                // EXP-1251: the counts moved into the Guide's body.
+                Face::Guide => item.child(GUIDE_FACE_LABEL),
             })
             .children(trailing_dot.map(|tone| face_dot(tone, cx)))
             .when_some(dot, |item, tone| {
@@ -510,12 +464,20 @@ pub(crate) fn face_toggle(
 
 /// EXP-950: the Run item's caret over the issue's runs of mine (EXP-886's
 /// switcher, folded into the toggle): each `<device> · <when>`, the checked
-/// run wearing the check, a live one the running glyph. Web
-/// `IssueRunMenuContent`.
+/// run wearing the check. EXP-1248: every entry LEADS with the run's mark
+/// ([`crate::run_rows::run_entry_mark`], web `AgentRunMark`), never a dot or
+/// the running glyph. Web `IssueRunMenuContent`.
 fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
     use gpui_component::button::ButtonVariants as _;
     use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-    let entries = spec.runs.clone();
+    let entries: Vec<(RunEntry, Option<coding::CodingAgent>, crate::run_rows::RunStatusMark)> = spec
+        .runs
+        .iter()
+        .map(|entry| {
+            let (agent, mark) = crate::run_rows::run_entry_mark(&entry.id, cx);
+            (entry.clone(), agent, mark)
+        })
+        .collect();
     let checked = spec.checked_run.clone();
     let muted = cx.theme().muted_foreground;
     Button::new("tab-face-run-menu")
@@ -531,15 +493,14 @@ fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
         )
         .tooltip("Switch run")
         .dropdown_menu(move |mut menu, _window, _cx| {
-            for entry in entries.clone() {
+            for (entry, agent, mark) in entries.clone() {
                 let is_checked = checked.as_deref() == Some(entry.id.as_str());
                 let on_pick_run = on_pick_run.clone();
-                let mut item = PopupMenuItem::new(entry.label).checked(is_checked);
-                if entry.live && !is_checked {
-                    // The running glyph marks a live run; the checked entry
-                    // wears the check in that slot instead.
-                    item = item.icon(Icon::new(registry::CODING_RUNNING));
-                }
+                let label = SharedString::from(entry.label.clone());
+                let item = PopupMenuItem::element(move |_window, _cx| {
+                    crate::run_rows::run_entry_row(agent, mark, label.clone())
+                })
+                .checked(is_checked);
                 menu = menu.item(
                     item.on_click(move |_, window, cx| on_pick_run(&entry.id, window, cx)),
                 );
@@ -613,8 +574,10 @@ pub(crate) fn coding_target<'a>(
 /// but sync team-wide, and an agent message deep-links a teammate to the
 /// ISSUE's Results, so this is not limited to my runs: [`coding_target`] when
 /// that run has results, else the NEWEST run on the issue (`started_at`, tie
-/// the larger id) by ANY member that has any. The twin of the web
-/// `work-faces.ts` `issueResultsRun`, locked by
+/// the larger id) by ANY member that has any; EXP-1251: else the newest run
+/// (any issue, any member) with a topic tagged exactly the issue's PR url
+/// (`issue_pr_url`; the stacked second PR of another issue's run). The twin
+/// of the web `work-faces.ts` `issueResultsRun`, locked by
 /// `packages/domain-contract/fixtures/session-results.json` (×4).
 pub(crate) fn issue_results_run<'a>(
     rows: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
@@ -622,13 +585,19 @@ pub(crate) fn issue_results_run<'a>(
     bound: Option<&str>,
     me: Option<&str>,
     now_epoch: i64,
+    issue_pr_url: Option<&str>,
 ) -> Option<&'a domain::rows::CodingSession> {
-    let rows: Vec<&'a domain::rows::CodingSession> = rows
-        .into_iter()
+    let all: Vec<&'a domain::rows::CodingSession> = rows.into_iter().collect();
+    let rows: Vec<&'a domain::rows::CodingSession> = all
+        .iter()
+        .copied()
         .filter(|row| row.issue_id.as_deref() == Some(issue_id))
         .collect();
     let has = |row: &domain::rows::CodingSession| {
         domain::session_results::has_session_results(row.results.as_ref())
+    };
+    let newest = |a: &&domain::rows::CodingSession, b: &&domain::rows::CodingSession| {
+        a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id))
     };
     if let Some(me) = me {
         if let Some(own) = coding_target(rows.iter().copied(), issue_id, bound, me, now_epoch) {
@@ -637,9 +606,17 @@ pub(crate) fn issue_results_run<'a>(
             }
         }
     }
-    rows.into_iter()
-        .filter(|row| has(row))
-        .max_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)))
+    let on_issue = rows.into_iter().filter(|row| has(row)).max_by(newest);
+    let Some(pr_url) = issue_pr_url.filter(|_| on_issue.is_none()) else {
+        return on_issue;
+    };
+    all.into_iter()
+        .filter(|row| {
+            domain::session_results::session_result_pr_urls(row.results.as_ref())
+                .iter()
+                .any(|tag| tag == pr_url)
+        })
+        .max_by(newest)
 }
 
 /// The pure rule. `target` is the run the tab is about ([`coding_target`]);
@@ -690,9 +667,15 @@ pub(crate) fn issue_results_row(
 ) -> Option<domain::rows::CodingSession> {
     let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let store = Store::try_global(cx)?;
+    let pr_url = store
+        .collections()
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .and_then(|issue| issue.pr_url.clone());
     let sessions = store.collections().coding_sessions.read(cx);
     let now = chrono::Utc::now().timestamp();
-    issue_results_run(sessions.iter(), issue_id, bound, me.as_deref(), now).cloned()
+    issue_results_run(sessions.iter(), issue_id, bound, me.as_deref(), now, pr_url.as_deref()).cloned()
 }
 
 /// EXP-933 — open `issue_id` on its RESULTS (the inbox's `agent_message`
@@ -961,6 +944,11 @@ pub(crate) fn merge_pill(
     } else {
         cx.theme().muted_foreground
     };
+    // EXP-1248: ONE control, renamed on a member of an open stack.
+    let settled = match target {
+        MergeTarget::Issue { issue_id } => crate::pr_merge::merge_label_for(issue_id, cx),
+        MergeTarget::Session { .. } => domain::contract::DIFF_UI_MERGE_PR,
+    };
     let target = target.clone();
     let mut button = if primary {
         glass_pill_button_primary(id, size)
@@ -979,12 +967,12 @@ pub(crate) fn merge_pill(
     } else if armed {
         "Confirm merge"
     } else {
-        domain::contract::DIFF_UI_MERGE_PR
+        settled
     })
     .tooltip(target.tooltip())
     .on_click(move |_, window, cx| {
-        // EXP-1145: a member of an open PR stack asks first; a run's own
-        // chore PR (a Session target) is never a stack member.
+        // EXP-1248: a member of an open PR stack asks its ONE confirm; a
+        // run's own chore PR (a Session target) is never a stack member.
         let on_failure = match &target {
             MergeTarget::Issue { issue_id } => {
                 if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
@@ -1847,9 +1835,7 @@ mod tests {
                     FaceToggle {
                         issue: false,
                         run: Some("run-1".to_string()),
-                        diff: Some((3, 1)),
-                        pr_changes: false,
-                        results: false,
+                        guide: true,
                         active: Face::Run,
                         runs: Vec::new(),
                         checked_run: None,
@@ -2093,18 +2079,16 @@ mod tests {
     }
 
     /// EXP-1162 FACE DOTS: the toggle hands its items to the shared rule —
-    /// the Changes item is the contract's `changes`, Results wins the PR dot
-    /// when both show — and each tone names itself and wears a row of the
-    /// ONE session-dot table.
+    /// EXP-1251: the Guide item is the contract's `guide` and wears the PR
+    /// dot — and each tone names itself and wears a row of the ONE
+    /// session-dot table.
     #[gpui::test]
     fn the_face_toggle_dots_follow_the_contract(cx: &mut gpui::TestAppContext) {
         use domain::detail_chrome::FaceDotTone;
-        let spec = |results: bool, state: FaceState| FaceToggle {
+        let spec = |guide: bool, state: FaceState| FaceToggle {
             issue: true,
             run: Some("run-1".to_string()),
-            diff: Some((3, 1)),
-            pr_changes: true,
-            results,
+            guide,
             active: Face::Issue,
             runs: Vec::new(),
             checked_run: None,
@@ -2112,24 +2096,21 @@ mod tests {
         };
         let live = FaceState { run_live: true, needs_input: false, pr_open: true, ..Default::default() };
         assert_eq!(
-            spec(false, live).dots(),
-            vec![(Face::Run, FaceDotTone::Running), (Face::Diff, FaceDotTone::Review)]
-        );
-        assert_eq!(
             spec(true, live).dots(),
-            vec![(Face::Run, FaceDotTone::Running), (Face::Results, FaceDotTone::Review)]
+            vec![(Face::Run, FaceDotTone::Running), (Face::Guide, FaceDotTone::Review)]
         );
+        // No Guide face: the PR dot has nowhere to go.
+        assert_eq!(spec(false, live).dots(), vec![(Face::Run, FaceDotTone::Running)]);
         let waiting = FaceState { needs_input: true, pr_open: false, ..live };
-        assert_eq!(spec(false, waiting).dots(), vec![(Face::Run, FaceDotTone::NeedsInput)]);
+        assert_eq!(spec(true, waiting).dots(), vec![(Face::Run, FaceDotTone::NeedsInput)]);
         assert!(spec(true, FaceState::default()).dots().is_empty());
 
         // FACE MARKS: the Run segment draws its tone as the agent's brand
-        // mark (badged while it needs input), never a dot; Results / Changes
-        // keep the `review` dot.
+        // mark (badged while it needs input), never a dot; Guide keeps the
+        // `review` dot.
         assert_eq!(face_mark(Face::Run, FaceDotTone::Running), FaceMark::Agent { attention: false });
         assert_eq!(face_mark(Face::Run, FaceDotTone::NeedsInput), FaceMark::Agent { attention: true });
-        assert_eq!(face_mark(Face::Results, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
-        assert_eq!(face_mark(Face::Diff, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
+        assert_eq!(face_mark(Face::Guide, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
         let marks = |state: FaceState| {
             spec(true, state)
                 .dots()
@@ -2145,7 +2126,7 @@ mod tests {
             marks(live),
             vec![
                 (Face::Run, FaceMark::Agent { attention: false }),
-                (Face::Results, FaceMark::Dot(FaceDotTone::Review)),
+                (Face::Guide, FaceMark::Dot(FaceDotTone::Review)),
             ]
         );
 
@@ -2167,7 +2148,7 @@ mod tests {
             );
             assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, None), "Running");
             assert_eq!(
-                face_tooltip(Face::Results, FaceDotTone::Review, Some(D::Working)),
+                face_tooltip(Face::Guide, FaceDotTone::Review, Some(D::Working)),
                 "Pull request open"
             );
         }
@@ -2273,6 +2254,7 @@ mod tests {
                 case["boundId"].as_str(),
                 case["me"].as_str(),
                 now,
+                case["prUrl"].as_str(),
             );
             assert_eq!(
                 picked.map(|row| row.id.as_str()),
@@ -2383,120 +2365,37 @@ mod tests {
     /// The toggle hides what is unavailable and needs two items to exist.
     #[test]
     fn face_toggle_items_follow_availability() {
-        let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, active: Face| FaceToggle {
+        let toggle = |issue: bool, run: Option<&str>, guide: bool, active: Face| FaceToggle {
             issue,
             run: run.map(str::to_string),
-            diff,
-            pr_changes: false,
-            results: false,
+            guide,
             active,
             runs: Vec::new(),
-                        checked_run: None,
-                        state: FaceState::default(),
+            checked_run: None,
+            state: FaceState::default(),
         };
-        let issue_only = toggle(true, None, None, Face::Issue);
+        let issue_only = toggle(true, None, false, Face::Issue);
         assert_eq!(issue_only.items(), vec![Face::Issue]);
-        let run_only = toggle(false, Some("r"), None, Face::Run);
+        let run_only = toggle(false, Some("r"), false, Face::Run);
         assert_eq!(run_only.items(), vec![Face::Run]);
-        let with_run = toggle(true, Some("r"), None, Face::Issue);
+        let with_run = toggle(true, Some("r"), false, Face::Issue);
         assert_eq!(with_run.items(), vec![Face::Issue, Face::Run]);
-        let with_diff = toggle(false, Some("r"), Some((3, 1)), Face::Diff);
-        assert_eq!(with_diff.items(), vec![Face::Run, Face::Diff]);
-        // EXP-889: a run's diff carries the Changes item on its own, and so
-        // does an issue with an open PR and NO run of mine — the item is
-        // never gated on the run.
-        let orphan_diff = toggle(true, None, Some((3, 1)), Face::Issue);
-        assert_eq!(orphan_diff.items(), vec![Face::Issue, Face::Diff]);
-    }
-
-    /// EXP-889 — the reporter's tab: an issue whose PR is open, with no run
-    /// of mine (or a live run whose worktree is clean, everything pushed),
-    /// showed NO diff at all. Changes is a face of its OWN: the web
-    /// `availableFaces` pushes it outside the `hasRun` branch, off
-    /// `hasChanges = diffStats.fileCount > 0 || prState === 'open'`.
-    #[test]
-    fn an_open_pr_is_a_changes_face_without_a_run() {
-        let toggle = |run: Option<&str>, diff: Option<(u32, u32)>, pr_changes: bool| FaceToggle {
-            issue: true,
-            run: run.map(str::to_string),
-            diff,
-            pr_changes,
-            results: false,
-            active: Face::Issue,
-            runs: Vec::new(),
-                        checked_run: None,
-                        state: FaceState::default(),
-        };
-        // No run at all: Issue | Changes.
-        let pr_only = toggle(None, None, true);
-        assert!(pr_only.has_changes());
-        assert_eq!(pr_only.items(), vec![Face::Issue, Face::Diff]);
-        // A live run with an EMPTY worktree diff still reaches the PR files.
+        let with_guide = toggle(false, Some("r"), true, Face::Guide);
+        assert_eq!(with_guide.items(), vec![Face::Run, Face::Guide]);
+        // EXP-1251: the Guide is never gated on a run of mine (a teammate's
+        // report, the issue's own open PR).
+        let orphan_guide = toggle(true, None, true, Face::Issue);
+        assert_eq!(orphan_guide.items(), vec![Face::Issue, Face::Guide]);
         assert_eq!(
-            toggle(Some("r"), None, true).items(),
-            vec![Face::Issue, Face::Run, Face::Diff],
-        );
-        // The run's own diff wins the item (its counts label it) and never
-        // doubles it up.
-        assert_eq!(
-            toggle(Some("r"), Some((3, 1)), true).items(),
-            vec![Face::Issue, Face::Run, Face::Diff],
-        );
-        // No PR, no diff: no Changes item.
-        assert!(!toggle(Some("r"), None, false).has_changes());
-        assert_eq!(
-            toggle(Some("r"), None, false).items(),
-            vec![Face::Issue, Face::Run],
+            toggle(true, Some("r"), true, Face::Issue).items(),
+            vec![Face::Issue, Face::Run, Face::Guide]
         );
     }
 
-    /// EXP-889: the Changes item's label — the counts once they are known,
-    /// the web's own word until then. Byte-identical with `work-faces.ts`.
+    /// EXP-1251: the Guide item's ONE name is the contract's.
     #[test]
-    fn the_changes_face_label_is_changes() {
-        assert_eq!(CHANGES_FACE_LABEL, "Changes");
-    }
-
-    /// EXP-879: Results is the FOURTH face, always last — issue, run,
-    /// changes, results. EXP-933: it no longer needs a run of mine — a
-    /// teammate's report is the issue's Results too.
-    #[test]
-    fn the_results_face_comes_last_and_needs_no_run_of_mine() {
-        let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, results: bool| {
-            FaceToggle {
-                issue,
-                run: run.map(str::to_string),
-                diff,
-                pr_changes: false,
-                results,
-                active: Face::Run,
-                runs: Vec::new(),
-                        checked_run: None,
-                        state: FaceState::default(),
-            }
-        };
-        assert_eq!(
-            toggle(true, Some("r"), Some((3, 1)), true).items(),
-            vec![Face::Issue, Face::Run, Face::Diff, Face::Results],
-        );
-        // No changes yet, results already published: the face still shows.
-        assert_eq!(
-            toggle(true, Some("r"), None, true).items(),
-            vec![Face::Issue, Face::Run, Face::Results],
-        );
-        // A teammate's results with no run of mine: still a face.
-        assert_eq!(
-            toggle(true, None, None, true).items(),
-            vec![Face::Issue, Face::Results],
-        );
-        assert_eq!(toggle(true, None, None, false).items(), vec![Face::Issue]);
-    }
-
-    /// EXP-879: the fourth face's label, byte-identical with the web and the
-    /// natives.
-    #[test]
-    fn the_results_face_label_is_results() {
-        assert_eq!(RESULTS_FACE_LABEL, "Results");
+    fn the_guide_face_label_is_the_contracts() {
+        assert_eq!(GUIDE_FACE_LABEL, "Guide");
     }
 
     /// EXP-886: the Run item reads "Runs" once the issue has several runs of
@@ -2513,9 +2412,7 @@ mod tests {
         let mut spec = FaceToggle {
             issue: false,
             run: Some("run-1".to_string()),
-            diff: None,
-            pr_changes: false,
-            results: false,
+            guide: false,
             active: Face::Run,
             runs: vec![entry("run-1")],
             checked_run: Some("run-1".to_string()),
@@ -2551,9 +2448,7 @@ mod tests {
         let mut spec = FaceToggle {
             issue: false,
             run: Some("resume-1".to_string()),
-            diff: Some((3, 1)),
-            pr_changes: false,
-            results: false,
+            guide: true,
             active: Face::Run,
             runs: vec![entry("resume-1")],
             checked_run: Some("resume-1".to_string()),
@@ -2567,7 +2462,7 @@ mod tests {
         assert!(spec.multiple_runs());
         assert_eq!(run_face_label(spec.multiple_runs()), "Runs");
         assert!(spec.is_shown());
-        assert_eq!(spec.items(), vec![Face::Run, Face::Diff]);
+        assert_eq!(spec.items(), vec![Face::Run, Face::Guide]);
         assert_eq!(spec.checked_run.as_deref(), Some("resume-1"));
     }
 

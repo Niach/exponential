@@ -9,7 +9,7 @@
 //! The issue face keeps its large title as a ROW of the scrolling content;
 //! the header breaks into the collapsed title (a threshold, never a
 //! progressive morph) once that row's bottom edge meets the header's. A face
-//! with no title row of its own (Run, Changes, Results) is always collapsed.
+//! with no title row of its own (Run, Guide) is always collapsed.
 //! gpui cannot blur what is behind a view, so the desktop draws the scrim
 //! fade alone ([`EDGE_BLUR`] and [`SCRIM`] are carried for parity).
 //! FACE DOTS ([`face_dots`]): state lives on the face tabs, never a title;
@@ -47,18 +47,17 @@ pub const FACE_MARK_BADGE: f32 = 6.;
 pub enum DetailFace {
     Issue,
     Run,
-    Changes,
-    Results,
+    /// EXP-1251 — Changes + Results merged.
+    Guide,
 }
 
 impl DetailFace {
-    /// The contract key (`issue` / `run` / `changes` / `results`).
+    /// The contract key (`issue` / `run` / `guide`).
     pub fn key(self) -> &'static str {
         match self {
             Self::Issue => "issue",
             Self::Run => "run",
-            Self::Changes => "changes",
-            Self::Results => "results",
+            Self::Guide => "guide",
         }
     }
 }
@@ -84,8 +83,8 @@ impl FaceDotTone {
 
 /// EXP-1162 FACE DOTS: state lives on the face tabs, never on a title. The
 /// Run tab wears a dot while its run is LIVE (`needs_input` while it waits
-/// on a person, else `running`); an OPEN pull request dots Results, or
-/// Changes when there is no Results face. A face not on show carries
+/// on a person, else `running`); an OPEN pull request dots Guide (EXP-1251).
+/// A face not on show carries
 /// nothing; an ended run carries nothing. At most one dot per face.
 pub fn face_dots(
     faces: &[DetailFace],
@@ -102,13 +101,8 @@ pub fn face_dots(
         };
         dots.push((DetailFace::Run, tone));
     }
-    if pr_open {
-        let target = [DetailFace::Results, DetailFace::Changes]
-            .into_iter()
-            .find(|face| faces.contains(face));
-        if let Some(face) = target {
-            dots.push((face, FaceDotTone::Review));
-        }
+    if pr_open && faces.contains(&DetailFace::Guide) {
+        dots.push((DetailFace::Guide, FaceDotTone::Review));
     }
     dots
 }
@@ -170,7 +164,7 @@ mod tests {
     }
 
     fn face(key: &str) -> DetailFace {
-        [DetailFace::Issue, DetailFace::Run, DetailFace::Changes, DetailFace::Results]
+        [DetailFace::Issue, DetailFace::Run, DetailFace::Guide]
             .into_iter()
             .find(|face| face.key() == key)
             .unwrap_or_else(|| panic!("unknown face: {key}"))
@@ -230,13 +224,13 @@ mod tests {
     }
 
     #[test]
-    fn detail_chrome_face_dots_an_open_pull_request_dots_results() {
-        dots_case("an open pull request dots Results");
+    fn detail_chrome_face_dots_an_open_pull_request_dots_guide() {
+        dots_case("an open pull request dots Guide");
     }
 
     #[test]
-    fn detail_chrome_face_dots_an_open_pull_request_without_results_dots_changes() {
-        dots_case("an open pull request with no Results face dots Changes");
+    fn detail_chrome_face_dots_an_issue_less_runs_open_pull_request_dots_its_guide() {
+        dots_case("an issue-less run's open pull request dots its Guide");
     }
 
     #[test]
@@ -245,8 +239,8 @@ mod tests {
     }
 
     #[test]
-    fn detail_chrome_face_dots_an_open_pull_request_with_neither_face() {
-        dots_case("an open pull request with neither face shows no dot");
+    fn detail_chrome_face_dots_an_open_pull_request_without_a_guide_face() {
+        dots_case("an open pull request without a Guide face shows no dot");
     }
 
     #[test]

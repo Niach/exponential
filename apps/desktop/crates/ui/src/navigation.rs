@@ -200,20 +200,21 @@ impl Screen {
     }
 
     /// EXP-851: whether this screen can carry the LIST it was opened from —
-    /// an issue and a coding run. EXP-1192: only the Inbox and Reviews lend
-    /// one ([`Self::list_origin`]), and what it buys is the second sidebar in
-    /// the content card ([`second_sidebar_for`]). The Agent page and the New
+    /// an issue and a coding run. EXP-1246: only the Inbox lends one by
+    /// screen ([`Self::list_origin`]); Agent › Recent pins its own
+    /// ([`recent_runs_origin`]); what it buys is the second sidebar in the
+    /// content card ([`second_sidebar_for`]). The Agent page and the New
     /// issue page carry nothing any more; a terminal never did (EXP-791/870).
     pub(crate) fn carries_list(&self) -> bool {
         matches!(self, Screen::IssueDetail { .. } | Screen::Session { .. })
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
-    /// detail opened from it inherits. EXP-1192: the Inbox and Reviews — the
-    /// two lists that stay beside their detail as a second sidebar. A board
-    /// opens its issues full width (nothing beside them), and everything else
-    /// — Settings, Devices, Actions, the Agent page, Files, any detail — is
-    /// context-free.
+    /// detail opened from it inherits. EXP-1246: the Inbox alone — the one
+    /// list SCREEN that stays beside its detail as a second sidebar. Reviews
+    /// opens its PRs full width (Back returns to it through history), a board
+    /// its issues, and everything else — Settings, Devices, Actions, the
+    /// Agent page, Files, any detail — is context-free.
     pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
         use crate::sidebar::ToolWindow;
         match self {
@@ -222,13 +223,19 @@ impl Screen {
                 board_id: None,
                 inbox_tab: Some(*tab),
             }),
-            Screen::Reviews => Some(TabOrigin {
-                tool: ToolWindow::Reviews,
-                board_id: None,
-                inbox_tab: None,
-            }),
             _ => None,
         }
+    }
+}
+
+/// EXP-1246 — the origin a run opened from Agent › Recent carries, so the
+/// Recent list stays beside it ([`SecondSidebar::RecentRuns`], list-detail
+/// like the Inbox).
+pub(crate) fn recent_runs_origin() -> TabOrigin {
+    TabOrigin {
+        tool: crate::sidebar::ToolWindow::RecentRuns,
+        board_id: None,
+        inbox_tab: None,
     }
 }
 
@@ -279,7 +286,7 @@ pub(crate) enum PendingOrigin {
 /// EXP-851: the ONE rule for which LIST a freshly opened detail carries —
 /// the "breadcrumb" rule, one layer only:
 ///
-/// * Opened from a LIST SCREEN (EXP-1192: the Inbox or Reviews): that list
+/// * Opened from a LIST SCREEN (EXP-1246: the Inbox): that list
 ///   comes along, so the detail sits beside the rows it was picked from.
 /// * Opened from another detail that already CARRIES a list (an inbox issue
 ///   → its coding run): the list is inherited, one layer at a time.
@@ -307,16 +314,16 @@ pub(crate) fn derive_origin(
     origin.filter(|origin| !origin.is_list_of(target))
 }
 
-/// EXP-1192: the three deliberate SECOND sidebars, drawn inside the content
-/// card beside the active screen (the root sidebar never folds any more).
+/// EXP-1192/EXP-1246: the two deliberate SECOND sidebars, drawn inside the
+/// content card beside the active screen (the root sidebar never folds any
+/// more). Both are list-detail: the list stays, a pick opens to its right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SecondSidebar {
     /// The notification stream (+ My Issues) — always up on the Inbox, and
     /// beside every detail opened from it.
     Inbox,
-    /// The open-PR queue beside a review it opened.
-    Reviews,
-    /// The Agent page's Recent runs, behind its history button.
+    /// The Agent page's Recent runs, behind its history button, and beside
+    /// every run opened from it.
     RecentRuns,
 }
 
@@ -335,7 +342,7 @@ pub(crate) fn second_sidebar_for(
         Screen::Chat => recent_runs.then_some(SecondSidebar::RecentRuns),
         screen if screen.carries_list() => match origin?.tool {
             ToolWindow::Inbox => Some(SecondSidebar::Inbox),
-            ToolWindow::Reviews => Some(SecondSidebar::Reviews),
+            ToolWindow::RecentRuns => Some(SecondSidebar::RecentRuns),
             _ => None,
         },
         _ => None,
@@ -2261,9 +2268,33 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
         .map(|team| team.id.clone())
 }
 
+/// EXP-1250 — the team the window's TAB STRIP belongs to: the CHOSEN team
+/// (`Navigation::team_id`) even while its row is still syncing, and
+/// [`active_team_id`]'s fallback only while nothing is chosen. So a fallback
+/// that flips during a sync pass never reads as a team switch (the strip's
+/// tabs are parked per team on a real one).
+pub(crate) fn tabs_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+    strip_team(nav.read(cx).team_id.as_deref(), || active_team_id(nav, cx))
+}
+
+/// [`tabs_team_id`]'s pure rule.
+fn strip_team(chosen: Option<&str>, fallback: impl FnOnce() -> Option<String>) -> Option<String> {
+    chosen.map(str::to_string).or_else(fallback)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1250: the strip's team is the CHOSEN one, whatever the fallback
+    /// says while its row syncs; the fallback only fills an empty choice.
+    #[test]
+    fn the_fallback_team_never_counts_as_a_switch() {
+        assert_eq!(strip_team(Some("t1"), || Some("t2".into())), Some("t1".into()));
+        assert_eq!(strip_team(Some("t1"), || None), Some("t1".into()));
+        assert_eq!(strip_team(None, || Some("t2".into())), Some("t2".into()));
+        assert_eq!(strip_team(None, || None), None);
+    }
 
     /// EXP-1037: the ONE routing rule — a seed with a subject (issues or an
     /// action) opens the composer DIALOG, a subject-less one still navigates
@@ -2417,16 +2448,12 @@ mod tests {
         assert_eq!(GettingStartedTab::default(), GettingStartedTab::FirstSteps);
     }
 
-    /// EXP-851: Reviews is a LIST screen — a detail opened from it inherits
-    /// the Reviews rows as its second sidebar. Neither a tab nor undockable
-    /// (the ISSUE its rows open, EXP-1154, is both).
+    /// EXP-1246: Reviews is a full page that lends NO list — the PR it opens
+    /// shows full width, Back returns through history. Neither a tab nor
+    /// undockable (the ISSUE its rows open, EXP-1154, is both).
     #[test]
-    fn reviews_is_a_list_screen() {
-        assert!(Screen::Reviews.list_origin().is_some());
-        assert_eq!(
-            Screen::Reviews.list_origin().map(|origin| origin.tool),
-            Some(crate::sidebar::ToolWindow::Reviews)
-        );
+    fn reviews_lends_no_list() {
+        assert_eq!(Screen::Reviews.list_origin(), None);
         assert!(!Screen::Reviews.is_detail());
         assert!(!Screen::Reviews.undockable());
         assert!(Screen::IssueDetail {
@@ -2503,11 +2530,11 @@ mod tests {
         assert!(session.list_origin().is_none());
     }
 
-    /// EXP-1192: the screens that are LISTS — the Inbox and Reviews, the two
-    /// that stay beside their detail. A board and every other screen (and
-    /// every detail) is context-free.
+    /// EXP-1246: the screen that is a LIST — the Inbox, the one that stays
+    /// beside its detail. Reviews, a board and every other screen (and every
+    /// detail) is context-free.
     #[test]
-    fn only_the_inbox_and_reviews_are_lists() {
+    fn only_the_inbox_is_a_list() {
         use crate::sidebar::{InboxTab, ToolWindow};
         assert_eq!(
             Screen::Inbox {
@@ -2520,10 +2547,7 @@ mod tests {
                 inbox_tab: Some(InboxTab::MyIssues),
             })
         );
-        assert_eq!(
-            Screen::Reviews.list_origin().map(|origin| origin.tool),
-            Some(ToolWindow::Reviews)
-        );
+        assert_eq!(Screen::Reviews.list_origin(), None);
         for screen in [
             Screen::BoardIssues {
                 board_id: "b1".into(),
@@ -2765,7 +2789,7 @@ mod tests {
     /// anywhere else.
     #[test]
     fn derive_origin_carries_a_list_one_layer_and_never_invents_one() {
-        use crate::sidebar::{InboxTab, ToolWindow};
+        use crate::sidebar::InboxTab;
         let issue = Screen::IssueDetail {
             issue_id: "i1".into(),
         };
@@ -2792,10 +2816,12 @@ mod tests {
             derive_origin(Some(&issue), Some(inbox.clone()), &session),
             Some(inbox.clone())
         );
-        // Reviews → an issue (EXP-1154: on its Changes face).
+        // EXP-1246: Reviews → an issue: full width, no list.
+        assert_eq!(derive_origin(Some(&Screen::Reviews), None, &issue), None);
+        // Agent › Recent → a run: the Recent list, and on to its issue.
         assert_eq!(
-            derive_origin(Some(&Screen::Reviews), None, &issue).map(|origin| origin.tool),
-            Some(ToolWindow::Reviews)
+            derive_origin(Some(&session), Some(recent_runs_origin()), &issue),
+            Some(recent_runs_origin())
         );
         // A detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
@@ -2843,10 +2869,10 @@ mod tests {
         assert_eq!(derive_origin(Some(&inbox_screen), None, &Screen::Reviews), None);
     }
 
-    /// EXP-1192: the second-sidebar table — the Inbox screen and every detail
-    /// carrying the Inbox show the Inbox, a Reviews-carried detail the
-    /// Reviews queue, the Agent page Recent runs while its flag is up, and
-    /// everything else (a board-opened detail, Settings, a terminal) none.
+    /// EXP-1192/EXP-1246: the second-sidebar table — the Inbox screen and
+    /// every detail carrying the Inbox show the Inbox, the Agent page and a
+    /// run picked from its Recent list show Recent runs, and everything else
+    /// (a board- or Reviews-opened detail, Settings, a terminal) none.
     #[test]
     fn second_sidebar_for_table() {
         use crate::sidebar::InboxTab;
@@ -2860,16 +2886,17 @@ mod tests {
             tab: InboxTab::MyIssues,
         }
         .list_origin();
-        let reviews = Screen::Reviews.list_origin();
+        let recent = Some(recent_runs_origin());
         let inbox_screen = Screen::Inbox {
             tab: InboxTab::Inbox,
         };
-        let rows: [(Option<&Screen>, Option<&TabOrigin>, bool, Option<SecondSidebar>); 13] = [
+        let rows: [(Option<&Screen>, Option<&TabOrigin>, bool, Option<SecondSidebar>); 14] = [
             (Some(&inbox_screen), None, false, Some(SecondSidebar::Inbox)),
             (Some(&inbox_screen), None, true, Some(SecondSidebar::Inbox)),
             (Some(&issue), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
             (Some(&session), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
-            (Some(&issue), reviews.as_ref(), false, Some(SecondSidebar::Reviews)),
+            (Some(&session), recent.as_ref(), false, Some(SecondSidebar::RecentRuns)),
+            (Some(&issue), recent.as_ref(), false, Some(SecondSidebar::RecentRuns)),
             // A board-opened (or rail-opened) detail: none.
             (Some(&issue), None, false, None),
             (Some(&session), None, true, None),
@@ -2879,7 +2906,7 @@ mod tests {
             (Some(&Screen::Settings), inbox.as_ref(), false, None),
             // (A terminal falls through the same arm as Settings; `TabId`
             // has no test constructor.)
-            (Some(&Screen::Reviews), reviews.as_ref(), false, None),
+            (Some(&Screen::Reviews), None, false, None),
             (None, None, true, None),
         ];
         for (screen, origin, recent_runs, expected) in rows {

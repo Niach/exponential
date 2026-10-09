@@ -55,7 +55,7 @@ import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import {
   FACE_BODY_TOUCH_CLASS,
   type FaceSwipeHandlers,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import {

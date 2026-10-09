@@ -243,7 +243,9 @@
     "windows": ["session", "weekly", "model"]
   },
   "codingSession": {
-    "staleHours": 2
+    "staleHours": 2,
+    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse"],
+    "computerUseCap": "computer-use-run"
   },
   "device": {
     "onlineWindowSeconds": 90

@@ -95,6 +95,8 @@ public enum DomainContract {
 
     public static let issueStatusStartedMax: Int = 4
     public static let codingSessionStaleMs: Int = 7200000
+    public static let codingSessionLaunchKeys: [String] = ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse"]
+    public static let codingSessionComputerUseCap: String = "computer-use-run"
     public static let deviceOnlineWindowMs: Int = 90000
     public static let builtinCreateActionId: String = "builtin:create-action"
     public static let builtinFixConflictsId: String = "builtin:fix-conflicts"

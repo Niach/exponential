@@ -202,6 +202,9 @@ pub(crate) fn remote_start_input(
             .filter(|model| !model.is_empty()),
         prompt,
         account: options.account.clone(),
+        // EXP-1249: the "+" menu's toggle; `None` = the target's own switch
+        // (the composer only offers it for a `computer-use-run` machine).
+        computer_use: options.computer_use,
         ..Default::default()
     };
     match subject {
@@ -375,6 +378,7 @@ mod tests {
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         }
     }
 
@@ -511,6 +515,22 @@ mod tests {
             None,
         );
         assert_eq!(picked.account.as_deref(), Some("0a1b2c3d"));
+        // EXP-1249: no pick leaves computer use to the target machine; a
+        // pick rides as-is, either way.
+        assert_eq!(picked.computer_use, None);
+        let with_computer = remote_start_input(
+            "dev-1",
+            &LaunchOptions {
+                computer_use: Some(false),
+                ..options()
+            },
+            RemoteSubject::Issue {
+                issue_id: "i-1",
+                resume: false,
+            },
+            None,
+        );
+        assert_eq!(with_computer.computer_use, Some(false));
 
         let repo_less = remote_start_input(
             "dev-1",

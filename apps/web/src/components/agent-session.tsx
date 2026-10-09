@@ -12,7 +12,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
+import { parseDiff, type DiffFile } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
@@ -21,14 +21,19 @@ import { Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   FACE_BODY_TOUCH_CLASS,
+  GUIDE_FACE_LABEL,
+  ISSUE_FACE_LABEL,
   MobileFaceTabs,
+  runFaceLabel,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
-import { ChangesView } from "@/components/changes-view"
+  WorkFaceToggle,
+  type WorkFaceItem,
+} from "@/components/work-faces"
+import { GuideBody } from "@/components/guide-face"
+import { GuideSectionDiff } from "@/components/guide-section-diff"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
   conceptIcon,
-  ChangesFaceLabel,
   EditedFilesCard,
   FAB_CHROME_CLASS,
   FabButton,
@@ -45,7 +50,6 @@ import {
   MobilePopoverTrigger,
   IssueChip as IssueChipView,
   MOBILE_WORK_BAR_CLEARANCE,
-  guideFileOpener,
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   MobileWorkCapsule,
@@ -55,10 +59,13 @@ import {
   AgentWorkingMark,
   ContextRing,
   SessionInlineResultTile,
-  SessionResultsView,
   SessionThreadView,
   sessionThread,
+  sessionTurns,
+  userMessageCaption,
   RunStatusRow,
+  type GuideChangesTarget,
+  type SessionTurn,
   type RunMarkState,
   parseSessionResultGroups,
   sessionResultPicture,
@@ -76,20 +83,21 @@ import {
 } from "@exp/ui"
 import {
   availableFaces,
-  changesFaceCounts,
+  guideSectionPage,
   OPEN_RESULTS_LABEL,
   phaseDotTone,
   faceDots,
-  toggleFaceDots,
   START_CODING_LABEL,
   runRowCaption,
   runRowState as resolveRunRowState,
   showWorkLabel,
+  turnRowCaption,
+  type GuideSectionKey,
   type RunRowState,
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import { setShowWork, useShowWork } from "@/lib/show-work-pref"
-import { publishReviewFiles } from "@/lib/review-files-slot"
+import { useSessionTurnEvents } from "@/lib/session-turn-events"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -188,24 +196,12 @@ import {
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
 import { SteerComposer } from "@/components/steer-composer"
+import { ResumeRunPill, StopRunPill } from "@/components/run-action-pills"
 import {
+  MergeCapsule,
   MergePrPill,
-  ResumeRunPill,
-  StopRunPill,
-} from "@/components/run-action-pills"
-import { MergeCapsule } from "@/components/issue-changes-face"
-import {
   MobileMergeCircle,
-} from "@/components/mobile-merge-circle"
-import {
-  ISSUE_FACE_LABEL,
-  RESULTS_FACE_LABEL,
-  RUN_FACE_LABEL,
-  runFaceLabel,
-  WorkFaceToggle,
-  type WorkFace,
-  type WorkFaceItem,
-} from "@/components/team/work-face-toggle"
+} from "@/components/session-merge-button"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
 import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-tool-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
@@ -373,7 +369,9 @@ export function AgentSessionView({
   mergeTarget,
   banner,
   face,
+  guideSection,
   diffFile: requestedDiffFile = null,
+  guideStack,
   onFace,
   onIssueFace,
   issueHeader,
@@ -399,13 +397,18 @@ export function AgentSessionView({
   /** EXP-773: a strip between the header and the feed — the session route's
    *  ended-run close-out (byline, Resume). */
   banner?: React.ReactNode
-  /** EXP-877: which face of the work tab this page shows — `run` (the
-   *  transcript) or `diff` (the run's changes, full column). `issue` is a
-   *  navigation the route performs (`onIssueFace`). */
-  face: WorkFace
-  /** EXP-1154: the file the diff face should open on (`?file=`). */
+  /** EXP-1251: which face of the work tab this page shows — `run` (the
+   *  transcript) or `guide` (the run's Guide). `issue` is a navigation the
+   *  route performs (`onIssueFace`). */
+  face: `run` | `guide`
+  /** EXP-1251: the Guide's section page on show (`?section=`). */
+  guideSection?: GuideSectionKey
+  /** EXP-1154: the file a section page opens on (`?file=`). */
   diffFile?: string | null
-  onFace: (face: WorkFace) => void
+  /** EXP-1248: the Guide's Stack card (`GuideStackCard`), the route's. */
+  guideStack?: ReactNode
+  /** A face, or (on `guide`) one of its section pages. */
+  onFace: (face: `run` | `guide`, section?: GuideSectionKey) => void
   /** EXP-870: the run's linked issue is the same work tab's other face — its
    *  canonical URL. Absent on issue-less runs (no `Issue` face). */
   onIssueFace?: () => void
@@ -430,11 +433,11 @@ export function AgentSessionView({
   /** EXP-893: start a NEW run on the issue — the phone switcher's `Start
    *  coding` row once this run ended for good. */
   onStart?: () => void
-  /** EXP-893: the issue's PR files, the phone's Changes face when the run
+  /** EXP-893: the issue's PR files, the Guide's diff when the run
    *  published no live diff (`useReviewFiles`). */
   prFiles?: DiffFile[] | null
   /** EXP-893: the PR page — the GitHub button, which EXP-949 confines to
-   *  the Changes face on every width. */
+   *  the Guide on every width. */
   prUrl?: string | null
   /** EXP-897: the "Related work" badge (`PrGraphBadge`): blockers, batch
    *  partners, the PR stack. The route builds it so this file stays free of
@@ -443,10 +446,10 @@ export function AgentSessionView({
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
    *  route wraps it so the same bar shows on every face; `shownFace` is the
    *  face actually SHOWING (a `?view=` that fell back reads as `run`), which
-   *  decides its action slot: Stop / Resume on Run, GitHub on Changes
-   *  (EXP-949), nothing on Results. */
+   *  decides its action slot: Stop / Resume on Run, GitHub on the Guide
+   *  (EXP-949). */
   renderMobileHeader?: (input: {
-    shownFace: `run` | `changes` | `results`
+    shownFace: `run` | `guide`
     /** EXP-1150: the face strip the header carries under itself. */
     tabs: ReactNode
   }) => ReactNode
@@ -602,7 +605,6 @@ export function AgentSessionView({
     () => (latestDiff ? parseDiff(latestDiff).files : []),
     [latestDiff]
   )
-  const diffStats = useMemo(() => totals(diffFiles), [diffFiles])
 
   const live = phase.kind === `live`
   // EXP-888: a sweep end (`ended_by = stale`) is not an end — the host
@@ -917,8 +919,8 @@ export function AgentSessionView({
   )
 
   /** EXP-879: the screenshots this run published (`coding_sessions.results`,
-   *  a synced jsonb blob) — EXP-933: and each topic's report text, grouped.
-   *  Empty = no Results face. */
+   *  a synced jsonb blob) — EXP-933: and each topic's report text, grouped:
+   *  the Guide's sections (EXP-1251). */
   const resultGroups = useMemo(
     () => parseSessionResultGroups(session.results),
     [session.results]
@@ -928,6 +930,20 @@ export function AgentSessionView({
   const thread = useMemo(
     () => sessionThread(session.results),
     [session.results]
+  )
+  /** EXP-1245: the OWNER's thread as TURNS — their messages and the turn
+   *  edges of the relay feed they already hold (`useSessionTurnEvents`);
+   *  without any (an offline host, a fresh join) the single-row thread. */
+  const turnEvents = useSessionTurnEvents(
+    session.id,
+    feed,
+    turnState,
+    turnStartedAt,
+    session.startedAt
+  )
+  const turns = useMemo(
+    () => sessionTurns(session.results, turnEvents),
+    [session.results, turnEvents]
   )
   const threadEmpty = thread.items.length === 0 && thread.reply === null
   /** EXP-1175: the status row over the thread / transcript — fixture
@@ -951,6 +967,35 @@ export function AgentSessionView({
     now: runRowNow,
   })
   const runToolLine = live ? lastToolLine(feed) : null
+  /** EXP-1245: the thread draws its turns (one status row each) once the
+   *  feed told us about any; the transcript keeps the one run-wide row. */
+  const perTurnThread = !showWork && turns.perTurn
+  const ownerName =
+    teamUsers.find((user) => user.id === session.userId)?.name ?? null
+  const lastTurn = turns.turns.length - 1
+  const renderTurnRow = (turn: SessionTurn, index: number): ReactNode => {
+    const caption = turnRowCaption({
+      turn,
+      state: runRowState,
+      device: device.label || session.deviceLabel || `Desktop`,
+      runEndedAt: session.endedAt ?? session.updatedAt,
+      now: runRowNow,
+    })
+    if (!caption) return null
+    const open = turn.endedAt === null
+    return (
+      <RunStatusRow
+        agent={session.agent}
+        markState={open ? runRowMarkState : undefined}
+        caption={caption.text}
+        tone={caption.tone}
+        toolLine={open && index === lastTurn ? runToolLine : null}
+        showWork={showWork}
+        toggleLabel={showWorkLabel(showWork)}
+        onToggle={() => setShowWork(currentUserId, !showWork)}
+      />
+    )
+  }
   /** EXP-1175: while the thread shows, only the pending plan/question cards
    *  of the transcript render — through the SAME rows. */
   /** The empty-feed placeholders (connecting / paused / waiting): the
@@ -963,90 +1008,66 @@ export function AgentSessionView({
     [cardPending, rows]
   )
 
-  /** EXP-877: the faces this work tab offers — `Issue` when the run links
-   *  one, `Run` always (this IS the run), the diff once the run has changes,
-   *  and `Results` once it published screenshots (EXP-879). Under two faces
-   *  the toggle renders nothing. Selecting the diff from here drops a turn
-   *  scope the reader left behind (EXP-862). */
-  const faceItems: WorkFaceItem[] = [
-    ...(onIssueFace
-      ? [{ face: `issue` as const, label: ISSUE_FACE_LABEL, onSelect: onIssueFace }]
-      : []),
-    {
-      face: `run` as const,
-      label: runFaceLabel(multipleRuns),
-      onSelect: () => onFace(`run`),
-    },
-    ...(diffFiles.length > 0
-      ? [
-          {
-            face: `diff` as const,
-            // EXP-1152: the counts recipe every face strip shares.
-            label: <ChangesFaceLabel counts={diffStats} />,
-            onSelect: () => onFace(`diff`),
-          },
-        ]
-      : []),
-    ...(resultGroups.length > 0
-      ? [
-          {
-            face: `results` as const,
-            label: RESULTS_FACE_LABEL,
-            onSelect: () => onFace(`results`),
-          },
-        ]
-      : []),
-  ]
-  /** EXP-893: what the Changes face draws — the run's live diff, else the
-   *  issue's PR files the route fetched for a phone. Memoized: EXP-945 makes
-   *  it the sidebar panel's input, and a fresh `[]` per render would republish
-   *  the slot on every one of them. */
-  const changesFiles = useMemo(
-    () => (diffFiles.length > 0 ? diffFiles : (prFiles ?? [])),
+  /** EXP-1251: the diff the Guide counts — the run's live diff, else the
+   *  PR files the route fetched; null while neither is known. */
+  const guideFiles = useMemo(
+    () => (diffFiles.length > 0 ? diffFiles : (prFiles ?? null)),
     [diffFiles, prFiles]
   )
-  /** EXP-877: the diff face stands only while there is something to draw —
-   *  with no files it falls back to the run face. */
-  const showDiffFace = face === `diff` && changesFiles.length > 0
-  /** EXP-879: the results face stands only while the run published something
-   *  — a stale `?view=results` falls back to the run face, like the diff. */
-  const showResultsFace = face === `results` && resultGroups.length > 0
-  /** EXP-933: the transcript's `Open Results` card switches THIS run to its
-   *  Results face — offered once there is a face to switch to. */
-  const openResults = useMemo(
-    () => (resultGroups.length > 0 ? () => onFace(`results`) : null),
-    [resultGroups.length, onFace]
-  )
-  /** EXP-893: the subject HAS changes — a live diff, PR files, or an open PR
-   *  whose files are one fetch away. The phone's Changes face exists then. */
-  const hasChanges =
-    diffFiles.length > 0 ||
-    (prFiles?.length ?? 0) > 0 ||
+  /** EXP-1251: the subject HAS a Guide — a report, a diff, or an open PR
+   *  whose files are one fetch away. */
+  const hasGuide =
+    resultGroups.length > 0 ||
+    (guideFiles?.length ?? 0) > 0 ||
     mergeProps?.prState === `open`
-
-  // EXP-945: on md+ the Changes face's file TREE is the SIDEBAR's panel, the
-  // same slot and the same `ReviewFilesNav` an issue's Changes face fills — a run's
-  // context is the files it touched, and a floating tree inside the column was
-  // a second answer to a question already settled. The page owns the files and
-  // the selection; the panel only picks. Cleared on the way out (and whenever
-  // the face is not up) so no stale tree outlives its diff.
-  const publishFiles = showDiffFace && !isMobile
-  useEffect(() => {
-    if (!publishFiles) return
-    publishReviewFiles({
-      subjectId: session.id,
-      status: changesFiles.length > 0 ? `files` : `none`,
-      files: changesFiles,
-      selected: diffFile,
-      onSelect: setDiffFile,
-      back: { label: RUN_FACE_LABEL, onBack: () => onFace(`run`) },
-    })
-  }, [publishFiles, session.id, changesFiles, diffFile, onFace])
-  useEffect(() => {
-    if (publishFiles) return
-    publishReviewFiles(null)
-  }, [publishFiles])
-  useEffect(() => () => publishReviewFiles(null), [])
+  /** A stale `?view=guide` (nothing to guide through) falls back to the run. */
+  const showGuideFace = face === `guide` && hasGuide
+  const sectionPage = useMemo(
+    () =>
+      showGuideFace && guideSection !== undefined
+        ? guideSectionPage(resultGroups, guideFiles, guideSection)
+        : null,
+    [showGuideFace, guideSection, resultGroups, guideFiles]
+  )
+  /** EXP-877/1251: the faces this work tab offers — `Issue` when the run
+   *  links one, `Run` always (this IS the run), `Guide` once there is a
+   *  report or a diff. Under two faces the toggle renders nothing. */
+  const faceKinds = availableFaces({
+    hasIssue: Boolean(onIssueFace),
+    hasRun: true,
+    hasResults: resultGroups.length > 0,
+    hasDiff: hasGuide,
+  })
+  const selectFace = useCallback(
+    (next: WorkFaceKind) => {
+      if (next === `issue`) onIssueFace?.()
+      else onFace(next)
+    },
+    [onIssueFace, onFace]
+  )
+  const faceItems: WorkFaceItem[] = faceKinds.map((kind) => ({
+    face: kind,
+    label:
+      kind === `issue`
+        ? ISSUE_FACE_LABEL
+        : kind === `run`
+          ? runFaceLabel(multipleRuns)
+          : GUIDE_FACE_LABEL,
+    onSelect: () => selectFace(kind),
+  }))
+  /** EXP-933: the transcript's `Open Guide` card switches THIS run to its
+   *  Guide — offered once there is a Guide to switch to. */
+  const openResults = useMemo(
+    () => (hasGuide ? () => onFace(`guide`) : null),
+    [hasGuide, onFace]
+  )
+  const openSection = useCallback(
+    (target: GuideChangesTarget) => {
+      setDiffFile(null)
+      onFace(`guide`, target.section)
+    },
+    [onFace]
+  )
 
   /** The run header's own right cluster (issue-less runs): Merge, then
    *  Stop while live or Resume once ended and resumable on its machine. An
@@ -1057,11 +1078,11 @@ export function AgentSessionView({
    *  card to belong to, so they wear the toggle's own height
    *  (`placement="header"`) — a 24px Stop next to a 36px `Run +8870 −4` read
    *  as a stray. Inside the tray they stay chips (`placement="tray"`). */
-  /** EXP-949: the way out to GitHub belongs to the CHANGES face alone (and
-   *  the issue's) — never beside the transcript, the issue or the
-   *  results. Same rule on the issue route, the IDE and the phones. */
+  /** EXP-949/1251: the way out to GitHub belongs to the GUIDE alone —
+   *  never beside the transcript. Same rule on the issue route, the IDE and
+   *  the phones. */
   const githubButton =
-    showDiffFace && prUrl ? <PrGithubButton prUrl={prUrl} /> : null
+    showGuideFace && prUrl ? <PrGithubButton prUrl={prUrl} /> : null
   const runTrailing = issueHeader ? (
     <>
       {githubButton}
@@ -1069,8 +1090,8 @@ export function AgentSessionView({
     </>
   ) : (
     <>
-      {/* EXP-916: the Changes face has no bar of its own any more, so the
-          header carries the merge control on every face — exactly ONE. */}
+      {/* EXP-916: the header carries the merge control on every face —
+          exactly ONE. */}
       {canMerge && mergeProps && (
         <MergePrPill
           {...mergeProps}
@@ -1157,41 +1178,15 @@ export function AgentSessionView({
     paused,
     stale: staleMinutes !== null,
   })
-  const showingRun = !showDiffFace && !showResultsFace
+  const showingRun = !showGuideFace
   /** The face actually showing, for the phone header's action slot. */
-  const shownFace: `run` | `changes` | `results` = showDiffFace
-    ? `changes`
-    : showResultsFace
-      ? `results`
-      : `run`
-
-  /** EXP-893 / EXP-1150: the phone's faces are TABS under the header —
-   *  Issue when the run links one, Run (this IS the run), Changes once there
-   *  is a diff or an open PR, Results once it published — and the body
-   *  swipes between them. */
-  const phoneFaces = availableFaces({
-    hasIssue: Boolean(onIssueFace),
-    hasRun: true,
-    hasChanges,
-    hasResults: resultGroups.length > 0,
-  })
-  const onPhoneFace = (next: WorkFaceKind) => {
-    if (next === `issue`) {
-      onIssueFace?.()
-      return
-    }
-    onFace(next === `changes` ? `diff` : next === `results` ? `results` : `run`)
-  }
-  const swipe = useFaceSwipe(phoneFaces, shownFace, onPhoneFace)
-  /** EXP-1152: the Changes tab wears the `+N −M` of the files that face
-   *  draws (the live diff, else the PR's), the word until they are known. */
-  const phoneChangesCounts = useMemo(
-    () => changesFaceCounts(totals(changesFiles)),
-    [changesFiles]
-  )
+  const shownFace: `run` | `guide` = showGuideFace ? `guide` : `run`
+  /** EXP-893 / EXP-1150: the phone's faces are TABS under the header and
+   *  the body swipes between them. */
+  const swipe = useFaceSwipe(faceKinds, shownFace, selectFace)
   /** EXP-1162: the state lives on the face TABS — the Run tab while this
    *  run is live (amber while it waits on a person or went quiet), the
-   *  Results / Changes tab while the pull request is open. */
+   *  Guide tab while the pull request is open. */
   const dotState = {
     runLive: dot.tone !== `muted`,
     needsInput: dot.tone === `needs_input`,
@@ -1214,20 +1209,19 @@ export function AgentSessionView({
   }
   const mobileTabs = isMobile ? (
     <MobileFaceTabs
-      faces={phoneFaces}
+      faces={faceKinds}
       face={shownFace}
-      dots={faceDots({ faces: phoneFaces, ...dotState })}
+      dots={faceDots({ faces: faceKinds, ...dotState })}
       run={runMark}
       runs={issueRuns}
       viewedRunId={session.id}
-      changesCounts={phoneChangesCounts}
-      onFace={onPhoneFace}
+      onFace={selectFace}
       onOpenRun={onOpenRun}
     />
   ) : null
   /** EXP-1154: the ONE merge of the phone Work screen is the white capsule
-   *  on the floating bar again (no longer beside the tabs): in the cluster on
-   *  Changes and Results (EXP-1191: a circle beside the composer on Run). */
+   *  on the Guide's floating bar (EXP-1191: a circle beside the composer on
+   *  Run). */
   const phoneMerge =
     isMobile && canMerge && mergeProps ? (
       <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
@@ -1258,27 +1252,22 @@ export function AgentSessionView({
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
    *  composer capsule (expanding into the composer), the Start circle once
    *  the run ended for good, and (EXP-1191) the Merge circle right of the
-   *  capsule. Run over: that circle alone, else Merge alone, or no bar. Changes:
-   *  the file sheet + Merge. EXP-879 Results: Merge alone, else no bar —
-   *  only the Run face owns Stop / Resume. */
-  const mobileBar = !isMobile ? null : showResultsFace ? (
-    phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
-  ) : showDiffFace ? (
-    <MobileWorkBar
-      /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides
-         the header's action slot (EXP-949: on this face alone, issue-bound or
-         not). EXP-916/1154: the review cluster — the sheet and the white
-         Merge. The face only stands with files, so the sheet is there. */
-      cluster
-      leading={
-        <ChangesFileSheet
-          files={changesFiles}
-          selected={diffFile}
-          onSelect={setDiffFile}
-        />
-      }
-      capsule={phoneMerge}
-    />
+   *  capsule. Run over: that circle alone, else Merge alone, or no bar.
+   *  EXP-1251 Guide: the white Merge capsule, and on a section page the
+   *  file sheet (its files only) leading it — only the Run face owns Stop /
+   *  Resume. */
+  const sectionSheet =
+    sectionPage && sectionPage.files.length > 0 ? (
+      <ChangesFileSheet
+        files={sectionPage.files}
+        selected={diffFile}
+        onSelect={setDiffFile}
+      />
+    ) : undefined
+  const mobileBar = !isMobile ? null : showGuideFace ? (
+    phoneMerge || sectionSheet ? (
+      <MobileWorkBar cluster leading={sectionSheet} capsule={phoneMerge} />
+    ) : null
   ) : !(composerVisible || phoneTrailingNode) ? (
     phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
   ) : (
@@ -1603,8 +1592,8 @@ export function AgentSessionView({
           }
           trailing={
             <>
-              {/* The toggle names the face actually SHOWING: a `?view=diff`
-                  deep link before the diff replays falls back to the
+              {/* The toggle names the face actually SHOWING: a `?view=guide`
+                  deep link with nothing to guide through falls back to the
                   transcript, and must not leave no segment selected. */}
               {/* EXP-897: the related-work badge leads the cluster: it names
                   what this work is PART of, before the controls that act on
@@ -1614,17 +1603,10 @@ export function AgentSessionView({
                   caret to the issue's other runs — and shows alone when the
                   issue face is out of reach. */}
               <WorkFaceToggle
-                face={showDiffFace || showResultsFace ? face : `run`}
+                face={shownFace}
                 items={faceItems}
                 run={runMark}
-                dots={toggleFaceDots(
-                  faceDots({
-                    faces: faceItems.map((item) =>
-                      item.face === `diff` ? `changes` : item.face
-                    ),
-                    ...dotState,
-                  })
-                )}
+                dots={faceDots({ faces: faceKinds, ...dotState })}
                 runMenu={
                   issueRuns && onOpenRun
                     ? {
@@ -1647,10 +1629,11 @@ export function AgentSessionView({
 
       {banner}
 
-      {showResultsFace ? (
-        /* EXP-879: the results FACE — the run's published screenshots in the
+      {showGuideFace ? (
+        /* EXP-1251: the GUIDE face — the run's report over its diff in the
            same 896 column under the same header, in place of the
-           transcript. */
+           transcript; a Changes row opens that section's diff as a page
+           here (`?section=`). */
         <div
           className={cn(
             `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
@@ -1661,46 +1644,24 @@ export function AgentSessionView({
           data-face-body={isMobile ? `` : undefined}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
-            <SessionResultsView
-              groups={resultGroups}
-              attachmentSrc={(id) => `/api/attachments/${id}`}
-              renderText={renderResultText}
-              /* EXP-1154: the Guide's file rows count off the diff the
-                 Changes face draws, and a row opens that face on it; with
-                 no files to draw the rows stay inert. */
-              files={changesFiles}
-              onOpenFile={guideFileOpener(changesFiles, (path) => {
-                setDiffFile(path)
-                onFace(`diff`)
-              })}
-              isMobile={isMobile}
-            />
-          </div>
-        </div>
-      ) : showDiffFace ? (
-        /* EXP-877: the diff FACE — the run's changes in the same 896 column
-           under the same header, in place of the transcript. */
-        <div
-          className={cn(
-            `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-            isMobile && MOBILE_WORK_BAR_CLEARANCE,
-            isMobile && FACE_BODY_TOUCH_CLASS
-          )}
-          /* EXP-1152: the phone pager's body — it follows the finger. */
-          data-face-body={isMobile ? `` : undefined}
-        >
-          <div className={cn(WORK_COLUMN_CLASS)}>
-            {/* EXP-916: the face is the diff and nothing else — its merge,
-                GitHub and PR state live in the work header above it.
-                EXP-945: and the file TREE is the sidebar's panel now, exactly
-                as it is on a review (`nav="none"`), so the cards take the
-                whole column; the phone's tree is its bar sheet. */}
-            <ChangesView
-              files={changesFiles}
-              nav="none"
-              selected={diffFile}
-              onSelect={setDiffFile}
-            />
+            {sectionPage ? (
+              <GuideSectionDiff
+                page={sectionPage}
+                selected={diffFile}
+                onSelect={setDiffFile}
+                onBack={() => onFace(`guide`)}
+                isMobile={isMobile}
+              />
+            ) : (
+              <GuideBody
+                groups={resultGroups}
+                files={guideFiles}
+                loading={guideFiles === null && mergeProps?.prState === `open`}
+                stack={guideStack}
+                onOpenChanges={openSection}
+                renderText={renderResultText}
+              />
+            )}
           </div>
         </div>
       ) : (
@@ -1749,7 +1710,9 @@ export function AgentSessionView({
           )}
           {/* EXP-1175: the ONE status row — the run mark, the caption, the
               last tool line and the Show work toggle — over the thread or
-              the transcript, in the reading column. */}
+              the transcript, in the reading column. EXP-1245: the owner's
+              thread of turns draws one row PER TURN instead. */}
+          {!perTurnThread && (
           <div className="shrink-0 pt-6">
             <RunStatusRow
               className={TRANSCRIPT_COLUMN}
@@ -1763,6 +1726,7 @@ export function AgentSessionView({
               onToggle={() => setShowWork(currentUserId, !showWork)}
             />
           </div>
+          )}
           {/* The activity feed (bottom-anchored, follow-scroll) */}
           <div className="relative min-h-0 flex-1">
             <div
@@ -1837,8 +1801,13 @@ export function AgentSessionView({
                   )}
                 >
                   <SessionThreadView
-                    className="pt-0"
+                    className={perTurnThread ? `pt-4` : `pt-0`}
                     thread={thread}
+                    turns={perTurnThread ? turns.turns : undefined}
+                    renderStatusRow={renderTurnRow}
+                    messageCaption={(message) =>
+                      userMessageCaption({ name: ownerName, at: message.at })
+                    }
                     attachmentSrc={(id) => `/api/attachments/${id}`}
                     renderText={renderResultText}
                     renderReply={(text) => <NarrationBubble text={text} />}

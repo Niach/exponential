@@ -827,6 +827,11 @@ export const codingSessionsRouter = router({
           // refused, so one vanished server can never fail a start. Absent =
           // no pick (NULL).
           mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
+          // EXP-1249: the run's per-run computer-use flag as the device
+          // launched it (the start frame's `computerUse`; absent/null = the
+          // device default). Accepted beside `mcpServerIds` so a device that
+          // echoes its launch payload never fails a start; not stored.
+          computerUse: z.boolean().nullable().optional(),
           // Label fallback for a start that outran `devices.register` — see
           // resolveSessionDevice. Never used when the registry has a row.
           deviceLabel: z.string().max(255).optional(),

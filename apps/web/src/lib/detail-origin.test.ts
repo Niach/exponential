@@ -231,7 +231,8 @@ describe(`originLabel / originBoardSlug`, () => {
   })
 })
 
-// EXP-851: which of the sidebar's three panels is up, from the URL alone.
+// EXP-851: which of the sidebar's panels is up, from the URL alone.
+// EXP-1246: a list stays beside a detail ONLY for the Inbox and Agent › Recent.
 describe(`sidebarOccupant`, () => {
   it(`gives settings the slot on every settings route`, () => {
     expect(sidebarOccupant(`/t/acme/settings`, null)).toEqual({
@@ -242,7 +243,7 @@ describe(`sidebarOccupant`, () => {
     })
   })
 
-  it(`shows the list nav on a detail that carries an origin`, () => {
+  it(`keeps the inbox beside a detail opened from it`, () => {
     for (const path of [
       `/t/acme/boards/web/issues/MET-12`,
       `/t/acme/sessions/s1`,
@@ -251,57 +252,64 @@ describe(`sidebarOccupant`, () => {
         kind: `list`,
         origin: inbox,
       })
+      expect(sidebarOccupant(path, `inbox:my-issues`), path).toEqual({
+        kind: `list`,
+        origin: { kind: `inbox`, tab: `my-issues` },
+      })
     }
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `board:web`)).toEqual({
+  })
+
+  it(`keeps Recent beside a run opened from it`, () => {
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent:recent`)).toEqual({
       kind: `list`,
-      origin: board,
+      origin: { kind: `agent`, tab: `recent` },
     })
+    expect(
+      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `agent:recent`)
+    ).toEqual({ kind: `list`, origin: { kind: `agent`, tab: `recent` } })
   })
 
-  // EXP-1154: the review detail page is gone — its old URL is no detail,
-  // and the queue itself is a list screen: the main menu.
-  it(`keeps the main menu on the Reviews queue`, () => {
-    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, `reviews`)).toEqual({
-      kind: `main`,
-    })
-    expect(sidebarOccupant(`/t/acme/reviews`, null)).toEqual({ kind: `main` })
-  })
-
-  // EXP-945: a RUN's Changes face fills the very same panel — its diff is the
-  // same kind of context a review's is. Only `?view=diff` does it; the run
-  // face and the results face keep the list they were opened from.
-  it(`gives the run's changes face the same file tree`, () => {
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `diff`)).toEqual({
-      kind: `review`,
-    })
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, null, `diff`)).toEqual({
-      kind: `review`,
-    })
-    // EXP-923: the AGENT origin has no list panel any more (the Agent page
-    // is the composer alone), so its other faces keep the main menu.
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `results`)).toEqual({
-      kind: `main`,
-    })
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `action:a1`, `results`)).toEqual({
+  // EXP-1246: the md+ Inbox page IS the list-detail host with nothing picked.
+  it(`shows the inbox host on the inbox page itself`, () => {
+    expect(sidebarOccupant(`/t/acme/inbox`, null)).toEqual({
       kind: `list`,
-      origin: { kind: `action`, actionId: `a1` },
+      origin: inbox,
     })
-    // EXP-1154: an ISSUE's `?view=diff` is the PR's review — the same file
-    // tree, whatever list it came from (the hook only passes `diff` once the
-    // issue really published its tree, so a phone keeps its list).
     expect(
-      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `diff`)
-    ).toEqual({ kind: `review` })
-    expect(
-      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `results`)
-    ).toEqual({ kind: `list`, origin: { kind: `inbox` } })
+      sidebarOccupant(`/t/acme/inbox`, null, { tab: `my-issues` })
+    ).toEqual({ kind: `list`, origin: { kind: `inbox`, tab: `my-issues` } })
+    // The phone-only Drafts tab has no list host.
+    expect(sidebarOccupant(`/t/acme/inbox`, null, { tab: `drafts` })).toEqual({
+      kind: `list`,
+      origin: inbox,
+    })
   })
 
-  // EXP-923: two origins name where Back goes but bring NO panel — `agent`
-  // (its list is the page's own toggled Recent panel) and `running` (the
-  // sidebar's own section, which lives in the main menu).
-  it(`keeps the main menu for the panel-less origins`, () => {
-    for (const from of [`agent`, `sessions`, `running`]) {
+  it(`shows Recent on the Agent page only while its panel is open`, () => {
+    expect(sidebarOccupant(`/t/acme/agent`, null)).toEqual({ kind: `main` })
+    expect(
+      sidebarOccupant(`/t/acme/agent`, null, { recentOpen: true })
+    ).toEqual({ kind: `list`, origin: { kind: `agent`, tab: `recent` } })
+    // The flag means nothing off the Agent page.
+    expect(
+      sidebarOccupant(`/t/acme/boards/web`, null, { recentOpen: true })
+    ).toEqual({ kind: `main` })
+  })
+
+  // EXP-1246: board, reviews and action origins keep Back but no list — the
+  // review state of the bug report (a Reviews list beside a plain issue tab)
+  // cannot happen any more.
+  it(`keeps the main menu for every other origin`, () => {
+    for (const from of [
+      `board:web`,
+      `reviews`,
+      `action:a1`,
+      `agent`,
+      `sessions`,
+      `running`,
+      `drafts`,
+      `inbox:drafts`,
+    ]) {
       expect(sidebarOccupant(`/t/acme/sessions/s1`, from), from).toEqual({
         kind: `main`,
       })
@@ -315,7 +323,12 @@ describe(`sidebarOccupant`, () => {
     expect(formatOrigin({ kind: `running` })).toBe(`running`)
     expect(originHasListNav({ kind: `running` })).toBe(false)
     expect(originHasListNav({ kind: `agent` })).toBe(false)
+    expect(originHasListNav({ kind: `board`, boardSlug: `web` })).toBe(false)
+    expect(originHasListNav({ kind: `reviews` })).toBe(false)
+    expect(originHasListNav({ kind: `action`, actionId: `a1` })).toBe(false)
     expect(originHasListNav({ kind: `inbox` })).toBe(true)
+    expect(originHasListNav({ kind: `inbox`, tab: `my-issues` })).toBe(true)
+    expect(originHasListNav({ kind: `agent`, tab: `recent` })).toBe(true)
     // The Running section is not a page: no Back destination of its own.
     expect(originListNavigation(`acme`, { kind: `running` })).toBeNull()
     // EXP-923: `running` never travels on to the next detail.
@@ -324,14 +337,25 @@ describe(`sidebarOccupant`, () => {
     ).toBeNull()
   })
 
+  it(`round-trips the agent:recent token`, () => {
+    expect(parseOrigin(`agent:recent`)).toEqual({ kind: `agent`, tab: `recent` })
+    expect(formatOrigin({ kind: `agent`, tab: `recent` })).toBe(`agent:recent`)
+    expect(originLabel({ kind: `agent`, tab: `recent` })).toBe(`Agent`)
+    expect(
+      originListNavigation(`acme`, { kind: `agent`, tab: `recent` })
+    ).toEqual({ to: `/t/$teamSlug/agent`, params: { teamSlug: `acme` }, search: {} })
+    // A run opened from Recent hands the origin on to its issue face.
+    expect(
+      capturedOrigin({ kind: `session` }, { kind: `agent`, tab: `recent` })
+    ).toEqual({ kind: `agent`, tab: `recent` })
+  })
+
   it(`keeps the main menu everywhere else`, () => {
-    // Every LIST screen is itself: the main menu stays.
     for (const path of [
       `/t/acme`,
-      `/t/acme/inbox`,
-      `/t/acme/agent`,
       `/t/acme/actions/a1`,
       `/t/acme/reviews`,
+      `/t/acme/reviews/MET-12`,
       `/t/acme/devices`,
       `/t/acme/boards/web`,
       `/onboarding`,
@@ -419,11 +443,13 @@ describe(`originListNavigation`, () => {
 describe(`sidebarOccupant on the draft page`, () => {
   const draftPath = `/t/acme/drafts/1b4e28ba-2fa1-11d2-883f-0016d3cca427`
 
-  it(`keeps the origin's list beside a draft`, () => {
-    expect(sidebarOccupant(draftPath, `board:web`)).toEqual({
+  it(`keeps the inbox beside a draft opened from it`, () => {
+    expect(sidebarOccupant(draftPath, `inbox`)).toEqual({
       kind: `list`,
-      origin: board,
+      origin: inbox,
     })
+    // EXP-1246: a board origin names Back only.
+    expect(sidebarOccupant(draftPath, `board:web`)).toEqual({ kind: `main` })
   })
 
   it(`keeps the main menu without a list origin`, () => {

@@ -1,14 +1,24 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  GUIDE_FACE_LABEL,
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+  RUNS_FACE_LABEL,
+  runFaceLabel,
+  WorkFaceToggle,
   MobileFaceTabs,
   releaseDirection,
   swipeDirection,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"
 import type { WorkFaceKind } from "@/lib/work-faces"
+
+import { CollapsedTitle, WorkHeader } from "@exp/ui"
+import { RESUME_LABEL, STOP_LABEL } from "@/components/run-action-pills"
+import { MERGE_PR_LABEL } from "@/components/session-merge-button"
 
 // EXP-1150: the phone's faces are tabs — the strip under the header lists
 // every available face, the `Runs` segment carries its caret with several
@@ -76,7 +86,7 @@ describe(`MobileFaceTabs`, () => {
     const onFace = vi.fn()
     render(
       <MobileFaceTabs
-        faces={[`issue`, `run`, `changes`, `results`]}
+        faces={[`issue`, `run`, `guide`]}
         face="run"
         onFace={onFace}
       />
@@ -86,14 +96,14 @@ describe(`MobileFaceTabs`, () => {
       Array.from(toggle.querySelectorAll(`[data-face]`)).map((node) =>
         node.textContent?.trim()
       )
-    ).toEqual([`Issue`, `Run`, `Changes`, `Results`])
+    ).toEqual([`Issue`, `Run`, `Guide`])
     expect(
       toggle.querySelector(`[data-face="run"]`)?.getAttribute(`data-state`)
     ).toBe(`active`)
-    fireEvent.mouseDown(toggle.querySelector(`[data-face="diff"]`)!, {
+    fireEvent.mouseDown(toggle.querySelector(`[data-face="guide"]`)!, {
       button: 0,
     })
-    expect(onFace).toHaveBeenCalledWith(`changes`)
+    expect(onFace).toHaveBeenCalledWith(`guide`)
   })
 
   it(`reads Runs with a caret once the issue has several runs`, () => {
@@ -123,11 +133,11 @@ describe(`useFaceSwipe`, () => {
   it(`walks the strip on a swipe of the body`, () => {
     const onFace = vi.fn()
     render(
-      <Swipeable faces={[`issue`, `run`, `changes`]} face="run" onFace={onFace} />
+      <Swipeable faces={[`issue`, `run`, `guide`]} face="run" onFace={onFace} />
     )
     const body = screen.getByTestId(`body`)
     swipe(body, [200, 100], [100, 110])
-    expect(onFace).toHaveBeenLastCalledWith(`changes`)
+    expect(onFace).toHaveBeenLastCalledWith(`guide`)
     swipe(body, [100, 100], [220, 90])
     expect(onFace).toHaveBeenLastCalledWith(`issue`)
     // A vertical scroll is not a swipe.
@@ -142,35 +152,6 @@ describe(`useFaceSwipe`, () => {
     const field = screen.getByTestId(`field`)
     swipe(field, [200, 100], [100, 100])
     expect(onFace).not.toHaveBeenCalled()
-  })
-})
-
-describe(`MobileFaceTabs counts (EXP-1152)`, () => {
-  it(`the Changes segment wears +N −M once the files are known`, () => {
-    render(
-      <MobileFaceTabs
-        faces={[`issue`, `changes`]}
-        face="issue"
-        changesCounts={{ additions: 12, deletions: 2 }}
-        onFace={vi.fn()}
-      />
-    )
-    const segment = screen
-      .getByTestId(`work-face-toggle`)
-      .querySelector(`[data-face="diff"]`)
-    expect(segment?.textContent).toBe(`+12 \u22122`)
-    expect(segment?.querySelector(`[aria-label="+12 \u22122"]`)).not.toBeNull()
-    expect(segment?.textContent).not.toContain(`Changes`)
-  })
-
-  it(`and the word until then`, () => {
-    render(
-      <MobileFaceTabs faces={[`issue`, `changes`]} face="issue" onFace={vi.fn()} />
-    )
-    const segment = screen
-      .getByTestId(`work-face-toggle`)
-      .querySelector(`[data-face="diff"]`)
-    expect(segment?.textContent).toBe(`Changes`)
   })
 })
 
@@ -243,7 +224,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
   })
 
   it(`the body follows a horizontal drag; the root never moves`, () => {
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={vi.fn()} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={vi.fn()} />)
     const body = screen.getByTestId(`body`)
     drag(screen.getByTestId(`content`), [[200, 100], [190, 101], [150, 102]], false)
     expect(body.style.transform).toBe(`translateX(-50px)`)
@@ -253,7 +234,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`a vertical-dominant move leaves the body alone`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     const body = screen.getByTestId(`body`)
     drag(screen.getByTestId(`content`), [[200, 100], [198, 120], [150, 220]])
     expect(body.style.transform).toBe(``)
@@ -262,7 +243,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`rubber-bands with no neighbour, then springs back`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     const body = screen.getByTestId(`body`)
     drag(screen.getByTestId(`content`), [[100, 100], [110, 100], [200, 100]], false)
     expect(body.style.transform).toBe(`translateX(30px)`)
@@ -277,23 +258,23 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`a commit leaves to the side, then flips the face after the transition`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     const body = screen.getByTestId(`body`)
     drag(screen.getByTestId(`content`), [[300, 100], [280, 100], [200, 102]])
     expect(body.style.transform).toBe(`translateX(-100%)`)
     expect(onFace).not.toHaveBeenCalled()
     fireEvent.transitionEnd(body)
-    expect(onFace).toHaveBeenCalledWith(`changes`)
+    expect(onFace).toHaveBeenCalledWith(`guide`)
   })
 
   it(`the new face's body slides in from the side the old one left by`, () => {
     const onFace = vi.fn()
     const { rerender } = render(
-      <Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />
+      <Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />
     )
     drag(screen.getByTestId(`content`), [[300, 100], [280, 100], [200, 102]])
     fireEvent.transitionEnd(screen.getByTestId(`body`))
-    rerender(<Paged faces={[`issue`, `changes`]} face="changes" onFace={onFace} />)
+    rerender(<Paged faces={[`issue`, `guide`]} face="guide" onFace={onFace} />)
     const body = screen.getByTestId(`body`)
     // Entered from +100%, now settling at rest.
     expect(body.style.transform).toBe(`translateX(0px)`)
@@ -304,7 +285,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`a quick flick commits under the distance gate`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="changes" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="guide" onFace={onFace} />)
     drag(screen.getByTestId(`content`), [[100, 100], [110, 100], [130, 101]])
     fireEvent.transitionEnd(screen.getByTestId(`body`))
     expect(onFace).toHaveBeenCalledWith(`issue`)
@@ -317,7 +298,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`a text field keeps the gesture`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     drag(screen.getByTestId(`field`), [[300, 100], [280, 100], [150, 100]])
     expect(screen.getByTestId(`body`).style.transform).toBe(``)
     expect(onFace).not.toHaveBeenCalled()
@@ -326,7 +307,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
   it(`a sideways scroller keeps the swipe while it can still scroll that way`, () => {
     const onFace = vi.fn()
     render(
-      <Paged faces={[`issue`, `changes`, `results`]} face="changes" onFace={onFace} />
+      <Paged faces={[`issue`, `run`, `guide`]} face="run" onFace={onFace} />
     )
     const scroller = screen.getByTestId(`scroller`)
     Object.defineProperty(scroller, `scrollWidth`, { value: 500 })
@@ -345,7 +326,7 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
 
   it(`a second finger cancels`, () => {
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     const content = screen.getByTestId(`content`)
     drag(content, [[300, 100], [280, 100], [200, 100]], false)
     fireEvent.touchMove(content, {
@@ -363,9 +344,105 @@ describe(`useFaceSwipe pager (EXP-1152)`, () => {
   it(`reduced motion: no transform, the face flips at once`, () => {
     mockReducedMotion(true)
     const onFace = vi.fn()
-    render(<Paged faces={[`issue`, `changes`]} face="issue" onFace={onFace} />)
+    render(<Paged faces={[`issue`, `guide`]} face="issue" onFace={onFace} />)
     drag(screen.getByTestId(`content`), [[300, 100], [280, 100], [200, 100]])
     expect(screen.getByTestId(`body`).style.transform).toBe(``)
-    expect(onFace).toHaveBeenCalledWith(`changes`)
+    expect(onFace).toHaveBeenCalledWith(`guide`)
+  })
+})
+
+// EXP-877: the unified work header's face toggle — byte-identical labels
+// with the IDE (`work_header.rs`), hidden faces rather than disabled ones,
+// and no control at all under two faces. EXP-1251: Issue · Run · Guide.
+
+describe(`WorkFaceToggle`, () => {
+  it(`renders nothing under two faces`, () => {
+    const { container } = render(
+      <WorkFaceToggle
+        face="issue"
+        items={[{ face: `issue`, label: ISSUE_FACE_LABEL, onSelect: vi.fn() }]}
+      />
+    )
+    expect(container.innerHTML).toBe(``)
+  })
+
+  it(`lists only the faces it is given and selects by face`, () => {
+    const onRun = vi.fn()
+    render(
+      <WorkFaceToggle
+        face="issue"
+        items={[
+          { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: vi.fn() },
+          { face: `run`, label: RUN_FACE_LABEL, onSelect: onRun },
+        ]}
+      />
+    )
+    expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
+    expect(screen.getByText(`Issue`)).toBeTruthy()
+    expect(screen.getByText(`Run`)).toBeTruthy()
+    // No diff segment: `DiffCounts`'s `+N −M` (U+2212) is absent.
+    expect(screen.queryByText(/^\+\d+ \u2212\d+$/)).toBeNull()
+    fireEvent.mouseDown(screen.getByText(`Run`))
+    fireEvent.click(screen.getByText(`Run`))
+    expect(onRun).toHaveBeenCalled()
+  })
+
+  // EXP-1024: the workflow node panel reuses the toggle as a way OUT of the
+  // graph — no face is on show, so no segment is active, and every one of
+  // them still selects.
+  it(`a null face leaves every segment inactive and selectable`, () => {
+    const onIssue = vi.fn()
+    render(
+      <WorkFaceToggle
+        face={null}
+        items={[
+          { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: onIssue },
+          { face: `run`, label: RUN_FACE_LABEL, onSelect: vi.fn() },
+        ]}
+      />
+    )
+    const segments = screen
+      .getByTestId(`work-face-toggle`)
+      .querySelectorAll(`[data-slot="tabs-trigger"]`)
+    expect(segments).toHaveLength(2)
+    for (const segment of segments) {
+      expect(segment.getAttribute(`data-state`)).toBe(`inactive`)
+    }
+    fireEvent.mouseDown(screen.getByText(`Issue`))
+    fireEvent.click(screen.getByText(`Issue`))
+    expect(onIssue).toHaveBeenCalled()
+  })
+})
+
+describe(`WorkHeader`, () => {
+  it(`is the fixed bar with the collapsed title, the trailing cluster and the tray`, () => {
+    render(
+      <WorkHeader
+        title={<CollapsedTitle title="Chat" animate={false} />}
+        trailing={<button type="button">act</button>}
+        tray={<div data-testid="tray" />}
+      />
+    )
+    const header = screen.getByTestId(`work-header`)
+    expect(header.className).toContain(`shrink-0`)
+    expect(header.querySelector(`.max-w-4xl`)).not.toBeNull()
+    expect(screen.getByText(`Chat`)).toBeTruthy()
+    expect(screen.getByText(`act`)).toBeTruthy()
+    expect(screen.getByTestId(`tray`)).toBeTruthy()
+  })
+})
+
+describe(`shared strings (×2 with the IDE)`, () => {
+  it(`are byte-identical`, () => {
+    expect(ISSUE_FACE_LABEL).toBe(`Issue`)
+    expect(RUN_FACE_LABEL).toBe(`Run`)
+    // EXP-886: the plural once the issue has more than one run of mine.
+    expect(RUNS_FACE_LABEL).toBe(`Runs`)
+    expect(runFaceLabel(false)).toBe(`Run`)
+    expect(runFaceLabel(true)).toBe(`Runs`)
+    expect(GUIDE_FACE_LABEL).toBe(`Guide`)
+    expect(STOP_LABEL).toBe(`Stop`)
+    expect(RESUME_LABEL).toBe(`Resume`)
+    expect(MERGE_PR_LABEL).toBe(`Merge PR`)
   })
 })

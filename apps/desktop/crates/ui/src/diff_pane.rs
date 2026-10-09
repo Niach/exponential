@@ -78,12 +78,24 @@ pub(crate) struct PaneFile {
     pub(crate) status: DiffStatus,
     pub(crate) additions: u32,
     pub(crate) deletions: u32,
+    /// EXP-1251: a rename's source — the Guide's coverage matches a listed
+    /// path against it too.
+    pub(crate) previous_path: Option<SharedString>,
 }
 
 impl PaneFile {
     /// Split one [`DiffFile`] into the row's parts.
     pub(crate) fn new(file: &DiffFile) -> Self {
         Self::from_parts(&file.path, file.status, file.additions, file.deletions)
+            .with_previous_path(file.previous_path.as_deref())
+    }
+
+    /// EXP-1251: carry a rename's source path (blank = none).
+    pub(crate) fn with_previous_path(mut self, previous: Option<&str>) -> Self {
+        self.previous_path = previous
+            .filter(|previous| !previous.is_empty())
+            .map(|previous| SharedString::from(previous.to_string()));
+        self
     }
 
     /// The same, for a producer that carries the four values loose (the
@@ -102,6 +114,7 @@ impl PaneFile {
             status,
             additions,
             deletions,
+            previous_path: None,
         }
     }
 }

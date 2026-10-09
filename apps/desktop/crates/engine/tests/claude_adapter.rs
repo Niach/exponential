@@ -411,6 +411,7 @@ fn spec_env(
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         },
         mcp: coding::AgentMcp::ClaudeInline {
             url: "https://app.example/api/mcp".to_string(),

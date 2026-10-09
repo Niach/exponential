@@ -2,7 +2,15 @@ import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
-import { hasSessionResults, sessionResultPrUrls, type SessionDotTone } from "@exp/ui"
+import {
+  GUIDE_CHANGES_TOPIC,
+  guideCoverage,
+  guideSectionCaption,
+  hasSessionResults,
+  sessionResultPrUrls,
+  type GuideCoverageFile,
+  type SessionDotTone,
+} from "@exp/ui"
 import { formatTurnDuration } from "@/lib/working-caption"
 import type { SessionStatusTone } from "@/lib/coding-session-display"
 
@@ -86,6 +94,106 @@ export function availableFaces(input: {
   if (input.hasRun) faces.push(`run`)
   if (input.hasResults || input.hasDiff) faces.push(`guide`)
   return faces
+}
+
+// ── EXP-1251: the Guide's URL and its section pages ────────────────────────
+// `?view=guide` is the Guide face on BOTH routes (the issue's, the run's);
+// `&section=` opens a section's changes as a page under it: a 1-based
+// section number, `lead` (the Summary's own files), `other` (the automatic
+// Other changes) or `all` (Show complete diff); `&file=` = the file in focus.
+// The legacy `?view=diff` (= the complete diff) and `?view=results` (= the
+// Guide) normalise into it, so old links and agent messages keep landing.
+
+export type GuideSectionKey = number | `lead` | `other` | `all`
+
+export interface GuideSearch {
+  view?: `guide`
+  section?: GuideSectionKey
+  file?: string
+}
+
+/** A `?section=` value, else undefined (a garbage value = the Guide). */
+export function parseGuideSection(raw: unknown): GuideSectionKey | undefined {
+  if (raw === `lead` || raw === `other` || raw === `all`) return raw
+  const value =
+    typeof raw === `number` ? raw : typeof raw === `string` && /^\d+$/.test(raw) ? Number(raw) : NaN
+  return Number.isInteger(value) && value >= 1 ? value : undefined
+}
+
+/** Both routes' `validateSearch` for the face keys: `guide` stands, `results`
+ *  becomes the Guide, `diff` its complete diff; a section or file without
+ *  the Guide is dropped. */
+export function parseGuideSearch(search: Record<string, unknown>): GuideSearch {
+  const view = search.view
+  if (view !== `guide` && view !== `results` && view !== `diff`) return {}
+  const file =
+    typeof search.file === `string` && search.file ? search.file : undefined
+  const section =
+    view === `diff` ? (parseGuideSection(search.section) ?? `all`) : view === `guide` ? parseGuideSection(search.section) : undefined
+  return {
+    view: `guide`,
+    ...(section !== undefined ? { section } : {}),
+    ...(section !== undefined && file ? { file } : {}),
+  }
+}
+
+/** The search a navigation to the Guide (or one of its pages) writes. */
+export function guideSearch(input: {
+  from?: string
+  section?: GuideSectionKey
+  file?: string | null
+}): { from?: string; view: `guide`; section?: GuideSectionKey; file?: string } {
+  return {
+    ...(input.from ? { from: input.from } : {}),
+    view: `guide`,
+    ...(input.section !== undefined ? { section: input.section } : {}),
+    ...(input.section !== undefined && input.file ? { file: input.file } : {}),
+  }
+}
+
+/** A section page: the back row's caption (`02 / 06`, numbered sections
+ *  only), its title, the files it covers and their summed counts. */
+export interface GuideSectionPage<F extends GuideCoverageFile> {
+  section: GuideSectionKey
+  caption: string | null
+  title: string
+  files: F[]
+  additions: number
+  deletions: number
+}
+
+/** The page `section` opens over `files` (the diff the Guide counts): the
+ *  same coverage the Guide's rows read, so a page never shows a file its row
+ *  did not count. Null = no such section (a stale link) or no diff loaded. */
+export function guideSectionPage<
+  G extends { topic: string; files?: readonly string[] | null },
+  F extends GuideCoverageFile,
+>(
+  groups: readonly G[],
+  files: readonly F[] | null | undefined,
+  section: GuideSectionKey
+): GuideSectionPage<F> | null {
+  if (!files) return null
+  const coverage = guideCoverage(groups, files)
+  const page = (
+    title: string,
+    caption: string | null,
+    set: { files: F[]; additions: number; deletions: number } | null
+  ): GuideSectionPage<F> | null =>
+    set
+      ? { section, caption, title, files: set.files, additions: set.additions, deletions: set.deletions }
+      : null
+  if (section === `all`) return page(GUIDE_CHANGES_TOPIC, null, coverage.complete)
+  if (section === `other`) {
+    return coverage.other ? page(coverage.other.topic, null, coverage.other.changes) : null
+  }
+  if (section === `lead`) {
+    return coverage.lead ? page(coverage.lead.group.topic, null, coverage.lead.changes) : null
+  }
+  const hit = coverage.sections.find((entry) => entry.index === section)
+  return hit
+    ? page(hit.group.topic, guideSectionCaption(hit.index, hit.total), hit.changes)
+    : null
 }
 
 interface CodingTargetRow {

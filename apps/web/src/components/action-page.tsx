@@ -29,7 +29,7 @@ import { PinToggleButton } from "@/components/pin-toggle-button"
 import {
   primeTabEnter,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"

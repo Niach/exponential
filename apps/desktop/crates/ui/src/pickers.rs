@@ -322,7 +322,11 @@ pub(crate) fn user_menu_item(
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
-        crate::user_avatar::user_row(&user_id, &name, image_url.as_deref(), cx)
+        // EXP-1249: the whole row points (the crate sets no cursor).
+        crate::controls::pointer_row_fill(
+            crate::user_avatar::user_row(&user_id, &name, image_url.as_deref(), cx),
+            false,
+        )
     })
     .checked(checked)
     .on_click(move |_, window, cx| on_select(window, cx))

@@ -1,22 +1,10 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { DropdownMenuContent } from "./dropdown-menu"
-import { ChangesFaceLabel, WorkFaceStrip } from "./work-face-strip"
+import { WorkFaceStrip } from "./work-face-strip"
 
 // EXP-1152: THE Work face strip — hidden faces, absent under two unless the
-// Runs caret earns it, and the Changes segment's counts-or-word label.
-
-describe(`ChangesFaceLabel`, () => {
-  it(`is the +N −M counts once known, the word until then`, () => {
-    const { container, rerender } = render(
-      <ChangesFaceLabel counts={{ additions: 12, deletions: 2 }} />
-    )
-    expect(container.textContent).toBe(`+12 −2`)
-    expect(container.querySelector(`[aria-label="+12 −2"]`)).not.toBeNull()
-    rerender(<ChangesFaceLabel counts={null} />)
-    expect(container.textContent).toBe(`Changes`)
-  })
-})
+// Runs caret earns it. EXP-1251: Issue · Run · Guide.
 
 describe(`WorkFaceStrip`, () => {
   it(`renders nothing under two faces without a run menu`, () => {
@@ -49,7 +37,7 @@ describe(`WorkFaceStrip`, () => {
         face="issue"
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
-          { face: `diff`, label: <ChangesFaceLabel counts={null} />, onSelect: vi.fn() },
+          { face: `guide`, label: `Guide`, onSelect: vi.fn() },
         ]}
         runMenu={{ content: <DropdownMenuContent /> }}
       />
@@ -59,21 +47,21 @@ describe(`WorkFaceStrip`, () => {
       Array.from(document.querySelectorAll(`[data-face]`)).map(
         (node) => node.textContent
       )
-    ).toEqual([`Issue`, `Changes`])
+    ).toEqual([`Issue`, `Guide`])
   })
 
   // EXP-1162: the tabs carry the state — the title never does. The Run tab
-  // wears the agent's brand mark (never a dot), an open PR dots Results.
+  // wears the agent's brand mark (never a dot), an open PR dots the Guide.
   it(`marks the Run tab with the agent and dots the open pull request`, () => {
     render(
       <WorkFaceStrip
         face="issue"
-        dots={{ run: `needs_input`, results: `review` }}
+        dots={{ run: `needs_input`, guide: `review` }}
         run={{ agent: `codex`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
           { face: `run`, label: `Run`, onSelect: vi.fn() },
-          { face: `results`, label: `Results`, onSelect: vi.fn() },
+          { face: `guide`, label: `Guide`, onSelect: vi.fn() },
         ]}
       />
     )
@@ -87,7 +75,7 @@ describe(`WorkFaceStrip`, () => {
     const dots = screen.getAllByTestId(`face-dot`)
     expect(dots.map((dot) => dot.dataset.tone)).toEqual([`review`])
     expect(dots[0]?.closest(`[data-face]`)?.getAttribute(`data-face`)).toBe(
-      `results`
+      `guide`
     )
     expect(dots[0]?.getAttribute(`aria-label`)).toBe(`Pull request open`)
   })

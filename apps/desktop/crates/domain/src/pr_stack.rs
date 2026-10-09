@@ -288,6 +288,361 @@ pub fn stack_merge_choice(issue: &Issue, issues: &[Issue]) -> Option<StackMergeC
     })
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1248: tree vs stack, the stack rail, the ONE confirm
+// ---------------------------------------------------------------------------
+//
+// ×4 off `fixtures/pr-stack-view.json` (`open_pr_shape` + `stack_view`) and
+// `fixtures/stack-merge-choice.json` `confirm` (`stack_merge_confirm`): web
+// `lib/pr-stack.ts` `openPrShape` / `stackView` / `stackMergeConfirm`.
+
+/// A base-chained component's shape: `Tree` = a fork anywhere (follow-up
+/// runs; nests with tree guides), `Stack` = linear (GitHub stacks it; the
+/// stack rail), `Single` = one pull request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrGraphShape {
+    Tree,
+    Stack,
+    Single,
+}
+
+impl PrGraphShape {
+    /// The fixture's wire word.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tree => "tree",
+            Self::Stack => "stack",
+            Self::Single => "single",
+        }
+    }
+}
+
+/// The ghost action on a hovered stack-rail member (contract
+/// `diffUi.mergeThrough`; the merge control's own label is
+/// [`MERGE_STACK_LABEL`]).
+pub const MERGE_THROUGH_LABEL: &str = crate::contract::DIFF_UI_MERGE_THROUGH;
+/// The confirm's dismiss button.
+pub const STACK_CONFIRM_CANCEL_LABEL: &str = "Cancel";
+
+/// Branch → its FIRST owner in input order (web `ownerMap`).
+fn first_owners<'a>(nodes: &[&'a Issue]) -> HashMap<&'a str, &'a Issue> {
+    let mut owners: HashMap<&str, &Issue> = HashMap::new();
+    for node in nodes {
+        if let Some(head) = branch(node.branch.as_deref()) {
+            owners.entry(head).or_insert(node);
+        }
+    }
+    owners
+}
+
+/// Every node base-chained to `node` (either direction), in input order.
+pub fn pr_component<'a>(node: &'a Issue, nodes: &[&'a Issue]) -> Vec<&'a Issue> {
+    let owners = first_owners(nodes);
+    let mut seen: HashSet<&str> = HashSet::from([node.id.as_str()]);
+    let mut queue: std::collections::VecDeque<&Issue> = std::collections::VecDeque::from([node]);
+    while let Some(current) = queue.pop_front() {
+        let mut linked: Vec<&Issue> = Vec::new();
+        if let Some(lower) = branch(current.pr_base_branch.as_deref()).and_then(|b| owners.get(b)) {
+            linked.push(lower);
+        }
+        if let Some(head) = branch(current.branch.as_deref()) {
+            linked.extend(
+                nodes
+                    .iter()
+                    .copied()
+                    .filter(|candidate| branch(candidate.pr_base_branch.as_deref()) == Some(head)),
+            );
+        }
+        for next in linked {
+            if seen.insert(next.id.as_str()) {
+                queue.push_back(next);
+            }
+        }
+    }
+    nodes
+        .iter()
+        .copied()
+        .filter(|candidate| seen.contains(candidate.id.as_str()))
+        .collect()
+}
+
+/// Tree (any node with two children), stack (linear) or single (< 2).
+pub fn pr_graph_shape(component: &[&Issue]) -> PrGraphShape {
+    if component.len() < 2 {
+        return PrGraphShape::Single;
+    }
+    let owners = first_owners(component);
+    let mut children: HashMap<&str, usize> = HashMap::new();
+    for node in component {
+        let Some(parent) = branch(node.pr_base_branch.as_deref()).and_then(|b| owners.get(b))
+        else {
+            continue;
+        };
+        if parent.id == node.id {
+            continue;
+        }
+        let count = children.entry(parent.id.as_str()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            return PrGraphShape::Tree;
+        }
+    }
+    PrGraphShape::Stack
+}
+
+/// Web `stackChain` over already-picked nodes: bottom first, ids as the seen
+/// key, a fork above takes the first by identifier.
+fn chain_by_id<'a>(issue: &'a Issue, issues: &[&'a Issue]) -> Vec<&'a Issue> {
+    let owners = first_owners(issues);
+    let mut seen: HashSet<&str> = HashSet::from([issue.id.as_str()]);
+    let mut below: Vec<&Issue> = Vec::new();
+    let mut current = issue;
+    while let Some(base) = branch(current.pr_base_branch.as_deref()) {
+        let Some(lower) = owners.get(base).copied() else {
+            break;
+        };
+        if lower.id == current.id || !seen.insert(lower.id.as_str()) {
+            break;
+        }
+        below.insert(0, lower);
+        current = lower;
+    }
+    let mut above: Vec<&Issue> = Vec::new();
+    current = issue;
+    while let Some(head) = branch(current.branch.as_deref()) {
+        let upper = issues
+            .iter()
+            .copied()
+            .filter(|candidate| {
+                candidate.id != current.id
+                    && branch(candidate.pr_base_branch.as_deref()) == Some(head)
+                    && !seen.contains(candidate.id.as_str())
+            })
+            .min_by(|a, b| a.identifier.cmp(&b.identifier));
+        let Some(upper) = upper else {
+            break;
+        };
+        seen.insert(upper.id.as_str());
+        above.push(upper);
+        current = upper;
+    }
+    let mut chain = below;
+    chain.push(issue);
+    chain.extend(above);
+    chain
+}
+
+/// The OPEN rows (identifier order) with ONE representative per pull request
+/// and the subject's representative; `None` without an open PR.
+struct OpenPick<'a> {
+    open: Vec<&'a Issue>,
+    reps: Vec<&'a Issue>,
+    subject: &'a Issue,
+}
+
+fn open_representatives<'a>(issue: &'a Issue, issues: &'a [Issue]) -> Option<OpenPick<'a>> {
+    if issue.pr_state.as_deref() != Some("open") {
+        return None;
+    }
+    let mut open: Vec<&Issue> = issues
+        .iter()
+        .filter(|row| row.pr_state.as_deref() == Some("open"))
+        .collect();
+    if !open.iter().any(|row| row.id == issue.id) {
+        open.push(issue);
+    }
+    open.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+    let mut reps: Vec<&Issue> = Vec::new();
+    let mut subject: Option<&Issue> = None;
+    for row in &open {
+        let url = row.pr_url.as_deref();
+        let rep = url.and_then(|url| reps.iter().copied().find(|other| other.pr_url.as_deref() == Some(url)));
+        let rep = match rep {
+            Some(rep) => rep,
+            None => {
+                reps.push(row);
+                row
+            }
+        };
+        if row.id == issue.id {
+            subject = Some(rep);
+        }
+    }
+    Some(OpenPick {
+        open,
+        reps,
+        subject: subject?,
+    })
+}
+
+/// The shape of the open component `issue`'s pull request sits in
+/// (`Single` without an open pull request).
+pub fn open_pr_shape(issue: &Issue, issues: &[Issue]) -> PrGraphShape {
+    match open_representatives(issue, issues) {
+        Some(pick) => pr_graph_shape(&pr_component(pick.subject, &pick.reps)),
+        None => PrGraphShape::Single,
+    }
+}
+
+/// The linear open stack `issue` sits in: the chain bottom → top, the
+/// subject's representative and every open row (for a batch's partners).
+struct OpenStack<'a> {
+    chain: Vec<&'a Issue>,
+    subject: &'a Issue,
+    open: Vec<&'a Issue>,
+}
+
+impl OpenStack<'_> {
+    /// A member's label: `EXP-874 +2` for a batch PR.
+    fn label(&self, row: &Issue) -> String {
+        let siblings = match row.pr_url.as_deref() {
+            Some(url) => self
+                .open
+                .iter()
+                .filter(|other| other.id != row.id && other.pr_url.as_deref() == Some(url))
+                .count(),
+            None => 0,
+        };
+        if siblings > 0 {
+            format!("{} +{siblings}", row.identifier)
+        } else {
+            row.identifier.clone()
+        }
+    }
+}
+
+fn open_stack<'a>(issue: &'a Issue, issues: &'a [Issue]) -> Option<OpenStack<'a>> {
+    let pick = open_representatives(issue, issues)?;
+    if pr_graph_shape(&pr_component(pick.subject, &pick.reps)) != PrGraphShape::Stack {
+        return None;
+    }
+    let chain = chain_by_id(pick.subject, &pick.reps);
+    Some(OpenStack {
+        chain,
+        subject: pick.subject,
+        open: pick.open,
+    })
+}
+
+/// One stack-rail row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StackViewRow {
+    pub issue_id: String,
+    pub identifier: String,
+    pub title: String,
+    pub pr_number: Option<i64>,
+    /// The subject's pull request: the row wears the active wash.
+    pub is_current: bool,
+}
+
+/// The stack rail: rows TOP first + the trailing base-branch row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StackView {
+    pub rows: Vec<StackViewRow>,
+    /// The bottom member's base; `None` = unknown.
+    pub base_branch: Option<String>,
+}
+
+/// The stack rail of `issue`'s pull request (the Guide's Stack card, a
+/// Reviews stack group): `None` unless it sits in a linear open stack of 2+
+/// pull requests.
+pub fn stack_view(issue: &Issue, issues: &[Issue]) -> Option<StackView> {
+    let stack = open_stack(issue, issues)?;
+    if stack.chain.len() < 2 {
+        return None;
+    }
+    Some(StackView {
+        rows: stack
+            .chain
+            .iter()
+            .rev()
+            .map(|row| StackViewRow {
+                issue_id: row.id.clone(),
+                identifier: row.identifier.clone(),
+                title: row.title.clone(),
+                pr_number: row.pr_number,
+                is_current: row.id == stack.subject.id,
+            })
+            .collect(),
+        base_branch: branch(stack.chain[0].pr_base_branch.as_deref()).map(str::to_string),
+    })
+}
+
+/// `Stack` = the merge control (the whole open chain, through its top);
+/// `Through` = Merge through here on this member.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackConfirmMode {
+    Stack,
+    Through,
+}
+
+/// The ONE confirm a stack merge asks (it replaces the 3-way dialog).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StackMergeConfirm {
+    /// The title AND the primary button.
+    pub title: String,
+    /// What lands, bottom first; a batch PR = `EXP-874 +2`.
+    pub landing: Vec<String>,
+    /// What stays open above it (GitHub retargets it).
+    pub stays_open: Vec<String>,
+    pub body: String,
+    /// `issues.mergePr({issueId, mergeStack: true})`'s issue.
+    pub issue_id: String,
+}
+
+/// EXP-1248: the confirm for `mode`; `None` = not in a linear open stack (the
+/// plain merge confirm).
+pub fn stack_merge_confirm(
+    issue: &Issue,
+    issues: &[Issue],
+    mode: StackConfirmMode,
+) -> Option<StackMergeConfirm> {
+    let stack = open_stack(issue, issues)?;
+    if stack.chain.len() < 2 {
+        return None;
+    }
+    let index = stack
+        .chain
+        .iter()
+        .position(|row| row.id == stack.subject.id)?;
+    let through = match mode {
+        StackConfirmMode::Stack => stack.chain.len() - 1,
+        StackConfirmMode::Through => index,
+    };
+    let landing: Vec<String> = stack.chain[..=through].iter().map(|row| stack.label(row)).collect();
+    let stays_open: Vec<String> = stack.chain[through + 1..]
+        .iter()
+        .map(|row| stack.label(row))
+        .collect();
+    let lands = if landing.len() == 1 {
+        format!("Lands 1 pull request: {}.", landing[0])
+    } else {
+        format!(
+            "Lands {} pull requests, bottom-up: {}.",
+            landing.len(),
+            landing.join(", ")
+        )
+    };
+    let open = match stays_open.len() {
+        0 => String::new(),
+        1 => format!(" {} stays open.", stays_open[0]),
+        _ => format!(" {} stay open.", stays_open.join(", ")),
+    };
+    Some(StackMergeConfirm {
+        title: match mode {
+            StackConfirmMode::Stack => MERGE_STACK_LABEL.to_string(),
+            StackConfirmMode::Through => MERGE_THROUGH_LABEL.to_string(),
+        },
+        landing,
+        stays_open,
+        body: format!("{lands}{open}"),
+        issue_id: match mode {
+            StackConfirmMode::Stack => stack.chain[stack.chain.len() - 1].id.clone(),
+            StackConfirmMode::Through => issue.id.clone(),
+        },
+    })
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -486,6 +841,195 @@ pub(crate) mod tests {
                 body: choice.body,
             });
             assert_eq!(actual, expected, "{}", case.name);
+        }
+    }
+
+    /// The fixture row `pr-stack-view.json` / `stack-merge-choice.json` share.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ViewRow {
+        id: String,
+        identifier: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        pr_number: Option<i64>,
+        branch: Option<String>,
+        pr_base_branch: Option<String>,
+        pr_state: Option<String>,
+        pr_url: Option<String>,
+    }
+
+    fn view_issue(row: &ViewRow) -> Issue {
+        serde_json::from_value(serde_json::json!({
+            "id": row.id,
+            "board_id": "board-1",
+            "number": 1,
+            "identifier": row.identifier,
+            "title": row.title.clone().unwrap_or_else(|| row.identifier.clone()),
+            "status": "in_review",
+            "branch": row.branch,
+            "pr_base_branch": row.pr_base_branch,
+            "pr_url": row.pr_url,
+            "pr_state": row.pr_state,
+            "pr_number": row.pr_number,
+        }))
+        .unwrap()
+    }
+
+    /// EXP-1248: `pr-stack-view.json` locks `openPrShape` + `stackView` ×4.
+    #[test]
+    fn stack_view_matches_the_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            cases: Vec<Case>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            issue: String,
+            issues: Vec<ViewRow>,
+            shape: String,
+            view: Option<View>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct View {
+            rows: Vec<Row>,
+            base_branch: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Row {
+            issue_id: String,
+            identifier: String,
+            title: String,
+            pr_number: Option<i64>,
+            is_current: bool,
+        }
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/pr-stack-view.json"
+        ))
+        .expect("pr-stack-view.json parses");
+        assert!(!fixture.cases.is_empty());
+        for case in fixture.cases {
+            let issues: Vec<Issue> = case.issues.iter().map(view_issue).collect();
+            let issue = issues
+                .iter()
+                .find(|row| row.id == case.issue)
+                .unwrap_or_else(|| panic!("{}: the subject is listed", case.name));
+            assert_eq!(open_pr_shape(issue, &issues).as_str(), case.shape, "{}", case.name);
+            let expected = case.view.map(|view| StackView {
+                rows: view
+                    .rows
+                    .into_iter()
+                    .map(|row| StackViewRow {
+                        issue_id: row.issue_id,
+                        identifier: row.identifier,
+                        title: row.title,
+                        pr_number: row.pr_number,
+                        is_current: row.is_current,
+                    })
+                    .collect(),
+                base_branch: view.base_branch,
+            });
+            assert_eq!(stack_view(issue, &issues), expected, "{}", case.name);
+        }
+    }
+
+    /// EXP-1248: a fork anywhere is a tree; a line is a stack (web
+    /// `prGraphShape` `tells a fork from a line`).
+    #[test]
+    fn pr_graph_shape_tells_a_fork_from_a_line() {
+        let line = chain_fixture();
+        let refs: Vec<&Issue> = line.iter().collect();
+        assert_eq!(pr_graph_shape(&refs), PrGraphShape::Stack);
+        assert_eq!(pr_graph_shape(&refs[..1]), PrGraphShape::Single);
+        let fork = vec![
+            issue("EXP-1", Some("a"), Some("master")),
+            issue("EXP-2", Some("b"), Some("a")),
+            issue("EXP-3", Some("c"), Some("a")),
+        ];
+        let refs: Vec<&Issue> = fork.iter().collect();
+        assert_eq!(pr_graph_shape(&refs), PrGraphShape::Tree);
+        // The whole component, from any member.
+        let component = pr_component(&fork[2], &refs);
+        assert_eq!(component.len(), 3);
+    }
+
+    /// EXP-1248: `stack-merge-choice.json` `confirm` locks the ONE confirm ×4.
+    #[test]
+    fn stack_merge_confirm_matches_the_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Fixture {
+            confirm: Confirm,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Confirm {
+            labels: Labels,
+            cases: Vec<Case>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Labels {
+            merge_stack: String,
+            merge_through: String,
+            cancel: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct Case {
+            name: String,
+            issue: String,
+            mode: String,
+            issues: Vec<ViewRow>,
+            confirm: Option<Expected>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Expected {
+            title: String,
+            landing: Vec<String>,
+            stays_open: Vec<String>,
+            body: String,
+            input: Input,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input {
+            issue_id: String,
+            merge_stack: bool,
+        }
+        let fixture: Fixture = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/stack-merge-choice.json"
+        ))
+        .expect("stack-merge-choice.json parses");
+        assert_eq!(MERGE_STACK_LABEL, fixture.confirm.labels.merge_stack);
+        assert_eq!(MERGE_THROUGH_LABEL, fixture.confirm.labels.merge_through);
+        assert_eq!(STACK_CONFIRM_CANCEL_LABEL, fixture.confirm.labels.cancel);
+        assert!(!fixture.confirm.cases.is_empty());
+        for case in fixture.confirm.cases {
+            let issues: Vec<Issue> = case.issues.iter().map(view_issue).collect();
+            let issue = issues
+                .iter()
+                .find(|row| row.id == case.issue)
+                .unwrap_or_else(|| panic!("{}: the subject is listed", case.name));
+            let mode = match case.mode.as_str() {
+                "stack" => StackConfirmMode::Stack,
+                "through" => StackConfirmMode::Through,
+                other => panic!("{}: unknown mode {other}", case.name),
+            };
+            let expected = case.confirm.map(|confirm| {
+                assert!(confirm.input.merge_stack, "{}", case.name);
+                StackMergeConfirm {
+                    title: confirm.title,
+                    landing: confirm.landing,
+                    stays_open: confirm.stays_open,
+                    body: confirm.body,
+                    issue_id: confirm.input.issue_id,
+                }
+            });
+            assert_eq!(stack_merge_confirm(issue, &issues, mode), expected, "{}", case.name);
         }
     }
 }

@@ -3,6 +3,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   Button,
   conceptIcon,
+  ExponentialLogo,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -10,6 +11,7 @@ import {
 import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { LaunchComposer } from "@/components/launch-composer"
+import { COMPOSER_MENU_TEST_IDS } from "@/components/launch-dialog/composer-menu"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
@@ -223,10 +225,10 @@ function AgentPage() {
   const scope = useCrossTeamScope(team)
   const { running } = useAgentsData(scope.teamIds, currentUserId)
   const listEmpty = running.length === 0
-  // EXP-923: the Recent panel is a disclosure on THIS page — leaving it (or
-  // switching team) always shuts it again.
+  // EXP-923: the Recent panel is a disclosure on THIS page. EXP-1246: it
+  // survives the runs it opens (`?from=agent:recent`) and shuts anywhere else
+  // (`useRecentRunsPanelRouteGuard`, mounted by the sidebar).
   const recentOpen = useRecentRunsPanelOpen()
-  useEffect(() => () => setRecentRunsPanelOpen(false), [])
 
   if (!team || !currentUserId) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
@@ -241,6 +243,16 @@ function AgentPage() {
       className="relative flex h-full min-h-0 flex-col"
       data-testid="agent-page"
     >
+      {/* EXP-1249: the faint brand mark behind the headline and the
+          composer — THIS page only (the composer dialog has none). Painted
+          first; the positioned scroller below stacks over it. */}
+      <div
+        aria-hidden
+        data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
+        className="pointer-events-none absolute top-1/2 left-1/2 size-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 text-foreground opacity-[0.035] select-none"
+      >
+        <ExponentialLogo variant="light" size={520} className="size-full" />
+      </div>
       {/* EXP-923: the page's ONE history control — it slides the sidebar's
           Recent panel in beside the compact rail (md+; the phone reaches the
           same list through the topbar's sheet). EXP-1119: hidden while the
@@ -271,7 +283,7 @@ function AgentPage() {
           <TooltipContent side="right">Recent runs</TooltipContent>
         </Tooltip>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 md:min-h-full md:justify-center ${
             listEmpty ? `min-h-full justify-center` : ``

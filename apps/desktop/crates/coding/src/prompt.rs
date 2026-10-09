@@ -25,8 +25,8 @@
 /// agent follows the prompt's checklist literally and skipped a step that
 /// lived only in the playbook.
 /// EXP-1154 — the report IS the PR body, so it is filed before the PR.
-pub const PUBLISH_RESULTS: &str = "Before you open the pull request, file your report with the \
-`exponential_sessions_results` MCP tool; it becomes the PR body. Give it a `Summary` and one \
+pub const PUBLISH_RESULTS: &str = "Before you open the pull request, file your Guide with the \
+`exponential_sessions_guide` MCP tool; it becomes the PR body. Give it a `Summary` and one \
 short topic per change, each 2 or 3 sentences plus the `files` it touched, and screenshot every \
 changed screen you can run; name any screen you could not capture in the report.";
 
@@ -235,7 +235,7 @@ Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
 `done` — you do not set the issue status yourself. Do not use `gh`. Before you open the pull \
-request, file your report with the `exponential_sessions_results` MCP tool; it becomes the PR \
+request, file your Guide with the `exponential_sessions_guide` MCP tool; it becomes the PR \
 body. Give it a `Summary` and one short topic per change, each 2 or 3 sentences plus the `files` \
 it touched, and screenshot every changed screen you can run; name any screen you could not \
 capture in the report. Before you finish, leave the \

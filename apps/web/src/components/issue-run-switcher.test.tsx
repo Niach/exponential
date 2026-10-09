@@ -8,7 +8,7 @@ import {
   ISSUE_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
-} from "@/components/team/work-face-toggle"
+} from "@/components/work-faces"
 import { LIVE_RUN_LABEL } from "@/lib/past-runs"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"

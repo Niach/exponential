@@ -1223,6 +1223,51 @@
       }
     },
     {
+      "id": "guide",
+      "group": "reviews",
+      "title": "Guide",
+      "blurb": "An issue's Guide face (EXP-1251: Changes + Results merged into one face): the Stack card while its PR sits in an open stack, the Summary lead, numbered sections with ONE Changes row each, the automatic Other changes section and Show complete diff. APP-14 has a PR and no report, so its whole diff is one Changes section.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide",
+        "anchor": {
+          "text": "Show complete diff",
+          "timeoutMs": 60000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "EXP-1251: the coverage counts the PR files fetched live from GitHub (like review-diff), so the anchor waits for the Show complete diff row the loaded diff draws.",
+        "ios": "Wave B2 (B-I2): GuideFace replaces SessionResultsFace + PrChangesFace; the styleguide capture lands with it.",
+        "android": "Wave B2 (B-A2): GuideFace replaces ResultsFace + ChangesFace; the styleguide capture lands with it.",
+        "desktop": "Wave B1 (B-D3): the issue tab's Guide face; the drive lands with it."
+      }
+    },
+    {
+      "id": "guide-section",
+      "group": "reviews",
+      "title": "Guide section",
+      "blurb": "A Guide section's diff as a page under the Guide (`?view=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree in the column beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=other",
+        "anchor": {
+          "text": "Unable to load topic",
+          "timeoutMs": 60000
+        },
+        "recipe": "expandFirstDiffFile",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "web": "EXP-1251: APP-14 has no report, so its whole diff is the automatic Changes section (`section=other`); the anchor is a line of the first card's own patch, as on review-diff.",
+        "ios": "Wave B2 (B-I2): GuideSectionDiffView; the styleguide capture lands with it.",
+        "android": "Wave B2 (B-A2): GuideSectionDiff; the styleguide capture lands with it.",
+        "desktop": "Wave B1 (B-D3): pr_diff's filtered section page; the drive lands with it."
+      }
+    },
+    {
       "id": "action-page",
       "group": "actions",
       "title": "Action",

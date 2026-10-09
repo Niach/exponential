@@ -476,13 +476,6 @@ impl SessionScreenView {
         self.inner.read(cx).run_face()
     }
 
-    /// EXP-879/EXP-933: how many result TOPICS (pictures or report text) the
-    /// run has published — 0 hides the Results item (the face is not offered
-    /// on a run with nothing to show).
-    pub(crate) fn results_count(&self, cx: &App) -> usize {
-        self.inner.read(cx).results_groups().len()
-    }
-
     /// Put the run on one of its sub-faces — the toggle's Run / Changes /
     /// Results picks, and the detail's pick after it flips the tab to this
     /// face.
@@ -548,10 +541,9 @@ impl SessionScreenView {
         };
         let viewed = self.session_id.clone();
         let menu_issue_id = issue_id.clone();
-        // EXP-879: a Results face whose pictures went away is not a face —
-        // the run reads as its transcript again, exactly like the viewer's
-        // own fallback.
-        let has_results = self.results_count(cx) > 0;
+        // EXP-1251: the Guide face = a report OR a diff (the run's worktree
+        // diff, its PR files); one with neither is not a face.
+        let has_guide = self.inner.read(cx).has_guide();
         let pr_open = {
             let row = self.inner.read(cx).session_row().cloned();
             let issue_pr = issue_id.as_deref().and_then(|issue_id| {
@@ -568,25 +560,17 @@ impl SessionScreenView {
             };
             state.as_deref() == Some("open")
         };
-        // EXP-1154: an issue-bound run with an open PR always lists Results —
-        // with no report of its own, the pick opens the ISSUE's Results face
-        // (the GitHub PR body).
-        let results = has_results || (issue_id.is_some() && pr_open);
-        let results_issue = (!has_results).then(|| issue_id.clone()).flatten();
+        // EXP-1154: an issue-bound run with an open PR always lists the Guide
+        // — with nothing of its own to show, the pick opens the ISSUE's Guide
+        // (its PR files and GitHub body).
+        let guide = has_guide || (issue_id.is_some() && pr_open);
+        let guide_issue = (!has_guide).then(|| issue_id.clone()).flatten();
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
-            diff: self.diff_totals(cx),
-            // EXP-889: the RUN's Changes face already falls back to the
-            // issue's PR files when the run published no worktree diff
-            // (EXP-895 `load_pr_changes`), so its counts are the item here.
-            // The issue's own PR face is the ISSUE face's
-            // (`issue_detail::set_changes_open`).
-            pr_changes: false,
-            results,
+            guide,
             active: match self.run_face(cx) {
-                RunFace::Diff => Face::Diff,
-                RunFace::Results if has_results => Face::Results,
+                RunFace::Diff | RunFace::Results if has_guide => Face::Guide,
                 _ => Face::Run,
             },
             runs,
@@ -610,8 +594,7 @@ impl SessionScreenView {
                     }
                 }
                 Face::Run => inner.update(cx, |view, cx| view.set_run_face(RunFace::Run, cx)),
-                Face::Diff => inner.update(cx, |view, cx| view.set_run_face(RunFace::Diff, cx)),
-                Face::Results => match &results_issue {
+                Face::Guide => match &guide_issue {
                     Some(issue_id) => {
                         crate::screens::request_issue_results(issue_id, window, cx);
                         crate::screens::set_tab_face(

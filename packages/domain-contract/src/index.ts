@@ -79,7 +79,14 @@ export interface DomainContract {
    * Mirrors CODING_SESSION_STALE_HOURS in @exp/db-schema/domain (the server
    * sweep's threshold) — parity locked by apps/web's domain-contract test.
    */
-  codingSession: { staleHours: number }
+  codingSession: {
+    staleHours: number
+    /** EXP-1249: every key a start payload may carry (steer.startSession,
+     *  codingSessions.start, the relay frame). */
+    launchKeys: string[]
+    /** EXP-1249: the device cap for the per-run `computerUse` flag. */
+    computerUseCap: string
+  }
   /**
    * EXP-481: how fresh a devices row's last_seen_at must be to render
    * "online" (devices heartbeat ~30s; the window is three missed beats).

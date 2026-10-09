@@ -5,7 +5,8 @@
 //! own output (`run_row_caption`, `show_work_label`) in three states: a
 //! working run with its newest tool call muted under the caption, a run
 //! waiting on its owner, and an ended one (the dimmed mark, Hide work: the
-//! transcript is showing).
+//! transcript is showing). EXP-1245: plus a SETTLED turn of the owner's
+//! thread (`turn_row_caption`: `Done on <device> · <turn time>`).
 
 use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
 
@@ -54,7 +55,30 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 cx,
             )
         });
-    div().flex().flex_col().gap_3().pt_2().w(px(560.)).children(rows)
+    let settled = crate::session_results::turn_row_caption(
+        stamp_ms(Some("2026-10-06T21:16:00Z")),
+        stamp_ms(Some("2026-10-06T21:23:17Z")),
+        RunRowState::Working,
+        "macbook",
+        None,
+        now,
+    )
+    .map(|(caption, tone)| {
+        run_status_row(
+            RunStatusRowSpec {
+                id: SharedString::from("styleguide-run-status-row-settled-turn"),
+                agent: Some(coding::CodingAgent::default()),
+                mark: RunStatusMark::Ended,
+                caption: SharedString::from(caption),
+                tone,
+                tool_line: None,
+                show_work: false,
+                on_toggle: None,
+            },
+            cx,
+        )
+    });
+    div().flex().flex_col().gap_3().pt_2().w(px(560.)).children(rows).children(settled)
 }
 
 #[cfg(test)]

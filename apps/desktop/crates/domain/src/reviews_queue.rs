@@ -19,6 +19,10 @@
 //! 7. REPO bands = the in-scope teams' pulls, team order then input order,
 //!    linked pulls dropped, empty repos hidden.
 //! 8. `count` = entries + runs + repo pulls.
+//! 9. EXP-1248 (`_groupDoc`): each board band also carries [`queue_items`]
+//!    = its entries as drawn: a PR TREE nests under its root (depth), a
+//!    linear STACK is ONE item top first over its base branch, a lone PR is
+//!    flat. Bands draw NO count; `count` only lights the nav dot.
 //!
 //! The Reviews nav entry reads the SAME queue ([`reviews_nav`], the
 //! fixture's `navCases`): dot = `count > 0`; the entry shows iff no team is
@@ -79,10 +83,117 @@ impl<'a> QueueEntry<'a> {
     }
 }
 
+/// EXP-1248: one display item of a board band (rule 9).
+#[derive(Debug, Clone)]
+pub enum QueueItem<'a> {
+    /// A lone PR (depth 0) or a member of a PR TREE, pre-order under its root.
+    Pr { entry: QueueEntry<'a>, depth: usize },
+    /// A linear STACK: its entries TOP first, then the base-branch row.
+    Stack {
+        entries: Vec<QueueEntry<'a>>,
+        base_branch: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct BoardGroup<'a> {
     pub board: &'a Board,
+    /// Every entry, flat, newest first (rule 3).
     pub entries: Vec<QueueEntry<'a>>,
+    /// The same entries as the band draws them (rule 9).
+    pub items: Vec<QueueItem<'a>>,
+}
+
+fn edge(branch: Option<&str>) -> Option<&str> {
+    branch.filter(|branch| !branch.is_empty())
+}
+
+/// (9) A band's entries as items (web `queueItems`). Edge: an entry sits on
+/// the entry (same band) whose representative's `branch` is its
+/// representative's `pr_base_branch` (the first entry in band order owns a
+/// branch). A component lists where its NEWEST entry would, walked from its
+/// ROOT (a cycle breaks where the climb first repeats). Any entry with 2+
+/// children = a TREE (pre-order, children in band order, depth = distance
+/// from the root); otherwise 2+ entries = ONE stack item, top first, its
+/// base = the root's `pr_base_branch`. One entry = depth 0.
+pub fn queue_items<'a>(entries: &[QueueEntry<'a>]) -> Vec<QueueItem<'a>> {
+    let mut owner: HashMap<&str, usize> = HashMap::new();
+    for (index, entry) in entries.iter().enumerate() {
+        if let Some(branch) = edge(entry.representative().branch.as_deref()) {
+            owner.entry(branch).or_insert(index);
+        }
+    }
+    let mut parent_of: HashMap<usize, usize> = HashMap::new();
+    let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let Some(parent) = edge(entry.representative().pr_base_branch.as_deref())
+            .and_then(|base| owner.get(base).copied())
+        else {
+            continue;
+        };
+        if entries[parent].key == entry.key {
+            continue;
+        }
+        parent_of.insert(index, parent);
+        children.entry(parent).or_default().push(index);
+    }
+    let mut placed: HashSet<usize> = HashSet::new();
+    let mut items: Vec<QueueItem<'a>> = Vec::new();
+    for start in 0..entries.len() {
+        if placed.contains(&start) {
+            continue;
+        }
+        // Climb to the root; a cycle stops where it first repeats.
+        let mut root = start;
+        let mut climbed: HashSet<usize> = HashSet::from([root]);
+        while let Some(&parent) = parent_of.get(&root) {
+            if climbed.contains(&parent) || placed.contains(&parent) {
+                break;
+            }
+            climbed.insert(parent);
+            root = parent;
+        }
+        // The component under the root, pre-order, children in band order.
+        let mut members: Vec<(usize, usize)> = Vec::new();
+        let mut fork = false;
+        let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+        while let Some((index, depth)) = stack.pop() {
+            if !placed.insert(index) {
+                continue;
+            }
+            members.push((index, depth));
+            let below: Vec<usize> = children
+                .get(&index)
+                .map(|kids| kids.iter().copied().filter(|kid| !placed.contains(kid)).collect())
+                .unwrap_or_default();
+            if below.len() > 1 {
+                fork = true;
+            }
+            // Reversed onto the stack so the first child is visited first.
+            for kid in below.into_iter().rev() {
+                stack.push((kid, depth + 1));
+            }
+        }
+        if members.len() > 1 && !fork {
+            items.push(QueueItem::Stack {
+                entries: members
+                    .iter()
+                    .rev()
+                    .map(|(index, _)| entries[*index].clone())
+                    .collect(),
+                base_branch: edge(entries[root].representative().pr_base_branch.as_deref())
+                    .map(str::to_string),
+            });
+        } else {
+            for (index, depth) in members {
+                items.push(QueueItem::Pr {
+                    entry: entries[index].clone(),
+                    depth,
+                });
+            }
+        }
+    }
+    items
 }
 
 #[derive(Debug, Clone)]
@@ -175,10 +286,15 @@ pub fn reviews_queue<'a, P>(
             board_groups.push(BoardGroup {
                 board: board_by_id[board_id],
                 entries: Vec::new(),
+                items: Vec::new(),
             });
             board_groups.len() - 1
         });
         board_groups[index].entries.push(entry);
+    }
+    // (9) The band's entries as drawn.
+    for group in &mut board_groups {
+        group.items = queue_items(&group.entries);
     }
     // (4) Team order, sort_order (null last), name, id.
     board_groups.sort_by(|a, b| {
@@ -312,6 +428,34 @@ mod tests {
         labels: Labels,
         cases: Vec<Case>,
         nav_cases: Vec<NavCase>,
+        grouping_cases: Vec<GroupingCase>,
+    }
+    #[derive(Deserialize)]
+    struct GroupingCase {
+        name: String,
+        input: Input,
+        expected: GroupingExpected,
+    }
+    #[derive(Deserialize, Debug, PartialEq)]
+    struct GroupingExpected {
+        boards: Vec<GroupingBoard>,
+    }
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(rename_all = "camelCase")]
+    struct GroupingBoard {
+        board_id: String,
+        items: Vec<GroupingItem>,
+    }
+    #[derive(Deserialize, Debug, PartialEq)]
+    #[serde(tag = "kind", rename_all = "camelCase")]
+    enum GroupingItem {
+        #[serde(rename = "pr")]
+        Pr { key: String, depth: usize },
+        #[serde(rename = "stack", rename_all = "camelCase")]
+        Stack {
+            keys: Vec<String>,
+            base_branch: Option<String>,
+        },
     }
     #[derive(Deserialize)]
     struct NavCase {
@@ -421,6 +565,8 @@ mod tests {
             "created_at": row["createdAt"],
             "pr_url": row["prUrl"],
             "pr_state": row["prState"],
+            "branch": row["branch"],
+            "pr_base_branch": row["prBaseBranch"],
         }))
         .unwrap()
     }
@@ -524,6 +670,59 @@ mod tests {
                     })
                     .collect(),
                 count: queue.count,
+            };
+            assert_eq!(actual, case.expected, "{}", case.name);
+        }
+    }
+
+    /// EXP-1248: `groupingCases` lock rule 9 ×4 (web `queueItems`).
+    #[test]
+    fn queue_items_match_the_fixture() {
+        let cases = fixture().grouping_cases;
+        assert!(!cases.is_empty());
+        for case in cases {
+            let teams: Vec<&str> = case.input.teams.iter().map(|t| t.id.as_str()).collect();
+            let boards: Vec<Board> = case.input.boards.iter().map(board).collect();
+            let issues: Vec<Issue> = case.input.issues.iter().map(issue).collect();
+            let sessions: Vec<CodingSession> = case.input.sessions.iter().map(session).collect();
+            let pulls: Vec<PullRepo<'_, Pull>> = case
+                .input
+                .pulls
+                .iter()
+                .map(|repo| PullRepo {
+                    team_id: &repo.team_id,
+                    repository_id: &repo.repository_id,
+                    pulls: &repo.pulls,
+                })
+                .collect();
+            let queue = reviews_queue(&teams, &boards, &issues, &sessions, &pulls, |pull| {
+                pull.url.as_str()
+            });
+            let actual = GroupingExpected {
+                boards: queue
+                    .board_groups
+                    .iter()
+                    .map(|group| GroupingBoard {
+                        board_id: group.board.id.clone(),
+                        items: group
+                            .items
+                            .iter()
+                            .map(|item| match item {
+                                QueueItem::Pr { entry, depth } => GroupingItem::Pr {
+                                    key: entry.key.clone(),
+                                    depth: *depth,
+                                },
+                                QueueItem::Stack {
+                                    entries,
+                                    base_branch,
+                                } => GroupingItem::Stack {
+                                    keys: entries.iter().map(|entry| entry.key.clone()).collect(),
+                                    base_branch: base_branch.clone(),
+                                },
+                            })
+                            .collect(),
+                    })
+                    .collect(),
             };
             assert_eq!(actual, case.expected, "{}", case.name);
         }

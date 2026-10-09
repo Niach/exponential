@@ -90,9 +90,17 @@ impl WysiwygSeamEditor {
         );
         // EXP-335: the rail's attach button routes non-inline-image picks
         // to the detail view's Files-section upload flow.
+        // EXP-1247: the rail's "Attach file" uploads every pick as a FILE;
+        // a drop's non-image files keep the legacy routing.
         let on_attach = params.on_attach_files.clone();
         editor.update(cx, |editor, _| {
-            editor.set_attach_handler(on_attach);
+            let on_drop = on_attach.clone();
+            editor.set_attach_handler(Rc::new(move |paths, window, cx| {
+                on_drop(paths, false, window, cx)
+            }));
+            editor.set_attach_as_file_handler(Rc::new(move |paths, window, cx| {
+                on_attach(paths, true, window, cx)
+            }));
         });
         Self { editor }
     }

@@ -76,13 +76,14 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
                         .items_center()
                         .gap_1()
                         .px_1()
-                        .child(tool())
+                        // EXP-1249: ONE tool, the "+" menu.
                         .child(tool())
                         .child(div().flex_1())
                         .child(send()),
                 ),
         )
-        // Options row B, muted under the card.
+        // Options row B, muted under the card (EXP-1249: no `⋯` — the rest
+        // of the run's options moved into the "+" menu).
         .child(
             div()
                 .flex()
@@ -97,9 +98,7 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
                 .child("·")
                 .child("Claude")
                 .child("·")
-                .child("Plan")
-                .child("·")
-                .child("⋯"),
+                .child("Plan"),
         )
 }
 
@@ -121,7 +120,8 @@ fn chip(label: &'static str) -> Div {
         .child(label)
 }
 
-/// One of the card's leading glyph tools (the real one is `composer_tool`).
+/// The card's one leading tool, the "+" (the real one is `composer_tool`
+/// under `chat_screen::plus_menu`).
 fn tool() -> Div {
     div()
         .size(px(24.))

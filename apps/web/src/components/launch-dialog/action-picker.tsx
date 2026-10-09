@@ -1,15 +1,15 @@
-import { useMemo, type ReactNode } from "react"
+import { useMemo } from "react"
 import type { TeamAction } from "@/components/action-prompt-form"
 import {
-  ActionPicker as SharedActionPicker,
   PickerList,
   actionPickerItems,
   type ActionPickerAction,
 } from "@exp/ui"
 
 // EXP-825: the composer's action picker — the launch dialog's Actions tab
-// (EXP-257/EXP-768) as a popover off the card's ▶ tool. Single-select: a row
-// becomes the subject (and the popover closes). Both listed builtins ride
+// (EXP-257/EXP-768). Single-select: a row becomes the subject. EXP-1249: it
+// is the "+" menu's Run action submenu body now (the ▶ tool is gone), and the
+// menu closes on the pick. Both listed builtins ride
 // the list now — "Fix merge conflicts" pinned first, then "Create action"
 // (its dedicated dialog is gone: the request is the composer text) — and the
 // hidden Chat builtin never does (no subject IS the chat).
@@ -57,43 +57,6 @@ export function ActionPickerList({
       loading={actions === null}
       searchPlaceholder="Search actions"
       emptyText="No actions match."
-    />
-  )
-}
-
-/** The ▶ tool's popover (a bottom sheet on phones); closes on a pick. */
-export function ActionPicker({
-  actions,
-  selectedActionId,
-  onSelect,
-  disabled,
-  children,
-}: {
-  actions: TeamAction[] | null
-  selectedActionId: string | null
-  onSelect: (actionId: string) => void
-  disabled?: boolean
-  /** The trigger (a `ComposerTool`). */
-  children: ReactNode
-}) {
-  const rows = useActionRows(actions)
-  return (
-    // EXP-946: capped to the space its side has, so it never runs off the top
-    // of the window — the primitive caps every popover the same way.
-    <SharedActionPicker
-      actions={rows}
-      value={selectedActionId}
-      onChange={onSelect}
-      disabled={disabled}
-      width="xl"
-      mobileTitle="Actions"
-      searchPlaceholder="Search actions"
-      // The typed picker forwards no `loading` (only the primitive under it
-      // takes one), and a list that is merely UNSYNCED must not read as a
-      // team with no actions — so the empty line says which it is.
-      emptyText={actions === null ? `Loading…` : `No actions match.`}
-      data-testid="agent-composer-actions-picker"
-      trigger={children}
     />
   )
 }

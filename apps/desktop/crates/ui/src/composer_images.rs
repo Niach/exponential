@@ -320,14 +320,18 @@ pub(crate) fn clipboard_images(cx: &App) -> Vec<StagedFile> {
     images
 }
 
-/// The attach button: a native file prompt (images only), the picked files
-/// handed back to the host's `apply` on the foreground.
+/// The attach button (the Agent composer's "+" → Add file or image, the
+/// steer reply's attach): a native file prompt, the picked files handed back
+/// to the host's `apply` on the foreground. The OS prompt cannot filter by
+/// type, and the session routes take images only, so a non-image pick rides
+/// to [`PendingImages::stage`] as a bare entry (type, no bytes) and comes
+/// back as its "Only images…" notice instead of vanishing (EXP-1249).
 pub(crate) fn pick_image_files<V: 'static>(
     window: &mut Window,
     cx: &mut gpui::Context<V>,
     apply: impl FnOnce(&mut V, Vec<StagedFile>, &mut Window, &mut gpui::Context<V>) + 'static,
 ) {
-    let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+    let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
         files: true,
         directories: false,
         multiple: true,
@@ -337,17 +341,23 @@ pub(crate) fn pick_image_files<V: 'static>(
         let Ok(Ok(Some(paths))) = receiver.await else {
             return;
         };
-        let read: Vec<StagedFile> = paths
-            .into_iter()
-            .filter(|path| image_paste::is_inline_image_path(path))
-            .filter_map(|path| read_image_file(&path).ok())
-            .collect();
+        let read: Vec<StagedFile> = paths.iter().filter_map(|path| read_pick(path)).collect();
         if read.is_empty() {
             return;
         }
         let _ = this.update_in(cx, |this, window, cx| apply(this, read, window, cx));
     })
     .detach();
+}
+
+/// One picked path as a staged entry: an image read whole; anything else
+/// as its name and type with NO bytes, which `stage` rejects with its notice.
+fn read_pick(path: &std::path::Path) -> Option<StagedFile> {
+    if image_paste::is_inline_image_path(path) {
+        return read_image_file(path).ok();
+    }
+    let filename = path.file_name()?.to_string_lossy().into_owned();
+    Some((filename, image_paste::content_type_for_path(path).to_string(), Vec::new()))
 }
 
 /// EXP-698: wrap staged bytes for `img()`, using the same magic-byte sniff
@@ -412,6 +422,22 @@ mod tests {
             }
             Ok(_) => panic!("expected the failure"),
         }
+    }
+
+    /// EXP-1249: a non-image pick is no longer dropped silently: it comes
+    /// back as a bare entry, which `validate_image` (the staging gate)
+    /// refuses, so the composer shows its notice.
+    #[test]
+    fn a_non_image_pick_reaches_the_staging_gate_and_is_refused() {
+        let dir = std::env::temp_dir().join(format!("bd2-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pdf = dir.join("spec.pdf");
+        std::fs::write(&pdf, b"%PDF-1.7").unwrap();
+        let (filename, content_type, bytes) = read_pick(&pdf).expect("a bare entry");
+        assert_eq!(filename, "spec.pdf");
+        assert!(bytes.is_empty(), "the bytes of a refused file are never read");
+        assert!(validate_image(&content_type, bytes.len()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -13,10 +13,16 @@
 //! │ [the action's pick inputs]                     │
 //! │ the mention field (@ members, # issues, :emoji)│
 //! │ [pending images]                               │
-//! │ #  🚀  🖼                      ( Start batch · 2 ) │
+//! │ +                              ( Start batch · 2 ) │
 //! └───────────────────────────────────────────────┘
-//!  Device ▾ · Agent ▾ · Model ▾ · Plan ○ · Resume ○ · Repository ▾ · ⋯
+//!  Device ▾ · Account ▾ · Model ▾ · Plan ○ · Resume ○ · Repository ▾
+//!  ⚡ suggestion   ⚡ suggestion   …   (quiet rows, empty chat only)
 //! ```
+//!
+//! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
+//! Run action ›, Add file or image | Effort ›, Subagents ›, Ultracode |
+//! MCP servers ›, Computer use). "Implement issue", "Run action" and "MCP
+//! servers" open their searchable pickers anchored to the +.
 //!
 //! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip.
 //! Picking an issue while an action is picked replaces it, and the other way
@@ -26,10 +32,10 @@
 //! ([`chat_launch::text_required`]). **Images** ride the text as steer
 //! embeds, uploaded to the team route before the session exists.
 //!
-//! **Options row B** under the card: Device, Agent, Model, Plan on one muted
-//! line (+ Resume while a single issue has a resumable worktree, + Repository
-//! while no subject is picked), and `⋯` unfolds Effort, Ultracode, MCP
-//! servers and Account. The options are the ONE launch model every desktop
+//! **Options row B** under the card: Device, Account, Model, Plan on one
+//! muted line (+ Resume while a single issue has a resumable worktree, +
+//! Repository while no subject is picked); the rest of the run's options
+//! live in the "+" menu. The options are the ONE launch model every desktop
 //! surface uses ([`crate::launch_options::LaunchOptionsSection`]); plan mode
 //! reseeds when the subject flips (a chat is a conversation, OFF; a picked
 //! subject takes the agent's default).
@@ -40,9 +46,11 @@
 //! launch for one `steer.startSession` with the same subject; an explicit
 //! pick is STICKY and blocks the launch while its machine is offline.
 //!
-//! EXP-790/EXP-820: suggestion chips over the EMPTY, subject-less field —
-//! four drawn once per page from a pool byte-identical to the web's
-//! `CHAT_SUGGESTIONS` (locked below).
+//! EXP-790/EXP-820: suggestions for the EMPTY, subject-less field — four
+//! drawn once per page from a pool byte-identical to the web's
+//! `CHAT_SUGGESTIONS` (locked below). EXP-1249: quiet text rows UNDER the
+//! options line, not pills over the card; a faint brand mark sits behind
+//! the page's headline.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -95,6 +103,33 @@ const FIELDS_MAX_H: f32 = 280.;
 /// own chrome, and the panel's own heading is the ×4 "Recent".
 const RECENT_RUNS_LABEL: &str = "Recent runs";
 
+/// EXP-1249: the composer "+" menu's words (web `launch-composer.tsx`'s
+/// menu, the styleguide `menu` entry's composer specimen).
+pub(crate) const PLUS_TOOLTIP: &str = "Add";
+pub(crate) const MENU_IMPLEMENT_ISSUE: &str = "Implement issue";
+pub(crate) const MENU_RUN_ACTION: &str = "Run action";
+pub(crate) const MENU_ADD_FILE: &str = "Add file or image";
+pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
+pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
+pub(crate) const MENU_MCP_SERVERS: &str = "MCP servers";
+pub(crate) const MENU_COMPUTER_USE: &str = "Computer use";
+
+/// EXP-1249: how tall the "+" menu may grow, for the side-with-room fit.
+const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
+
+/// EXP-1249: the faint brand mark behind the Agent page's headline: its
+/// edge and its ink (the foreground at ~3.5%).
+const PAGE_MARK_SIZE: f32 = 520.;
+const PAGE_MARK_ALPHA: f32 = 0.035;
+
+/// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComposerPicker {
+    Issues,
+    Actions,
+    McpServers,
+}
+
 /// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
 /// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
 /// rendered by `routes/t/$teamSlug/agent.tsx`), byte-identical and in the
@@ -122,7 +157,7 @@ pub(crate) const CHAT_SUGGESTIONS: [&str; 16] = [
 ];
 
 /// How many of the pool a page shows.
-pub(crate) const CHAT_SUGGESTION_COUNT: usize = 4;
+pub(crate) const CHAT_SUGGESTION_COUNT: usize = 3;
 
 /// EXP-820: `CHAT_SUGGESTION_COUNT` DISTINCT indices into
 /// [`CHAT_SUGGESTIONS`] — a partial Fisher-Yates over the pool driven by a
@@ -184,6 +219,25 @@ fn device_agent_status(
             row.agent_usage.as_ref(),
         ),
     )
+}
+
+/// EXP-1249: whether the synced row advertises `computer-use-run` — the
+/// machine reads a start's per-run `computerUse`, so the "+" menu may offer
+/// the toggle for it. An unsynced row cannot say so: no toggle.
+fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
+    if row_id.is_empty() {
+        return false;
+    }
+    let collections = Store::global(cx).collections();
+    let devices = collections.devices.read(cx);
+    devices
+        .iter()
+        .find(|row| row.id == row_id)
+        .is_some_and(|row| {
+            row.cap_ids()
+                .iter()
+                .any(|cap| cap == coding::doctor::COMPUTER_USE_RUN_CAP)
+        })
 }
 
 /// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
@@ -479,17 +533,20 @@ pub(crate) struct ChatScreenView {
     /// QUERY and its keyboard cursor are the primitive's now — this memo is
     /// all the host still holds.
     issue_pick_memo: RefCell<issue_picker::VisibleRowsMemo>,
-    /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
+    /// EXP-868: the issue picker's pool while nothing is picked, keyed by the
     /// team and the revisions of every collection it reads. The composer
     /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
     /// and rebuilding the pool each time made typing crawl.
     team_pool: RefCell<Option<(TeamPoolKey, Rc<Vec<IssueRow>>)>>,
-    /// EXP-946: where the `#` and ▶ tools actually painted, captured at
-    /// prepaint (the `Popup` recipe). Their popovers pick the side with room
-    /// and cap themselves to it — gpui-component's `Popover` clamps but never
-    /// flips, so a picker taller than the room above ran off the window.
-    issue_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
-    action_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+    /// EXP-946/EXP-1249: where the "+" tool actually painted, captured at
+    /// prepaint (the `Popup` recipe). Its menu and the pickers it opens pick
+    /// the side with room and cap themselves to it — gpui-component's
+    /// `Popover` clamps but never flips, so a picker taller than the room
+    /// above ran off the window.
+    plus_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+    /// EXP-1249: the picker a "+" menu row opened (anchored to the +), until
+    /// it closes itself.
+    open_picker: Option<ComposerPicker>,
     /// The team's connected repos (`repositories.list`, one fetch per team).
     team_repos: Vec<ActionRepoRow>,
     repos_team: Option<String>,
@@ -515,7 +572,6 @@ pub(crate) struct ChatScreenView {
     images: PendingImages,
     /// The image strip's notice (too many / too big).
     notice: Option<SharedString>,
-    /// Whether the `⋯` line (Effort, Ultracode, MCP, Account) is unfolded.
     /// Images are uploading (the send is in flight).
     sending: bool,
     /// The launch is preparing / the remote start is in flight.
@@ -645,8 +701,8 @@ impl ChatScreenView {
             pending_conflict: false,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
-            issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
-            action_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
+            plus_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
+            open_picker: None,
             team_repos: Vec::new(),
             repos_team: None,
             chat_repo: None,
@@ -1289,6 +1345,7 @@ impl ChatScreenView {
                     settings: device.defaults.clone(),
                     accounts,
                     usage,
+                    computer_use_run: device_reads_computer_use(&device.row_id, cx),
                 }
             });
         let has_subject = !matches!(self.subject, Subject::None);
@@ -2360,7 +2417,7 @@ impl ChatScreenView {
         fix_conflicts_card("chat-fix-conflicts-card", row, refused && pr.is_some(), cx)
     }
 
-    /// EXP-868: the open team pool behind the `#` tool, rebuilt only when
+    /// EXP-868: the open team pool behind the issue picker, rebuilt only when
     /// the team or one of the collections it reads has moved.
     fn team_pool(&self, team_id: &str, cx: &App) -> Rc<Vec<IssueRow>> {
         let collections = Store::global(cx).collections();
@@ -2380,13 +2437,19 @@ impl ChatScreenView {
         rows
     }
 
-    /// The `#` tool: the issue picker, mounted on THE picker primitive
-    /// (EXP-1030). Everything the primitive cannot know rides in as hooks —
-    /// the ranking (`domain::issue_search` through
+    /// "+" → Implement issue ›: the issue picker, mounted on THE picker
+    /// primitive (EXP-1030) and OPENED by the menu row (EXP-1249), anchored
+    /// to the + through `trigger`. Everything the primitive cannot know
+    /// rides in as hooks — the ranking (`domain::issue_search` through
     /// [`issue_picker::visible_rows`], memoised here), the row anatomy and
     /// the overflow notes — and everything else (the surface, the filter
     /// field, ↑/↓/Enter, the multi-select highlight) is its own.
-    fn issue_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn issue_picker_surface(
+        &self,
+        trigger: AnyElement,
+        fit: (gpui::Anchor, gpui::Pixels),
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
             match &self.subject {
                 Subject::Issues(issues) => (
@@ -2419,26 +2482,6 @@ impl ChatScreenView {
                     Vec::new(),
                 ),
             };
-        let slot = self.issue_tool_bounds.clone();
-        let view_id = cx.entity_id();
-        let trigger = crate::composer::composer_tool("chat-tool-issues", registry::EDITOR_ISSUE_REF, cx)
-            .tooltip("Pick issues")
-            // The fit below reads the bounds this prepaint stored LAST frame;
-            // a tool that moved repaints once so the popover is measured from
-            // where it is now (release review R5). Steady state: no notify.
-            .on_prepaint(move |bounds, _, cx| {
-                if slot.get() != bounds {
-                    slot.set(bounds);
-                    cx.notify(view_id);
-                }
-            })
-            .into_any_element();
-        // EXP-946: from where the tool actually is, not from a guess.
-        let fit = issue_picker::popover_fit(
-            self.issue_tool_bounds.get(),
-            window.viewport_size(),
-            issue_picker::POPOVER_WANTED_HEIGHT,
-        );
         let items = issue_picker::picker_items(&rows);
         let picked: Vec<String> = rows
             .iter()
@@ -2477,6 +2520,7 @@ impl ChatScreenView {
         let footer_of = ranked;
         let empty_pool = rows.is_empty();
         let body_rows = rows.clone();
+        let on_close = self.picker_on_close(cx);
         crate::picker::deferred(move |window, cx| {
             crate::picker::Picker::multi(
                 items,
@@ -2504,6 +2548,7 @@ impl ChatScreenView {
             )
             .search(true)
             .id("chat-issue-picker")
+            .open(on_close)
             // The run cap (contract ×4): at it the unpicked rows go
             // disabled, a checked one still toggles off.
             .max(issue_picker::MAX_ISSUES_PER_RUN)
@@ -2552,10 +2597,16 @@ impl ChatScreenView {
         .into_any_element()
     }
 
-    /// The rocket tool: the actions picker (builtins pinned first, Create action
-    /// included; Chat is never listed) — THE action picker (EXP-1030), whose
-    /// rows are the curated icon, the name and the muted description.
-    fn action_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// "+" → Run action ›: the actions picker (builtins pinned first, Create
+    /// action included; Chat is never listed) — THE action picker
+    /// (EXP-1030), whose rows are the curated icon, the name and the muted
+    /// description — opened by the menu row, anchored to the + (EXP-1249).
+    fn action_picker_surface(
+        &self,
+        trigger: AnyElement,
+        fit: (gpui::Anchor, gpui::Pixels),
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let actions: Vec<crate::picker::action_picker::ActionPickerAction> = self
             .actions
             .iter()
@@ -2578,24 +2629,7 @@ impl ChatScreenView {
             _ => None,
         };
         let view = cx.entity().downgrade();
-        let slot = self.action_tool_bounds.clone();
-        let view_id = cx.entity_id();
-        let trigger = crate::composer::composer_tool("chat-tool-actions", registry::NAV_ACTIONS, cx)
-            .tooltip("Run an action")
-            // Same as the issue tool: a moved trigger repaints once.
-            .on_prepaint(move |bounds, _, cx| {
-                if slot.get() != bounds {
-                    slot.set(bounds);
-                    cx.notify(view_id);
-                }
-            })
-            .into_any_element();
-        // EXP-946: flips and caps like the issue picker beside it.
-        let fit = issue_picker::popover_fit(
-            self.action_tool_bounds.get(),
-            window.viewport_size(),
-            issue_picker::POPOVER_WANTED_HEIGHT,
-        );
+        let on_close = self.picker_on_close(cx);
         crate::picker::deferred(move |window, cx| {
             crate::picker::action_picker::action_picker(
                 &actions,
@@ -2611,6 +2645,7 @@ impl ChatScreenView {
                 }),
             )
             .id("chat-action-picker")
+            .open(on_close)
             .width(px(360.))
             .fit(fit)
             // A list that has not arrived says so; an arrived empty one says
@@ -2623,6 +2658,131 @@ impl ChatScreenView {
             .render(window, cx)
         })
         .into_any_element()
+    }
+
+    /// "+" → MCP servers ›: the team's servers behind the shared multi
+    /// picker (EXP-792), opened by the menu row and anchored to the +
+    /// (EXP-1249). A blocked server reads its reason as the second line and
+    /// DIMS, but still toggles (the launch starts without it — a warning,
+    /// never a blocker).
+    fn mcp_picker_surface(
+        &self,
+        trigger: AnyElement,
+        fit: (gpui::Anchor, gpui::Pixels),
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let (servers, selected) = self.launch.as_ref()?.mcp_menu();
+        if servers.is_empty() {
+            return None;
+        }
+        let rows = launch_options::mcp_picker_servers(&servers);
+        let dimmed: Vec<String> = servers
+            .iter()
+            .filter(|server| server.blocked.is_some())
+            .map(|server| server.id.clone())
+            .collect();
+        let view = cx.entity().downgrade();
+        let on_close = self.picker_on_close(cx);
+        Some(
+            crate::picker::deferred(move |window, cx| {
+                crate::picker::mcp_server_picker::mcp_server_picker(
+                    &rows,
+                    selected,
+                    trigger,
+                    Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                Self::launch_access(this).set_mcp_selected(ids);
+                                cx.notify();
+                            });
+                        }
+                    }),
+                )
+                .id("chat-mcp-picker")
+                .open(on_close)
+                .fit(fit)
+                .render_item(move |item, cx| {
+                    let body = crate::picker::picker_item_body(item, cx);
+                    if dimmed.iter().any(|id| id == &item.value) {
+                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
+                    } else {
+                        body
+                    }
+                })
+                .render(window, cx)
+            })
+            .into_any_element(),
+        )
+    }
+
+    /// EXP-1249: what a "+"-opened picker runs as it closes — stop mounting
+    /// it and hand the caret back to the field.
+    fn picker_on_close(&self, cx: &mut gpui::Context<Self>) -> crate::picker::PickerOnClose {
+        let view = cx.entity().downgrade();
+        Rc::new(move |window: &mut Window, cx: &mut App| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.open_picker = None;
+                    this.input.read(cx).focus_handle(cx).focus(window, cx);
+                    cx.notify();
+                });
+            }
+        })
+    }
+
+    /// EXP-1249: a "+" menu row opens `picker` (anchored to the +).
+    fn open_composer_picker(&mut self, picker: ComposerPicker, cx: &mut gpui::Context<Self>) {
+        self.open_picker = Some(picker);
+        cx.notify();
+    }
+
+    /// EXP-1249 — the composer's ONE tool: the "+" and its menu, plus the
+    /// picker one of its rows opened, hung off a zero-width anchor at the
+    /// +'s left edge so it opens exactly where the menu did.
+    fn plus_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let bounds = self.plus_tool_bounds.get();
+        let viewport = window.viewport_size();
+        let menu_fit = issue_picker::popover_fit(bounds, viewport, PLUS_MENU_WANTED_HEIGHT);
+        let picker_fit =
+            issue_picker::popover_fit(bounds, viewport, issue_picker::POPOVER_WANTED_HEIGHT);
+        let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
+        let view = cx.entity().downgrade();
+        let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
+            .tooltip(PLUS_TOOLTIP)
+            .disabled(self.sending);
+        let menu = crate::controls::PointerMenu::new("chat-tool-plus-menu", trigger, {
+            move |menu, window, cx| plus_menu(menu, &view, options.as_ref(), window, cx)
+        })
+        .anchor(menu_fit.0);
+
+        // The picker's anchor: as tall as the + (the fit measures the room
+        // above from it), no width, nothing to hit.
+        let anchor = || div().w(px(0.)).h(bounds.size.height.max(px(24.))).into_any_element();
+        let picker = match self.open_picker {
+            Some(ComposerPicker::Issues) => Some(self.issue_picker_surface(anchor(), picker_fit, cx)),
+            Some(ComposerPicker::Actions) => Some(self.action_picker_surface(anchor(), picker_fit, cx)),
+            Some(ComposerPicker::McpServers) => self.mcp_picker_surface(anchor(), picker_fit, cx),
+            None => None,
+        };
+        let slot = self.plus_tool_bounds.clone();
+        let view_id = cx.entity_id();
+        h_flex()
+            .items_center()
+            .children(picker)
+            .child(
+                div()
+                    .child(menu)
+                    // A + that moved repaints once so the menu and the
+                    // pickers measure from where it is now (release review
+                    // R5). Steady state: no notify.
+                    .on_prepaint(move |bounds, _, cx| {
+                        if slot.get() != bounds {
+                            slot.set(bounds);
+                            cx.notify(view_id);
+                        }
+                    }),
+            )
+            .into_any_element()
     }
 
     /// The Device pin: this machine first, then the online remote ones. A
@@ -2786,13 +2946,12 @@ impl ChatScreenView {
     }
 
     /// EXP-991 — options row B: Device · Account · Model · Plan (· Resume ·
-    /// Repository) · ⋯.
+    /// Repository).
     ///
     /// EXP-872 dropped the Agent pin: the ACCOUNT pin carries its agent, so
     /// the row names the login a run spends rather than the brand twice.
-    /// EXP-991 dropped the unfolded second line with it — the `⋯` opens an
-    /// OVERLAY now ([`launch_options::more_options_popover`]) instead of
-    /// pushing the composer down every time someone looks at Effort.
+    /// EXP-1249 dropped the `⋯`: Effort, Subagents, Ultracode, MCP servers
+    /// and Computer use live in the "+" menu ([`plus_menu`]).
     fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let has_launch = self.launch.is_some();
@@ -2818,38 +2977,44 @@ impl ChatScreenView {
         if matches!(self.subject, Subject::None) {
             row = row.children(self.repo_pin(cx));
         }
-        if has_launch {
-            let trigger = launch_options::inline_icon_trigger(
-                "chat-pin-more".into(),
-                registry::UI_MORE,
-                cx,
-            )
-            .tooltip("More options");
-            row = row.child(launch_options::more_options_popover(
-                "chat",
-                trigger,
-                |this: &Self| this.launch.as_ref(),
-                Self::launch_access,
-                cx,
-            ));
-        }
         v_flex().w_full().min_w_0().gap_1().child(row).into_any_element()
     }
 
-    /// EXP-790: the suggestion chips, shown over the EMPTY, subject-less
-    /// field only. A click inserts the text through the mention widget and
-    /// parks the caret after the suggestion's first `#`
-    /// ([`MentionInput::insert_suggestion`]), so the issue picker opens
-    /// exactly as typing the token would — wherever in the sentence it sits.
+    /// EXP-790/EXP-1249: the suggestions, shown for the EMPTY, subject-less
+    /// field only — QUIET rows under the options line (muted 13px text
+    /// behind a faint `action-default` glyph; no pill, no border). A click
+    /// inserts the text through the mention widget and parks the caret after
+    /// the suggestion's first `#` ([`MentionInput::insert_suggestion`]), so
+    /// the issue picker opens exactly as typing the token would — wherever
+    /// in the sentence it sits.
     fn render_suggestions(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if !matches!(self.subject, Subject::None) || !self.input.read(cx).value().trim().is_empty() {
             return None;
         }
-        let chips = self.suggestions.iter().enumerate().map(|(index, &pick)| {
+        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
+        let rows = self.suggestions.iter().enumerate().map(|(index, &pick)| {
             let text: &'static str = CHAT_SUGGESTIONS[pick];
-            glass_pill(("chat-suggestion", index), PillSize::Sm, PillMode::Action, cx)
+            h_flex()
+                .id(("chat-suggestion", index))
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_center()
+                .px_1()
+                .py_1()
+                .rounded(px(theme::tokens::radius::SM))
                 .cursor_pointer()
-                .child(div().text_xs().child(text))
+                .text_size(px(13.))
+                .text_color(muted)
+                .hover(move |style| style.text_color(foreground))
+                .child(
+                    Icon::new(registry::ACTION_DEFAULT)
+                        .size(px(14.))
+                        .flex_shrink_0()
+                        .text_color(muted.opacity(0.6)),
+                )
+                .child(div().min_w_0().truncate().child(text))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.mention
                         .update(cx, |mention, cx| mention.insert_suggestion(text, window, cx));
@@ -2857,13 +3022,11 @@ impl ChatScreenView {
                 }))
         });
         Some(
-            h_flex()
+            v_flex()
                 .w_full()
                 .min_w_0()
-                .flex_wrap()
-                .gap_1()
-                .px_1()
-                .children(chips)
+                .pt_2()
+                .children(rows)
                 .into_any_element(),
         )
     }
@@ -2958,26 +3121,14 @@ impl ChatScreenView {
                 .into_any_element(),
         )
         .strip(strip)
-        .tool(self.issue_tool(window, cx))
-        .tool(self.action_tool(window, cx))
-        .tool(
-            // EXP-850 §13: the steer composers attach with the `ui-add` plus
-            // ×4 — `editor-image` stays the comment/description editors'.
-            crate::composer::composer_tool("chat-tool-attach", registry::UI_ADD, cx)
-                .tooltip("Attach images")
-                .disabled(self.sending)
-                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                    composer_images::pick_image_files(window, cx, |this, read, window, cx| {
-                        this.stage_images(read, window, cx)
-                    });
-                })),
-        )
+        // EXP-1249: the ONE tool — the "+" menu (the `ui-add` plus ×4).
+        .tool(self.plus_tool(window, cx))
         .submit(submit);
         if let Some(leading) = leading {
             composer = composer.leading(leading);
         }
-        // EXP-1037: the suggestion band is a subject-less-CHAT affordance —
-        // the dialog always has a subject, so it never shows one.
+        // EXP-1037: the suggestions are a subject-less-CHAT affordance — the
+        // dialog always has a subject, so it never shows them.
         let suggestions = (!self.in_dialog())
             .then(|| self.render_suggestions(cx))
             .flatten();
@@ -3020,7 +3171,6 @@ impl ChatScreenView {
             .w_full()
             .min_w_0()
             .gap_2()
-            .children(suggestions)
             // EXP-1019: the headline is the launcher's MAIN element — the
             // verb plus the subject's chips, with the card (and its muted
             // placeholder) reading as the secondary one under it.
@@ -3031,6 +3181,8 @@ impl ChatScreenView {
             )
             .child(options)
             .child(notes)
+            // EXP-1249: the suggestions sit UNDER the line, quiet.
+            .children(suggestions)
             .into_any_element()
     }
 
@@ -3065,11 +3217,30 @@ impl ChatScreenView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 crate::navigation::toggle_recent_runs(window, cx);
             }));
+        // EXP-1249: the faint brand mark behind the headline and the card —
+        // the page only (never the dialog), painted first so it sits under
+        // everything, and with no hitbox so it never takes a click.
+        let mark = div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .overflow_hidden()
+            .child(
+                Icon::from(crate::icons::ExpIcon::Logo)
+                    .size(px(PAGE_MARK_SIZE))
+                    .flex_shrink_0()
+                    .text_color(cx.theme().foreground.opacity(PAGE_MARK_ALPHA)),
+            );
         v_flex()
             .size_full()
             .min_h_0()
             .relative()
             .track_focus(&self.focus_handle)
+            .child(mark)
             .child(crate::scroll_pane::v_scroll_pane(
                 "chat-page-scroll",
                 &self.page_scroll,
@@ -3300,6 +3471,176 @@ impl gpui::Global for OpenComposerDialog {}
 /// Register the composer a freshly opened dialog window hosts (called by
 /// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps
 /// lighting up while its run is composed.
+/// EXP-1249 — the "+" menu's rows (web `launch-composer.tsx`'s menu, the
+/// styleguide `menu` entry's composer specimen): the subject pickers and the
+/// attach, then the run's options, then its tools. `options` is `None` until
+/// the launch cluster exists (then only the first group shows).
+pub(crate) fn plus_menu(
+    mut menu: gpui_component::menu::PopupMenu,
+    view: &gpui::WeakEntity<ChatScreenView>,
+    options: Option<&launch_options::ComposerMenu>,
+    window: &mut Window,
+    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    use crate::controls::{
+        menu_row, menu_row_value, pointer_check_item, pointer_menu_item, pointer_toggle_item,
+    };
+    let open = |picker: ComposerPicker| {
+        let view = view.clone();
+        move |_: &mut Window, cx: &mut App| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| this.open_composer_picker(picker, cx));
+            }
+        }
+    };
+    let chevron = |cx: &App| Some(menu_row_value(None, true, cx));
+    menu = menu
+        .min_w(px(260.))
+        .item(
+            pointer_menu_item(None, MENU_IMPLEMENT_ISSUE, chevron, open(ComposerPicker::Issues))
+                .icon(Icon::new(registry::UI_ISSUE)),
+        )
+        .item(
+            pointer_menu_item(None, MENU_RUN_ACTION, chevron, open(ComposerPicker::Actions))
+                .icon(Icon::new(registry::ACTION_RUN)),
+        )
+        .item({
+            let view = view.clone();
+            pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |_, cx| {
+                        composer_images::pick_image_files(window, cx, |this, read, window, cx| {
+                            this.stage_images(read, window, cx)
+                        });
+                    });
+                }
+            })
+            .icon(Icon::new(registry::UI_ATTACH))
+        });
+    let Some(options) = options else {
+        return menu;
+    };
+
+    // The run's options.
+    menu = menu.separator();
+    let effort_title = format!("{} · {}", options.effort_label, options.effort_value());
+    if options.effort_locked {
+        // Ultracode IS the effort level: the row says so and opens nothing.
+        let label = SharedString::from(effort_title);
+        menu = menu.item(
+            gpui_component::menu::PopupMenuItem::element(move |_, cx| {
+                menu_row(None, label.clone(), None, true, cx)
+            })
+            .disabled(true)
+            .icon(Icon::new(registry::UI_USAGE)),
+        );
+    } else {
+        let choices = options.effort_choices;
+        let picked = options.effort_picked.clone();
+        let view = view.clone();
+        menu = menu.submenu_with_icon(
+            Some(Icon::new(registry::UI_USAGE)),
+            effort_title,
+            window,
+            cx,
+            move |mut sub, _, _| {
+                for (label, value) in choices {
+                    let view = view.clone();
+                    let value = (*value).to_string();
+                    sub = sub.item(pointer_check_item(*label, picked == value, move |window, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                ChatScreenView::launch_access(this).pick_effort(&value, window, cx);
+                                cx.notify();
+                            });
+                        }
+                    }));
+                }
+                sub
+            },
+        );
+    }
+    if let (Some(picked), Some(value)) = (options.subagent_picked.clone(), options.subagent_value()) {
+        let view = view.clone();
+        menu = menu.submenu_with_icon(
+            Some(Icon::new(registry::SETTINGS_AGENTS)),
+            format!("{MENU_SUBAGENTS} · {value}"),
+            window,
+            cx,
+            move |mut sub, _, _| {
+                for (label, choice) in crate::coding_selects::SUBAGENT_MODEL_CHOICES.iter() {
+                    let view = view.clone();
+                    let choice = (*choice).to_string();
+                    let label = if choice.is_empty() { launch_options::CLI_DEFAULT_LABEL } else { *label };
+                    sub = sub.item(pointer_check_item(label, picked == choice, move |window, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                ChatScreenView::launch_access(this)
+                                    .pick_subagent_model(&choice, window, cx);
+                                cx.notify();
+                            });
+                        }
+                    }));
+                }
+                sub
+            },
+        );
+    }
+    if let Some(on) = options.ultracode {
+        let view = view.clone();
+        menu = menu.item(
+            pointer_toggle_item("chat-menu-ultracode", None, MENU_ULTRACODE, on, move |on, _, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| {
+                        ChatScreenView::launch_access(this).ultracode = on;
+                        cx.notify();
+                    });
+                }
+            })
+            .icon(Icon::new(registry::ACTION_DEFAULT)),
+        );
+    }
+
+    // The run's tools.
+    let mcp_value = options.mcp_value();
+    if mcp_value.is_some() || options.computer_use.is_some() {
+        menu = menu.separator();
+    }
+    if let Some(value) = mcp_value {
+        let value = SharedString::from(value);
+        menu = menu.item(
+            pointer_menu_item(
+                None,
+                MENU_MCP_SERVERS,
+                move |cx| Some(menu_row_value(Some(value.clone()), true, cx)),
+                open(ComposerPicker::McpServers),
+            )
+            .icon(Icon::new(registry::UI_MCP)),
+        );
+    }
+    if let Some(on) = options.computer_use {
+        let view = view.clone();
+        menu = menu.item(
+            pointer_toggle_item(
+                "chat-menu-computer-use",
+                None,
+                MENU_COMPUTER_USE,
+                on,
+                move |on, _, cx| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |this, cx| {
+                            ChatScreenView::launch_access(this).set_computer_use(on);
+                            cx.notify();
+                        });
+                    }
+                },
+            )
+            .icon(Icon::new(registry::NAV_COMPUTER)),
+        );
+    }
+    menu
+}
+
 pub(crate) fn register_open_dialog(view: &Entity<ChatScreenView>, cx: &mut App) {
     cx.set_global(OpenComposerDialog(view.downgrade()));
     // Escape and the titlebar close drop the window, and the view with it:

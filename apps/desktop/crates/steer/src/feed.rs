@@ -498,6 +498,27 @@ impl AnswerState {
 // The feed
 // ---------------------------------------------------------------------------
 
+/// EXP-1245 — one fact of the owner's per-turn thread, in arrival order: a
+/// person's message (main transcript only) or a turn edge, each with the
+/// publisher's time (unix ms; this client's clock for a local echo). The
+/// twin of the web `SessionTurnEvent`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnEdge {
+    Message { at: i64, text: String },
+    Started { at: i64 },
+    Ended { at: i64 },
+}
+
+/// The most edges [`SteerFeed::turn_log`] keeps (oldest dropped first).
+const TURN_LOG_CAP: usize = 512;
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// The staged half of an EXP-656 replay swap.
 #[derive(Default)]
 struct Staged {
@@ -532,6 +553,9 @@ pub struct SteerFeed {
     /// it has produced, off the same slot — the working caption's inputs.
     turn_started_at: Option<i64>,
     turn_tokens: Option<u64>,
+    /// EXP-1245: the person's messages and the turn EDGES, in order — what
+    /// the owner's thread splits into turns (the slot above is latest-wins).
+    turn_log: Vec<TurnEdge>,
     /// EXP-850 §2: the background-task strip, latest-wins whole.
     background_tasks: Vec<crate::frames::BackgroundTask>,
     /// EXP-927: the agent's own task list, latest-wins whole.
@@ -884,10 +908,25 @@ impl SteerFeed {
             // the replay did not carry it back.
             staged.local_echoes.push(text.to_string());
         }
+        self.log_turn_edge(TurnEdge::Message { at: now_ms(), text: text.to_string() });
         self.push_item(FeedKind::UserMessage {
             text: text.to_string(),
             subagent_id: None,
         })
+    }
+
+    /// EXP-1245: the owner's thread input — every main-transcript message
+    /// and turn edge so far, oldest first.
+    pub fn turn_log(&self) -> &[TurnEdge] {
+        &self.turn_log
+    }
+
+    fn log_turn_edge(&mut self, edge: TurnEdge) {
+        self.turn_log.push(edge);
+        if self.turn_log.len() > TURN_LOG_CAP {
+            let over = self.turn_log.len() - TURN_LOG_CAP;
+            self.turn_log.drain(..over);
+        }
     }
 
     /// Record a local echo WITHOUT rendering anything — for a message whose
@@ -1159,15 +1198,21 @@ impl SteerFeed {
                 self.trim();
             }
             ActivityEvent::UserMessage {
-                text, subagent_id, ..
+                text, subagent_id, at,
             } => {
                 if text.trim().is_empty() {
                     return;
                 }
                 // A message this client just sent was already echoed locally
-                // — skip its transcript-derived twin.
+                // (and logged) — skip its transcript-derived twin.
                 if self.consume_echo(&text) {
                     return;
+                }
+                if subagent_id.is_none() {
+                    self.log_turn_edge(TurnEdge::Message {
+                        at: at.unwrap_or_else(now_ms),
+                        text: text.clone(),
+                    });
                 }
                 self.push_item(FeedKind::UserMessage { text, subagent_id });
             }
@@ -1363,8 +1408,18 @@ impl SteerFeed {
                 state,
                 started_at,
                 tokens,
-                ..
+                at,
             } => {
+                let started = crate::frames::TurnState::Started;
+                let new_turn = state == started
+                    && (self.turn_state != started
+                        || (started_at.is_some() && started_at != self.turn_started_at));
+                if new_turn {
+                    let at = started_at.or(at).unwrap_or_else(now_ms);
+                    self.log_turn_edge(TurnEdge::Started { at });
+                } else if state != started && self.turn_state == started {
+                    self.log_turn_edge(TurnEdge::Ended { at: at.unwrap_or_else(now_ms) });
+                }
                 if state == crate::frames::TurnState::Started
                     && started_at.is_some()
                     && started_at != self.turn_started_at
@@ -1529,6 +1584,8 @@ impl SteerFeed {
         // EXP-848: a swap with no `turn` in its replay means nobody has said
         // the agent is working, which is exactly `Ended`.
         self.turn_state = crate::frames::TurnState::default();
+        // EXP-1245: the replay re-logs the turns it carries.
+        self.turn_log.clear();
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -3119,6 +3176,48 @@ mod tests {
     }
 
     // ── EXP-848: the turn slot ─────────────────────────────────────────────
+
+    /// EXP-1245: the owner's thread input — main-transcript messages and
+    /// the turn EDGES (a republished identical edge logs nothing), with the
+    /// publisher's time.
+    #[test]
+    fn the_turn_log_records_messages_and_edges() {
+        use crate::frames::TurnState;
+        let turn = |state: TurnState, started_at: Option<i64>, at: Option<i64>| ActivityEvent::Turn {
+            state,
+            started_at,
+            tokens: None,
+            at,
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply(turn(TurnState::Started, Some(1_000), Some(1_000)));
+        feed.apply(turn(TurnState::Started, Some(1_000), Some(1_500)));
+        feed.apply(turn(TurnState::Ended, Some(1_000), Some(2_000)));
+        feed.apply(turn(TurnState::Ended, Some(1_000), Some(2_100)));
+        feed.apply(ActivityEvent::UserMessage { text: "next".into(), subagent_id: None, at: Some(3_000) });
+        feed.apply(ActivityEvent::UserMessage {
+            text: "to the subagent".into(),
+            subagent_id: Some("s1".into()),
+            at: Some(3_100),
+        });
+        feed.apply(turn(TurnState::Started, Some(3_010), Some(3_010)));
+        assert_eq!(
+            feed.turn_log(),
+            &[
+                TurnEdge::Started { at: 1_000 },
+                TurnEdge::Ended { at: 2_000 },
+                TurnEdge::Message { at: 3_000, text: "next".into() },
+                TurnEdge::Started { at: 3_010 },
+            ]
+        );
+        // A local send logs once: its transcript twin is consumed.
+        feed.push_local_message("go");
+        feed.apply(ActivityEvent::UserMessage { text: "go".into(), subagent_id: None, at: Some(9_000) });
+        assert_eq!(
+            feed.turn_log().iter().filter(|edge| matches!(edge, TurnEdge::Message { .. })).count(),
+            2
+        );
+    }
 
     #[test]
     fn turn_is_a_slot_that_defaults_to_ended() {

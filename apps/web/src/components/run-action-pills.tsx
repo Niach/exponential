@@ -1,17 +1,15 @@
 import type { CodingSession } from "@/db/schema"
-import { contract } from "@exp/domain-contract"
 import { conceptIcon, Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useResumeRun } from "@/hooks/use-resume-run"
 import { useSessionDevice } from "@/hooks/use-session-device"
-import { SessionMergePill } from "@/components/session-merge-button"
-import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
 
 // EXP-877: the run's action pills, ONE look wherever a run is acted on — the
 // issue tray's coding slot, the run header's right cluster, the phone's
 // compact row. Byte-identical verbs with the IDE (`work_header.rs`): `Stop`,
-// `Resume`, `Merge PR`.
+// `Resume`. EXP-1251: Merge is `session-merge-button.tsx`'s (`MergePrPill`),
+// the ONE merge control.
 
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const RunResumeIcon = conceptIcon(`run-resume`)
@@ -19,7 +17,6 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 
 export const STOP_LABEL = `Stop`
 export const RESUME_LABEL = `Resume`
-export const MERGE_PR_LABEL = contract.diffUi.mergePr
 
 // EXP-926 / FEED-45: a run pill has exactly TWO placements, and one size rule
 // each — a `sm` Stop sitting beside a 36px face toggle read as an afterthought
@@ -143,32 +140,5 @@ export function ResumeRunPill({
       )}
       {RESUME_LABEL}
     </Pill>
-  )
-}
-
-/** Merge, the one look everywhere: the primary `Pill` with the merge glyph and
- * the two-click confirm `SessionMergePill` already carries (EXP-895 folded the
- * hand-rolled accent class into `Pill`'s own `primary`). It self-hides unless
- * the target's PR is open. */
-export function MergePrPill({
-  className,
-  steerEnabled,
-  placement = `tray`,
-  ...target
-}: SessionMergeTargetProps & {
-  className?: string
-  steerEnabled: boolean
-  placement?: RunPillPlacement
-}) {
-  return (
-    <SessionMergePill
-      {...target}
-      // EXP-889/EXP-926: the placement decides the box — a chip among the
-      // tray's chips, the toggle's own height in the work header.
-      pillSize={PLACEMENT_SIZE[placement]}
-      label={MERGE_PR_LABEL}
-      className={cn(`shrink-0`, placementClass(placement), className)}
-      steerEnabled={steerEnabled}
-    />
   )
 }

@@ -1786,6 +1786,11 @@ pub enum ServerFrame {
         /// predates the field simply never reads it.
         #[serde(default)]
         subagent_model: Option<String>,
+        /// EXP-1249: computer use for THIS run (the composer "+" toggle).
+        /// Absent = this machine's own switch (`launch_defaults.computerUse`);
+        /// a build advertising the `computer-use-run` cap reads it.
+        #[serde(default)]
+        computer_use: Option<bool>,
         /// FEED-63: the server's id for THIS start attempt. A machine that
         /// cannot honour the frame reports the reason back with
         /// `steer.reportStartFailure({startId, reason})` so the requester
@@ -3232,6 +3237,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3399,6 +3405,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3435,6 +3442,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3478,6 +3486,23 @@ mod tests {
         assert_eq!(subagent_model, None);
     }
 
+    /// EXP-1249: the per-run computer-use flag rides the start frame;
+    /// absent leaves the machine's own switch in charge.
+    #[test]
+    fn start_session_deserializes_the_computer_use_flag() {
+        for (json, want) in [
+            (r#"{"t":"start_session","issueId":"issue-9","computerUse":true}"#, Some(true)),
+            (r#"{"t":"start_session","issueId":"issue-9","computerUse":false}"#, Some(false)),
+            (r#"{"t":"start_session","issueId":"issue-9"}"#, None),
+        ] {
+            let ServerFrame::StartSession { computer_use, .. } = ServerFrame::parse(json).unwrap()
+            else {
+                panic!("expected a start frame");
+            };
+            assert_eq!(computer_use, want, "{json}");
+        }
+    }
+
     #[test]
     fn start_session_deserializes_launch_options() {
         // hub.ts startSession with EXP-149 options spread into the frame.
@@ -3510,6 +3535,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3548,6 +3574,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3587,6 +3614,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3640,6 +3668,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );
@@ -3679,6 +3708,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             }
         );

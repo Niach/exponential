@@ -295,6 +295,7 @@ fn spec() -> engine::adapters::AdapterSpec {
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         },
         mcp: coding::AgentMcp::CodexOverrides {
             url: "https://example.test/api/mcp".to_string(),

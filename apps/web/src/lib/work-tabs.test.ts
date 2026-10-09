@@ -15,6 +15,7 @@ import {
   tabHref,
   tabKey,
   upsertFromRoute,
+  isPreviewOrigin,
   type LiveRun,
   type WorkTab,
   type WorkTabsState,
@@ -113,10 +114,13 @@ describe(`upsertFromRoute`, () => {
       issueId: `i1`,
       from: `board:web`,
     })
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `inbox` })
-    expect(s.tabs[0]).toMatchObject({ from: `inbox` })
+    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `reviews` })
+    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
     s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: null })
-    expect(s.tabs[0]).toMatchObject({ from: `inbox` })
+    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
+    // EXP-1250: a preview origin never restamps a tab it merely focuses.
+    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `inbox` })
+    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
     // A stored null is filled too.
     let r = upsertFromRoute(EMPTY_WORK_TABS, { kind: `run`, runId: `s9`, issueId: null, from: null })
     r = upsertFromRoute(r, { kind: `run`, runId: `s9`, issueId: null, from: `agent` })
@@ -290,6 +294,69 @@ describe(`the tabless origin`, () => {
     s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `running` })
     expect(keys(s)).toEqual([`issue:i1`])
     expect(s.tabs[0]).toMatchObject({ face: `issue`, runId: `s1` })
+  })
+})
+
+// EXP-1250: the Inbox (and Agent › Recent) step through ONE preview slot.
+describe(`the preview slot`, () => {
+  const openIssue = (s: WorkTabsState, issueId: string, from: string | null) =>
+    upsertFromRoute(s, { kind: `issue`, issueId, from })
+
+  it(`names the list-detail origins`, () => {
+    for (const from of [`inbox`, `inbox:my-issues`, `agent:recent`]) {
+      expect(isPreviewOrigin(from), from).toBe(true)
+    }
+    for (const from of [null, undefined, `agent`, `board:web`, `reviews`, `running`]) {
+      expect(isPreviewOrigin(from), String(from)).toBe(false)
+    }
+  })
+
+  it(`keeps ONE tab for N inbox opens`, () => {
+    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
+    for (const id of [`i1`, `i2`, `i3`, `i4`]) s = openIssue(s, id, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i4`])
+    expect(s.tabs[1]).toMatchObject({ from: `inbox` })
+  })
+
+  it(`replaces the slot in place, never moving other tabs`, () => {
+    let s = openIssue(EMPTY_WORK_TABS, `a`, null)
+    s = openIssue(s, `i1`, `inbox`)
+    s = openIssue(s, `b`, `board:web`)
+    s = openIssue(s, `i2`, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i2`, `issue:b`])
+  })
+
+  it(`focuses an existing tab for the issue and keeps its origin`, () => {
+    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
+    s = openIssue(s, `i1`, `inbox`)
+    const before = s
+    s = openIssue(s, `a`, `inbox`)
+    // Nothing changes: `a` stays a board tab, the slot stays `i1`.
+    expect(s).toBe(before)
+    s = openIssue(s, `i2`, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i2`])
+  })
+
+  it(`gives each list its own slot`, () => {
+    let s = openIssue(EMPTY_WORK_TABS, `i1`, `inbox`)
+    s = openIssue(s, `m1`, `inbox:my-issues`)
+    s = upsertFromRoute(s, { kind: `run`, runId: `r1`, issueId: null, from: `agent:recent` })
+    s = upsertFromRoute(s, { kind: `run`, runId: `r2`, issueId: null, from: `agent:recent` })
+    s = openIssue(s, `m2`, `inbox:my-issues`)
+    expect(keys(s)).toEqual([`issue:i1`, `issue:m2`, `run:r2`])
+  })
+
+  it(`a run opened from Recent under an issue takes the slot too`, () => {
+    let s = upsertFromRoute(EMPTY_WORK_TABS, {
+      kind: `run`,
+      runId: `r1`,
+      issueId: `i1`,
+      from: `agent:recent`,
+    })
+    s = upsertFromRoute(s, { kind: `run`, runId: `r2`, issueId: `i2`, from: `agent:recent` })
+    expect(s.tabs).toEqual([
+      { kind: `issue`, issueId: `i2`, face: `run`, runId: `r2`, from: `agent:recent`, live: false },
+    ])
   })
 })
 

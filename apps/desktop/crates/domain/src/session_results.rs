@@ -83,6 +83,9 @@ pub struct SessionResultGroup {
     /// entry its text came from (trimmed, deduped first-seen, capped at
     /// [`SESSION_RESULT_FILES_MAX`]); empty without.
     pub files: Vec<String>,
+    /// EXP-1251 — the PR the topic belongs to (its text entry's `prUrl`);
+    /// `None` = every PR of the run.
+    pub pr_url: Option<String>,
 }
 
 /// EXP-1154 — the most paths one topic lists (fixture `files.maxFiles`).
@@ -156,32 +159,6 @@ pub fn guide_section_caption(index: usize, total: usize) -> String {
     format!("{index:02} / {total:02}")
 }
 
-/// EXP-1154 — one Guide file row: the path and, when the loaded diff has the
-/// file, its `(additions, deletions)`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GuideFileRow {
-    pub path: String,
-    pub counts: Option<(u32, u32)>,
-}
-
-/// EXP-1154 — one row per path in order; counts from the diff file whose
-/// path matches EXACTLY (`diff` = `(path, additions, deletions)`), else
-/// `None` (an unknown path, or no diff loaded).
-pub fn guide_file_rows(paths: &[String], diff: Option<&[(String, u32, u32)]>) -> Vec<GuideFileRow> {
-    paths
-        .iter()
-        .map(|path| GuideFileRow {
-            path: path.clone(),
-            counts: diff.and_then(|files| {
-                files
-                    .iter()
-                    .find(|(candidate, _, _)| candidate == path)
-                    .map(|(_, additions, deletions)| (*additions, *deletions))
-            }),
-        })
-        .collect()
-}
-
 /// EXP-1172 — a topic with more than one picture moves its inline ones into
 /// `earlier`, so the final report leads; a topic's only picture stays.
 fn fold_inline(mut groups: Vec<SessionResultGroup>) -> Vec<SessionResultGroup> {
@@ -230,6 +207,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
                     entries: Vec::new(),
                     earlier: Vec::new(),
                     files: Vec::new(),
+                    pr_url: None,
                 });
                 groups.len() - 1
             }
@@ -261,6 +239,7 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
         if group.text.is_none() {
             group.text = Some(body);
             group.files = result_files(object.get("files"));
+            group.pr_url = field("prUrl");
         }
     }
     fold_inline(groups)
@@ -295,15 +274,49 @@ pub struct SessionThread {
 /// `sessionThread`, fixture `session-results.json` `thread` (×4).
 pub fn session_thread(raw: Option<&Value>) -> SessionThread {
     let mut thread = SessionThread::default();
+    for piece in thread_pieces(raw) {
+        match piece.kind {
+            ThreadPieceKind::Item(item) => thread.items.push(item),
+            ThreadPieceKind::Reply(text) => thread.reply = Some(text),
+        }
+    }
+    thread
+}
+
+/// One thread piece with the server's write stamp (`at`, ms; `None` on an
+/// entry filed before EXP-1251).
+struct ThreadPiece {
+    kind: ThreadPieceKind,
+    at: Option<i64>,
+}
+
+enum ThreadPieceKind {
+    Item(ThreadItem),
+    Reply(String),
+}
+
+/// A positive finite `at`, else `None`.
+fn stamp_ms(value: Option<&Value>) -> Option<i64> {
+    let number = value?.as_f64()?;
+    (number.is_finite() && number > 0.0).then_some(number as i64)
+}
+
+/// The [`session_thread`] walk, each piece stamped: a picture where it sits,
+/// a topic's FIRST non-blank text where it sits, the Summary's first text as
+/// the reply.
+fn thread_pieces(raw: Option<&Value>) -> Vec<ThreadPiece> {
+    let mut pieces = Vec::new();
     let mut seen_text: Vec<String> = Vec::new();
+    let mut replied = false;
     let mut pictures = 0usize;
     for item in blob_items(raw) {
+        let at = stamp_ms(item.get("at"));
         if let Some(entry) = entry_from(&item) {
             if pictures >= MAX_SESSION_RESULTS {
                 continue;
             }
             pictures += 1;
-            thread.items.push(ThreadItem::Picture(entry));
+            pieces.push(ThreadPiece { kind: ThreadPieceKind::Item(ThreadItem::Picture(entry)), at });
             continue;
         }
         let Some(object) = item.as_object() else {
@@ -317,18 +330,371 @@ pub fn session_thread(raw: Option<&Value>) -> SessionThread {
             continue;
         };
         if is_summary_topic(&topic) {
-            if thread.reply.is_none() {
-                thread.reply = Some(text);
+            if !replied {
+                pieces.push(ThreadPiece { kind: ThreadPieceKind::Reply(text), at });
             }
+            replied = true;
             continue;
         }
         if seen_text.contains(&topic) {
             continue;
         }
         seen_text.push(topic.clone());
-        thread.items.push(ThreadItem::Text { topic, text });
+        pieces.push(ThreadPiece { kind: ThreadPieceKind::Item(ThreadItem::Text { topic, text }), at });
     }
-    thread
+    pieces
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1245 — the thread as TURNS (the run's owner only: the relay feed is
+// theirs). The twin of `@exp/ui` `sessionTurns`, fixture
+// `session-results.json` `turns` (×4).
+// ---------------------------------------------------------------------------
+
+/// One relay feed fact the turns read: a person's message or a turn edge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionTurnEvent {
+    UserMessage { at: i64, text: String, images: Vec<String> },
+    TurnStarted { at: i64 },
+    TurnEnded { at: i64 },
+}
+
+impl SessionTurnEvent {
+    fn at(&self) -> i64 {
+        match self {
+            Self::UserMessage { at, .. } | Self::TurnStarted { at } | Self::TurnEnded { at } => *at,
+        }
+    }
+}
+
+/// The person's message that opened a turn (the bubble).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTurnMessage {
+    pub text: String,
+    pub at: i64,
+    /// The message's image urls, in order (the bubble shows a thumb).
+    pub images: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionTurn {
+    /// `None` for the first turn of an issue run or a turn the agent began.
+    pub message: Option<SessionTurnMessage>,
+    /// The turn's `started` edge; `None` while a sent message waits.
+    pub started_at: Option<i64>,
+    /// The turn's `ended` edge (or the next message that cut in); `None`
+    /// while live.
+    pub ended_at: Option<i64>,
+    pub items: Vec<ThreadItem>,
+    pub reply: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTurns {
+    /// `false` = no feed: ONE turn holding today's thread under the one
+    /// run-wide status row.
+    pub per_turn: bool,
+    pub turns: Vec<SessionTurn>,
+}
+
+fn turn_boundary(turn: &SessionTurn) -> i64 {
+    turn.message
+        .as_ref()
+        .map(|message| message.at)
+        .or(turn.started_at)
+        .unwrap_or(0)
+}
+
+/// Walks the feed in time order (ties keep feed order): a message opens a
+/// new turn (closing a still-open one at its time, the new turn starting
+/// there too); a `started` edge starts the newest turn when it has not
+/// started yet, else opens a message-less turn unless one runs; an `ended`
+/// edge ends the running turn. Every result lands in the LAST turn whose
+/// boundary (message time, else start) is at or before its `at`; one without
+/// `at`, or older than every boundary, lands in the first. No feed event =
+/// one turn, `per_turn` false.
+pub fn session_turns(raw: Option<&Value>, feed: &[SessionTurnEvent]) -> SessionTurns {
+    let mut events: Vec<(usize, &SessionTurnEvent)> = feed.iter().enumerate().collect();
+    events.sort_by(|(a_order, a), (b_order, b)| a.at().cmp(&b.at()).then(a_order.cmp(b_order)));
+    let mut turns: Vec<SessionTurn> = Vec::new();
+    fn running(turns: &mut [SessionTurn]) -> Option<&mut SessionTurn> {
+        turns
+            .last_mut()
+            .filter(|turn| turn.started_at.is_some() && turn.ended_at.is_none())
+    }
+    for (_, event) in events {
+        match event {
+            SessionTurnEvent::UserMessage { at, text, images } => {
+                let cut = match running(&mut turns) {
+                    Some(turn) => {
+                        turn.ended_at = Some(*at);
+                        true
+                    }
+                    None => false,
+                };
+                turns.push(SessionTurn {
+                    message: Some(SessionTurnMessage {
+                        text: text.clone(),
+                        at: *at,
+                        images: images.iter().filter(|src| !src.is_empty()).cloned().collect(),
+                    }),
+                    started_at: cut.then_some(*at),
+                    ..SessionTurn::default()
+                });
+            }
+            SessionTurnEvent::TurnStarted { at } => {
+                if let Some(last) = turns
+                    .last_mut()
+                    .filter(|turn| turn.started_at.is_none() && turn.ended_at.is_none())
+                {
+                    last.started_at = Some(*at);
+                } else if running(&mut turns).is_none() {
+                    turns.push(SessionTurn { started_at: Some(*at), ..SessionTurn::default() });
+                }
+            }
+            SessionTurnEvent::TurnEnded { at } => {
+                if let Some(turn) = running(&mut turns) {
+                    turn.ended_at = Some(*at);
+                }
+            }
+        }
+    }
+    if turns.is_empty() {
+        let thread = session_thread(raw);
+        return SessionTurns {
+            per_turn: false,
+            turns: vec![SessionTurn { items: thread.items, reply: thread.reply, ..SessionTurn::default() }],
+        };
+    }
+    for piece in thread_pieces(raw) {
+        let mut target = 0usize;
+        if let Some(at) = piece.at {
+            for (index, turn) in turns.iter().enumerate() {
+                if turn_boundary(turn) <= at {
+                    target = index;
+                }
+            }
+        }
+        match piece.kind {
+            ThreadPieceKind::Item(item) => turns[target].items.push(item),
+            ThreadPieceKind::Reply(text) => turns[target].reply = Some(text),
+        }
+    }
+    SessionTurns { per_turn: true, turns }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1251 — Guide COVERAGE: each section's diff files (a listed path names a
+// file by its path OR its rename source), a trailing automatic section for
+// every unnamed file (`Other changes`; with no report, ONE `Changes` section)
+// and the `Show complete diff` row. The twin of `@exp/ui` `guideCoverage`,
+// fixture `session-results.json` `coverage` (×4).
+// ---------------------------------------------------------------------------
+
+/// The automatic section's title when a report exists.
+pub const GUIDE_OTHER_CHANGES_TOPIC: &str = crate::contract::DIFF_UI_GUIDE_OTHER_CHANGES;
+/// The automatic section's title with no report, and every Changes row's label.
+pub const GUIDE_CHANGES_TOPIC: &str = crate::contract::DIFF_UI_GUIDE_CHANGES_ROW;
+
+/// What coverage reads off one diff file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideDiffFile {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+/// A set of diff files: their INDICES into the diff handed to
+/// [`guide_coverage`], plus the summed counts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GuideChangeSet {
+    pub files: Vec<usize>,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+impl GuideChangeSet {
+    pub fn file_count(&self) -> usize {
+        self.files.len()
+    }
+}
+
+/// One covered group (the lead or a numbered section).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideCovered<'a, G> {
+    pub group: &'a G,
+    /// 1-based for a section; 0 for the lead.
+    pub index: usize,
+    pub total: usize,
+    /// `None` while no diff is loaded: the row is not drawn.
+    pub changes: Option<GuideChangeSet>,
+    /// Listed paths the loaded diff does not have (empty without a diff).
+    pub missing: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideCoverage<'a, G> {
+    pub lead: Option<GuideCovered<'a, G>>,
+    pub sections: Vec<GuideCovered<'a, G>>,
+    /// The trailing automatic section `(title, files)`: `None` when every
+    /// file is claimed, the diff is empty or not loaded.
+    pub other: Option<(&'static str, GuideChangeSet)>,
+    /// Every diff file (the `Show complete diff` row); `None` without a diff.
+    pub complete: Option<GuideChangeSet>,
+}
+
+/// A Changes row's muted count: `1 file`, `N files`.
+pub fn guide_file_count_label(count: usize) -> String {
+    if count == 1 {
+        "1 file".to_string()
+    } else {
+        format!("{count} files")
+    }
+}
+
+/// True when a listed path names this diff file (its path or rename source).
+pub fn guide_path_matches(path: &str, file: &GuideDiffFile) -> bool {
+    file.path == path || file.previous_path.as_deref() == Some(path)
+}
+
+fn change_set(files: Vec<usize>, diff: &[GuideDiffFile]) -> GuideChangeSet {
+    let additions = files.iter().map(|&ix| diff[ix].additions).sum();
+    let deletions = files.iter().map(|&ix| diff[ix].deletions).sum();
+    GuideChangeSet { files, additions, deletions }
+}
+
+/// The diff files `paths` name, in LISTED order (a file once), plus the
+/// listed paths no diff file matches.
+pub fn guide_files_for(paths: &[String], diff: &[GuideDiffFile]) -> (Vec<usize>, Vec<String>) {
+    let mut files: Vec<usize> = Vec::new();
+    let mut missing = Vec::new();
+    for path in paths {
+        let hits: Vec<usize> = diff
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| guide_path_matches(path, file))
+            .map(|(ix, _)| ix)
+            .collect();
+        if hits.is_empty() {
+            missing.push(path.clone());
+            continue;
+        }
+        for hit in hits {
+            if !files.contains(&hit) {
+                files.push(hit);
+            }
+        }
+    }
+    (files, missing)
+}
+
+/// See the section comment. `topic`/`files` read a group; `diff = None` =
+/// not loaded (every `changes` `None`, `other`/`complete` `None`).
+pub fn guide_coverage<'a, G>(
+    groups: &'a [G],
+    topic: impl Fn(&G) -> &str,
+    files: impl Fn(&G) -> &[String],
+    diff: Option<&[GuideDiffFile]>,
+) -> GuideCoverage<'a, G> {
+    let (lead, sections) = session_results_guide(groups, &topic);
+    let mut claimed: Vec<bool> = vec![false; diff.map_or(0, <[GuideDiffFile]>::len)];
+    let mut cover = |group: &'a G, index: usize, total: usize| -> GuideCovered<'a, G> {
+        let Some(diff) = diff else {
+            return GuideCovered { group, index, total, changes: None, missing: Vec::new() };
+        };
+        let (hits, missing) = guide_files_for(files(group), diff);
+        for &hit in &hits {
+            claimed[hit] = true;
+        }
+        GuideCovered { group, index, total, changes: Some(change_set(hits, diff)), missing }
+    };
+    let lead = lead.map(|group| cover(group, 0, 0));
+    let sections: Vec<GuideCovered<'a, G>> = sections
+        .into_iter()
+        .map(|section| cover(section.group, section.index, section.total))
+        .collect();
+    let Some(diff) = diff else {
+        return GuideCoverage { lead, sections, other: None, complete: None };
+    };
+    let rest: Vec<usize> = (0..diff.len()).filter(|&ix| !claimed[ix]).collect();
+    let other = (!rest.is_empty()).then(|| {
+        let title = if groups.is_empty() { GUIDE_CHANGES_TOPIC } else { GUIDE_OTHER_CHANGES_TOPIC };
+        (title, change_set(rest, diff))
+    });
+    GuideCoverage {
+        lead,
+        sections,
+        other,
+        complete: Some(change_set((0..diff.len()).collect(), diff)),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1251 — PR scope: a run that stacks a second PR tags its topics
+// (`prUrl` on the text entry); a PR shows its own topics plus the untagged
+// ones, pictures following their topic. Fixture `session-results.json`
+// `prScope` (×4).
+// ---------------------------------------------------------------------------
+
+/// Each topic's PR tag: its FIRST non-blank text entry's `prUrl`, trimmed.
+fn topic_pr_urls(items: &[Value]) -> Vec<(String, Option<String>)> {
+    let mut tags: Vec<(String, Option<String>)> = Vec::new();
+    for item in items {
+        if entry_from(item).is_some() {
+            continue;
+        }
+        let Some(object) = item.as_object() else {
+            continue;
+        };
+        let field = |key: &str| -> Option<String> {
+            let value = object.get(key)?.as_str()?.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let (Some(topic), Some(_)) = (field("topic"), field("text")) else {
+            continue;
+        };
+        if tags.iter().any(|(seen, _)| *seen == topic) {
+            continue;
+        }
+        tags.push((topic, field("prUrl")));
+    }
+    tags
+}
+
+/// The entries a PR shows (untagged topics + the ones tagged `pr_url`), as a
+/// blob any reader here takes.
+pub fn session_results_for_pr(raw: Option<&Value>, pr_url: Option<&str>) -> Value {
+    let items = blob_items(raw);
+    let tags = topic_pr_urls(&items);
+    let want = pr_url.map(str::trim).filter(|url| !url.is_empty());
+    let kept: Vec<Value> = items
+        .into_iter()
+        .filter(|item| {
+            let topic = item.get("topic").and_then(Value::as_str).map(str::trim);
+            let tag = topic.and_then(|topic| {
+                tags.iter().find(|(seen, _)| seen == topic).and_then(|(_, tag)| tag.as_deref())
+            });
+            match tag {
+                None => true,
+                Some(tag) => Some(tag) == want,
+            }
+        })
+        .collect();
+    Value::Array(kept)
+}
+
+/// Every PR url a run's topics are tagged with, first-seen order.
+pub fn session_result_pr_urls(raw: Option<&Value>) -> Vec<String> {
+    let mut urls: Vec<String> = Vec::new();
+    for (_, tag) in topic_pr_urls(&blob_items(raw)) {
+        if let Some(tag) = tag {
+            if !urls.contains(&tag) {
+                urls.push(tag);
+            }
+        }
+    }
+    urls
 }
 
 /// Read `coding_sessions.results` — see the module docs for the tolerance
@@ -372,6 +738,7 @@ pub fn group_session_results(entries: &[SessionResultEntry]) -> Vec<SessionResul
                 entries: vec![entry.clone()],
                 earlier: Vec::new(),
                 files: Vec::new(),
+                pr_url: None,
             }),
         }
     }
@@ -690,6 +1057,197 @@ mod tests {
         }
     }
 
+    fn results_fixture() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/session-results.json"
+        ))
+        .unwrap()
+    }
+
+    /// EXP-1251 — the fixture's `coverage.fileCountLabels` ×4.
+    #[test]
+    fn guide_file_count_label_matches_the_shared_fixture() {
+        let fixture = results_fixture();
+        for pair in fixture["coverage"]["fileCountLabels"].as_array().unwrap() {
+            assert_eq!(
+                guide_file_count_label(pair[0].as_u64().unwrap() as usize),
+                pair[1].as_str().unwrap()
+            );
+        }
+        assert_eq!(GUIDE_OTHER_CHANGES_TOPIC, "Other changes");
+        assert_eq!(GUIDE_CHANGES_TOPIC, "Changes");
+    }
+
+    /// EXP-1251 — the fixture's `coverage.cases` ×4 ("coverage: <case>").
+    #[test]
+    fn guide_coverage_matches_the_shared_fixture() {
+        struct Group {
+            topic: String,
+            files: Vec<String>,
+        }
+        let fixture = results_fixture();
+        let cases = fixture["coverage"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let groups: Vec<Group> = case["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|group| Group {
+                    topic: group["topic"].as_str().unwrap().to_string(),
+                    files: group["files"]
+                        .as_array()
+                        .map(|files| files.iter().map(|f| f.as_str().unwrap().to_string()).collect())
+                        .unwrap_or_default(),
+                })
+                .collect();
+            let diff: Option<Vec<GuideDiffFile>> = case["diff"].as_array().map(|files| {
+                files
+                    .iter()
+                    .map(|file| GuideDiffFile {
+                        path: file["path"].as_str().unwrap().to_string(),
+                        previous_path: file["previousPath"].as_str().map(str::to_string),
+                        additions: file["additions"].as_u64().unwrap() as u32,
+                        deletions: file["deletions"].as_u64().unwrap() as u32,
+                    })
+                    .collect()
+            });
+            let coverage = guide_coverage(
+                &groups,
+                |group| group.topic.as_str(),
+                |group| group.files.as_slice(),
+                diff.as_deref(),
+            );
+            let paths = |set: &GuideChangeSet| -> Vec<String> {
+                set.files.iter().map(|&ix| diff.as_ref().unwrap()[ix].path.clone()).collect()
+            };
+            let covered = |entry: &GuideCovered<Group>, numbered: bool| -> Value {
+                let mut out = serde_json::Map::new();
+                out.insert("topic".into(), Value::from(entry.group.topic.clone()));
+                if numbered {
+                    out.insert("index".into(), Value::from(entry.index));
+                    out.insert("total".into(), Value::from(entry.total));
+                }
+                match &entry.changes {
+                    Some(set) => {
+                        out.insert("files".into(), serde_json::json!(paths(set)));
+                        out.insert("additions".into(), Value::from(set.additions));
+                        out.insert("deletions".into(), Value::from(set.deletions));
+                    }
+                    None => {
+                        out.insert("changes".into(), Value::Null);
+                    }
+                }
+                out.insert("missing".into(), serde_json::json!(entry.missing));
+                Value::Object(out)
+            };
+            let actual = serde_json::json!({
+                "lead": coverage.lead.as_ref().map_or(Value::Null, |lead| covered(lead, false)),
+                "sections": coverage.sections.iter().map(|section| covered(section, true)).collect::<Vec<_>>(),
+                "other": coverage.other.as_ref().map_or(Value::Null, |(topic, set)| serde_json::json!({
+                    "topic": topic,
+                    "files": paths(set),
+                    "additions": set.additions,
+                    "deletions": set.deletions,
+                })),
+                "complete": coverage.complete.as_ref().map_or(Value::Null, |set| serde_json::json!({
+                    "fileCount": set.file_count(),
+                    "additions": set.additions,
+                    "deletions": set.deletions,
+                })),
+            });
+            assert_eq!(actual, case["expected"], "coverage: {name}");
+        }
+    }
+
+    /// EXP-1251 — the fixture's `prScope.cases` ×4 ("pr scope: <case>").
+    #[test]
+    fn session_results_for_pr_matches_the_shared_fixture() {
+        let fixture = results_fixture();
+        let cases = fixture["prScope"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(
+                serde_json::json!(session_result_pr_urls(Some(&case["raw"]))),
+                case["prUrls"],
+                "pr scope: {name}"
+            );
+            for scope in case["byPr"].as_array().unwrap() {
+                let kept = session_results_for_pr(Some(&case["raw"]), scope["prUrl"].as_str());
+                let topics: Vec<Value> = kept
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|item| item["topic"].clone())
+                    .collect();
+                assert_eq!(Value::Array(topics), scope["topics"], "pr scope: {name} {}", scope["prUrl"]);
+            }
+        }
+        let [group] = &parse_session_result_groups(Some(&serde_json::json!([
+            {"topic": "t", "text": "x", "prUrl": " https://github.com/o/r/pull/1 "}
+        ])))[..] else {
+            panic!("one group");
+        };
+        assert_eq!(group.pr_url.as_deref(), Some("https://github.com/o/r/pull/1"));
+    }
+
+    /// EXP-1245 — the fixture's `turns.cases` ×4 (the web's case names).
+    #[test]
+    fn session_turns_matches_the_shared_fixture() {
+        let fixture = results_fixture();
+        let cases = fixture["turns"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let feed: Vec<SessionTurnEvent> = case["feed"]
+                .as_array()
+                .map(|events| {
+                    events
+                        .iter()
+                        .map(|event| {
+                            let at = event["at"].as_i64().unwrap();
+                            match (event["kind"].as_str().unwrap(), event["state"].as_str()) {
+                                ("user_message", _) => SessionTurnEvent::UserMessage {
+                                    at,
+                                    text: event["text"].as_str().unwrap().to_string(),
+                                    images: event["images"]
+                                        .as_array()
+                                        .map(|images| {
+                                            images.iter().filter_map(|i| i.as_str().map(str::to_string)).collect()
+                                        })
+                                        .unwrap_or_default(),
+                                },
+                                ("turn", Some("started")) => SessionTurnEvent::TurnStarted { at },
+                                _ => SessionTurnEvent::TurnEnded { at },
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let turns = session_turns(Some(&case["raw"]), &feed);
+            let actual = serde_json::json!({
+                "perTurn": turns.per_turn,
+                "turns": turns.turns.iter().map(|turn| serde_json::json!({
+                    "message": turn.message.as_ref().map(|message| serde_json::json!({
+                        "text": message.text,
+                        "at": message.at,
+                        "images": message.images,
+                    })),
+                    "startedAt": turn.started_at,
+                    "endedAt": turn.ended_at,
+                    "items": turn.items.iter().map(|item| match item {
+                        ThreadItem::Text { topic, text } => serde_json::json!({"kind": "text", "topic": topic, "text": text}),
+                        ThreadItem::Picture(entry) => serde_json::json!({"kind": "picture", "attachmentId": entry.attachment_id}),
+                    }).collect::<Vec<_>>(),
+                    "reply": turn.reply,
+                })).collect::<Vec<_>>(),
+            });
+            assert_eq!(actual, case["expected"], "{name}");
+        }
+    }
+
     /// EXP-1154 — the over-cap rule: the 41st distinct path is dropped.
     #[test]
     fn parse_session_result_groups_caps_files() {
@@ -749,50 +1307,6 @@ mod tests {
                 ),
                 case["text"].as_str().unwrap()
             );
-        }
-    }
-
-    /// EXP-1154 — the fixture's `guide.fileRows`: counts only for an exact
-    /// path match in the loaded diff.
-    #[test]
-    fn guide_file_rows_matches_the_shared_fixture() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-results.json"
-        ))
-        .unwrap();
-        let cases = fixture["guide"]["fileRows"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let paths: Vec<String> = case["paths"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|path| path.as_str().unwrap().to_string())
-                .collect();
-            let diff: Option<Vec<(String, u32, u32)>> = case["diff"].as_array().map(|files| {
-                files
-                    .iter()
-                    .map(|file| {
-                        (
-                            file["path"].as_str().unwrap().to_string(),
-                            file["additions"].as_u64().unwrap() as u32,
-                            file["deletions"].as_u64().unwrap() as u32,
-                        )
-                    })
-                    .collect()
-            });
-            let actual: Vec<Value> = guide_file_rows(&paths, diff.as_deref())
-                .iter()
-                .map(|row| {
-                    serde_json::json!({
-                        "path": row.path,
-                        "additions": row.counts.map(|(additions, _)| additions),
-                        "deletions": row.counts.map(|(_, deletions)| deletions),
-                    })
-                })
-                .collect();
-            assert_eq!(Value::Array(actual), case["expected"], "fixture case: {name}");
         }
     }
 

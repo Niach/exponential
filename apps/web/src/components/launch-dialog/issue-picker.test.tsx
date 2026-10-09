@@ -58,27 +58,27 @@ vi.mock(`@/components/issue-properties/priority-dropdown`, () => ({
   PriorityIcon: () => <span data-testid="priority-icon" />,
 }))
 
-const { IssuePicker } = await import(`@/components/launch-dialog/issue-picker`)
+const { ComposerIssuePicker } = await import(
+  `@/components/launch-dialog/issue-picker`
+)
 
 const rows = () =>
   Array.from(document.querySelectorAll(`[data-slot=command-item]`))
 
-describe(`IssuePicker`, () => {
+// EXP-1249: the body the "+" menu's Implement issue submenu hosts.
+describe(`ComposerIssuePicker`, () => {
   const onToggle = vi.fn()
   beforeEach(() => onToggle.mockReset())
 
   const open = (checked: Issue[] = []) => {
     render(
-      <IssuePicker
+      <ComposerIssuePicker
         teamId="team-1"
         eligible={ELIGIBLE}
         checked={checked}
         onToggle={onToggle}
-      >
-        <button type="button">Issues</button>
-      </IssuePicker>
+      />
     )
-    fireEvent.click(screen.getByText(`Issues`))
   }
 
   it(`is the shared picker in multi mode`, () => {

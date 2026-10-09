@@ -83,6 +83,7 @@ fn options() -> coding::LaunchOptions {
         subagent_model: String::new(),
         mcp_server_ids: Vec::new(),
         account: None,
+        computer_use: None,
     }
 }
 

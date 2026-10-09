@@ -107,6 +107,21 @@ use crate::transcript_rows::{
 /// sync's one requirement is an ascending key vector).
 const THREAD_REPLY_ID: FeedItemId = 1 << 40;
 const THREAD_CARD_BASE: FeedItemId = 1 << 41;
+/// EXP-1245: the per-turn rows' id spaces (a turn's bubble, its status row).
+const THREAD_BUBBLE_BASE: FeedItemId = 1 << 39;
+const THREAD_STATUS_BASE: FeedItemId = 1 << 38;
+
+/// EXP-1245 — one row of the Run face's thread list: per turn the person's
+/// bubble, the turn's status row, its published items and reply (`usize` =
+/// the turn), then the pending cards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThreadRow {
+    Bubble(usize),
+    Status(usize),
+    Item(usize, usize),
+    Reply(usize),
+    Card(usize),
+}
 
 gpui::actions!(
     steer_viewer,
@@ -449,6 +464,11 @@ pub(crate) struct SteerSessionView {
     /// EXP-1154: a Guide file pick made before the Changes files landed (the
     /// PR-files fallback arrives after the face opens), applied when they do.
     pending_diff_path: Option<String>,
+    /// EXP-1251: the Guide's diff page `RunFace::Diff` shows (a section's
+    /// files; `All` = the complete diff, what an outside `Diff` ask opens).
+    guide_page: crate::session_results::GuidePage,
+    /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
+    stack_hovered: Option<String>,
     /// EXP-895: the file tree's `Filter files` field.
     diff_filter: Entity<InputState>,
     /// EXP-916: the tree's FOLDED directories, keyed by path. Every
@@ -560,7 +580,11 @@ pub(crate) struct SteerSessionView {
     /// `results` and the pending cards it draws after the reply.
     thread_list: ListState,
     thread_keys: Vec<RowKey>,
-    thread: domain::session_results::SessionThread,
+    /// EXP-1245: the thread as TURNS (`session_turns` over the feed's turn
+    /// log — the owner's alone; no log = one turn, today's thread) and the
+    /// rows it lays out.
+    thread: domain::session_results::SessionTurns,
+    thread_rows: Vec<ThreadRow>,
     thread_cards: Vec<FeedRowSpec>,
     /// EXP-1175: the status row reads `Building on … · <elapsed>`, so the
     /// working tick repaints it while the run's display state is working.
@@ -744,6 +768,8 @@ impl SteerSessionView {
             run_face: RunFace::Run,
             diff_selected: 0,
             pending_diff_path: None,
+            guide_page: crate::session_results::GuidePage::All,
+            stack_hovered: None,
             diff_filter,
             folded_dirs: HashSet::new(),
             pr_changes: None,
@@ -786,7 +812,8 @@ impl SteerSessionView {
                 list
             },
             thread_keys: Vec::new(),
-            thread: Default::default(),
+            thread: domain::session_results::SessionTurns { per_turn: false, turns: Vec::new() },
+            thread_rows: Vec::new(),
             thread_cards: Vec::new(),
             status_ticking: false,
             show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
@@ -1375,8 +1402,29 @@ impl SteerSessionView {
             value(&mut hasher);
             hasher.finish()
         };
-        self.thread = domain::session_results::session_thread(
+        let events: Vec<domain::session_results::SessionTurnEvent> = self
+            .feed
+            .turn_log()
+            .iter()
+            .map(|edge| match edge {
+                steer::feed::TurnEdge::Message { at, text } => {
+                    domain::session_results::SessionTurnEvent::UserMessage {
+                        at: *at,
+                        text: text.clone(),
+                        images: Vec::new(),
+                    }
+                }
+                steer::feed::TurnEdge::Started { at } => {
+                    domain::session_results::SessionTurnEvent::TurnStarted { at: *at }
+                }
+                steer::feed::TurnEdge::Ended { at } => {
+                    domain::session_results::SessionTurnEvent::TurnEnded { at: *at }
+                }
+            })
+            .collect();
+        self.thread = domain::session_results::session_turns(
             self.row.as_ref().and_then(|row| row.results.as_ref()),
+            &events,
         );
         let items = self.feed.items();
         self.thread_cards = if self.answerable_run() {
@@ -1389,25 +1437,54 @@ impl SteerSessionView {
             Vec::new()
         };
         self.thread_cards.sort_by_key(FeedRowSpec::id);
-        let mut keys: Vec<RowKey> = Vec::with_capacity(self.thread.items.len() + 1);
-        for (ix, item) in self.thread.items.iter().enumerate() {
-            let fingerprint = hash(&|hasher| match item {
-                domain::session_results::ThreadItem::Text { topic, text } => {
-                    (ix == 0, topic, text).hash(hasher)
-                }
-                domain::session_results::ThreadItem::Picture(entry) => {
-                    (ix == 0, &entry.attachment_id, entry.width, entry.height).hash(hasher);
-                    (&entry.label, &entry.caption).hash(hasher)
-                }
-            });
-            keys.push(RowKey { id: ix as FeedItemId, fingerprint });
-        }
-        if let Some(reply) = self.thread.reply.as_ref() {
+        self.thread_rows = thread_rows(&self.thread, self.thread_cards.len());
+        let last_turn = self.thread.turns.len().saturating_sub(1);
+        let mut keys: Vec<RowKey> = Vec::with_capacity(self.thread_rows.len());
+        for row in self.thread_rows.clone() {
             let first = keys.is_empty();
-            keys.push(RowKey {
-                id: THREAD_REPLY_ID,
-                fingerprint: hash(&|hasher| (first, reply).hash(hasher)),
-            });
+            let key = match row {
+                ThreadRow::Bubble(turn) => {
+                    let message = self.thread.turns[turn].message.as_ref();
+                    RowKey {
+                        id: THREAD_BUBBLE_BASE + turn as FeedItemId,
+                        fingerprint: hash(&|hasher| {
+                            (first, message.map(|message| (&message.text, message.at))).hash(hasher)
+                        }),
+                    }
+                }
+                ThreadRow::Status(turn) => {
+                    let facts = &self.thread.turns[turn];
+                    RowKey {
+                        id: THREAD_STATUS_BASE + turn as FeedItemId,
+                        fingerprint: hash(&|hasher| {
+                            (first, facts.started_at, facts.ended_at, turn == last_turn).hash(hasher)
+                        }),
+                    }
+                }
+                ThreadRow::Item(turn, ix) => {
+                    let item = &self.thread.turns[turn].items[ix];
+                    let fingerprint = hash(&|hasher| match item {
+                        domain::session_results::ThreadItem::Text { topic, text } => {
+                            (first, topic, text).hash(hasher)
+                        }
+                        domain::session_results::ThreadItem::Picture(entry) => {
+                            (first, &entry.attachment_id, entry.width, entry.height).hash(hasher);
+                            (&entry.label, &entry.caption).hash(hasher)
+                        }
+                    });
+                    RowKey { id: ((turn as FeedItemId) << 20) | ix as FeedItemId, fingerprint }
+                }
+                ThreadRow::Reply(turn) => {
+                    let reply = self.thread.turns[turn].reply.as_ref();
+                    RowKey {
+                        id: THREAD_REPLY_ID + turn as FeedItemId,
+                        fingerprint: hash(&|hasher| (first, reply).hash(hasher)),
+                    }
+                }
+                // The cards key below, off the transcript's own fingerprint.
+                ThreadRow::Card(_) => continue,
+            };
+            keys.push(key);
         }
         for spec in &self.thread_cards {
             let id = spec.id();
@@ -2790,30 +2867,59 @@ impl SteerSessionView {
         )
     }
 
-    /// EXP-877/EXP-879 — Changes and Results are FACES of the run (the work
-    /// header's `Issue | Run | +N −M | Results` toggle switches between
-    /// them), so the host SETS the face. Opening the diff builds its rows —
-    /// they are only worth rendering when visible. A Results face asked for
-    /// on a run that has published
-    /// nothing falls back to the transcript rather than to a blank page.
+    /// EXP-1251 — the run's faces are Run and GUIDE (the work header's
+    /// `Issue | Run | Guide`): `RunFace::Results` IS the Guide, and
+    /// `RunFace::Diff` its diff page ([`Self::guide_page`]; an outside ask
+    /// opens the complete diff). The host SETS the face. Opening the diff
+    /// builds its rows — they are only worth rendering when visible. A Guide
+    /// asked for on a run with neither a report nor a diff falls back to the
+    /// transcript rather than to a blank page.
     pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
         let face = match face {
-            RunFace::Results if self.results_groups().is_empty() => RunFace::Run,
+            RunFace::Results if !self.has_guide() => RunFace::Run,
             face => face,
         };
+        if face == RunFace::Diff && self.run_face != RunFace::Results {
+            // Straight into the diff (a Reviews row, a deep link): the
+            // complete diff; a Guide row sets its own page first.
+            self.guide_page = crate::session_results::GuidePage::All;
+        }
         if self.run_face == face {
             return;
         }
         self.run_face = face;
         // A pick held for the face being left must not land later.
         self.pending_diff_path = None;
+        // EXP-895: the Guide may be reading the FALLBACK files.
+        if face != RunFace::Run {
+            self.load_pr_changes(cx);
+        }
         if face == RunFace::Diff {
             self.diff_selected = 0;
-            // EXP-895: the face may be opening onto the FALLBACK files.
-            self.load_pr_changes(cx);
             self.rebuild_changes_diff(cx);
         }
         cx.notify();
+    }
+
+    /// EXP-1251 — the run has a Guide: a report, or a diff to read.
+    pub(crate) fn has_guide(&self) -> bool {
+        !self.results_groups().is_empty() || self.diff_totals().is_some()
+    }
+
+    /// EXP-1251 — open one of the Guide's diff pages.
+    pub(crate) fn open_guide_page(
+        &mut self,
+        page: crate::session_results::GuidePage,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.guide_page = page;
+        self.diff_selected = 0;
+        if self.run_face == RunFace::Diff {
+            cx.notify();
+            return;
+        }
+        self.run_face = RunFace::Results;
+        self.set_run_face(RunFace::Diff, cx);
     }
 
     /// Name `index` in the header and scroll the diff to it (§11).
@@ -2822,15 +2928,6 @@ impl SteerSessionView {
         self.changes_diff
             .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
         cx.notify();
-    }
-
-    /// EXP-1154 — name the file at `path` and scroll the diff to it (a
-    /// Results Guide row). The files may not have landed yet (the PR-files
-    /// fallback arrives after the face opens): the path is held and applied
-    /// when they do. An unknown path selects nothing.
-    pub(crate) fn select_diff_path(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
-        self.pending_diff_path = Some(path.to_string());
-        self.apply_pending_diff_path(cx);
     }
 
     fn apply_pending_diff_path(&mut self, cx: &mut gpui::Context<Self>) {
@@ -2865,10 +2962,12 @@ impl SteerSessionView {
             .collect()
     }
 
-    /// EXP-916 — the Changes FACE: the file tree beside the per-file cards.
-    /// `None` while it is shut or while this run has published no diff. The
-    /// work header above it owns the branch, the PR state, the merge pill and
-    /// the GitHub link — the pane has no bar of its own.
+    /// EXP-1251 — the Guide's DIFF PAGE: the `← Guide` back row over the
+    /// file tree beside the per-file cards, both filtered to the page's
+    /// files (a section's, the automatic `Other changes`, or the complete
+    /// diff). `None` while it is shut or while this run has no diff. The work
+    /// header above it owns the branch, the PR state, the merge pill and the
+    /// GitHub link.
     fn render_diff_pane(
         &self,
         window: &Window,
@@ -2881,23 +2980,57 @@ impl SteerSessionView {
         if scoped.is_empty() {
             return None;
         }
-        let files: Vec<crate::diff_pane::PaneFile> = scoped
+        let all: Vec<crate::diff_pane::PaneFile> = scoped
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect();
+        let groups = self.results_groups();
+        let view = crate::session_results::guide_page_view(
+            &groups,
+            &crate::session_results::guide_diff_files(&all),
+            self.guide_page,
+        )
+        .or_else(|| {
+            crate::session_results::guide_page_view(
+                &groups,
+                &crate::session_results::guide_diff_files(&all),
+                crate::session_results::GuidePage::All,
+            )
+        })?;
+        let filtered = self.guide_page != crate::session_results::GuidePage::All;
+        let shown: Vec<usize> = crate::pr_diff::shown_indices(
+            all.iter().map(|file| file.path.as_ref()),
+            filtered.then_some(view.paths.as_slice()),
+        );
+        self.changes_diff.update(cx, |diff, cx| {
+            diff.set_file_filter(filtered.then(|| shown.clone()), cx);
+        });
+        let files: Vec<crate::diff_pane::PaneFile> =
+            shown.iter().filter_map(|&ix| all.get(ix).cloned()).collect();
+        let selected = shown.iter().position(|&ix| ix == self.diff_selected).unwrap_or(0);
+        let this = cx.entity().downgrade();
+        let back = crate::session_results::guide_page_header(
+            &view,
+            std::rc::Rc::new(move |_window, cx| {
+                let _ = this.update(cx, |this, cx| this.set_run_face(RunFace::Results, cx));
+            }),
+            cx,
+        );
         // EXP-1192: the pane paints its own file tree, like the issue's
-        // Changes face (it used to sit in the window's left column).
-        Some(crate::diff_pane::render(
+        // Guide pages (it used to sit in the window's left column).
+        let pane = crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
                 files,
-                selected: self.diff_selected,
+                selected,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption: None,
                 diff: self.changes_diff.clone(),
                 pane_width: self.diff_pane_width.clone(),
-                on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
-                    this.select_diff_file(index, cx);
+                on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {
+                    if let Some(&actual) = shown.get(index) {
+                        this.select_diff_file(actual, cx);
+                    }
                 }),
                 on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
                     this.toggle_diff_dir(path, cx);
@@ -2905,17 +3038,24 @@ impl SteerSessionView {
             },
             window,
             cx,
-        ))
+        );
+        Some(
+            v_flex()
+                .size_full()
+                .min_h_0()
+                .child(crate::issue_detail::centered_column(div().w_full().child(back)))
+                .child(div().flex_1().min_h_0().w_full().child(pane))
+                .into_any_element(),
+        )
     }
 
-    /// EXP-879 §4 — the RESULTS face: the run's published pictures, grouped
-    /// by the topic the agent filed them under. `None` unless that face is up
-    /// with something to show — a run whose results were removed while it was
-    /// on show falls back to the transcript rather than to an empty page.
+    /// EXP-1251 — the GUIDE face: the run's report with ONE Changes row per
+    /// section over this run's diff (its worktree diff, else the PR files),
+    /// `Other changes`, `Show complete diff`, and the Stack card of the
+    /// run's issue. `None` unless that face is up with something to show.
     ///
-    /// No Stop/Resume and no merge bar here: the Run face owns the first and
-    /// Changes the second (EXP-879's face split, mirrored on all four
-    /// clients).
+    /// No Stop/Resume here: the Run face owns it (EXP-879's face split,
+    /// mirrored on all four clients); the merge control is the header's.
     fn render_results_pane(
         &self,
         window: &Window,
@@ -2925,30 +3065,71 @@ impl SteerSessionView {
             return None;
         }
         let groups = self.results_groups();
-        if groups.is_empty() {
+        let loaded = self.diff_pane_files();
+        if groups.is_empty() && loaded.is_empty() {
             return None;
         }
         let team_id = self.ref_team_id(cx);
-        // EXP-1154: the Guide's file rows count off this run's Changes files
-        // and a row opens that face on the file.
-        let loaded = self.diff_pane_files();
         let this = cx.entity().downgrade();
-        let guide = crate::session_results::GuideFiles {
-            loaded: (!loaded.is_empty()).then_some(loaded),
-            on_open: Some(std::rc::Rc::new(move |path: &str, _window: &mut Window, cx: &mut App| {
-                let path = path.to_string();
-                let _ = this.update(cx, |this, cx| {
-                    this.set_run_face(RunFace::Diff, cx);
-                    this.select_diff_path(&path, cx);
+        let on_open: crate::session_results::OnOpenGuidePage =
+            std::rc::Rc::new(move |page, _window, cx| {
+                let _ = this.update(cx, |this, cx| this.open_guide_page(page, cx));
+            });
+        let stack = self.issue_row(cx).and_then(|issue| {
+            let team_id = crate::queries::issue_team_id(cx, &issue.id)?;
+            let issues = crate::queries::review_issues(cx, &team_id);
+            let view = domain::pr_stack::stack_view(&issue, &issues)?;
+            let on_pick: crate::session_results::OnPickStackRow =
+                std::rc::Rc::new(|issue_id, window, cx| {
+                    // A run's Guide opens the picked member on ITS issue tab.
+                    crate::screens::request_issue_results(issue_id, window, cx);
+                    crate::navigation::navigate_replace(
+                        window,
+                        cx,
+                        crate::navigation::Screen::IssueDetail {
+                            issue_id: issue_id.to_string(),
+                        },
+                    );
                 });
-            })),
-        };
+            let on_merge: crate::session_results::OnPickStackRow =
+                std::rc::Rc::new(|issue_id, window, cx| {
+                    crate::pr_merge::ask_stack_merge_mode(
+                        issue_id,
+                        domain::pr_stack::StackConfirmMode::Through,
+                        window,
+                        cx,
+                    );
+                });
+            let this = cx.entity().downgrade();
+            let on_hover: crate::session_results::OnHoverStackRow =
+                std::rc::Rc::new(move |hovered, _window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.stack_hovered != hovered {
+                            this.stack_hovered = hovered;
+                            cx.notify();
+                        }
+                    });
+                });
+            Some(crate::session_results::stack_card(
+                &view,
+                Some(on_pick),
+                Some(on_merge),
+                self.stack_hovered.clone(),
+                Some(on_hover),
+                cx,
+            ))
+        });
         Some(crate::session_results::render(
             &groups,
             self.results_row_width(window),
             &self.images,
             team_id.as_deref(),
-            Some(guide),
+            crate::session_results::GuideSpec {
+                diff: (!loaded.is_empty()).then_some(loaded),
+                on_open: Some(on_open),
+                stack,
+                fallback_lead: None,
+            },
             cx,
         ))
     }
@@ -4184,11 +4365,10 @@ fn ask_body_text(cx: &App) -> gpui::Div {
 // ---------------------------------------------------------------------------
 
 impl SteerSessionView {
-    /// EXP-1175 — the Run face's status row, over the thread or the
-    /// transcript alike ([`crate::run_rows::run_status_row`]): the run mark,
-    /// `runRowCaption` in its tone, the newest tool call muted under it (live
-    /// runs only) and the Show work / Hide work switch.
-    fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    /// EXP-1175 — what every status row of this run reads: its state (the
+    /// viewer's live signals folded over the synced display state), the
+    /// matching mark, the device, the agent and the run's own start/end.
+    fn status_facts(&mut self, cx: &mut gpui::Context<Self>) -> Option<StatusFacts> {
         use crate::run_rows::{self, RunRowState, RunStatusMark};
         let row = self.row.as_ref()?;
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -4227,27 +4407,41 @@ impl SteerSessionView {
             .or(row.device_label.as_deref())
             .map(str::trim)
             .filter(|label| !label.is_empty())
-            .unwrap_or("Desktop");
-        let (caption, tone) = run_rows::run_row_caption(
-            state,
-            device,
-            run_rows::stamp_ms(run_rows::run_started_at(row)),
-            run_rows::stamp_ms(run_rows::past_run_ended_at(row)),
-            now_ms,
-        );
+            .unwrap_or("Desktop")
+            .to_string();
         self.status_ticking = state == RunRowState::Working;
-        let tool_line = (!ended)
-            .then(|| steer::feed::last_tool_line(self.feed.items()))
-            .flatten()
-            .map(SharedString::from);
+        Some(StatusFacts {
+            state,
+            mark,
+            agent: facts.agent,
+            device,
+            started_ms: run_rows::stamp_ms(run_rows::run_started_at(row)),
+            ended_ms: run_rows::stamp_ms(run_rows::past_run_ended_at(row)),
+            now_ms,
+            ended,
+        })
+    }
+
+    /// One status row ([`crate::run_rows::run_status_row`]) with the Show
+    /// work / Hide work switch.
+    fn status_row_element(
+        &self,
+        id: SharedString,
+        facts: &StatusFacts,
+        mark: crate::run_rows::RunStatusMark,
+        caption: (String, crate::run_rows::StatusTone),
+        tool_line: Option<SharedString>,
+        show_work: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let entity = cx.entity().downgrade();
-        let element = run_rows::run_status_row(
-            run_rows::RunStatusRowSpec {
-                id: SharedString::from("steer-run-status-row"),
+        crate::run_rows::run_status_row(
+            crate::run_rows::RunStatusRowSpec {
+                id,
                 agent: facts.agent,
                 mark,
-                caption: SharedString::from(caption),
-                tone,
+                caption: SharedString::from(caption.0),
+                tone: caption.1,
                 tool_line,
                 show_work,
                 on_toggle: Some(Box::new(move |_, window, cx| {
@@ -4257,8 +4451,74 @@ impl SteerSessionView {
                 })),
             },
             cx,
+        )
+    }
+
+    /// EXP-1175 — the Run face's status row, over the transcript (or over a
+    /// thread with no turns — a teammate's, an offline host's): the run
+    /// mark, `runRowCaption` in its tone, the newest tool call muted under
+    /// it (live runs only) and the Show work / Hide work switch. EXP-1245:
+    /// the owner's per-turn thread draws one row PER TURN instead
+    /// ([`Self::render_turn_status_row`]).
+    fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let facts = self.status_facts(cx)?;
+        if !show_work && self.thread.per_turn {
+            return None;
+        }
+        let caption = crate::run_rows::run_row_caption(
+            facts.state,
+            &facts.device,
+            facts.started_ms,
+            facts.ended_ms,
+            facts.now_ms,
+        );
+        let tool_line = (!facts.ended)
+            .then(|| steer::feed::last_tool_line(self.feed.items()))
+            .flatten()
+            .map(SharedString::from);
+        let element = self.status_row_element(
+            SharedString::from("steer-run-status-row"),
+            &facts,
+            facts.mark,
+            caption,
+            tool_line,
+            show_work,
+            cx,
         );
         Some(work_column_row(element).into_any_element())
+    }
+
+    /// EXP-1245 — one turn's status row in the owner's thread: a settled
+    /// turn reads `Done on <device> · <turn time>` under the dimmed mark;
+    /// the open (last) turn the run's caption timed from the TURN's start,
+    /// with the live tool line. `None` for a turn that has not started.
+    fn render_turn_status_row(&mut self, turn: usize, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let facts = self.status_facts(cx)?;
+        let started = self.thread.turns.get(turn)?.started_at;
+        let ended = self.thread.turns.get(turn)?.ended_at;
+        let caption = crate::session_results::turn_row_caption(
+            started,
+            ended,
+            facts.state,
+            &facts.device,
+            facts.ended_ms,
+            facts.now_ms,
+        )?;
+        let open = ended.is_none();
+        let mark = if open { facts.mark } else { crate::run_rows::RunStatusMark::Ended };
+        let tool_line = (open && !facts.ended)
+            .then(|| steer::feed::last_tool_line(self.feed.items()))
+            .flatten()
+            .map(SharedString::from);
+        Some(self.status_row_element(
+            SharedString::from(format!("steer-turn-status-row-{turn}")),
+            &facts,
+            mark,
+            caption,
+            tool_line,
+            false,
+            cx,
+        ))
     }
 
     /// EXP-1175 — the Run face's default body: the published results in
@@ -4285,34 +4545,78 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         use domain::session_results::ThreadItem;
-        let count = self.thread.items.len();
-        let replies = usize::from(self.thread.reply.is_some());
-        let element = if let Some(item) = self.thread.items.get(ix).cloned() {
-            match item {
-                ThreadItem::Text { topic, text } => {
-                    let view = self.prose(SharedString::from(format!("steer-thread-text-{ix}")), text);
-                    thread_text_row(topic, self.with_issue_chips(view, cx), cx)
+        let element = match self.thread_rows.get(ix).copied() {
+            Some(ThreadRow::Bubble(turn)) => match self.thread.turns[turn].message.clone() {
+                Some(message) => self.render_thread_bubble(turn, &message, window, cx),
+                None => div().into_any_element(),
+            },
+            Some(ThreadRow::Status(turn)) => self
+                .render_turn_status_row(turn, cx)
+                .unwrap_or_else(|| div().into_any_element()),
+            Some(ThreadRow::Item(turn, item_ix)) => {
+                match self.thread.turns[turn].items.get(item_ix).cloned() {
+                    Some(ThreadItem::Text { topic, text }) => {
+                        let view = self.prose(
+                            SharedString::from(format!("steer-thread-text-{turn}-{item_ix}")),
+                            text,
+                        );
+                        thread_text_row(topic, self.with_issue_chips(view, cx), cx)
+                    }
+                    Some(ThreadItem::Picture(entry)) => self.inline_tile(
+                        &entry,
+                        SharedString::from(format!("steer-thread-picture-{turn}-{item_ix}")),
+                        cx,
+                    ),
+                    None => div().into_any_element(),
                 }
-                ThreadItem::Picture(entry) => self.inline_tile(
-                    &entry,
-                    SharedString::from(format!("steer-thread-picture-{ix}")),
-                    cx,
-                ),
             }
-        } else if ix < count + replies {
-            let reply = self.thread.reply.clone().unwrap_or_default();
-            self.render_narration(SharedString::from("steer-thread-reply"), reply, cx)
-        } else {
-            match self.thread_cards.get(ix - count - replies).cloned() {
+            Some(ThreadRow::Reply(turn)) => {
+                let reply = self.thread.turns[turn].reply.clone().unwrap_or_default();
+                self.render_narration(SharedString::from(format!("steer-thread-reply-{turn}")), reply, cx)
+            }
+            Some(ThreadRow::Card(card)) => match self.thread_cards.get(card).cloned() {
                 Some(spec) => {
                     let row = spec.resolve(self.feed.items());
                     self.render_row(&row, false, &self.active, window, cx)
                 }
                 None => div().into_any_element(),
-            }
+            },
+            None => div().into_any_element(),
+        };
+        // A turn's items and reply sit indented under its status row (web
+        // `SessionThreadView`'s turn body).
+        let indented = self.thread.per_turn
+            && matches!(
+                self.thread_rows.get(ix),
+                Some(ThreadRow::Item(..) | ThreadRow::Reply(_))
+            );
+        let element = if indented {
+            div().w_full().min_w_0().pl(px(THREAD_TURN_INDENT)).child(element).into_any_element()
+        } else {
+            element
         };
         let gap = if ix == 0 { px(0.) } else { px(transcript::GAP_BLOCK) };
         work_column_row(element).pt(gap).into_any_element()
+    }
+
+    /// EXP-1245 — the owner's message that opened a turn: the transcript's
+    /// user bubble (right-aligned), the caption `<name> · <time> · from
+    /// <device>` under it (web `UserMessageBubble`).
+    fn render_thread_bubble(
+        &self,
+        turn: usize,
+        message: &domain::session_results::SessionTurnMessage,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let name = crate::queries::active_account(cx).and_then(|account| account.name.clone());
+        let caption = user_message_caption(
+            name.as_deref(),
+            Some(message.at),
+            self.row.as_ref().and_then(|row| row.device_label.as_deref()),
+        );
+        let body = self.render_user_message(THREAD_BUBBLE_BASE + turn as FeedItemId, &message.text, cx);
+        user_bubble(body, self.user_bubble_width(&message.text, window), caption, cx)
     }
 
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -7876,6 +8180,92 @@ pub(crate) fn thread_text_row(
         .into_any_element()
 }
 
+/// EXP-1245 — what every status row of a run reads (one per turn in the
+/// owner's thread, else the one run-wide row).
+struct StatusFacts {
+    state: crate::run_rows::RunRowState,
+    mark: crate::run_rows::RunStatusMark,
+    agent: Option<coding::CodingAgent>,
+    device: String,
+    started_ms: Option<i64>,
+    ended_ms: Option<i64>,
+    now_ms: i64,
+    ended: bool,
+}
+
+/// EXP-1245: a turn's items and reply indent under its status row's mark.
+const THREAD_TURN_INDENT: f32 = 24.;
+
+/// EXP-1245 — the owner's bubble in the thread (web `UserMessageBubble`):
+/// the transcript's user bubble, right-aligned, its caption under it.
+pub(crate) fn user_bubble(body: AnyElement, width: Pixels, caption: String, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .items_end()
+        .gap_1()
+        .pl_8()
+        .child(
+            body_text(div())
+                .min_w_0()
+                .w(width)
+                .rounded(px(12.))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
+                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+                .px_3()
+                .py_2()
+                .child(body),
+        )
+        .when(!caption.is_empty(), |column| {
+            column.child(div().text_2xs().text_color(muted).child(SharedString::from(caption)))
+        })
+        .into_any_element()
+}
+
+/// EXP-1245 — the caption under the owner's bubble (web
+/// `userMessageCaption`): `<name> · <HH:MM> · from <device>`, a missing part
+/// dropped with its separator; local time.
+fn user_message_caption(name: Option<&str>, at_ms: Option<i64>, device: Option<&str>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+        parts.push(name.to_string());
+    }
+    if let Some(time) = at_ms
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
+    {
+        parts.push(time);
+    }
+    if let Some(device) = device.map(str::trim).filter(|device| !device.is_empty()) {
+        parts.push(format!("from {device}"));
+    }
+    parts.join(" · ")
+}
+
+/// EXP-1245 — the thread's rows: per turn the person's bubble (when a
+/// message opened it), the turn's status row (per-turn threads only, once
+/// it started), its items and its reply; then the pending cards. Without a
+/// feed (`per_turn` false) the one run-wide status row sits above the list.
+fn thread_rows(thread: &domain::session_results::SessionTurns, cards: usize) -> Vec<ThreadRow> {
+    let mut rows = Vec::new();
+    for (turn, facts) in thread.turns.iter().enumerate() {
+        if facts.message.is_some() {
+            rows.push(ThreadRow::Bubble(turn));
+        }
+        if thread.per_turn && facts.started_at.is_some() {
+            rows.push(ThreadRow::Status(turn));
+        }
+        rows.extend((0..facts.items.len()).map(|ix| ThreadRow::Item(turn, ix)));
+        if facts.reply.is_some() {
+            rows.push(ThreadRow::Reply(turn));
+        }
+    }
+    rows.extend((0..cards).map(ThreadRow::Card));
+    rows
+}
+
 fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()
@@ -7949,7 +8339,7 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
 /// tool that answers `none` never gets more. Mirrored ×4.
 ///
 /// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
-/// an `Open Results` button that puts `run_id` — the run this transcript is —
+/// an `Open Guide` button that puts `run_id` — the run this transcript is —
 /// on its Results face.
 ///
 /// EXP-1172: a `picture` call (`sessions_show`) hangs its `picture` tile (the
@@ -8018,11 +8408,12 @@ fn exp_tool_call_row(
     }
 }
 
-/// The label of the button under a settled `sessions_results` row — ×4.
-pub(crate) const OPEN_RESULTS_LABEL: &str = "Open Results";
+/// The label of the button under a settled `sessions_guide` (or legacy
+/// `sessions_results`) row — ×4 (EXP-1251: web `OPEN_RESULTS_LABEL`).
+pub(crate) const OPEN_RESULTS_LABEL: &str = "Open Guide";
 
-/// EXP-933 — `Open Results` under a settled `sessions_results` call: the run's
-/// Results face, through the panel's pending-face path (it applies once the
+/// EXP-933 — `Open Guide` under a settled `sessions_guide` call: the run's
+/// Guide face, through the panel's pending-face path (it applies once the
 /// run's view exists).
 fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement {
     let run_id = run_id.to_string();
@@ -8057,7 +8448,7 @@ fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement
 ///   degrades to the identifier and title the tool itself reported;
 /// * `pr` — a link row opening the pull request in the browser;
 /// * `list` — "N results";
-/// * `results` — never reaches here: its row carries `Open Results` instead;
+/// * `results` — never reaches here: its row carries `Open Guide` instead;
 /// * `session` / `board` / `action` / `comment` — a name chip;
 /// * `none` — nothing: the caption said it all.
 ///
@@ -8399,6 +8790,62 @@ impl Drop for SteerSessionView {
         if let Some(handle) = self.source.handle() {
             handle.shutdown();
         }
+    }
+}
+
+#[cfg(test)]
+mod turn_thread_tests {
+    use super::*;
+    use domain::session_results::{SessionTurn, SessionTurnMessage, SessionTurns, ThreadItem};
+
+    /// EXP-1245: the owner's thread lays out per turn — bubble, status row,
+    /// items, reply — then the pending cards; a turn that never started has
+    /// no status row, and a thread without a feed has none at all.
+    #[test]
+    fn the_thread_lays_out_turns() {
+        let text = |topic: &str| ThreadItem::Text { topic: topic.into(), text: "x".into() };
+        let thread = SessionTurns {
+            per_turn: true,
+            turns: vec![
+                SessionTurn { started_at: Some(1), ended_at: Some(2), reply: Some("done".into()), ..Default::default() },
+                SessionTurn {
+                    message: Some(SessionTurnMessage { text: "why?".into(), at: 3, images: Vec::new() }),
+                    started_at: Some(4),
+                    items: vec![text("Reviews")],
+                    ..Default::default()
+                },
+                SessionTurn {
+                    message: Some(SessionTurnMessage { text: "and this".into(), at: 5, images: Vec::new() }),
+                    ..Default::default()
+                },
+            ],
+        };
+        assert_eq!(
+            thread_rows(&thread, 1),
+            vec![
+                ThreadRow::Status(0),
+                ThreadRow::Reply(0),
+                ThreadRow::Bubble(1),
+                ThreadRow::Status(1),
+                ThreadRow::Item(1, 0),
+                ThreadRow::Bubble(2),
+                ThreadRow::Card(0),
+            ]
+        );
+        let single = SessionTurns {
+            per_turn: false,
+            turns: vec![SessionTurn { items: vec![text("a")], reply: Some("r".into()), ..Default::default() }],
+        };
+        assert_eq!(thread_rows(&single, 0), vec![ThreadRow::Item(0, 0), ThreadRow::Reply(0)]);
+    }
+
+    /// EXP-1245: the bubble caption drops a missing part with its separator.
+    #[test]
+    fn the_bubble_caption_drops_missing_parts() {
+        assert_eq!(user_message_caption(Some(" Danny "), None, Some("mint")), "Danny · from mint");
+        assert_eq!(user_message_caption(None, None, None), "");
+        let with_time = user_message_caption(Some("Danny"), Some(1_760_000_000_000), None);
+        assert!(with_time.starts_with("Danny · ") && with_time.len() == "Danny · 00:00".len(), "{with_time}");
     }
 }
 

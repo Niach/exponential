@@ -1,0 +1,69 @@
+{
+  "$comment": "EXP-1249: the launch composer's ONE '+' menu, byte-identical x4 (web components/launch-dialog/composer-menu.ts, desktop chat_screen.rs + launch_options.rs, iOS AgentComposerCard.swift, Android AgentComposer.kt). The '+' is the composer's ONLY tool (the Issue and Action tools and the options line's '...' overflow are gone); md+ = a dropdown anchored at the '+', phones = a bottom sheet of the same rows, submenus as pushed pages. Rows in `rows` order; a row with `when` renders only while that condition holds (`conditions` says when), then separators are TIDIED (never leading, trailing or doubled). Icons are CONCEPTS (packages/icons/icons.json). Submenus: implement-issue = the shared multi issue picker (search, the picks pinned first) with a footer button `implementButton` once something is picked (it only closes the menu: the picks are already the subject); run-action = the shared action picker (a pick sets the subject and closes the menu); effort = picker rows over the agent's efforts, value = the picked effort's label, label `codexLabel` for codex, DISABLED while ultracode is on; subagents = picker rows (Default + the contract coding models), value = the picked label; mcp-servers = multi picker rows over the team's servers (a server the caller has not connected opens Settings > MCP servers instead of toggling), value = the number picked (no value at zero). add-file opens the platform file chooser (images today: the start upload accepts images only). The options line under the card keeps Device, Account, Model, Plan, Resume and Repository and nothing else. Suggestions render BELOW the options line as quiet text rows (muted 13px, a faint `suggestions.icon` glyph, no pill, no border), `suggestions.count` of the chat-suggestions pool, only while there is no subject and the field is empty. A faint brand mark (the logo in the foreground colour at ~3.5% opacity, ~520px) sits behind the headline and the composer on the Agent page only, never in the composer dialog.",
+  "testIds": {
+    "plus": "agent-composer-plus-button",
+    "menu": "agent-composer-menu",
+    "row": "agent-composer-menu-{id}",
+    "implementSubmit": "agent-composer-implement",
+    "suggestion": "agent-composer-suggestion",
+    "brandMark": "agent-page-brand-mark"
+  },
+  "plusLabel": "Add",
+  "rows": [
+    { "id": "implement-issue", "kind": "submenu", "label": "Implement issue", "icon": "editor-issue-ref" },
+    { "id": "run-action", "kind": "submenu", "label": "Run action", "icon": "action-run" },
+    { "id": "add-file", "kind": "item", "label": "Add file or image", "icon": "ui-attach" },
+    { "kind": "separator" },
+    { "id": "effort", "kind": "submenu", "label": "Effort", "codexLabel": "Reasoning", "icon": "ui-estimate" },
+    { "id": "subagents", "kind": "submenu", "label": "Subagents", "icon": "coding-subagent", "when": "subagentModel" },
+    { "id": "ultracode", "kind": "toggle", "label": "Ultracode", "icon": "action-default", "when": "ultracode" },
+    { "kind": "separator" },
+    { "id": "mcp-servers", "kind": "submenu", "label": "MCP servers", "icon": "ui-mcp", "when": "mcp" },
+    { "id": "computer-use", "kind": "toggle", "label": "Computer use", "icon": "nav-computer", "when": "computerUse" }
+  ],
+  "conditions": {
+    "subagentModel": "the picked agent takes a subagent model (claude)",
+    "ultracode": "the picked agent supports ultracode (claude)",
+    "mcp": "the team has at least one MCP server and the subject does not own its MCP list (a real action)",
+    "computerUse": "the picked device advertises the `computerUse.cap` capability"
+  },
+  "implementButton": {
+    "one": "Implement 1 issue",
+    "many": "Implement {n} issues"
+  },
+  "suggestions": {
+    "count": 3,
+    "icon": "action-default"
+  },
+  "computerUse": {
+    "$comment": "Per-run computer use. The start payload key sits next to `mcpServerIds` in steer.startSession, codingSessions.start and the relay's start frame; true/false = this run, absent or null = the device's launch_defaults.computerUse. The toggle seeds from that device default on every device change and rides out only to a device advertising `cap` (older builds would ignore it).",
+    "payloadKey": "computerUse",
+    "cap": "computer-use-run"
+  },
+  "cases": [
+    {
+      "name": "claude on a computer-use device with MCP servers: every row",
+      "conditions": { "subagentModel": true, "ultracode": true, "mcp": true, "computerUse": true },
+      "expected": ["implement-issue", "run-action", "add-file", "-", "effort", "subagents", "ultracode", "-", "mcp-servers", "computer-use"]
+    },
+    {
+      "name": "codex, no MCP servers, no computer use: the last group goes with its separator",
+      "conditions": { "subagentModel": false, "ultracode": false, "mcp": false, "computerUse": false },
+      "expected": ["implement-issue", "run-action", "add-file", "-", "effort"]
+    },
+    {
+      "name": "an action owning its MCP list on a computer-use device",
+      "conditions": { "subagentModel": true, "ultracode": true, "mcp": false, "computerUse": true },
+      "expected": ["implement-issue", "run-action", "add-file", "-", "effort", "subagents", "ultracode", "-", "computer-use"]
+    },
+    {
+      "name": "codex with MCP servers on an older device",
+      "conditions": { "subagentModel": false, "ultracode": false, "mcp": true, "computerUse": false },
+      "expected": ["implement-issue", "run-action", "add-file", "-", "effort", "-", "mcp-servers"]
+    }
+  ],
+  "implementLabels": [
+    { "count": 1, "expected": "Implement 1 issue" },
+    { "count": 3, "expected": "Implement 3 issues" }
+  ]
+}

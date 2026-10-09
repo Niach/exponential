@@ -507,7 +507,14 @@ export type FeedItem = FeedSeq &
        *  never joins a collapsed tool run. */
       workflowId?: string
     }
-  | { id: number; kind: `user_message`; text: string; subagentId?: string }
+  | {
+      id: number
+      kind: `user_message`
+      text: string
+      subagentId?: string
+      /** EXP-1245: when the relay stamped it; the turns thread slots it. */
+      at?: number
+    }
   | { id: number; kind: `permission`; tool: string; detail?: string }
   // A transient API failure shown where it happened (never the rate-limit
   // banner); `errorType` = the API's error type when it sent one.
@@ -1135,6 +1142,10 @@ export function createSteerSessionStore(
           kind: `user_message`,
           text: event.text,
           subagentId: event.subagentId,
+          at:
+            typeof event.at === `number` && Number.isFinite(event.at)
+              ? event.at
+              : undefined,
         })
         return
       }
@@ -1532,7 +1543,7 @@ export function createSteerSessionStore(
     for (const text of echoes) {
       if (heldTexts.has(text.trim())) continue
       if (!tailCarriesEcho(text, echoes.length + 1)) {
-        append({ kind: `user_message`, text })
+        append({ kind: `user_message`, text, at: Date.now() })
       }
     }
     const liveKeys = new Set<string>()

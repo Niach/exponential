@@ -73,6 +73,7 @@ pub mod diff;
 mod diff_pane;
 // EXP-862: the dragged-chrome prefs file ({data_dir}/ui-prefs.json).
 mod ui_prefs;
+mod file_picker;
 mod file_tree;
 mod file_viewer;
 mod getting_started;
@@ -128,6 +129,8 @@ mod pr_diff;
 mod open_pulls;
 mod pr_graph;
 mod pr_merge;
+// EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
+mod pr_rows;
 mod queries;
 mod repo_resolver;
 mod repo_scope;

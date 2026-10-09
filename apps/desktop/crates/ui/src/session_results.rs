@@ -27,14 +27,15 @@
 //! to the same tiles; the same tile ([`tile`]) also renders one such picture
 //! under its call in the transcript.
 //!
-//! EXP-1154: the page is the GUIDE — the `Summary` topic leads unnumbered,
-//! every other topic is a numbered section (`01 / 04` in its band) listing
-//! the files it touched under its text; a file row opens the Changes face on
-//! that file. An issue with an open PR and no report shows the PR body
-//! instead ([`render_pr_body`]).
+//! EXP-1154/EXP-1251: the page is the GUIDE (Changes + Results merged into
+//! ONE face): the Stack card, the `Summary` lead, numbered sections with ONE
+//! Changes row each (the shared coverage rule), the automatic `Other
+//! changes` section and `Show complete diff`; a row opens the diff page
+//! filtered to its files ([`GuidePage`], [`guide_page_view`]). An issue with
+//! an open PR and no report leads with the PR body ([`pr_body_block`]).
 //!
-//! This face carries NO Stop/Resume (the Run face owns it) and NO merge bar
-//! (Changes owns it) — it is a page you look at.
+//! EXP-1245: the Run face's per-turn status caption ([`turn_row_caption`])
+//! lives here too, beside the thread it heads.
 
 use gpui::{
     div, hsla, img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px,
@@ -42,11 +43,11 @@ use gpui::{
     ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _,
     StyledImage as _, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
 
 use domain::session_results::{
-    guide_file_rows, guide_section_caption, session_result_is_tall,
-    session_result_tile_height_fitting, session_result_tile_width, session_results_guide,
+    guide_coverage, guide_file_count_label, guide_section_caption, session_result_is_tall,
+    session_result_tile_height_fitting, session_result_tile_width, GuideChangeSet, GuideDiffFile,
     SessionResultEntry, SessionResultGroup, SESSION_RESULTS_EARLIER_LABEL,
     SESSION_RESULT_TILE_HEIGHT,
 };
@@ -57,18 +58,113 @@ use crate::issue_detail::centered_column;
 use crate::work_header::WORK_GUTTER;
 use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView, RefResolver};
 
-/// EXP-1154 — what the Guide's FILE rows read: the loaded diff (counts for
-/// a path that matches exactly; `None` = no diff loaded, every row without
-/// counts) and what a row click does (`None` = plain rows). A row click opens
-/// the host's Changes face with that file selected.
-pub(crate) struct GuideFiles {
-    pub(crate) loaded: Option<Vec<crate::diff_pane::PaneFile>>,
-    pub(crate) on_open: Option<std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>>,
+/// EXP-1251 — the diff page a Guide row opens (web `?view=guide&section=`):
+/// a numbered section, the lead's files, the automatic `Other changes`
+/// section, or the complete diff.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GuidePage {
+    Lead,
+    /// 1-based, the section's `01 / 06` number.
+    Section(usize),
+    Other,
+    All,
 }
 
-/// The whole page for one run's results, ready to drop into the pane slot
-/// under the work header. Never called with an empty `groups` — an empty
-/// Results face is not a face (the caller falls back to the transcript).
+/// A Guide row was clicked: open that diff page.
+pub(crate) type OnOpenGuidePage = std::rc::Rc<dyn Fn(GuidePage, &mut Window, &mut App)>;
+
+/// EXP-1251 — everything the Guide reads beyond the report.
+#[derive(Default)]
+pub(crate) struct GuideSpec {
+    /// The loaded diff (the run's worktree diff, else the PR's files);
+    /// `None` = nothing loaded: no Changes rows.
+    pub(crate) diff: Option<Vec<crate::diff_pane::PaneFile>>,
+    /// What a Changes / Show complete diff row does (`None` = inert rows).
+    pub(crate) on_open: Option<OnOpenGuidePage>,
+    /// The Stack card ([`stack_card`]) over everything.
+    pub(crate) stack: Option<AnyElement>,
+    /// The lead drawn when the run filed NO report (an open PR's GitHub
+    /// body, [`pr_body_block`]).
+    pub(crate) fallback_lead: Option<AnyElement>,
+}
+
+/// The coverage rule's view of a pane file.
+pub(crate) fn guide_diff_files(files: &[crate::diff_pane::PaneFile]) -> Vec<GuideDiffFile> {
+    files
+        .iter()
+        .map(|file| GuideDiffFile {
+            path: file.path.to_string(),
+            previous_path: file.previous_path.as_ref().map(|path| path.to_string()),
+            additions: file.additions,
+            deletions: file.deletions,
+        })
+        .collect()
+}
+
+/// EXP-1251 — what a Guide diff page shows: its back-row caption (`02 / 06`
+/// for a numbered section), its title, the paths it filters the diff to (in
+/// coverage order) and their summed counts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct GuidePageView {
+    pub(crate) caption: Option<String>,
+    pub(crate) title: String,
+    pub(crate) paths: Vec<String>,
+    pub(crate) additions: u32,
+    pub(crate) deletions: u32,
+}
+
+/// Resolve `page` against the report and the loaded diff (the shared
+/// coverage rule). `None` = the page names nothing any more (a section that
+/// went away): the host falls back to the Guide.
+pub(crate) fn guide_page_view(
+    groups: &[SessionResultGroup],
+    diff: &[GuideDiffFile],
+    page: GuidePage,
+) -> Option<GuidePageView> {
+    let coverage = guide_coverage(
+        groups,
+        |group| group.topic.as_str(),
+        |group| group.files.as_slice(),
+        Some(diff),
+    );
+    let view = |caption: Option<String>, title: String, set: &GuideChangeSet| GuidePageView {
+        caption,
+        title,
+        paths: set.files.iter().map(|&ix| diff[ix].path.clone()).collect(),
+        additions: set.additions,
+        deletions: set.deletions,
+    };
+    match page {
+        GuidePage::All => coverage.complete.as_ref().map(|set| {
+            view(None, domain::contract::DIFF_UI_GUIDE_SHOW_COMPLETE_DIFF.to_string(), set)
+        }),
+        GuidePage::Other => coverage
+            .other
+            .as_ref()
+            .map(|(title, set)| view(None, title.to_string(), set)),
+        GuidePage::Lead => coverage.lead.as_ref().and_then(|lead| {
+            lead.changes
+                .as_ref()
+                .map(|set| view(None, lead.group.topic.clone(), set))
+        }),
+        GuidePage::Section(index) => coverage
+            .sections
+            .iter()
+            .find(|section| section.index == index)
+            .and_then(|section| {
+                section.changes.as_ref().map(|set| {
+                    view(
+                        Some(guide_section_caption(section.index, section.total)),
+                        section.group.topic.clone(),
+                        set,
+                    )
+                })
+            }),
+    }
+}
+
+/// The whole Guide for one run's results, ready to drop into the pane slot
+/// under the work header.
 ///
 /// `available_width` is the width the TILES ROW actually gets (the centered
 /// column's inner width, gutters already taken off). The page's tile height
@@ -76,26 +172,24 @@ pub(crate) struct GuideFiles {
 /// ([`session_result_tile_height_fitting`]): a narrow window scales the whole
 /// page down by one factor rather than clipping its widest tile.
 ///
-/// EXP-1154: the page reads as the GUIDE ([`session_results_guide`], the
-/// shared ×4 rule): the `Summary` topic leads as a plain paragraph (no band,
-/// no number); every other topic keeps the group band with a muted `01 / 04`
-/// caption in its leading slot, then its text, the FILES it touched (flat
-/// hairline rows: the dimmed-directory path + `+N −M` when `guide` has the
-/// file loaded) and its tiles.
+/// EXP-1251: the GUIDE (web `GuideBody`): the Stack card, the `Summary` lead
+/// as a plain paragraph, every other topic a numbered band (`01 / 04`) over
+/// its text, ONE Changes row (`<>` Changes · N files · +A −D ›, the files the
+/// shared coverage rule matched) and its tiles; then the automatic `Other
+/// changes` section for every diff file no topic names and the final `Show
+/// complete diff` row. No report = the fallback lead (an open PR's body) and
+/// ONE `Changes` section.
 pub(crate) fn render(
     groups: &[SessionResultGroup],
     available_width: f32,
     images: &Entity<ImageCache>,
     team_id: Option<&str>,
-    guide: Option<GuideFiles>,
+    guide: GuideSpec,
     cx: &mut App,
 ) -> AnyElement {
     // ONE height for the page, not one per band — a shot's counterpart in the
-    // NEXT topic has to sit on the same baseline too. The per-group minimum
-    // IS the whole page's factor: the rule never grows a tile, so the group
-    // holding the widest tile is the one that decides.
-    // EXP-1172: the folded `earlier` pictures count too — expanding the
-    // band never resizes the page.
+    // NEXT topic has to sit on the same baseline too. EXP-1172: the folded
+    // `earlier` pictures count too — expanding the band never resizes it.
     let height = groups
         .iter()
         .map(|group| {
@@ -104,15 +198,15 @@ pub(crate) fn render(
             session_result_tile_height_fitting(&pictures, available_width)
         })
         .fold(SESSION_RESULT_TILE_HEIGHT, f32::min);
-    let guide = guide.unwrap_or(GuideFiles { loaded: None, on_open: None });
-    let loaded: Option<Vec<(String, u32, u32)>> = guide.loaded.as_ref().map(|files| {
-        files
-            .iter()
-            .map(|file| (file.path.to_string(), file.additions, file.deletions))
-            .collect()
-    });
-    let (lead, sections) = session_results_guide(groups, |group| group.topic.as_str());
-    let mut page = page_column();
+    let GuideSpec { diff, on_open, stack, fallback_lead } = guide;
+    let diff = diff.as_deref().map(guide_diff_files);
+    let coverage = guide_coverage(
+        groups,
+        |group| group.topic.as_str(),
+        |group| group.files.as_slice(),
+        diff.as_deref(),
+    );
+    let mut page = page_column().children(stack);
     // Positions key the element ids: a topic may band twice.
     let position = |group: &SessionResultGroup| {
         groups
@@ -120,21 +214,35 @@ pub(crate) fn render(
             .position(|candidate| std::ptr::eq(candidate, group))
             .unwrap_or(0)
     };
-    if let Some(lead) = lead {
-        page = page.child(
-            v_flex().w_full().min_w_0().gap_2().children(group_body(
-                lead,
-                position(lead),
-                height,
-                images,
-                team_id,
-                loaded.as_deref(),
-                guide.on_open.as_ref(),
+    let row = |id: String, page: GuidePage, set: &GuideChangeSet, cx: &App| {
+        (set.file_count() > 0).then(|| {
+            changes_row(
+                SharedString::from(id),
+                domain::contract::DIFF_UI_GUIDE_CHANGES_ROW,
+                Some(crate::icons::registry::GUIDE_CHANGES),
+                set,
+                on_open.clone().map(|on_open| (page, on_open)),
                 cx,
-            )),
+            )
+        })
+    };
+    if let Some(lead) = coverage.lead.as_ref() {
+        let group_ix = position(lead.group);
+        page = page.child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .children(group_body(lead.group, group_ix, height, images, team_id, cx, |cx| {
+                    lead.changes
+                        .as_ref()
+                        .and_then(|set| row(format!("guide-changes-lead-{group_ix}"), GuidePage::Lead, set, cx))
+                })),
         );
+    } else if groups.is_empty() {
+        page = page.children(fallback_lead);
     }
-    for section in sections {
+    for section in &coverage.sections {
         let group_ix = position(section.group);
         let caption = div()
             .flex_shrink_0()
@@ -143,28 +251,61 @@ pub(crate) fn render(
             .text_color(cx.theme().muted_foreground)
             .child(SharedString::from(guide_section_caption(section.index, section.total)))
             .into_any_element();
+        let band = crate::surface::glass_section_band(
+            Some(caption),
+            SharedString::from(section.group.topic.clone()),
+            None,
+            cx,
+        );
         page = page.child(
             v_flex()
                 .w_full()
                 .min_w_0()
                 .gap_2()
-                .child(crate::surface::glass_section_band(
-                    Some(caption),
-                    SharedString::from(section.group.topic.clone()),
-                    None,
-                    cx,
-                ))
-                .children(group_body(
-                    section.group,
-                    group_ix,
-                    height,
-                    images,
-                    team_id,
-                    loaded.as_deref(),
-                    guide.on_open.as_ref(),
-                    cx,
-                )),
+                .child(band)
+                .children(group_body(section.group, group_ix, height, images, team_id, cx, |cx| {
+                    section.changes.as_ref().and_then(|set| {
+                        row(
+                            format!("guide-changes-{}", section.index),
+                            GuidePage::Section(section.index),
+                            set,
+                            cx,
+                        )
+                    })
+                })),
         );
+    }
+    if let Some((title, set)) = coverage.other.as_ref() {
+        // The automatic section: a muted title, never a number.
+        let band = h_flex()
+            .w_full()
+            .min_w_0()
+            .px_3()
+            .py_1p5()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(title.to_string()));
+        page = page.child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .child(band)
+                .children(row("guide-changes-other".to_string(), GuidePage::Other, set, cx)),
+        );
+    }
+    // The complete diff is its own row only when a report split it up.
+    if let (Some(set), false) = (coverage.complete.as_ref(), groups.is_empty()) {
+        if set.file_count() > 0 {
+            page = page.child(changes_row(
+                SharedString::from("guide-show-complete-diff"),
+                domain::contract::DIFF_UI_GUIDE_SHOW_COMPLETE_DIFF,
+                None,
+                set,
+                on_open.clone().map(|on_open| (GuidePage::All, on_open)),
+                cx,
+            ));
+        }
     }
     scroll_page(page)
 }
@@ -210,17 +351,15 @@ fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>
 }
 
 /// Everything under a group's band (or the lead's whole body): the text, the
-/// files, the tiles and the `Earlier` fold.
-#[allow(clippy::too_many_arguments)]
+/// Changes row (`changes`), the tiles and the `Earlier` fold.
 fn group_body(
     group: &SessionResultGroup,
     group_ix: usize,
     height: f32,
     images: &Entity<ImageCache>,
     team_id: Option<&str>,
-    loaded: Option<&[(String, u32, u32)]>,
-    on_open: Option<&std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>>,
     cx: &mut App,
+    changes: impl FnOnce(&App) -> Option<AnyElement>,
 ) -> Vec<AnyElement> {
     let mut out: Vec<AnyElement> = Vec::new();
     if let Some(text) = group.text.as_ref() {
@@ -234,9 +373,7 @@ fn group_body(
             .into_any_element(),
         );
     }
-    if !group.files.is_empty() {
-        out.push(file_list(group_ix, &group.files, loaded, on_open, cx));
-    }
+    out.extend(changes(cx));
     if !group.entries.is_empty() {
         let mut tiles = h_flex().w_full().min_w_0().flex_wrap().items_start().gap_3();
         for (tile_ix, entry) in group.entries.iter().enumerate() {
@@ -267,68 +404,217 @@ fn group_body(
     out
 }
 
-/// EXP-1154 — a Guide section's files: flat hairline-divided rows
-/// ([`crate::surface::list_row`] over [`crate::surface::flat_row`]), each the
-/// dimmed directory + basename ([`crate::diff::split_path`]) and, when the
-/// loaded diff has the path, its `+N −M` ([`crate::diff_pane::counts`]). A
-/// row with somewhere to go washes on hover and opens the Changes face there.
-fn file_list(
-    group_ix: usize,
-    paths: &[String],
-    loaded: Option<&[(String, u32, u32)]>,
-    on_open: Option<&std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>>,
+/// EXP-1251 — ONE Guide row (web `GuideChangesRow` / the final `Show
+/// complete diff` row): an optional lead glyph (`guide-changes`, the `<>`
+/// tag), the label, the muted `N files`, `+A −D` and a chevron, over a
+/// hairline. A row with somewhere to go washes on hover and opens that diff
+/// page.
+fn changes_row(
+    id: SharedString,
+    label: &'static str,
+    glyph: Option<crate::icons::ExpIcon>,
+    set: &GuideChangeSet,
+    on_open: Option<(GuidePage, OnOpenGuidePage)>,
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let hover = cx.theme().list_hover;
-    let mut list = v_flex()
+    let mut line = crate::surface::flat_row()
+        .id(id)
+        .flex()
         .w_full()
         .min_w_0()
-        .border_t_1()
+        .h(px(36.))
+        .px_3()
+        .gap_3()
+        .items_center()
         .border_b_1()
-        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
-    for (ix, row) in guide_file_rows(paths, loaded).into_iter().enumerate() {
-        let (dir, name) = crate::diff::split_path(&row.path);
-        let mut line = crate::surface::flat_row()
-            .id(SharedString::from(format!("guide-file-{group_ix}-{ix}")))
-            .flex()
-            .w_full()
-            .min_w_0()
-            .h(px(32.))
-            .px_1()
-            .gap_3()
-            .items_center()
-            .justify_between()
-            .text_xs()
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .flex_shrink_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(muted)
-                            .child(SharedString::from(dir)),
-                    )
-                    .child(div().flex_shrink_0().child(SharedString::from(name))),
-            )
-            .children(
-                row.counts
-                    .map(|(additions, deletions)| crate::diff_pane::counts(additions, deletions, cx)),
-            );
-        if let Some(on_open) = on_open {
-            let on_open = on_open.clone();
-            let path = row.path.clone();
-            line = line
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover))
-                .on_click(move |_, window, cx| on_open(&path, window, cx));
-        }
-        list = list.child(crate::surface::list_row(line, ix));
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .text_sm()
+        .children(glyph.map(|glyph| {
+            gpui_component::Icon::from(glyph)
+                .with_size(px(14.))
+                .text_color(muted)
+        }))
+        .child(div().flex_1().min_w_0().truncate().child(label))
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(guide_file_count_label(set.file_count()))),
+        )
+        .child(crate::diff_pane::counts(set.additions, set.deletions, cx))
+        .child(
+            gpui_component::Icon::from(crate::icons::registry::UI_CHEVRON_RIGHT)
+                .with_size(px(14.))
+                .text_color(muted),
+        );
+    if let Some((page, on_open)) = on_open {
+        line = line
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover))
+            .on_click(move |_, window, cx| on_open(page, window, cx));
     }
-    list.into_any_element()
+    line.into_any_element()
+}
+
+/// EXP-1251 — the back row over a Guide diff page (web `GuideSectionDiff`'s
+/// header): `← Guide` · `02 / 06` · the section title · `+A −D · N files`.
+pub(crate) fn guide_page_header(
+    view: &GuidePageView,
+    on_back: std::rc::Rc<dyn Fn(&mut Window, &mut App)>,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let back = crate::controls::text_button(
+        "guide-page-back",
+        domain::contract::DIFF_UI_GUIDE_FACE,
+        crate::controls::TextButtonVariant::Text,
+        cx,
+    )
+    .flex_shrink_0()
+    .text_sm()
+    .on_click(move |_, window, cx| on_back(window, cx));
+    let back = h_flex()
+        .flex_shrink_0()
+        .gap_1()
+        .items_center()
+        .child(
+            gpui_component::Icon::from(crate::icons::registry::UI_BACK)
+                .with_size(px(14.))
+                .text_color(muted),
+        )
+        .child(back);
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .flex_shrink_0()
+        .px(px(WORK_GUTTER))
+        .py_2()
+        .gap_3()
+        .items_center()
+        .child(back)
+        .child(div().w(px(1.)).h(px(14.)).bg(theme::tokens::glass::STROKE_ROW.to_hsla()))
+        .children(view.caption.clone().map(|caption| {
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child(SharedString::from(caption))
+        }))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .child(SharedString::from(view.title.clone())),
+        )
+        .child(crate::diff_pane::counts(view.additions, view.deletions, cx))
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .child(SharedString::from(guide_file_count_label(view.paths.len()))),
+        )
+        .into_any_element()
+}
+
+/// A stack row was picked (its issue id).
+pub(crate) type OnPickStackRow = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
+/// The pointer entered a stack row (`Some(issue id)`) or left it (`None`).
+pub(crate) type OnHoverStackRow = std::rc::Rc<dyn Fn(Option<String>, &mut Window, &mut App)>;
+
+/// EXP-1248 — the Guide's Stack card (web `GuideBody`'s Stack card): a
+/// `Stack` band (the `pr-stack` glyph, NO count) over the shared stack rail
+/// ([`crate::pr_rows::stack_rail`]) TOP first, the current member wearing
+/// the active wash, down to the muted base-branch row. A click REPLACES the
+/// subject (`on_pick`); the HOVERED member (`hovered`, the host's view
+/// state written by `on_hover`) offers the ghost `Merge through here`.
+pub(crate) fn stack_card(
+    view: &domain::pr_stack::StackView,
+    on_pick: Option<OnPickStackRow>,
+    on_merge_through: Option<OnPickStackRow>,
+    hovered: Option<String>,
+    on_hover: Option<OnHoverStackRow>,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let members = view
+        .rows
+        .iter()
+        .map(|row| crate::pr_rows::StackRailMember {
+            key: row.issue_id.clone(),
+            identifier: SharedString::from(row.identifier.clone()),
+            title: SharedString::from(row.title.clone()),
+            current: row.is_current,
+            on_open: on_pick.clone().filter(|_| !row.is_current).map(|on_pick| {
+                let issue_id = row.issue_id.clone();
+                Box::new(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                    on_pick(&issue_id, window, cx)
+                }) as crate::run_rows::RunRowAction
+            }),
+            trailing: None,
+        })
+        .collect();
+    let rail = crate::pr_rows::stack_rail(
+        crate::pr_rows::StackRailSpec {
+            id_prefix: SharedString::from("guide-stack"),
+            members,
+            base_branch: SharedString::from(
+                view.base_branch.clone().unwrap_or_else(|| "base".to_string()),
+            ),
+            word: None,
+            hovered,
+            on_hover,
+            on_merge_through,
+        },
+        cx,
+    );
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(crate::surface::glass_section_band(
+            Some(
+                gpui_component::Icon::from(crate::icons::registry::PR_STACK)
+                    .with_size(px(14.))
+                    .text_color(muted)
+                    .into_any_element(),
+            ),
+            SharedString::from("Stack"),
+            None,
+            cx,
+        ))
+        .child(rail)
+        .into_any_element()
+}
+
+/// EXP-1245 — one turn's status-row caption (web `turnRowCaption`, fixture
+/// `run-row.json` `turnCaptions` ×4): a turn without a start (a sent message
+/// waiting) has NO row; a settled turn reads `Done on <device> · <turn
+/// time>` muted; the open turn reads the run's caption with the TURN's
+/// start, so a working turn counts from its own start.
+pub(crate) fn turn_row_caption(
+    started_ms: Option<i64>,
+    ended_ms: Option<i64>,
+    state: crate::run_rows::RunRowState,
+    device: &str,
+    run_ended_ms: Option<i64>,
+    now_ms: i64,
+) -> Option<(String, crate::run_rows::StatusTone)> {
+    let start = started_ms?;
+    if let Some(end) = ended_ms {
+        return Some((
+            format!("Done on {device} · {}", crate::session_rows::format_duration(end - start)),
+            crate::run_rows::StatusTone::Muted,
+        ));
+    }
+    Some(crate::run_rows::run_row_caption(state, device, Some(start), run_ended_ms, now_ms))
 }
 
 /// EXP-1154 — what the PR-body fallback shows under its band.
@@ -338,11 +624,11 @@ pub(crate) enum PrBodyContent<'a> {
     Error(&'a str),
 }
 
-/// EXP-1154 — the Results face of an issue with an OPEN pull request and no
-/// run report: the GitHub PR body (`issues.prDescription`) as ONE unnumbered
-/// group, its band labelled by the PR title (`Pull request` without one) and
-/// `No description.` under it when the body is blank.
-pub(crate) fn render_pr_body(
+/// EXP-1154/EXP-1251 — the Guide's lead for an issue with an OPEN pull
+/// request and no run report: the GitHub PR body (`issues.prDescription`)
+/// under a band labelled by the PR title (`Pull request` without one),
+/// `No description.` when the body is blank.
+pub(crate) fn pr_body_block(
     title: Option<&str>,
     body: PrBodyContent<'_>,
     team_id: Option<&str>,
@@ -370,16 +656,13 @@ pub(crate) fn render_pr_body(
             report_text(SharedString::from("session-results-pr-body"), text, None, team_id).into_any_element()
         }
     };
-    scroll_page(
-        page_column().child(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .child(crate::surface::glass_section_band(None, SharedString::from(label), None, cx))
-                .child(content),
-        ),
-    )
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .child(crate::surface::glass_section_band(None, SharedString::from(label), None, cx))
+        .child(content)
+        .into_any_element()
 }
 
 /// The PR-body fallback's band label when the PR has no title (×4).
@@ -585,4 +868,56 @@ fn tall_pill() -> impl IntoElement {
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
         .child("Tall")
+}
+
+#[cfg(test)]
+mod turn_caption_tests {
+    use super::*;
+    use crate::run_rows::{RunRowState, StatusTone};
+
+    /// EXP-1245 — fixture `run-row.json` `turnCaptions` ×4.
+    #[test]
+    fn turn_row_caption_matches_the_shared_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/run-row.json"
+        ))
+        .unwrap();
+        let ms = |value: &serde_json::Value| {
+            value
+                .as_str()
+                .map(|text| chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis())
+        };
+        let cases = fixture["turnCaptions"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let state = match case["state"].as_str().unwrap() {
+                "working" => RunRowState::Working,
+                "needs_input" => RunRowState::NeedsInput,
+                "paused" => RunRowState::Paused,
+                "review" => RunRowState::Review,
+                "done" => RunRowState::Done,
+                "ended" => RunRowState::Ended,
+                other => panic!("unknown state {other}"),
+            };
+            let caption = turn_row_caption(
+                ms(&case["turn"]["startedAt"]),
+                ms(&case["turn"]["endedAt"]),
+                state,
+                case["device"].as_str().unwrap(),
+                ms(&case["runEndedAt"]),
+                ms(&case["now"]).unwrap(),
+            );
+            let actual = caption.map(|(text, tone)| {
+                let tone = match tone {
+                    StatusTone::Muted => "muted",
+                    StatusTone::Amber => "amber",
+                    StatusTone::Green => "green",
+                    StatusTone::Blue => "blue",
+                };
+                serde_json::json!({"text": text, "tone": tone})
+            });
+            assert_eq!(actual.unwrap_or(serde_json::Value::Null), case["expected"], "{name}");
+        }
+    }
 }

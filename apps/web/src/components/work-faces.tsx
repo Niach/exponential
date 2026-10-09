@@ -3,57 +3,48 @@ import {
   useEffect,
   useRef,
   type CSSProperties,
+  type ReactNode,
   type TouchEvent,
 } from "react"
-import { ChangesFaceLabel, type WorkFaceStripRun } from "@exp/ui"
+import {
+  WorkFaceStrip,
+  type WorkFaceStripDots,
+  type WorkFaceStripRun,
+} from "@exp/ui"
+import { IssueRunMenuContent } from "@/components/issue-run-switcher"
 import type { CodingSession } from "@/db/schema"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
+  faceLabel,
   swipeTarget,
-  toggleFaceDots,
-  type ChangesFaceCounts,
   type FaceDotTone,
   type SwipeDirection,
   type WorkFaceKind,
 } from "@/lib/work-faces"
-import {
-  ISSUE_FACE_LABEL,
-  RESULTS_FACE_LABEL,
-  runFaceLabel,
-  WorkFaceToggle,
-  type WorkFace,
-  type WorkFaceItem,
-} from "@/components/team/work-face-toggle"
 
-// EXP-1150: the phone's faces are TABS. The strip under the Work screen's
-// header is the SAME segmented control the md+ work header carries
-// (`WorkFaceToggle` → `@exp/ui` `WorkFaceStrip`, EXP-1152), listing every
-// available face in its fixed order — Issue · Run/Runs · +N −M · Results —
-// and the `Runs` segment keeps its caret to the run menu (EXP-950). The
-// Changes segment wears the diff's counts once its files are known and the
-// word until then (EXP-1152, the desktop `FaceToggle::diff` rule). The strip
-// is absent with a single face (nothing to switch), and it never moves
-// between faces: every face renders it INSIDE the header band, under the
-// title row and over the band's one hairline (`MobileDetailHeader` `below`),
-// so title and tabs read as one header. iOS `WorkFaceTabs` and Android
-// `FaceTabs` draw the same strip in the same place.
+// EXP-1251: THE work faces of the web, one file: the segmented strip every
+// Work screen wears (`WorkFaceToggle`, the md+ work header's and the phone's
+// header band's, both `@exp/ui` `WorkFaceStrip`), the phone's tab row under
+// the header (`MobileFaceTabs`) and the phone PAGER the face bodies (and
+// every other phone tab strip, EXP-1190) swipe with (`useFaceSwipe`). The
+// faces are Issue · Run/Runs · Guide in that fixed order (`availableFaces`);
+// an unavailable face is HIDDEN, never disabled, and the strip is absent
+// under two faces unless the `Runs` caret earns it (EXP-950). EXP-974: an
+// issue-less run's menu lists its RESUME CHAIN. EXP-1024: a NULL face leaves
+// every segment inactive (the workflow node panel). EXP-1162: the tabs carry
+// the state (the Run tab's mark, the Guide's open-PR dot), never the title.
 //
-// EXP-1152: the body is a PAGER. iOS pages with `FacePager` and Android
-// with `HorizontalPager` (`TabPager`), and EXP-1190 pages every other top tab
-// strip on a phone (My Work, Actions, the action page) the same way; on the
-// web the faces are separate route trees (Run is another route), so a
-// neighbour cannot be pre-mounted. Instead the face's
-// BODY (`[data-face-body]`) follows the finger — `translateX` written straight
-// onto the node, no React render per move, rubber-banded where there is no
-// neighbour — and on release it either springs back or leaves to the side it
-// was thrown, the face flips, and the NEW body slides in from the other side
-// (`primeFaceEnter`, read on the next face). The header band and the fixed
-// bottom bar never move: only the body is transformed (a transformed ancestor
-// would also turn the bar's `position: fixed` into a local one). The content
-// follows the finger, so a swipe LEFT opens the next face and a swipe RIGHT
-// the previous one; a sideways scroller (a code line of the diff) keeps the
-// gesture only while it can still scroll that way — past its edge the page
-// turns, the pager rule — and a text field keeps every gesture.
+// EXP-1152: the phone body is a PAGER. iOS pages with `FacePager` and
+// Android with `HorizontalPager`; on the web the faces are separate route
+// trees (Run is another route), so a neighbour cannot be pre-mounted.
+// Instead the face's BODY (`[data-face-body]`) follows the finger —
+// `translateX` written straight onto the node, no React render per move,
+// rubber-banded where there is no neighbour — and on release it either
+// springs back or leaves to the side it was thrown, the face flips, and the
+// NEW body slides in from the other side (`primeFaceEnter`). The header band
+// and the fixed bottom bar never move. A sideways scroller (a code line of
+// the diff) keeps the gesture only while it can still scroll that way, and a
+// text field keeps every gesture.
 
 /** A swipe counts from this many CSS px of horizontal travel… */
 export const SWIPE_MIN_DISTANCE = 56
@@ -424,10 +415,67 @@ export function useFaceSwipe<T>(
   }
 }
 
-/** The toggle speaks `diff` for the changes face (`WorkFace`); the phone's
- *  rules speak `changes` (`WorkFaceKind`). */
-function toToggleFace(face: WorkFaceKind): WorkFace {
-  return face === `changes` ? `diff` : face
+/** Byte-identical with the IDE (`lib/work-faces.ts` owns the words). */
+export { ISSUE_FACE_LABEL, RUN_FACE_LABEL, RUNS_FACE_LABEL, GUIDE_FACE_LABEL } from "@/lib/work-faces"
+
+export function runFaceLabel(multipleRuns: boolean): string {
+  return faceLabel(`run`, multipleRuns)
+}
+
+export interface WorkFaceItem {
+  face: WorkFaceKind
+  label: ReactNode
+  onSelect: () => void
+}
+
+/** EXP-950: the runs behind the `Runs` segment's caret. */
+export interface WorkFaceRunMenu {
+  /** `useIssueRuns` rows (an issue-less run: `useRunChain`, EXP-974) — the
+   *  caret exists from two up. */
+  runs: readonly PastRunRow[]
+  checkedRunId?: string
+  onOpen: (session: CodingSession) => void
+}
+
+/** The md+ work header's strip (and, under `MobileFaceTabs`, the phone's):
+ *  `WorkFaceStrip` with the app's run menu plugged in. */
+export function WorkFaceToggle({
+  face,
+  items,
+  runMenu,
+  dots,
+  run,
+}: {
+  /** The face on show; `null` = none (every segment inactive). */
+  face: WorkFaceKind | null
+  items: readonly WorkFaceItem[]
+  runMenu?: WorkFaceRunMenu
+  /** EXP-1162: the segments' state (`faceDots`). */
+  dots?: Partial<Record<WorkFaceKind, FaceDotTone>>
+  /** EXP-1162: the run whose brand mark the Run tab wears. */
+  run?: WorkFaceStripRun
+}) {
+  return (
+    <WorkFaceStrip
+      face={face}
+      items={items}
+      dots={dots as WorkFaceStripDots | undefined}
+      run={run}
+      runMenu={
+        runMenu && runMenu.runs.length > 1
+          ? {
+              content: (
+                <IssueRunMenuContent
+                  runs={runMenu.runs}
+                  checkedRunId={runMenu.checkedRunId}
+                  onOpen={runMenu.onOpen}
+                />
+              ),
+            }
+          : undefined
+      }
+    />
+  )
 }
 
 export interface MobileFaceTabsProps {
@@ -444,13 +492,12 @@ export interface MobileFaceTabsProps {
   runs?: readonly PastRunRow[]
   /** The run the Run face shows (or would show): the menu's check. */
   viewedRunId?: string | null
-  /** EXP-1152: the Changes face's `+N −M` (`changesFaceCounts` of the files
-   *  it draws); absent / null = the word `Changes`. */
-  changesCounts?: ChangesFaceCounts | null
   onFace: (face: WorkFaceKind) => void
   onOpenRun?: (session: CodingSession) => void
 }
 
+/** EXP-1150: the phone's face tabs, centred inside the header band (Merge
+ *  rides the floating bar, never this row). */
 export function MobileFaceTabs({
   faces,
   face,
@@ -458,59 +505,46 @@ export function MobileFaceTabs({
   run,
   runs = [],
   viewedRunId = null,
-  changesCounts = null,
   onFace,
   onOpenRun,
 }: MobileFaceTabsProps) {
   const multipleRuns = runs.length > 1
   const items: WorkFaceItem[] = faces.map((kind) => ({
-    face: toToggleFace(kind),
-    label:
-      kind === `issue` ? (
-        ISSUE_FACE_LABEL
-      ) : kind === `run` ? (
-        runFaceLabel(multipleRuns)
-      ) : kind === `changes` ? (
-        <ChangesFaceLabel counts={changesCounts} />
-      ) : (
-        RESULTS_FACE_LABEL
-      ),
+    face: kind,
+    label: faceLabel(kind, multipleRuns),
     onSelect: () => {
       // EXP-1152: a tap pages too.
       primeTabEnter(faces, face, kind)
       onFace(kind)
     },
   }))
-  // The toggle itself renders nothing under two segments (unless the Runs
-  // caret alone earns it); the row must vanish with it or it leaves a gap.
+  // The toggle renders nothing under two segments (unless the Runs caret
+  // alone earns it); the row must vanish with it or it leaves a gap.
   const hasRunMenu = multipleRuns && faces.includes(`run`) && Boolean(onOpenRun)
-  const hasTabs = items.length >= 2 || hasRunMenu
-  if (!hasTabs) return null
-  // EXP-1154: the tabs sit centred; the phone's Merge rides the floating bar
-  // again (`MergeCapsule` / `MobileMergeCircle`), never this row.
+  if (items.length < 2 && !hasRunMenu) return null
   return (
     <div
       className="flex shrink-0 items-center justify-center gap-2 px-4 pb-2"
       data-testid="mobile-face-tabs"
     >
       <div className="flex min-w-0 justify-center overflow-x-auto [scrollbar-width:none]">
-      <WorkFaceToggle
-        face={toToggleFace(face)}
-        items={items}
-        dots={dots ? toggleFaceDots(dots) : undefined}
-        run={run}
-        runMenu={
-          onOpenRun
-            ? {
-                runs,
-                checkedRunId: viewedRunId ?? undefined,
-                onOpen: (target) => {
-                  if (target.id !== viewedRunId) onOpenRun(target)
-                },
-              }
-            : undefined
-        }
-      />
+        <WorkFaceToggle
+          face={face}
+          items={items}
+          dots={dots}
+          run={run}
+          runMenu={
+            onOpenRun
+              ? {
+                  runs,
+                  checkedRunId: viewedRunId ?? undefined,
+                  onOpen: (target) => {
+                    if (target.id !== viewedRunId) onOpenRun(target)
+                  },
+                }
+              : undefined
+          }
+        />
       </div>
     </div>
   )

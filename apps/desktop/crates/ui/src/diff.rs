@@ -461,6 +461,8 @@ pub(crate) fn opens_by_default(lines: usize) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileSummary {
     pub filename: SharedString,
+    /// EXP-1251: a rename's source (the Guide's coverage matches it).
+    pub previous_path: Option<SharedString>,
     pub status: DiffStatus,
     pub additions: u32,
     pub deletions: u32,
@@ -581,6 +583,7 @@ fn build_rows(
         }
         summaries.push(FileSummary {
             filename: file.path.clone().into(),
+            previous_path: file.previous_path.clone().map(SharedString::from),
             status: file.status,
             additions: file.additions,
             deletions: file.deletions,
@@ -611,13 +614,29 @@ fn build_rows(
 /// the 8px between cards.
 ///
 /// Pure (no gpui App/Window) so the projection is unit-testable.
+#[cfg(test)]
 pub(crate) fn project_rows(
     rows: &[RenderRow],
     files: &[FileSummary],
     expanded: &std::collections::HashSet<usize>,
 ) -> Vec<usize> {
+    project_rows_only(rows, files, expanded, None)
+}
+
+/// EXP-1251 — [`project_rows`] over a SUBSET of the files (a Guide section's
+/// diff page): a file outside `only` contributes no row at all. `None` =
+/// every file.
+pub(crate) fn project_rows_only(
+    rows: &[RenderRow],
+    files: &[FileSummary],
+    expanded: &std::collections::HashSet<usize>,
+    only: Option<&std::collections::HashSet<usize>>,
+) -> Vec<usize> {
     let mut visible = Vec::with_capacity(files.len() * 2);
     for (file_ix, summary) in files.iter().enumerate() {
+        if only.is_some_and(|only| !only.contains(&file_ix)) {
+            continue;
+        }
         if expanded.contains(&file_ix) {
             visible.extend(summary.row_range.clone());
             continue;
@@ -1133,6 +1152,9 @@ pub struct DiffView {
     expanded: std::collections::HashSet<usize>,
     /// `visible[i]` is the row index of the i-th rendered row.
     visible: Vec<usize>,
+    /// EXP-1251: the files on show (a Guide section's diff page); `None` =
+    /// every file. Kept across a re-install so a live diff stays filtered.
+    only: Option<std::collections::HashSet<usize>>,
     /// The last toggled file + a replay counter: only the file the user just
     /// clicked animates its chevron.
     chevron_anim: Option<(usize, u64)>,
@@ -1156,6 +1178,7 @@ impl DiffView {
             files: Vec::new(),
             expanded: std::collections::HashSet::new(),
             visible: Vec::new(),
+            only: None,
             chevron_anim: None,
             chevron_seq: 0,
             text_w: 0.,
@@ -1233,7 +1256,7 @@ impl DiffView {
     }
 
     fn rebuild_projection(&mut self) {
-        self.visible = project_rows(&self.rows, &self.files, &self.expanded);
+        self.visible = project_rows_only(&self.rows, &self.files, &self.expanded, self.only.as_ref());
         let options = self.options;
         self.sizes = Rc::new(
             self.visible
@@ -1292,6 +1315,19 @@ impl DiffView {
             });
         })
         .detach();
+    }
+
+    /// EXP-1251 — show only the files at these indices (a Guide section's
+    /// diff page), or every file again (`None`). Same-set calls are no-ops.
+    pub fn set_file_filter(&mut self, only: Option<Vec<usize>>, cx: &mut gpui::Context<Self>) {
+        let only: Option<std::collections::HashSet<usize>> = only.map(|only| only.into_iter().collect());
+        if self.only == only {
+            return;
+        }
+        self.only = only;
+        self.rebuild_projection();
+        self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
     }
 
     /// Per-file summaries in render order (drives an external file list).
@@ -1953,6 +1989,25 @@ mod tests {
     }
 
     // -- the projection -----------------------------------------------------
+
+    /// EXP-1251: a Guide section's diff page projects ONLY its files — the
+    /// others contribute no row, the kept ones keep their own spans.
+    #[test]
+    fn a_file_filter_projects_only_its_files() {
+        let files = [ts_file(), binary_file(), rs_file()];
+        let (rows, summaries) = build(&files, DiffOptions::review());
+        let expanded = all_expanded(&summaries);
+        let only: std::collections::HashSet<usize> = [0, 2].into_iter().collect();
+        let visible = project_rows_only(&rows, &summaries, &expanded, Some(&only));
+        let middle = summaries[1].row_range.clone();
+        assert!(visible.iter().all(|ix| !middle.contains(ix)));
+        assert!(visible.contains(&summaries[0].row_index));
+        assert!(visible.contains(&summaries[2].row_index));
+        assert_eq!(
+            project_rows_only(&rows, &summaries, &expanded, None),
+            project_rows(&rows, &summaries, &expanded)
+        );
+    }
 
     #[test]
     fn file_row_ranges_tile_the_flat_row_list() {
