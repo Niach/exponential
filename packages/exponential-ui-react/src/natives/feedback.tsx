@@ -1,6 +1,6 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides (Chart: chart.tsx).
 
-import { resolveRecipe, nativeRecipeProps } from "@exponential-at/ui"
+import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_COLUMN } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -52,20 +52,27 @@ export function SkeletonNative({ props, rootProps }: NativeProps) {
   return <div {...(rootProps as Record<string, unknown>)} aria-hidden="true" style={mergeStyle(rootProps, { width, height, borderRadius: bool(props.rounded) ? 9999 : undefined })} />
 }
 
+/** TreeGuides (round 2 §7): `depth` columns of `treeGuideColumn` (16) px,
+ *  stretched to the row; the `TreeGuides/line` recipe `width` is the
+ *  STROKE of the lines drawn in them (pass-through, elbow, tee). */
 export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
+  const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const depth = Math.max(0, num(props.depth, 0))
   const elbowAt = props.elbowAt === undefined ? depth - 1 : num(props.elbowAt)
   const tee = bool(props.tee)
   const pass = new Set(arr<number>(props.passThrough).map((v) => num(v)))
+  const stroke = sizeOf(ctx, `TreeGuides`, `line`, props, 1)
+  const line = part(`line`) as Record<string, string>
+  const vertical = (key: string, style: React.CSSProperties) => <i key={key} {...line} style={{ left: `calc(50% - ${stroke / 2}px)`, width: stroke, ...style }} />
   const cols = []
   for (let i = 0; i < depth; i++) {
     const elbow = i === elbowAt
     cols.push(
-      <span key={i} {...(part(`line`) as Record<string, string>)} data-col={i}>
-        {pass.has(i) ? <i style={{ left: 7, top: 0, bottom: 0, width: 1 }} /> : null}
-        {elbow ? <i style={{ left: 7, top: 0, height: tee ? `100%` : `50%`, width: 1 }} /> : null}
-        {elbow ? <i style={{ left: 7, top: `50%`, width: 9, height: 1 }} /> : null}
+      <span key={i} className="xui-tree-col" data-col={i} style={{ width: TREE_GUIDE_COLUMN }}>
+        {pass.has(i) ? vertical(`p`, { top: 0, bottom: 0 }) : null}
+        {elbow ? vertical(`e`, { top: 0, height: tee ? `100%` : `50%` }) : null}
+        {elbow ? <i {...line} style={{ left: `50%`, top: `calc(50% - ${stroke / 2}px)`, width: `50%`, height: stroke }} /> : null}
       </span>
     )
   }

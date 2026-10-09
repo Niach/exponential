@@ -34,6 +34,10 @@ export interface SurfaceState {
   catalogId: string
   root: UiNode | null
   issues: ReduceIssue[]
+  /** Round 2: the nodes a data `template` renders per item, by component id
+   *  (`ReduceResult.templates`: lifted out of the tree, never painted in
+   *  place). */
+  templates?: Readonly<Record<string, UiNode>>
   data: DataModel
   /** True after `deleteSurface`. */
   deleted: boolean
@@ -106,7 +110,7 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
 
   const reset = useCallback(() => setInner(initialRef.current), [])
 
-  const reduced = useMemo(() => {
+  const reduced = useMemo((): { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } => {
     if (inner.deleted) return { root: null, issues: [] as ReduceIssue[] }
     if (inner.nested) return reduceNested(inner.nested, { catalogId: inner.catalogId, extensions })
     if (inner.components.length === 0) return { root: null, issues: [] as ReduceIssue[] }
@@ -120,6 +124,7 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
     catalogId: inner.catalogId,
     root: reduced.root,
     issues: reduced.issues,
+    templates: reduced.templates,
     data: inner.data,
     deleted: inner.deleted,
     components: inner.components,
@@ -129,12 +134,4 @@ export function useSurface(options: UseSurfaceOptions = {}): SurfaceState {
     setNested,
     reset,
   }
-}
-
-/** Build the node of a template component id from a flat list (the
- *  reducer drops components nothing references, so a template's component
- *  is reduced on demand, with the same catalog). */
-export function templateNodeFrom(components: readonly FlatComponent[], catalogId: string, extensions: readonly ExtensionDef[], componentId: string): UiNode | undefined {
-  if (!components.some((c) => c.id === componentId)) return undefined
-  return reduceSurface(components, { catalogId, extensions, rootId: componentId, validate: false }).root
 }

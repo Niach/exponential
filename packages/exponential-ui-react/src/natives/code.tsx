@@ -22,6 +22,9 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
   const numbers = bool(props.lineNumbers)
   const copyable = props.copyable !== false
   const title = str(props.title)
+  // Round 2 (§7 CodeBlock): an untitled block names its language in the
+  // header (`ts`; none for `plain`); the region's name stays `codeBlock`.
+  const heading = title || (language === `plain` ? `` : language)
   const maxLines = props.maxLines === undefined ? 0 : num(props.maxLines)
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -42,10 +45,10 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
   }
   const gutterWidth = `${String(lines.length).length + 1}ch`
   return (
-    <div {...(rootProps as Record<string, unknown>)} role="region" aria-label={title || `${language} code`} data-language={language}>
-      {title || copyable ? (
+    <div {...(rootProps as Record<string, unknown>)} role="region" aria-label={title || ctx.t(`codeBlock`)} data-language={language}>
+      {heading || copyable ? (
         <div {...(part(`header`) as Record<string, string>)}>
-          {title ? <span {...(part(`title`) as Record<string, string>)}>{title}</span> : <span className="xui-codeblock-spacer" />}
+          {heading ? <span {...(part(`title`) as Record<string, string>)}>{heading}</span> : <span className="xui-codeblock-spacer" />}
           {copyable ? (
             <button type="button" {...(part(`copy`, copied && `checked`) as Record<string, string>)} aria-label={copied ? ctx.t(`copied`) : ctx.t(`copy`)} onClick={() => void copy()}>
               <BuiltinIcon slot={copied ? `CodeBlock.copied` : `CodeBlock.copy`} />
@@ -53,17 +56,17 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
           ) : null}
         </div>
       ) : null}
-      <div className="xui-codeblock-scroll" data-wrap={bool(props.wrap) ? `true` : undefined} style={maxLines > 0 ? ({ "--xui-code-lines": maxLines } as React.CSSProperties) : undefined} data-max-lines={maxLines > 0 ? maxLines : undefined} tabIndex={0} aria-labelledby={title ? undefined : undefined}>
+      <div {...(part(`body`) as Record<string, string>)} className={`${(part(`body`) as { className: string }).className} xui-codeblock-scroll`} data-wrap={bool(props.wrap) ? `true` : undefined} style={maxLines > 0 ? ({ "--xui-code-lines": maxLines } as React.CSSProperties) : undefined} data-max-lines={maxLines > 0 ? maxLines : undefined} tabIndex={0} aria-labelledby={title ? undefined : undefined}>
         <pre className="xui-codeblock-pre" id={`${domId}.code`}>
           <code>
             {lines.map((tokens, i) => (
-              <span key={i} {...(part(`line`, highlight.has(i + 1) && `selected`) as Record<string, string>)} data-line={i + 1}>
+              <span key={i} {...(part.at(`line`, i, highlight.has(i + 1) && `selected`) as Record<string, string>)} data-line={i + 1}>
                 {numbers ? (
                   <span {...(part(`gutter`) as Record<string, string>)} style={{ minWidth: gutterWidth }} aria-hidden="true">
-                    <span {...(part(`lineNumber`) as Record<string, string>)}>{i + 1}</span>
+                    <span {...(part.at(`lineNumber`, i) as Record<string, string>)}>{i + 1}</span>
                   </span>
                 ) : null}
-                <span className="xui-codeblock-text">
+                <span {...(part.at(`code`, i) as Record<string, string>)} className={`${(part(`code`) as { className: string }).className} xui-codeblock-text`}>
                   {tokens.length === 0 ? `​` : null}
                   {tokens.map((t, j) => (
                     <span key={j} {...(part.with(`token`, { kind: t.kind }) as Record<string, string>)}>

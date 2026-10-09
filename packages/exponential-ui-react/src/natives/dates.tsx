@@ -11,6 +11,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING, weekStart } from "@exponential-at/ui"
+import type { Formatter } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { FieldErrors, useField } from "../form"
 import type { NativeProps } from "../node-view"
@@ -41,6 +42,8 @@ interface CalendarProps {
   part: PartFn
   dayPart: `day`
   locale: string
+  /** The surface Formatter: month and weekday names, day labels (round 2 §3). */
+  formatter: Formatter
   firstDay: number
   min: Date | null
   max: Date | null
@@ -67,23 +70,23 @@ export function calendarStop(days: readonly Date[], view: Date, focus: Date, dis
   return best
 }
 
-export function CalendarGrid({ part, dayPart, locale, firstDay, min, max, isSelected, inRange, initial, onPick, t, direction = `ltr` }: CalendarProps) {
+export function CalendarGrid({ part, dayPart, formatter, firstDay, min, max, isSelected, inRange, initial, onPick, t, direction = `ltr` }: CalendarProps) {
   const [focus, setFocus] = useState<Date>(initial)
   const [view, setView] = useState<Date>(new Date(initial.getFullYear(), initial.getMonth(), 1))
   const grid = useRef<HTMLDivElement>(null)
   const moved = useRef(false)
   const days = monthGrid(view, firstDay)
   const weekdays = useMemo(() => {
-    const fmt = new Intl.DateTimeFormat(locale, { weekday: `short` })
-    const narrow = new Intl.DateTimeFormat(locale, { weekday: `narrow` })
-    // 2023-01-01 was a Sunday.
+    // 2023-01-01 was a Sunday; names through the surface Formatter (`EEE`;
+    // the one-letter column head is the locale's narrow form, Intl).
+    const narrow = new Intl.DateTimeFormat(formatter.locale, { weekday: `narrow` })
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(2023, 0, 1 + ((firstDay + i) % 7))
-      return { short: fmt.format(d), narrow: narrow.format(d) }
+      return { short: formatter.date(isoDate(d), { format: `EEE` }), narrow: narrow.format(d) }
     })
-  }, [locale, firstDay])
-  const monthLabel = new Intl.DateTimeFormat(locale, { month: `long`, year: `numeric` }).format(view)
-  const dayLabel = useMemo(() => new Intl.DateTimeFormat(locale, { weekday: `long`, year: `numeric`, month: `long`, day: `numeric` }), [locale])
+  }, [formatter, firstDay])
+  const monthLabel = formatter.date(isoDate(view), { format: `MMMM yyyy` })
+  const dayLabel = useMemo(() => new Intl.DateTimeFormat(formatter.locale, { weekday: `long`, year: `numeric`, month: `long`, day: `numeric` }), [formatter.locale])
   const disabled = (d: Date) => (min !== null && d < min) || (max !== null && d > max)
   // The month buttons move the focused day WITH the view (same day number,
   // clamped to the month), so the grid keeps a tab stop.
@@ -204,7 +207,7 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
   const min = props.min ? parseIsoDate(str(props.min)) : null
   const max = props.max ? parseIsoDate(str(props.max)) : null
   const firstDay = useFirstDay(props, ctx.locale)
-  const label = selected ? new Intl.DateTimeFormat(ctx.locale, { year: `numeric`, month: `short`, day: `numeric` }).format(selected) : ``
+  const label = selected ? ctx.formatter.date(isoDate(selected)) : ``
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
   const pick = (d: Date) => {
     const next = isoDate(d)
@@ -223,12 +226,12 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
           <BuiltinIcon slot="DatePicker.trigger" />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
-          <PopoverPrimitive.Content {...(part(`calendar`, open && `open`) as Record<string, string>)} role="dialog" aria-label={str(props.label) || undefined} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="DatePicker" onOpenAutoFocus={(e) => {
+          <PopoverPrimitive.Content {...(part(`calendar`, open && `open`) as Record<string, string>)} dir={ctx.direction} role="dialog" aria-label={str(props.label) || undefined} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="DatePicker" onOpenAutoFocus={(e) => {
             e.preventDefault()
             const el = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLButtonElement>(`.xui-calendar-grid button[tabindex="0"]`)
             el?.focus()
           }}>
-            <CalendarGrid part={part} dayPart="day" locale={ctx.locale} firstDay={firstDay} min={min} max={max} isSelected={(d) => sameDay(d, selected)} initial={selected ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} />
+            <CalendarGrid part={part} dayPart="day" locale={ctx.locale} formatter={ctx.formatter} firstDay={firstDay} min={min} max={max} isSelected={(d) => sameDay(d, selected)} initial={selected ?? new Date()} onPick={pick} t={ctx.t} direction={ctx.direction} />
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
@@ -253,7 +256,7 @@ export function DateRangePickerNative({ node, props, rootProps, emit, scope, dom
   const min = props.min ? parseIsoDate(str(props.min)) : null
   const max = props.max ? parseIsoDate(str(props.max)) : null
   const firstDay = useFirstDay(props, ctx.locale)
-  const fmt = new Intl.DateTimeFormat(ctx.locale, { year: `numeric`, month: `short`, day: `numeric` })
+  const fmt = { format: (d: Date) => ctx.formatter.date(isoDate(d)) }
   const label = s ? `${fmt.format(s)} – ${e ? fmt.format(e) : ``}` : ``
   useEffect(() => {
     if (!open) {
@@ -288,7 +291,7 @@ export function DateRangePickerNative({ node, props, rootProps, emit, scope, dom
           <BuiltinIcon slot="DateRangePicker.trigger" />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
-          <PopoverPrimitive.Content {...(part(`calendar`, open && `open`) as Record<string, string>)} role="dialog" aria-label={str(props.label) || undefined} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="DateRangePicker" data-pending={pending ? isoDate(pending) : undefined} onOpenAutoFocus={(ev) => {
+          <PopoverPrimitive.Content {...(part(`calendar`, open && `open`) as Record<string, string>)} dir={ctx.direction} role="dialog" aria-label={str(props.label) || undefined} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="DateRangePicker" data-pending={pending ? isoDate(pending) : undefined} onOpenAutoFocus={(ev) => {
             ev.preventDefault()
             ;(ev.currentTarget as HTMLElement | null)?.querySelector<HTMLButtonElement>(`.xui-calendar-grid button[tabindex="0"]`)?.focus()
           }} onPointerOver={(ev) => {
@@ -302,6 +305,7 @@ export function DateRangePickerNative({ node, props, rootProps, emit, scope, dom
               part={part}
               dayPart="day"
               locale={ctx.locale}
+              formatter={ctx.formatter}
               firstDay={firstDay}
               min={min}
               max={max}
@@ -380,7 +384,7 @@ export function TimePickerNative({ node, props, rootProps, emit, scope, domId }:
           <BuiltinIcon slot="TimePicker.trigger" />
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
-          <PopoverPrimitive.Content {...(part(`list`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="TimePicker" onOpenAutoFocus={(e) => {
+          <PopoverPrimitive.Content {...(part(`list`, open && `open`) as Record<string, string>)} dir={ctx.direction} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="TimePicker" onOpenAutoFocus={(e) => {
             e.preventDefault()
             listRef.current?.focus()
           }}>

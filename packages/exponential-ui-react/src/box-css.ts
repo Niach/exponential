@@ -18,7 +18,7 @@
 
 import { parseMediaCondition, parseTokenRef, type FontSpec, type ResolvedTheme, type UiNode } from "@exponential-at/ui"
 import { hasDynamic } from "./data"
-import { declarations, rule } from "./theme-css"
+import { declarations, rule, shimmerRule } from "./theme-css"
 
 export const nodeClass = (id: string): string => `xui-n-${cssEscape(id)}`
 export const surfaceClass = (surfaceId: string): string => `xui-s-${cssEscape(surfaceId)}`
@@ -73,6 +73,34 @@ export interface NodeSheet {
   queries: string[]
 }
 
+/** The key a surface evaluates itself for a `@media` block (size values
+ *  resolved to px: `@media (min-width: 768px)`); null = never matches. */
+export function resolvedMediaKey(key: string, theme: ResolvedTheme | undefined): string | null {
+  const condition = parseMediaCondition(key)
+  if (!condition) return null
+  if (condition.feature === `orientation` || condition.feature === `hover` || condition.feature === `prefers-reduced-motion`) return key
+  const px = breakpointPx(condition.value, theme)
+  return px === null ? null : `@media (${condition.feature}: ${px}px)`
+}
+
+const isDirection = (v: unknown): v is `ltr` | `rtl` => v === `ltr` || v === `rtl`
+
+/** A node's own `direction` (round 2 §2): its base style's, then every
+ *  MATCHING `@media` block's in source order (later wins), as
+ *  `resolveConditions` flattens it; `matches` = the surface's `data-xq`. */
+export function styleDirection(style: Record<string, unknown> | undefined, theme: ResolvedTheme | undefined, matches: (resolvedKey: string) => boolean): `ltr` | `rtl` | undefined {
+  if (!style) return undefined
+  let out = isDirection(style.direction) ? style.direction : undefined
+  for (const [key, value] of Object.entries(style)) {
+    if (!key.startsWith(`@`) || typeof value !== `object` || value === null) continue
+    const d = (value as Record<string, unknown>).direction
+    if (!isDirection(d)) continue
+    const resolved = resolvedMediaKey(key, theme)
+    if (resolved && matches(resolved)) out = d
+  }
+  return out
+}
+
 function breakpointPx(value: string, theme: ResolvedTheme | undefined): number | null {
   const ref = parseTokenRef(value)
   if (ref) {
@@ -105,21 +133,29 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
       }
       const cls = nodeClass(node.id)
       const sel = `${scope} .${cls}`
-      const base = declarations(withVars(``, style), fonts)
-      if (base.length) rules.push(rule(sel, base))
+      const own = withVars(``, style)
+      const base = declarations(own, fonts)
+      if (base.length) rules.push(rule(sel, base) + shimmerRule(sel, style))
       for (const [key, value] of Object.entries(style)) {
         if (!key.startsWith(`@`) || typeof value !== `object` || value === null) continue
-        const block = declarations(withVars(key, value as Record<string, unknown>), fonts)
+        const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
         if (block.length === 0) continue
         const condition = parseMediaCondition(key)
         if (!condition) continue
+        // A block that sets `direction` is ALSO evaluated by the surface
+        // (`data-xq`): the node's direction drives `dir`, Radix and keys.
+        if (isDirection((value as Record<string, unknown>).direction)) {
+          const resolved = resolvedMediaKey(key, theme)
+          if (resolved) queries.add(resolved)
+        }
+        const band = (selector: string) => shimmerRule(selector, value as Record<string, unknown>)
         switch (condition.feature) {
           case `min-width`:
           case `max-width`: {
             const px = breakpointPx(condition.value, theme)
             if (px === null) break // an unknown token never matches
             const op = condition.feature === `min-width` ? `>=` : `<`
-            rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}}`)
+            rules.push(`@container xui (width ${op} ${px}px){${rule(sel, block)}${band(sel)}}`)
             break
           }
           case `min-height`:
@@ -128,16 +164,18 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
             if (px === null) break
             const resolved = `@media (${condition.feature}: ${px}px)`
             queries.add(resolved)
-            rules.push(rule(`${scope}:where([data-xq~="${queryToken(resolved)}"]) .${cls}`, block))
+            const q = `${scope}:where([data-xq~="${queryToken(resolved)}"]) .${cls}`
+            rules.push(rule(q, block) + band(q))
             break
           }
           case `orientation`:
             queries.add(key)
-            rules.push(rule(`${scope}:where([data-xq~="${queryToken(key)}"]) .${cls}`, block))
+            const q = `${scope}:where([data-xq~="${queryToken(key)}"]) .${cls}`
+            rules.push(rule(q, block) + band(q))
             break
           case `hover`:
           case `prefers-reduced-motion`:
-            rules.push(`@media (${condition.feature}: ${condition.value}){${rule(sel, block)}}`)
+            rules.push(`@media (${condition.feature}: ${condition.value}){${rule(sel, block)}${band(sel)}}`)
             break
         }
       }
@@ -149,8 +187,8 @@ export function compileNodeSheet(roots: readonly UiNode[], surfaceId: string, th
       for (const [key, selector] of states) {
         const value = style[key]
         if (typeof value !== `object` || value === null) continue
-        const block = declarations(withVars(key, value as Record<string, unknown>), fonts)
-        if (block.length) rules.push(rule(selector, block))
+        const block = declarations(withVars(key, value as Record<string, unknown>), fonts, own)
+        if (block.length) rules.push(rule(selector, block) + shimmerRule(selector, value as Record<string, unknown>))
       }
     }
   }
