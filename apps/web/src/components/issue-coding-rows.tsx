@@ -432,7 +432,7 @@ function PrRow({
               issueIdentifier: issue.identifier,
             }}
             /* EXP-1154: the review of the PR = this issue's Changes face. */
-            search={{ view: `diff` }}
+            search={{ view: `guide` }}
           >
             <GitPullRequest className="size-4 shrink-0 text-muted-foreground" />
             <PrStateBadge state={issue.prState} />
@@ -461,7 +461,7 @@ function PrRow({
               issueIdentifier: issue.identifier,
             }}
             /* EXP-1154: the review of the PR = this issue's Changes face. */
-            search={{ view: `diff` }}
+            search={{ view: `guide` }}
           >
             <GitBranch className="size-4 shrink-0 text-muted-foreground" />
             <span className="truncate">

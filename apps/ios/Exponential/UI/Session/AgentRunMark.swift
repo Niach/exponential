@@ -61,7 +61,8 @@ let runMarkEndedOpacity: Double = 0.5
 
 /// EXP-1208: a session list row's run mark is one indent level square (its
 /// centre IS the gutter centre a child's connector hangs off), its badge 6,
-/// and 8 separates the mark, the fold chevron and the text — ×4.
+/// and 8 separates the mark and the text — ×4 (no fold chevron since
+/// EXP-1248).
 enum SessionRowLead {
     static let markSize: CGFloat = TreeGuides.indentPerLevel
     static let badgeSize: CGFloat = 6
@@ -78,18 +79,6 @@ func runningRowMarkState(
     if paused { return nil }
     if state == .working { return working ? .working : nil }
     return state
-}
-
-/// EXP-1208: a FINISHED run's row lead (`EndedRunRow`'s `lead`): the ended
-/// mark, sized like every session row's.
-struct SessionRowEndedMark: View {
-    let agent: String?
-
-    var body: some View {
-        AgentRunMark(agent: agent, state: nil, ended: true)
-            .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-            .accessibilityHidden(true)
-    }
 }
 
 /// A run's mark — wherever a run is named by its agent (the Work screen's

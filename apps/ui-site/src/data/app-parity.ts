@@ -135,9 +135,10 @@ export const APP_PARITY: readonly AppParity[] = [
     ],
     "status": {
       "web": {
-        "status": "ok",
-        "symbol": "PropertyRow",
-        "file": "packages/ui/src/property-row.tsx"
+        "status": "leftover",
+        "symbol": "PropertyValueRow",
+        "file": "apps/web/src/components/issue-editor/mobile-properties.tsx",
+        "note": "the PropertyRow component was folded into ListRow's value variant: ListRow asChild over a Button"
       },
       "desktop": {
         "status": "n/a",
@@ -226,7 +227,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "tree-guides",
     "title": "Tree guides",
-    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own, and a folded subtree draws nothing at all. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.",
+    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.",
     "components": [
       "TreeGuides"
     ],
@@ -606,9 +607,8 @@ export const APP_PARITY: readonly AppParity[] = [
     ],
     "status": {
       "web": {
-        "status": "ok",
-        "symbol": "Badge",
-        "file": "packages/ui/src/badge.tsx"
+        "status": "n/a",
+        "note": "the caller-less web Badge was deleted (UI cleanup batch, EXP-1245..1251); no web count capsule today"
       },
       "desktop": {
         "status": "ok",
@@ -1214,9 +1214,9 @@ export const APP_PARITY: readonly AppParity[] = [
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Combobox / ComboboxList / ComboboxMenuItems",
-        "file": "packages/ui/src/combobox.tsx",
-        "note": "PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu"
+        "symbol": "Picker / PickerList / PickerMenuRows",
+        "file": "packages/ui/src/picker/picker.tsx",
+        "note": "EXP-1249: Picker is the ONE shell (Combobox is internal, not exported); PickerItem the row shape; PickerMenuRows the rows inside a Menu"
       },
       "desktop": {
         "status": "ok",
@@ -1326,10 +1326,8 @@ export const APP_PARITY: readonly AppParity[] = [
         "note": "no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red"
       },
       "android": {
-        "status": "leftover",
-        "symbol": "GlassNotice",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/GlassNotice.kt",
-        "note": "the boxed inline message, but with no title slot and no destructive variant — callers pass the red themselves"
+        "status": "n/a",
+        "note": "no boxed banner: EXP-1249 deleted the caller-less GlassNotice; an error renders as a red Text line"
       }
     }
   },
@@ -1428,8 +1426,8 @@ export const APP_PARITY: readonly AppParity[] = [
       "android": {
         "status": "leftover",
         "symbol": "ChangesEmptyRow",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/work/ChangesFace.kt",
-        "note": "private to one face; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized"
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt",
+        "note": "private to the Guide section page; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized"
       }
     }
   },
@@ -1474,9 +1472,9 @@ export const APP_PARITY: readonly AppParity[] = [
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "MENU_ITEM_CLASS",
-        "file": "packages/ui/src/menu-surface.ts",
-        "note": "--menu-* in styles.css mirror tokens.json; this specimen wears the same constants"
+        "symbol": "Menu",
+        "file": "packages/ui/src/menu.tsx",
+        "note": "EXP-1249: ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK dropdown-menu + sheet primitives; rows wear menu-surface's --menu-* constants"
       },
       "desktop": {
         "status": "leftover",

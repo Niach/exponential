@@ -27,22 +27,18 @@ export const SIDEBAR_HANDLE_WIDTH: number = tokens.handleWidth
 export const SIDEBAR_KEYBOARD_STEP: number = tokens.keyboardStep
 
 /** The panels a column can hold — `SidebarOccupant['kind']`. */
-export type SidebarPanelKey = `main` | `list` | `review` | `settings` | `recent`
+export type SidebarPanelKey = `main` | `list` | `settings`
 
 export const SIDEBAR_PANEL_KEYS: readonly SidebarPanelKey[] = [
   `main`,
   `list`,
-  `review`,
   `settings`,
-  `recent`,
 ]
 
 const DEFAULTS: Record<SidebarPanelKey, number> = {
   main: tokens.defaultMain,
   list: tokens.defaultList,
-  review: tokens.defaultReview,
   settings: tokens.defaultSettings,
-  recent: tokens.defaultRecent,
 }
 
 export const SIDEBAR_WIDTHS_STORAGE_KEY = `exp.sidebarWidths`

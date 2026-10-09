@@ -2,9 +2,12 @@
 // version actually exists (or an update is already in flight) — not for
 // every online server.
 import { describe, expect, it } from "vitest"
+import { contract } from "@exp/domain-contract"
 
 import {
   deviceAcpAgentIds,
+  deviceCanToggleComputerUse,
+  deviceComputerUseDefault,
   deviceAgentLaunchDefaults,
   deviceAgentNotReady,
   deviceCanRemoveAccount,
@@ -997,5 +1000,22 @@ describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
         `claude`
       )
     ).toEqual({ kind: `none` })
+  })
+})
+
+// EXP-1249: the composer's per-run Computer use toggle.
+describe(`computer use per run`, () => {
+  it(`is offered only by a device advertising the contract cap`, () => {
+    expect(
+      deviceCanToggleComputerUse({ caps: [contract.codingSession.computerUseCap] })
+    ).toBe(true)
+    expect(deviceCanToggleComputerUse({ caps: [`resume-run`] })).toBe(false)
+    expect(deviceCanToggleComputerUse(undefined)).toBe(false)
+  })
+
+  it(`seeds from the device's own switch, absent = off`, () => {
+    expect(deviceComputerUseDefault({ launchDefaults: { computerUse: true } })).toBe(true)
+    expect(deviceComputerUseDefault({ launchDefaults: { computerUse: null } })).toBe(false)
+    expect(deviceComputerUseDefault({})).toBe(false)
   })
 })

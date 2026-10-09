@@ -35,8 +35,7 @@ import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
-import com.exponential.app.domain.isInlineImage
-import com.exponential.app.domain.isInlineMedia
+import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -448,7 +447,9 @@ class IssueDraftViewModel @Inject constructor(
 
     // Draft attachments are not in the attachments shape (it is issue-scoped),
     // so they come over tRPC; inline images and clips already render from the
-    // description. Only a SUCCESSFUL list makes them known.
+    // description. EXP-1247: the server lists Files rows only (an `as_file`
+    // upload or a type that never inlines); the same row rule runs here for an
+    // older server. Only a SUCCESSFUL list makes them known.
     private suspend fun loadAttachments() {
         val accountId = auth.activeAccountId.value ?: return
         val files = try {
@@ -458,7 +459,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (error: Throwable) {
             android.util.Log.w("IssueDraftViewModel", "Draft attachments load failed", error)
             return
-        }.filterNot { isInlineImage(it.contentType) || isInlineMedia(it.contentType) }
+        }.filter { isFileAttachment(it.contentType, it.asFile) }
         _state.update { s ->
             s.copy(attachments = files + s.attachments.filterNot { a -> files.any { it.id == a.id } }, attachmentsKnown = true)
         }
@@ -841,13 +842,15 @@ class IssueDraftViewModel @Inject constructor(
             if (bytes.size > MAX_FILE_UPLOAD_BYTES) {
                 return "Over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB"
             }
-            val uploaded = attachmentsApi.uploadDraft(accountId, draftId, bytes, filename, contentType)
+            // EXP-1247: a Files pick — an image stays a file, never inlined.
+            val uploaded = attachmentsApi.uploadDraft(accountId, draftId, bytes, filename, contentType, asFile = true)
             val row = IssueDraftAttachment(
                 id = uploaded.id,
                 filename = uploaded.filename,
                 contentType = uploaded.contentType,
                 sizeBytes = uploaded.sizeBytes,
                 url = uploaded.url,
+                asFile = true,
             )
             _state.update { it.copy(attachments = it.attachments + row) }
             null
@@ -1061,8 +1064,9 @@ class IssueDraftViewModel @Inject constructor(
         val failed = mutableListOf<String>()
         for (file in files) {
             try {
+                // EXP-1247: every held pick came through the Files path, so
+                // an image uploads `asFile` too (it is never inlined).
                 val contentType = canonicalContentType(resolver.getType(file.uri))
-                if (isInlineImage(contentType)) continue
                 val bytes = withContext(Dispatchers.IO) { resolver.openInputStream(file.uri)?.use { it.readBytes() } }
                 if (bytes == null) {
                     failed += file.filename
@@ -1072,7 +1076,7 @@ class IssueDraftViewModel @Inject constructor(
                     failed += "${file.filename} (over ${MAX_FILE_UPLOAD_BYTES / (1024 * 1024)} MB)"
                     continue
                 }
-                attachmentsApi.upload(accountId, issueId, bytes, file.filename, contentType)
+                attachmentsApi.upload(accountId, issueId, bytes, file.filename, contentType, asFile = true)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (error: Throwable) {

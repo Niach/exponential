@@ -33,13 +33,12 @@ use gpui::{
     Render, SharedString, StatefulInteractiveElement as _, Stateful, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_component::{h_flex, select::Select, ActiveTheme as _, Disableable as _, Icon};
+use gpui_component::{h_flex, select::Select, ActiveTheme as _, Icon};
 
 use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     SUBAGENT_MODEL_CHOICES,
 };
 use crate::icons::ExpIcon;
@@ -77,7 +76,7 @@ pub(crate) struct McpServerOption {
 /// ([`crate::picker::mcp_server_picker::McpPickerServer`]): a blocked
 /// server keeps its reason as the second line and stays PICKABLE (the
 /// launch then starts without it), so `disabled` is never set — the row
-/// only dims ([`more_options_popover`]).
+/// only dims (the composer "+" menu's MCP servers picker).
 pub(crate) fn mcp_picker_servers(
     servers: &[McpServerOption],
 ) -> Vec<crate::picker::mcp_server_picker::McpPickerServer> {
@@ -245,34 +244,6 @@ pub(crate) fn cannot_run_session(acp_agents: &[CodingAgent], agent: CodingAgent)
     !acp_agents.contains(&agent)
 }
 
-/// The AUTOMATION strip's pills: the agent ids the BOUND device advertises.
-pub(crate) fn agent_id_pills(agent_ids: &[String]) -> Vec<AgentPill> {
-    agent_ids
-        .iter()
-        .map(|id| AgentPill {
-            label: SharedString::from(agent_label(id)),
-            icon: CodingAgent::parse(id).map(agent_icon),
-            dimmed: false,
-            note: None,
-        })
-        .collect()
-}
-
-/// An agent id's display name — the brand casing every picker shows.
-pub(crate) fn agent_label(id: &str) -> String {
-    match CodingAgent::parse(id) {
-        Some(agent) => agent.label().to_string(),
-        // A newer contract value still renders readably.
-        None => {
-            let mut chars = id.chars();
-            match chars.next() {
-                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-                None => String::new(),
-            }
-        }
-    }
-}
-
 /// The segments of an agent strip — the pills themselves, container-free, so
 /// the free-floating capsule ([`agent_tabs`]) and the EMBEDDED group row
 /// ([`agent_tabs_row`]) draw the exact same tabs.
@@ -385,22 +356,21 @@ fn pin_menu<V: Render, S: 'static>(
 ) -> impl IntoElement {
     let current = picked.map(str::to_string);
     let view = cx.entity().downgrade();
-    trigger
-        .dropdown_menu(move |mut menu, _window, _cx| {
+    crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, _cx| {
             let default_view = view.clone();
             let current = current.clone();
-            menu = menu.item(
-                PopupMenuItem::new(CLI_DEFAULT_LABEL)
-                    .checked(current.is_none())
-                    .on_click(move |_, _, cx| {
-                        if let Some(view) = default_view.upgrade() {
-                            view.update(cx, |view, cx| {
-                                *pick(access(view)) = None;
-                                cx.notify();
-                            });
-                        }
-                    }),
-            );
+            menu = menu.item(crate::controls::pointer_check_item(
+                CLI_DEFAULT_LABEL,
+                current.is_none(),
+                move |_, cx| {
+                    if let Some(view) = default_view.upgrade() {
+                        view.update(cx, |view, cx| {
+                            *pick(access(view)) = None;
+                            cx.notify();
+                        });
+                    }
+                },
+            ));
             for (label, value) in choices {
                 // A blank value IS "leave it to the CLI" — the same thing
                 // "Device default" already says.
@@ -410,8 +380,10 @@ fn pin_menu<V: Render, S: 'static>(
                 let view = view.clone();
                 let value = (*value).to_string();
                 let checked = current.as_deref() == Some(value.as_str());
-                menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
-                    move |_, _, cx| {
+                menu = menu.item(crate::controls::pointer_check_item(
+                    *label,
+                    checked,
+                    move |_, cx| {
                         if let Some(view) = view.upgrade() {
                             let value = value.clone();
                             view.update(cx, |view, cx| {
@@ -505,20 +477,6 @@ pub(crate) fn device_glyph_name(device_id: &str, cx: &App) -> &'static str {
     crate::icons::device_icon_name(icon.as_deref(), is_server)
 }
 
-/// EXP-862: the composer options row's ICON-ONLY control (the `⋯` that
-/// opens more options) — the same muted ghost as the pins, a glyph instead of
-/// a word and no caret, web `Button variant="ghost" size="icon-xs"`.
-pub(crate) fn inline_icon_trigger(id: SharedString, icon: ExpIcon, cx: &App) -> Button {
-    Button::new(id)
-        .ghost()
-        .cursor_pointer()
-        .h_auto()
-        .px_1()
-        .py_0()
-        .text_color(cx.theme().muted_foreground)
-        .child(Icon::new(icon).size(gpui::px(14.)))
-}
-
 /// EXP-825: a labelled switch on the composer options row.
 fn inline_switch<V: Render>(
     id: SharedString,
@@ -563,9 +521,8 @@ pub(crate) fn choice_pin<V: Render>(
     choice_pin_for(trigger, choices, picked, cx.entity().downgrade(), on_pick)
 }
 
-/// [`choice_pin`] for a caller with no `Context<V>` at hand: the `⋯`
-/// popover's content closure runs in the POPOVER's own context, so the host's
-/// weak handle is captured up front instead of derived from `cx`.
+/// [`choice_pin`] for a caller with no `Context<V>` at hand: the host's weak
+/// handle is captured up front instead of derived from `cx`.
 pub(crate) fn choice_pin_for<V: Render>(
     trigger: Button,
     choices: &'static [(&'static str, &'static str)],
@@ -574,14 +531,16 @@ pub(crate) fn choice_pin_for<V: Render>(
     on_pick: impl Fn(&mut V, &str, &mut Window, &mut Context<V>) + 'static,
 ) -> impl IntoElement {
     let on_pick = std::rc::Rc::new(on_pick);
-    trigger.dropdown_menu(move |mut menu, _window, _cx| {
+    crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, _cx| {
         for (label, value) in choices {
             let view = view.clone();
             let on_pick = on_pick.clone();
             let value = (*value).to_string();
             let checked = picked == value;
-            menu = menu.item(PopupMenuItem::new(*label).checked(checked).on_click(
-                move |_, window, cx| {
+            menu = menu.item(crate::controls::pointer_check_item(
+                *label,
+                checked,
+                move |window, cx| {
                     if let Some(view) = view.upgrade() {
                         let value = value.clone();
                         let on_pick = on_pick.clone();
@@ -608,7 +567,7 @@ fn choice_menu<V: Render>(
     choice_menu_for(trigger, choices, picked, select, access, cx.entity().downgrade())
 }
 
-/// [`choice_menu`] against a captured weak handle (the `⋯` popover).
+/// [`choice_menu`] against a captured weak handle.
 fn choice_menu_for<V: Render>(
     trigger: Button,
     choices: &'static [(&'static str, &'static str)],
@@ -843,6 +802,10 @@ pub(crate) struct RemoteDefaults {
     /// preview draws its bars off it (the active login's numbers ride here
     /// when its profile row carries none).
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
+    /// EXP-1249: the machine advertises `computer-use-run` — it reads a
+    /// start's per-run `computerUse`. Without it the "+" menu offers no
+    /// Computer use row (the run would silently take the machine's switch).
+    pub(crate) computer_use_run: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -887,6 +850,10 @@ pub(crate) struct LaunchOptionsSection {
     /// target machine (`system` = its ambient login); `None` = unnamed, the
     /// machine's last used login (EXP-1158).
     account: Option<String>,
+    /// EXP-1249: the run's own Computer use pick (the "+" menu toggle);
+    /// `None` = the target machine's switch decides. Cleared on a device
+    /// switch: another machine has another switch.
+    computer_use: Option<bool>,
 }
 
 impl LaunchOptionsSection {
@@ -920,6 +887,7 @@ impl LaunchOptionsSection {
             mcp_owned_by_subject: false,
             // Settled just below against what the machine reports.
             account: None,
+            computer_use: None,
         };
         // …then settle it against what this machine actually reports, so the
         // pin can never SHOW one login while the launch spends another.
@@ -1065,6 +1033,7 @@ impl LaunchOptionsSection {
         cx: &mut App,
     ) {
         self.remote = remote;
+        self.computer_use = None;
         // EXP-872: profiles are per MACHINE, so the pick cannot carry over —
         // the new machine's LAST USED login settles both the agent and the
         // login, and the model/effort seeds follow it.
@@ -1176,6 +1145,51 @@ impl LaunchOptionsSection {
                 self.mcp_selected.clone()
             },
             account: self.account.clone(),
+            // EXP-1249: only a pick the target can read rides the launch.
+            computer_use: computer_use_pick(self.computer_use, self.computer_use_offered()),
+        }
+    }
+
+    /// EXP-1249: whether the "+" menu offers Computer use for this target —
+    /// always on this machine (this build reads its own pick), on a remote
+    /// one only with the `computer-use-run` cap.
+    pub(crate) fn computer_use_offered(&self) -> bool {
+        self.remote.as_ref().is_none_or(|remote| remote.computer_use_run)
+    }
+
+    /// EXP-1249: the target machine's own Computer use switch — what a run
+    /// with no pick of its own gets.
+    pub(crate) fn computer_use_default(&self, cx: &App) -> bool {
+        match &self.remote {
+            Some(remote) => remote.settings.computer_use,
+            None => crate::coding_flow::CodingHub::global_ref(cx)
+                .is_some_and(|hub| hub.read(cx).settings.computer_use),
+        }
+    }
+
+    /// EXP-1249: the "+" menu's toggle flipped to `on`.
+    pub(crate) fn set_computer_use(&mut self, on: bool) {
+        self.computer_use = Some(on);
+    }
+
+    /// EXP-1249: the "+" menu's Effort pick, into the same select the
+    /// grouped cluster edits.
+    pub(crate) fn pick_effort(&mut self, value: &str, window: &mut Window, cx: &mut App) {
+        set_choice(&self.effort, value, window, cx);
+    }
+
+    /// EXP-1249: the "+" menu's Subagents pick (claude only).
+    pub(crate) fn pick_subagent_model(&mut self, value: &str, window: &mut Window, cx: &mut App) {
+        set_choice(&self.subagent_model, value, window, cx);
+    }
+
+    /// EXP-792: the servers the "+" menu's MCP picker offers — none for a
+    /// subject that owns its list (FEED-73) — and the current pick.
+    pub(crate) fn mcp_menu(&self) -> (Vec<McpServerOption>, Vec<String>) {
+        if self.mcp_owned_by_subject {
+            (Vec::new(), Vec::new())
+        } else {
+            (self.mcp_servers.clone(), self.mcp_selected.clone())
         }
     }
 
@@ -1235,12 +1249,13 @@ impl LaunchOptionsSection {
         ))
     }
 
-    /// EXP-991: everything the `⋯` overlay draws, read off the section in
-    /// ONE pass — the popover's content closure runs in the POPOVER's
-    /// context, so it cannot reach back into the host view for a second look.
-    pub(crate) fn more_options(&self, cx: &App) -> MoreOptions {
+    /// EXP-1249: everything the composer's "+" menu draws, read off the
+    /// section in ONE pass — the menu builder runs in the MENU's context, so
+    /// it cannot reach back into the host view for a second look.
+    pub(crate) fn composer_menu(&self, cx: &App) -> ComposerMenu {
         let ultracode_on = self.ultracode && self.agent.supports_ultracode();
-        MoreOptions {
+        let (mcp_servers, mcp_selected) = self.mcp_menu();
+        ComposerMenu {
             effort_label: self.agent.effort_label(),
             effort_choices: effort_choices_for(self.agent),
             effort_picked: selected(&self.effort, cx),
@@ -1250,13 +1265,13 @@ impl LaunchOptionsSection {
                 .supports_subagent_model()
                 .then(|| selected(&self.subagent_model, cx)),
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
-            // FEED-73: no row for a subject that owns its list.
-            mcp_servers: if self.mcp_owned_by_subject {
-                Vec::new()
-            } else {
-                self.mcp_servers.clone()
-            },
-            mcp_selected: self.mcp_selected.clone(),
+            mcp_servers,
+            mcp_selected,
+            computer_use: computer_use_shown(
+                self.computer_use,
+                self.computer_use_offered(),
+                self.computer_use_default(cx),
+            ),
         }
     }
 
@@ -1296,195 +1311,78 @@ impl LaunchOptionsSection {
     }
 }
 
-/// EXP-991 — the `⋯` overlay's whole content, snapshotted off a
-/// [`LaunchOptionsSection`].
-#[derive(Clone, Debug)]
-pub(crate) struct MoreOptions {
-    effort_label: &'static str,
-    effort_choices: &'static [(&'static str, &'static str)],
-    effort_picked: String,
+/// EXP-1249 — the composer "+" menu's run options, snapshotted off a
+/// [`LaunchOptionsSection`] (the `⋯` overlay EXP-991 drew is gone: its rows
+/// moved into the menu).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ComposerMenu {
+    pub(crate) effort_label: &'static str,
+    pub(crate) effort_choices: &'static [(&'static str, &'static str)],
+    pub(crate) effort_picked: String,
     /// Ultracode IS the effort level while it is on, so the row says so and
-    /// takes no menu.
-    effort_locked: bool,
+    /// takes no submenu.
+    pub(crate) effort_locked: bool,
     /// `None` for an agent whose subagents take no model pin.
-    subagent_picked: Option<String>,
+    pub(crate) subagent_picked: Option<String>,
     /// `None` for an agent without dynamic workflows.
-    ultracode: Option<bool>,
-    mcp_servers: Vec<McpServerOption>,
-    mcp_selected: Vec<String>,
+    pub(crate) ultracode: Option<bool>,
+    /// Empty hides the MCP servers row.
+    pub(crate) mcp_servers: Vec<McpServerOption>,
+    pub(crate) mcp_selected: Vec<String>,
+    /// The Computer use toggle's state; `None` hides the row.
+    pub(crate) computer_use: Option<bool>,
 }
 
-/// EXP-991 — the composer's `⋯`: an OVERLAY of the options that do not fit
-/// the line (Effort, Subagents, Ultracode, MCP servers), NOT a second inline
-/// row that pushes the field down every time it opens.
-///
-/// The popover surface is the ONLY edge: the rows are hairline-divided and
-/// carry no fill and no radius of their own
-/// ([`surface::glass_group_rows_bare`]) — a `glass_group` in here would be a
-/// card inside a card. The MCP servers row is the shared multi picker's
-/// trigger (web `McpServerPicker` off a `row` trigger): label leading, the
-/// pick's summary trailing, the servers behind it by glyph + host.
-pub(crate) fn more_options_popover<V: Render>(
-    prefix: &'static str,
-    trigger: Button,
-    read: fn(&V) -> Option<&LaunchOptionsSection>,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    cx: &mut Context<V>,
-) -> gpui_component::popover::Popover {
-    use gpui_component::popover::Popover;
+impl ComposerMenu {
+    /// The Effort row's trailing value.
+    pub(crate) fn effort_value(&self) -> String {
+        if self.effort_locked {
+            "Ultracode".to_string()
+        } else {
+            pin_label(
+                self.effort_choices,
+                Some(self.effort_picked.as_str()).filter(|value| !value.is_empty()),
+            )
+        }
+    }
 
-    let view = cx.entity().downgrade();
-    Popover::new(SharedString::from(format!("{prefix}-more-popover")))
-        .p_1()
-        .trigger(trigger)
-        .content(move |_, window, cx| {
-            let Some(options) = view
-                .upgrade()
-                .and_then(|entity| read(entity.read(cx)).map(|section| section.more_options(cx)))
-            else {
-                return div().into_any_element();
-            };
-            let muted = cx.theme().muted_foreground;
-            let mut rows: Vec<Div> = Vec::new();
-
-            // Effort.
-            let effort_trigger = inline_pin_trigger(
-                SharedString::from(format!("{prefix}-effort")),
-                if options.effort_locked {
-                    "Ultracode".to_string()
-                } else {
-                    pin_label(
-                        options.effort_choices,
-                        Some(options.effort_picked.as_str()).filter(|value| !value.is_empty()),
-                    )
-                },
-                cx,
-            );
-            rows.push(surface::bare_row_shell().child(options.effort_label).child(
-                if options.effort_locked {
-                    effort_trigger.disabled(true).into_any_element()
-                } else {
-                    choice_menu_for(
-                        effort_trigger,
-                        options.effort_choices,
-                        options.effort_picked.clone(),
-                        |section| &section.effort,
-                        access,
-                        view.clone(),
-                    )
-                    .into_any_element()
-                },
-            ));
-
-            // EXP-981: the claude-only subagent model.
-            if let Some(picked) = options.subagent_picked.clone() {
-                let choices: &'static [(&'static str, &'static str)] = &SUBAGENT_MODEL_CHOICES;
-                let trigger = inline_pin_trigger(
-                    SharedString::from(format!("{prefix}-subagent-model")),
-                    pin_label(choices, Some(picked.as_str()).filter(|value| !value.is_empty())),
-                    cx,
-                );
-                rows.push(
-                    surface::bare_row_shell().child("Subagents").child(
-                        choice_menu_for(
-                            trigger,
-                            choices,
-                            picked,
-                            |section| &section.subagent_model,
-                            access,
-                            view.clone(),
-                        )
-                        .into_any_element(),
-                    ),
-                );
-            }
-
-            // Ultracode.
-            if let Some(on) = options.ultracode {
-                let view = view.clone();
-                rows.push(
-                    surface::bare_row_shell().child("Ultracode").child(
-                        crate::controls::web_switch(SharedString::from(format!(
-                            "{prefix}-ultracode"
-                        )))
-                        .checked(on)
-                        .on_click(move |on: &bool, _window, cx| {
-                            if let Some(entity) = view.upgrade() {
-                                let on = *on;
-                                entity.update(cx, |entity, cx| {
-                                    access(entity).ultracode = on;
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                    ),
-                );
-            }
-
-            // EXP-792: the team's MCP servers behind the shared picker. The
-            // row IS the trigger; a blocked server reads its reason as the
-            // second line and DIMS, but still toggles (the launch starts
-            // without it — a warning, never a blocker).
-            if !options.mcp_servers.is_empty() {
-                let servers = mcp_picker_servers(&options.mcp_servers);
-                let dimmed: Vec<String> = options
-                    .mcp_servers
-                    .iter()
-                    .filter(|server| server.blocked.is_some())
-                    .map(|server| server.id.clone())
-                    .collect();
-                let view = view.clone();
-                let trigger = surface::bare_row_shell()
-                    .cursor_pointer()
-                    .child("MCP servers")
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(mcp_pick_summary(
-                                &options.mcp_servers,
-                                &options.mcp_selected,
-                            ))),
-                    )
-                    .into_any_element();
-                let picker = crate::picker::mcp_server_picker::mcp_server_picker(
-                    &servers,
-                    options.mcp_selected.clone(),
-                    trigger,
-                    std::rc::Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
-                        if let Some(entity) = view.upgrade() {
-                            entity.update(cx, |entity, cx| {
-                                access(entity).set_mcp_selected(ids);
-                                cx.notify();
-                            });
-                        }
-                    }),
-                )
-                .id(SharedString::from(format!("{prefix}-mcp-picker")))
-                .render_item(move |item, cx| {
-                    let body = crate::picker::picker_item_body(item, cx);
-                    if dimmed.iter().any(|id| id == &item.value) {
-                        h_flex().flex_1().min_w_0().opacity(0.5).child(body).into_any_element()
-                    } else {
-                        body
-                    }
-                });
-                rows.push(div().w_full().child(picker.render(window, cx)));
-            }
-
-            div()
-                .w(gpui::px(MORE_POPOVER_W))
-                .text_sm()
-                .child(surface::glass_group_rows_bare(rows))
-                .into_any_element()
+    /// The Subagents row's trailing value (`None` = no row).
+    pub(crate) fn subagent_value(&self) -> Option<String> {
+        self.subagent_picked.as_deref().map(|picked| {
+            pin_label(&SUBAGENT_MODEL_CHOICES, Some(picked).filter(|value| !value.is_empty()))
         })
+    }
+
+    /// The MCP servers row's trailing value: how many are picked, `None` at
+    /// zero (composer-menu.json: no value at zero; the row itself shows
+    /// whenever the team has a server).
+    pub(crate) fn mcp_value(&self) -> Option<String> {
+        (!self.mcp_selected.is_empty()).then(|| self.mcp_selected.len().to_string())
+    }
 }
 
-/// The `⋯` overlay's width — wide enough for a model alias beside its label,
-/// narrow enough to hang off one glyph.
-const MORE_POPOVER_W: f32 = 320.;
+/// EXP-1249: the per-run pick a launch carries — only for a target that
+/// reads it (`offered`), else `None` (its own switch decides).
+pub(crate) fn computer_use_pick(explicit: Option<bool>, offered: bool) -> Option<bool> {
+    explicit.filter(|_| offered)
+}
+
+/// EXP-1249: the toggle's state — the run's pick, else the machine's
+/// switch; `None` (no row) for a target that cannot read a pick.
+pub(crate) fn computer_use_shown(
+    explicit: Option<bool>,
+    offered: bool,
+    device_default: bool,
+) -> Option<bool> {
+    offered.then(|| explicit.unwrap_or(device_default))
+}
+
+/// Write `value` into a model/effort select.
+fn set_choice(select: &ChoiceSelect, value: &str, window: &mut Window, cx: &mut App) {
+    select.update(cx, |state, cx| {
+        state.set_selected_value(&SharedString::from(value.to_string()), window, cx)
+    });
+}
 
 #[cfg(test)]
 mod tests {
@@ -1503,6 +1401,46 @@ mod tests {
     /// EXP-792: the shared picker's rows — a blocked server keeps its reason
     /// as the second line but is NEVER disabled (it still toggles; the
     /// launch merely starts without it), and the glyph inputs travel.
+    #[test]
+    fn the_computer_use_toggle_follows_the_device_until_picked() {
+        // A target that cannot read a pick shows no row and sends nothing.
+        assert_eq!(computer_use_shown(Some(true), false, true), None);
+        assert_eq!(computer_use_pick(Some(true), false), None);
+        // No pick: the row mirrors the machine's switch, the launch sends
+        // nothing (the machine decides).
+        assert_eq!(computer_use_shown(None, true, true), Some(true));
+        assert_eq!(computer_use_shown(None, true, false), Some(false));
+        assert_eq!(computer_use_pick(None, true), None);
+        // A pick wins, both ways, and rides the launch.
+        assert_eq!(computer_use_shown(Some(false), true, true), Some(false));
+        assert_eq!(computer_use_pick(Some(false), true), Some(false));
+        assert_eq!(computer_use_pick(Some(true), true), Some(true));
+    }
+
+    #[test]
+    fn composer_menu_values_read_like_the_old_overlay() {
+        let menu = ComposerMenu {
+            effort_label: "Effort",
+            effort_choices: &[("Low", "low"), ("High", "high")],
+            effort_picked: "high".into(),
+            effort_locked: false,
+            subagent_picked: Some(String::new()),
+            ultracode: Some(false),
+            mcp_servers: vec![server("a", "Linear", true), server("b", "Sentry", false)],
+            mcp_selected: vec!["a".into()],
+            computer_use: Some(true),
+        };
+        assert_eq!(menu.effort_value(), "High");
+        assert_eq!(menu.subagent_value().as_deref(), Some(CLI_DEFAULT_LABEL));
+        assert_eq!(menu.mcp_value().as_deref(), Some("1"));
+        let locked = ComposerMenu { effort_locked: true, ..menu.clone() };
+        assert_eq!(locked.effort_value(), "Ultracode");
+        let none_picked = ComposerMenu { mcp_selected: Vec::new(), ..menu.clone() };
+        assert_eq!(none_picked.mcp_value(), None, "no value at zero");
+        let bare = ComposerMenu { mcp_servers: Vec::new(), subagent_picked: None, ..menu };
+        assert_eq!(bare.subagent_value(), None);
+    }
+
     #[test]
     fn picker_rows_keep_a_blocked_server_pickable() {
         let servers = vec![

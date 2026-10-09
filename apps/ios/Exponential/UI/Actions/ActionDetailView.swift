@@ -324,12 +324,10 @@ struct ActionDetailView: View {
 
             // Shown to everyone, switchable by owners (the write is
             // owner-gated server-side).
-            Toggle("", isOn: Binding(
+            GlassToggleRow(nil, isOn: Binding(
                 get: { trigger.enabled },
                 set: { vm.setEnabled(trigger, enabled: $0) }
             ))
-            .labelsHidden()
-            .fixedSize()
             .disabled(!isOwner || busy || locked)
             .accessibilityLabel("Enabled: \(AutomationTriggerDisplay.rowSentence(trigger.when))")
             .accessibilityIdentifier("trigger-enabled")
@@ -435,7 +433,7 @@ struct ActionDetailView: View {
                 if vm.runs.isEmpty {
                     emptyNote("No runs yet.")
                 } else {
-                    ForEach(vm.runs) { runRow($0, vm: vm) }
+                    runsTree(vm)
                 }
             }
             .padding()
@@ -443,35 +441,38 @@ struct ActionDetailView: View {
         .accessibilityIdentifier("action-runs-tab")
     }
 
-    /// One run of this action. EXP-874: a LIVE run wears the Agent page's
-    /// running row (`RunningSessionRow`: dot, state line, blocked wall); a
-    /// finished one stays `EndedRunRow`. Every row here ran this action, so
-    /// the title says what STARTED the run (`ActionRunTitle`) instead of
-    /// repeating the action's name. Either way a tap PUSHES that run's
-    /// session view (EXP-773), so Back returns here.
+    /// EXP-1248: every run of this action as THE `SessionRow` (big), nested
+    /// like the Agent page's lists (`SessionTree`: a resume succession is one
+    /// row, a child run under its parent, with its connector), gapless, no
+    /// fold. Every row here ran this action, so the title says what STARTED
+    /// the run (`ActionRunTitle`) instead of repeating the action's name. A
+    /// tap PUSHES that run's session view (EXP-773), so Back returns here.
     @ViewBuilder
-    private func runRow(_ session: CodingSessionEntity, vm: ActionDetailViewModel) -> some View {
-        let title = ActionRunTitle.of(startedReason: session.startedReason)
+    private func runsTree(_ vm: ActionDetailViewModel) -> some View {
+        let rows = SessionTree.visibleRows(SessionTree.sessionTree(vm.runs))
+        let guides = TreeGuides.compute(depths: rows.map(\.depth))
+        ForEach(Array(rows.enumerated()), id: \.element.key) { index, entry in
+            runRow(entry.node.session, guide: guides[index], vm: vm)
+        }
+    }
+
+    private func runRow(
+        _ session: CodingSessionEntity, guide: TreeGuide, vm: ActionDetailViewModel
+    ) -> some View {
         let route = AppRoute.agentSession(accountId: accountId, sessionId: session.id)
-        if PastRuns.hasEnded(session) {
-            EndedRunRow(
-                title: title,
-                byline: endedByline(session),
-                lead: { SessionRowEndedMark(agent: session.agent) },
-                onOpen: { pushRoute(route) }
-            )
-            .accessibilityIdentifier("action-run-row")
-        } else {
-            RunningSessionRow(
+        return Button { pushRoute(route) } label: {
+            SessionListRow(
                 session: session,
                 identifier: nil,
-                title: title,
-                state: CodingSessionDisplayState.of(session: session, prState: session.prState),
+                title: ActionRunTitle.of(startedReason: session.startedReason),
+                prState: session.prState,
                 device: runDevice(session, vm: vm),
-                open: .action { pushRoute(route) }
+                deviceIcon: SessionListRow.deviceIcon(session, devices: vm.allDevices),
+                guide: guide
             )
-            .accessibilityIdentifier("action-run-row")
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("action-run-row")
     }
 
     /// The run's host as it presents: the registry row's CURRENT label when
@@ -486,13 +487,6 @@ struct ActionDetailView: View {
         }
         let label = (live?.isEmpty == false) ? live : session.deviceLabel
         return SessionDevicePresentation(label: label, online: nil)
-    }
-
-    /// "ended 5m ago" — a finished run (live runs print their own status
-    /// line).
-    private func endedByline(_ session: CodingSessionEntity) -> String {
-        let time = relativeWireDate(session.endedAt ?? session.startedAt)
-        return time.isEmpty ? "" : "ended \(time)"
     }
 
     private func emptyNote(_ text: String) -> some View {

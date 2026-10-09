@@ -58,10 +58,19 @@ vi.mock(`@/lib/integrations/activity`, () => ({ recordIssueEvent: vi.fn() }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrLifecycleStatusInTx: vi.fn(),
 }))
+vi.mock(`@/lib/pr-stacks`, () => ({
+  inferBaseBranch: vi.fn(async (opts: { defaultBranch: string }) => ({
+    base: opts.defaultBranch,
+    prNumber: null,
+  })),
+  ensureGithubStack: vi.fn(async () => ({ number: 1, baseRef: `master`, open: true, pulls: [] })),
+  mergeThrough: vi.fn(),
+}))
 vi.mock(`@/lib/run-pr-body`, () => ({
   runPrBody: vi.fn(),
   runHasReportBody: vi.fn(),
   syncRunPrBody: vi.fn(),
+  stampRunResultsPrUrl: vi.fn(async () => false),
 }))
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
@@ -170,10 +179,10 @@ it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
 
 // EXP-879: publishing pictures needs a run to publish them ON — a human's
 // MCP client (no session header) never sees the tool.
-it(`registers exponential_sessions_results only behind its gate`, () => {
+it(`registers exponential_sessions_guide only behind its gate`, () => {
   expect(
     serializeToolDefs().some(
-      (def) => def.name === `exponential_sessions_results`
+      (def) => def.name === `exponential_sessions_guide`
     )
   ).toBe(true)
   const headerless = serializeToolDefs({
@@ -183,7 +192,7 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
     sessionResults: false,
   })
   expect(
-    headerless.some((def) => def.name === `exponential_sessions_results`)
+    headerless.some((def) => def.name === `exponential_sessions_guide`)
   ).toBe(false)
   // It does NOT ride the close-out's gate: an attended run publishes too.
   const attended = serializeToolDefs({
@@ -193,8 +202,16 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
     sessionResults: true,
   })
   expect(
+    attended.some((def) => def.name === `exponential_sessions_guide`)
+  ).toBe(true)
+  // EXP-1251: the old name rides the same gate as a DEFERRED alias (never
+  // always-loaded: the first test pins the flagged set).
+  expect(
     attended.some((def) => def.name === `exponential_sessions_results`)
   ).toBe(true)
+  expect(
+    headerless.some((def) => def.name === `exponential_sessions_results`)
+  ).toBe(false)
 })
 
 // EXP-988/EXP-936: compaction acts on the caller's OWN run, so it rides the
@@ -321,7 +338,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     reportBug: true,
     sessionResults: false,
   })
-  expect(noRun).not.toContain(`exponential_sessions_results`)
+  expect(noRun).not.toContain(`exponential_sessions_guide`)
   expect(noRun).not.toContain(`exponential_sessions_end`)
   // EXP-1216: the caller with no run of its own is the starter nothing
   // pushes to — it is told how to read and wait on the runs it starts.
@@ -329,7 +346,7 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(noRun).toContain(`exponential_sessions_get waitForIdle`)
   expect(noRun.length).toBeLessThan(2_000)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`exponential_sessions_messages`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_results`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_guide`)
   // EXP-933: the notify rule rides the same run-only paragraph.
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_notifications_send`)
 })
@@ -377,9 +394,9 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_attachments_list`,
     `exponential_attachments_upload`,
     `exponential_sessions_compact`,
-    // EXP-933: when to notify, and the close-out report's tool.
+    // EXP-933: when to notify; EXP-1251: the close-out Guide's tool.
     `exponential_notifications_send`,
-    `exponential_sessions_results`,
+    `exponential_sessions_guide`,
     // EXP-1172: a screenshot when a picture helps, while it works.
     `exponential_sessions_show`,
   ]) {

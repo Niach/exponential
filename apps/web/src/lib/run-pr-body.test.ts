@@ -54,16 +54,16 @@ beforeEach(() => {
 })
 
 describe(`loadRunReport`, () => {
-  it(`links an issue run to the issue's Results page`, async () => {
+  it(`links an issue run to the issue's Guide`, async () => {
     expect((await loadRunReport(`s1`))?.resultsUrl).toBe(
-      `https://exp.example/t/acme/boards/web/issues/EXP-1?view=results`
+      `https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide`
     )
   })
 
   it(`links a run without an issue to the run's page`, async () => {
     state.row = { ...baseRow, issueIdentifier: null, boardSlug: null }
     expect((await loadRunReport(`s1`))?.resultsUrl).toBe(
-      `https://exp.example/t/acme/sessions/s1?view=results`
+      `https://exp.example/t/acme/sessions/s1?view=guide`
     )
   })
 })
@@ -73,7 +73,7 @@ describe(`runPrBody`, () => {
     const out = await runPrBody(`s1`, `agent body`)
     expect(out.fromResults).toBe(true)
     expect(out.body).toContain(`Did it\n\n- \`a.ts\``)
-    expect(out.body).toContain(`(https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)`)
+    expect(out.body).toContain(`(https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)`)
   })
 
   it(`keeps the fallback without a run, without report text or on a failed read`, async () => {
@@ -122,7 +122,7 @@ describe(`syncRunPrBody`, () => {
     expect(state.patch).not.toHaveBeenCalled()
     expect(await syncRunPrBody(`s1`, { removal: true })).toBe(`synced`)
     expect((state.patch.mock.calls[0]![0] as { fields: { body: string } }).fields.body).toBe(
-      `[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)`
+      `[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)`
     )
     // A removal still needs an open PR.
     state.row = { ...baseRow, results: [], prState: `merged` }
@@ -174,5 +174,32 @@ describe(`syncRunPrBody`, () => {
     state.token = null
     expect(await syncRunPrBody(`s1`)).toBe(`failed`)
     warn.mockRestore()
+  })
+})
+
+// EXP-1251: a run that stacked a second PR keeps each body to its own topics.
+describe(`per-PR topics`, () => {
+  const stacked = [
+    { topic: `Summary`, label: null, attachmentId: null, text: `First PR`, prUrl: `https://github.com/acme/web/pull/6` },
+    { topic: `Shared`, label: null, attachmentId: null, text: `Both` },
+    { topic: `Second`, label: null, attachmentId: null, text: `Mine`, prUrl: `https://github.com/acme/web/pull/7` },
+  ]
+
+  it(`syncs the row's PR with its own and the untagged topics`, async () => {
+    state.row = { ...baseRow, results: stacked }
+    expect(await syncRunPrBody(`s1`)).toBe(`synced`)
+    const body = (state.patch.mock.calls[0]![0] as { fields: { body: string } }).fields.body
+    expect(body).toContain(`Mine`)
+    expect(body).toContain(`Both`)
+    expect(body).not.toContain(`First PR`)
+  })
+
+  it(`opens a new PR with the untagged topics only`, async () => {
+    state.row = { ...baseRow, results: stacked }
+    const out = await runPrBody(`s1`, `fallback`)
+    expect(out.fromResults).toBe(true)
+    expect(out.body).toContain(`Both`)
+    expect(out.body).not.toContain(`Mine`)
+    expect(out.body).not.toContain(`First PR`)
   })
 })

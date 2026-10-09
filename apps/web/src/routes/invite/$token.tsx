@@ -4,11 +4,7 @@ import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
 import {
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  GlassCard,
   IconDisc,
 } from "@exp/ui"
 import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
@@ -163,21 +159,21 @@ function InviteAcceptPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+      <GlassCard className="flex flex-col gap-6 py-6 backdrop-blur-md w-full max-w-md">
+        <div className="grid gap-2 px-6 text-center">
           <IconDisc icon={Users} className="mx-auto mb-4" />
-          <CardTitle>
+          <div className="leading-none font-semibold">
             {error && !invite ? `Invalid Invite` : `Team Invite`}
-          </CardTitle>
-          <CardDescription>
+          </div>
+          <div className="text-sm text-muted-foreground">
             {error && !invite
               ? error
               : invite
                 ? `You've been invited to join`
                 : ``}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </div>
+        </div>
+        <div className="px-6 space-y-4">
           {invite && (
             <>
               <div className="rounded-lg border p-4 text-center">
@@ -247,8 +243,8 @@ function InviteAcceptPage() {
               Go to your team
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </GlassCard>
     </div>
   )
 }
@@ -293,19 +289,19 @@ function JoinedGate({ team }: { team: JoinedTeam }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+      <GlassCard className="flex flex-col gap-6 py-6 backdrop-blur-md w-full max-w-md">
+        <div className="grid gap-2 px-6 text-center">
           <IconDisc icon={Users} className="mx-auto mb-4" />
-          <CardTitle>Welcome!</CardTitle>
-          <CardDescription>You&apos;ve joined the team.</CardDescription>
-        </CardHeader>
-        <CardContent>
+          <div className="leading-none font-semibold">Welcome!</div>
+          <div className="text-sm text-muted-foreground">You&apos;ve joined the team.</div>
+        </div>
+        <div className="px-6">
           <div className="flex items-center justify-center gap-2 text-sm text-green-500">
             <CircleCheck className="h-4 w-4" />
             Successfully joined team
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </GlassCard>
     </div>
   )
 }

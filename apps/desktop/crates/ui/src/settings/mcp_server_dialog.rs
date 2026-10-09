@@ -30,7 +30,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _,
 };
@@ -464,7 +464,7 @@ impl McpServerDialogView {
                     let value = value.to_string();
                     let on = value == current;
                     menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(*label))
+                        crate::controls::pointer_label_item(SharedString::from(*label), false)
                             .checked(on)
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = view.upgrade() {

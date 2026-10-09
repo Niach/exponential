@@ -161,37 +161,6 @@
       ],
       "focus": "merge"
     },
-    "merge-external-pr": {
-      "title": "Merge {repository}#{number}?",
-      "body": "It is squash-merged into {base}. No issue is linked to it.",
-      "params": [
-        {
-          "name": "repository",
-          "meaning": "the repository full name, owner/name"
-        },
-        {
-          "name": "number",
-          "meaning": "the GitHub pull request number of an open pull request no issue or run links (EXP-1244, the Reviews repository bands)"
-        },
-        {
-          "name": "base",
-          "meaning": "the pull request's base branch"
-        }
-      ],
-      "actions": [
-        {
-          "id": "cancel",
-          "label": "Cancel",
-          "role": "cancel"
-        },
-        {
-          "id": "merge",
-          "label": "Merge",
-          "role": "primary"
-        }
-      ],
-      "focus": "merge"
-    },
     "stop-run": {
       "title": "Stop this run?",
       "params": [],

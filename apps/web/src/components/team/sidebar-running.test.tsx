@@ -150,4 +150,26 @@ describe(`SidebarRunningSection (EXP-923)`, () => {
       screen.getByTestId(`sidebar-running-s1`).className
     ).not.toContain(`bg-glass-active`)
   })
+
+  // EXP-1248: no fold chevron anywhere: a parent's mark is the row's first
+  // glyph at the base inset, exactly like a standalone root's.
+  it(`leads every row with the mark, a parent included, and draws no chevron`, () => {
+    live.value = [
+      run({}),
+      run({ id: `s2`, issueId: null, parentSessionId: `s1` }),
+      run({ id: `s3`, issueId: null }),
+    ]
+    const { container } = renderSection()
+    expect(container.querySelector(`[role="button"][aria-label*="child runs"]`)).toBeNull()
+    for (const id of [`s1`, `s2`, `s3`]) {
+      const row = screen.getByTestId(`sidebar-running-${id}`)
+      const first = Array.from(row.children).find(
+        (child) => child.getAttribute(`data-testid`) !== `tree-guides`
+      )
+      expect(first?.getAttribute(`data-slot`)).toBe(`run-mark`)
+      expect(row.getAttribute(`data-session-row`)).toBe(`small`)
+    }
+    expect(screen.getByTestId(`sidebar-running-s1`).style.paddingLeft).toBe(`12px`)
+    expect(screen.getByTestId(`sidebar-running-s3`).style.paddingLeft).toBe(`12px`)
+  })
 })

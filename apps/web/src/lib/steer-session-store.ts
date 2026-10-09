@@ -48,10 +48,10 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import {
-  isAcceptedImageContentType,
-  maxImageUploadBytes,
-} from "@/lib/storage/issue-attachments"
-import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
+  markPendingImageUploaded,
+  stagePendingImages,
+  type PendingAttachment,
+} from "@/lib/pending-images"
 import type { CodingSession } from "@/db/schema"
 
 // EXP-621: the viewer connection to the steer relay, lifted OUT of
@@ -507,7 +507,14 @@ export type FeedItem = FeedSeq &
        *  never joins a collapsed tool run. */
       workflowId?: string
     }
-  | { id: number; kind: `user_message`; text: string; subagentId?: string }
+  | {
+      id: number
+      kind: `user_message`
+      text: string
+      subagentId?: string
+      /** EXP-1245: when the relay stamped it; the turns thread slots it. */
+      at?: number
+    }
   | { id: number; kind: `permission`; tool: string; detail?: string }
   // A transient API failure shown where it happened (never the rate-limit
   // banner); `errorType` = the API's error type when it sent one.
@@ -569,14 +576,10 @@ type NewFeedItem = FeedItem extends infer T
     : never
   : never
 
-/** A composer image pending upload — the draft survives disconnects and view
- *  unmounts, so `uploadedId` also persists a mid-batch upload across them and
- *  a retry only uploads the rest. */
-export interface PendingSteerImage {
-  file: File
-  url: string
-  uploadedId?: string
-}
+/** A composer image or file pending upload — the draft survives disconnects
+ *  and view unmounts, so `uploadedId` also persists a mid-batch upload across
+ *  them and a retry only uploads the rest. */
+export type PendingSteerImage = PendingAttachment
 
 /** EXP-724: an in-flight compaction — the strip's whole state. */
 export interface CompactionState {
@@ -649,13 +652,18 @@ export interface SteerDraftSnapshot {
 }
 
 export interface AddDraftImagesResult {
-  /** Files refused for type/size (the "images up to 10 MB" toast). */
+  /** Files refused for size (the "images up to 10 MB and files up to 50 MB"
+   *  toast). */
   rejected: number
-  /** Accepted files dropped over MAX_STEER_IMAGES (the "up to N" toast). */
+  /** Images dropped over MAX_STEER_IMAGES (the "up to N images" toast). */
   overflow: number
-  /** How many files actually joined the strip — the composer numbers its
-   *  `[Image #N]` markers from the strip length it already knows (EXP-698). */
+  /** Files dropped over MAX_STEER_FILES (the "up to N files" toast). */
+  fileOverflow: number
+  /** How many attachments (both kinds) joined the strip. */
   added: number
+  /** How many of them are IMAGES — the composer numbers its `[Image #N]`
+   *  markers from the image count it already knows (EXP-698). */
+  addedImages: number
 }
 
 interface SteerStoreDeps {
@@ -727,7 +735,7 @@ export interface SteerSessionStore {
   setDraftText(text: string): void
   addDraftImages(files: File[]): AddDraftImagesResult
   removeDraftImage(url: string): void
-  setDraftImageUploaded(url: string, uploadedId: string): void
+  setDraftImageUploaded(url: string, uploadedId: string, uploadedName?: string): void
   clearDraftAfterSend(): void
   dispose(): void
 }
@@ -1135,6 +1143,10 @@ export function createSteerSessionStore(
           kind: `user_message`,
           text: event.text,
           subagentId: event.subagentId,
+          at:
+            typeof event.at === `number` && Number.isFinite(event.at)
+              ? event.at
+              : undefined,
         })
         return
       }
@@ -1532,7 +1544,7 @@ export function createSteerSessionStore(
     for (const text of echoes) {
       if (heldTexts.has(text.trim())) continue
       if (!tailCarriesEcho(text, echoes.length + 1)) {
-        append({ kind: `user_message`, text })
+        append({ kind: `user_message`, text, at: Date.now() })
       }
     }
     const liveKeys = new Set<string>()
@@ -2329,24 +2341,22 @@ export function createSteerSessionStore(
       commitDraft()
     },
     addDraftImages(files) {
-      const accepted = files.filter(
-        (file) =>
-          isAcceptedImageContentType(file.type) &&
-          file.size <= maxImageUploadBytes
-      )
-      const room = Math.max(0, MAX_STEER_IMAGES - draftImages.length)
-      const taking = accepted.slice(0, room)
-      if (taking.length > 0) {
-        draftImages = [
-          ...draftImages,
-          ...taking.map((file) => ({ file, url: URL.createObjectURL(file) })),
-        ]
+      // The marker text is the composer's (it knows the caret); only the
+      // strip and the per-kind caps live here.
+      const staged = stagePendingImages(draftImages, files, ``, 0)
+      const addedImages = staged.images
+        .slice(draftImages.length)
+        .filter((entry) => entry.kind === `image`).length
+      if (staged.added > 0) {
+        draftImages = staged.images
         commitDraft()
       }
       return {
-        rejected: files.length - accepted.length,
-        overflow: accepted.length - taking.length,
-        added: taking.length,
+        rejected: staged.rejected,
+        overflow: staged.overflow,
+        fileOverflow: staged.fileOverflow,
+        added: staged.added,
+        addedImages,
       }
     },
     removeDraftImage(url) {
@@ -2354,9 +2364,12 @@ export function createSteerSessionStore(
       draftImages = draftImages.filter((image) => image.url !== url)
       commitDraft()
     },
-    setDraftImageUploaded(url, uploadedId) {
-      draftImages = draftImages.map((image) =>
-        image.url === url ? { ...image, uploadedId } : image
+    setDraftImageUploaded(url, uploadedId, uploadedName) {
+      draftImages = markPendingImageUploaded(
+        draftImages,
+        url,
+        uploadedId,
+        uploadedName
       )
       commitDraft()
     },

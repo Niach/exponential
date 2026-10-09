@@ -21,7 +21,8 @@ import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
 import { entry as composerFixConflicts } from "./composer-fix-conflicts.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
-import { entry as sessionTree } from "./session-tree.tsx"
+import { entry as sessionRow } from "./session-row.tsx"
+import { entry as prRow } from "./pr-row.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
 import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
@@ -33,6 +34,7 @@ import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
 import { entry as runStatusRow } from "./run-status-row.tsx"
 import { entry as sessionThread } from "./session-thread.tsx"
+import { entry as composerOptions } from "./composer-options.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -56,7 +58,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   composerDialog,
   composerFixConflicts,
   issueContextMenu,
-  sessionTree,
+  sessionRow,
+  prRow,
   prGraphBadge,
   deviceSettings,
   blockedStartDialog,
@@ -68,6 +71,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   mcpAppViews,
   runStatusRow,
   sessionThread,
+  composerOptions,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

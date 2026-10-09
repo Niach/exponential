@@ -48,7 +48,6 @@ import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.navigation.LocalLeaveGuard
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
@@ -65,7 +64,6 @@ import com.exponential.app.ui.components.picker.StatusPicker
 import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerRow
-import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMentions
@@ -156,9 +154,8 @@ fun IssueDraftScreen(
         state.attachments.size + state.heldFiles.size + state.pendingUploads.size,
         attachmentsKnown = state.attachmentsKnown,
     )
-    fun prompt(exit: IssueDraftPage.Exit) = IssueDraftPage.prompt(hasContent, exit, creating = state.creating)
+    fun prompt() = IssueDraftPage.prompt(hasContent, creating = state.creating)
     val leaveChoices = IssueDraftPage.leaveChoices(canKeep = !viewModel.deferUploads)
-    var discardConfirmOpen by remember { mutableStateOf(false) }
     // The navigation the leave prompt holds; null = no prompt.
     var heldLeave by remember { mutableStateOf<(() -> Unit)?>(null) }
     // The leave prompt's Create: continue THIS instead of opening the issue.
@@ -168,7 +165,7 @@ fun IssueDraftScreen(
 
     fun leave() {
         if (state.creating || keeping) return
-        if (prompt(IssueDraftPage.Exit.Leave) == IssueDraftPage.Prompt.Leave) {
+        if (prompt() == IssueDraftPage.Prompt.Leave) {
             heldLeave = onBack
             return
         }
@@ -180,7 +177,7 @@ fun IssueDraftScreen(
     // guard, which hands it here while the draft has content.
     val leaveGuard = LocalLeaveGuard.current
     val holdsLeave by rememberUpdatedState(
-        !keeping && prompt(IssueDraftPage.Exit.Leave) == IssueDraftPage.Prompt.Leave,
+        !keeping && prompt() == IssueDraftPage.Prompt.Leave,
     )
     DisposableEffect(leaveGuard) {
         val unregister = leaveGuard?.register { proceed ->
@@ -213,7 +210,6 @@ fun IssueDraftScreen(
         viewModel.consumeConsumed()
         heldLeave = null
         afterCreate = null
-        discardConfirmOpen = false
         when (consumed) {
             // Created elsewhere: this page becomes that issue, no prompt, no toast.
             is IssueDraftViewModel.Consumed.Created -> onCreated(consumed.issueId)
@@ -295,17 +291,8 @@ fun IssueDraftScreen(
                                 modifier = Modifier.padding(end = 4.dp).testTag("create-issue-submit"),
                             )
                         },
-                        menu = {
-                            DraftDiscardButton(onDiscard = {
-                                if (state.creating || keeping) return@DraftDiscardButton
-                                if (prompt(IssueDraftPage.Exit.Discard) == IssueDraftPage.Prompt.DiscardConfirm) {
-                                    discardConfirmOpen = true
-                                } else {
-                                    discard()
-                                    onBack()
-                                }
-                            })
-                        },
+                        // EXP-1247: Back + Create only; discarding is the leave prompt's answer.
+                        menu = null,
                         tabs = null,
                     )
                 },
@@ -446,34 +433,7 @@ fun IssueDraftScreen(
         }
     }
 
-    // ── Confirms (EXP-1212) ─────────────────────────────────────────────────
-    if (discardConfirmOpen) {
-        // One question; Cancel · Discard on the trailing edge, Discard in the
-        // destructive colour on the plain pill (never a solid red block).
-        GlassAlert(
-            title = IssueDraftPage.DISCARD_CONFIRM_TITLE,
-            onDismiss = { discardConfirmOpen = false },
-            trailing = listOf(
-                GlassAlertAction(
-                    label = "Cancel",
-                    onClick = { discardConfirmOpen = false },
-                ),
-                GlassAlertAction(
-                    label = IssueDraftPage.DISCARD_CONFIRM,
-                    destructive = true,
-                    testTag = "issue-draft-discard-confirm",
-                    onClick = {
-                        discardConfirmOpen = false
-                        if (!state.creating) {
-                            discard()
-                            onBack()
-                        }
-                    },
-                ),
-            ),
-            defaultAction = 0,
-        )
-    }
+    // ── The leave prompt (EXP-1212) ─────────────────────────────────────────
     heldLeave?.let { proceed ->
         // One question: Discard (quiet, destructive) set apart on the leading
         // edge; Save draft (plain pill) · Create issue (primary pill, the default)
@@ -614,18 +574,4 @@ fun IssueDraftScreen(
         }
         null -> Unit
     }
-}
-
-/** EXP-1191: the header's `×`, Discard draft (EXP-1212: confirmed when the
- *  draft has content) — the draft's only action, so no one-item `…` menu;
- *  the copy is its content description. */
-@Composable
-private fun DraftDiscardButton(onDiscard: () -> Unit) {
-    CircleIconButton(
-        ExpIcons.uiClose,
-        IssueDraftPage.DISCARD,
-        onClick = onDiscard,
-        modifier = Modifier.padding(end = 8.dp).testTag("issue-draft-discard"),
-        borderless = true,
-    )
 }

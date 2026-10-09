@@ -6,7 +6,7 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react"
-import { Button, GlassSectionHeader, Pill, Progress, toast } from "@exp/ui"
+import { Button, GlassSectionHeader, Meter, Pill, toast } from "@exp/ui"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 import { trpc } from "@/lib/trpc-client"
@@ -65,7 +65,7 @@ export function UsageBar({
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium">{display}</span>
       </div>
-      {max !== Infinity && <Progress value={Math.min(percent, 100)} className="h-2" />}
+      {max !== Infinity && <Meter value={Math.min(percent, 100)} tone={percent >= 95 ? `danger` : percent >= 75 ? `warning` : `normal`} />}
     </div>
   )
 }

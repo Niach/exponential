@@ -326,6 +326,7 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "height",
             "duration_ms",
             "poster_storage_key",
+            "as_file",
             "created_at",
             "updated_at",
         ],
@@ -727,7 +728,7 @@ mod tests {
 
     /// EXP-824: the attachments column list is the server's allowlist byte
     /// for byte — `duration_ms` and `poster_storage_key` drive the media
-    /// tiles, `board_id` the trash mirror.
+    /// tiles, `board_id` the trash mirror, EXP-1247 `as_file` the Files list.
     #[test]
     fn attachments_model_the_media_columns() {
         let spec = shape_by_name("attachments").unwrap();
@@ -749,6 +750,7 @@ mod tests {
                 "height",
                 "duration_ms",
                 "poster_storage_key",
+                "as_file",
                 "created_at",
                 "updated_at",
             ]

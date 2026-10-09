@@ -26,6 +26,7 @@ import {
 } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import {
+  fetchPullStack,
   listOpenPullsByBase,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -982,7 +983,9 @@ export async function applySessionPrState(opts: {
 // child. Best-effort by design — every bail-out is silent (a self-hosted
 // instance without the App, an unreachable repo, …) and the fix-conflicts /
 // merge paths re-diagnose the base live anyway. Idempotent by construction:
-// once retargeted, a child no longer matches the base filter.
+// once retargeted, a child no longer matches the base filter. EXP-1248: a
+// child GitHub holds in a native stack is skipped: GitHub rebases and
+// retargets it itself, and our PATCH could unstack it.
 export async function retargetChildrenOfMergedPr(opts: {
   prUrl: string
   headBranch: string
@@ -1063,6 +1066,7 @@ export async function retargetChildrenOfMergedPr(opts: {
   if (children.length === 0) return
   for (const child of children) {
     try {
+      if (await inNativeStack(repo, child.number, resolved.token)) continue
       await retargetPullRequest({
         repo,
         prNumber: child.number,
@@ -1086,6 +1090,21 @@ export async function retargetChildrenOfMergedPr(opts: {
         err
       )
     }
+  }
+}
+
+/** Read live (the webhook's `stack` is not stored). An unreadable PR counts
+ *  as plain: the retarget below is the pre-stacks behaviour. */
+async function inNativeStack(
+  repo: string,
+  prNumber: number,
+  token: string
+): Promise<boolean> {
+  try {
+    return (await fetchPullStack({ repo, prNumber, token })) !== null
+  } catch (err) {
+    console.error(`stack read of ${repo}#${prNumber} failed:`, err)
+    return false
   }
 }
 

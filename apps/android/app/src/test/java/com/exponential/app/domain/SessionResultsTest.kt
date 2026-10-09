@@ -313,32 +313,193 @@ class SessionResultsTest {
         assertFalse(isSummaryTopic("Summary of it"))
     }
 
+    private fun JsonElement.rawText(): String? = when {
+        this is JsonNull -> null
+        this is JsonPrimitive && isString -> content
+        else -> toString()
+    }
+
+    private fun JsonElement.longOrNull(): Long? =
+        takeUnless { it is JsonNull }?.jsonPrimitive?.content?.toDouble()?.toLong()
+
+    private fun diffFile(element: JsonElement): Diff.File {
+        val f = element.jsonObject
+        return Diff.File(
+            path = f["path"]!!.jsonPrimitive.content,
+            previousPath = f["previousPath"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content,
+            additions = f["additions"]!!.jsonPrimitive.int,
+            deletions = f["deletions"]!!.jsonPrimitive.int,
+        )
+    }
+
+    // EXP-1251: the Guide's coverage — `session-results.json` `coverage`
+    // (desktop `guide_coverage_matches_the_shared_fixture`, web "coverage: <case>").
     @Test
-    fun `every fixture guide file rows case matches paths exactly`() {
-        val cases = sessionResultsFixture()["guide"]!!.jsonObject["fileRows"]!!.jsonArray
+    fun `guide coverage matches the shared fixture`() {
+        val cases = sessionResultsFixture()["coverage"]!!.jsonObject["cases"]!!.jsonArray
         assertTrue(cases.isNotEmpty())
         for (element in cases) {
             val case = element.jsonObject
             val name = case["name"]!!.jsonPrimitive.content
-            val paths = case["paths"]!!.jsonArray.map { it.jsonPrimitive.content }
-            val diff = case["diff"]!!.takeUnless { it is JsonNull }?.jsonArray?.map { file ->
-                val f = file.jsonObject
-                Diff.File(
-                    path = f["path"]!!.jsonPrimitive.content,
-                    additions = f["additions"]!!.jsonPrimitive.int,
-                    deletions = f["deletions"]!!.jsonPrimitive.int,
+            val groups = case["groups"]!!.jsonArray.map { group ->
+                val g = group.jsonObject
+                SessionResultGroup(
+                    topic = g["topic"]!!.jsonPrimitive.content,
+                    entries = emptyList(),
+                    files = g["files"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty(),
                 )
             }
-            val expected = case["expected"]!!.jsonArray.map { row ->
-                val r = row.jsonObject
-                val additions = r["additions"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int
-                val deletions = r["deletions"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.int
-                GuideFileRow(
-                    r["path"]!!.jsonPrimitive.content,
-                    if (additions != null && deletions != null) GuideFileCounts(additions, deletions) else null,
+            val diff = case["diff"]!!.takeUnless { it is JsonNull }?.jsonArray?.map(::diffFile)
+            val coverage = guideCoverage(groups, diff)
+            val expected = case["expected"]!!.jsonObject
+            fun covered(group: GuideCoveredGroup<SessionResultGroup>?): Any? = group?.let {
+                listOf(
+                    it.group.topic,
+                    it.changes?.files?.map { file -> file.path },
+                    it.changes?.additions,
+                    it.changes?.deletions,
+                    it.missing,
                 )
             }
-            assertEquals(name, expected, guideFileRows(paths, diff))
+            fun expectedCovered(element: JsonElement?): Any? {
+                if (element == null || element is JsonNull) return null
+                val e = element.jsonObject
+                return listOf(
+                    e["topic"]!!.jsonPrimitive.content,
+                    e["files"]?.takeUnless { it is JsonNull }?.jsonArray?.map { it.jsonPrimitive.content },
+                    e["additions"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
+                    e["deletions"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.int,
+                    e["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
+                )
+            }
+            assertEquals(name, expectedCovered(expected["lead"]), covered(coverage.lead))
+            assertEquals(
+                name,
+                expected["sections"]!!.jsonArray.map { section ->
+                    val e = section.jsonObject
+                    listOf(expectedCovered(e), e["index"]!!.jsonPrimitive.int, e["total"]!!.jsonPrimitive.int)
+                },
+                coverage.sections.map { listOf(covered(it.covered), it.index, it.total) },
+            )
+            val other = expected["other"]!!.takeUnless { it is JsonNull }?.jsonObject
+            assertEquals(
+                name,
+                other?.let {
+                    listOf(
+                        it["topic"]!!.jsonPrimitive.content,
+                        it["files"]!!.jsonArray.map { file -> file.jsonPrimitive.content },
+                        it["additions"]!!.jsonPrimitive.int,
+                        it["deletions"]!!.jsonPrimitive.int,
+                    )
+                },
+                coverage.other?.let {
+                    listOf(it.topic, it.changes.files.map { file -> file.path }, it.changes.additions, it.changes.deletions)
+                },
+            )
+            val complete = expected["complete"]!!.takeUnless { it is JsonNull }?.jsonObject
+            assertEquals(
+                name,
+                complete?.let {
+                    listOf(it["fileCount"]!!.jsonPrimitive.int, it["additions"]!!.jsonPrimitive.int, it["deletions"]!!.jsonPrimitive.int)
+                },
+                coverage.complete?.let { listOf(it.fileCount, it.additions, it.deletions) },
+            )
+        }
+    }
+
+    @Test
+    fun `guide file count label matches the shared fixture`() {
+        val labels = sessionResultsFixture()["coverage"]!!.jsonObject["fileCountLabels"]!!.jsonArray
+        assertTrue(labels.isNotEmpty())
+        for (pair in labels) {
+            val (count, text) = pair.jsonArray
+            assertEquals(text.jsonPrimitive.content, guideFileCountLabel(count.jsonPrimitive.int))
+        }
+    }
+
+    // EXP-1251: `prScope` (desktop `session_results_for_pr_matches_the_shared_fixture`).
+    @Test
+    fun `session results for pr matches the shared fixture`() {
+        val cases = sessionResultsFixture()["prScope"]!!.jsonObject["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["raw"]!!.rawText()
+            assertEquals(
+                name,
+                case["prUrls"]!!.jsonArray.map { it.jsonPrimitive.content },
+                sessionResultPrUrls(raw),
+            )
+            for (byPr in case["byPr"]!!.jsonArray) {
+                val scope = byPr.jsonObject
+                val prUrl = scope["prUrl"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+                val kept = Json.parseToJsonElement(sessionResultsForPr(raw, prUrl)).jsonArray
+                assertEquals(
+                    "$name / $prUrl",
+                    scope["topics"]!!.jsonArray.map { it.jsonPrimitive.content },
+                    kept.map { it.jsonObject["topic"]!!.jsonPrimitive.content },
+                )
+            }
+        }
+        // A topic's tag rides its group.
+        val groups = parseSessionResultGroups("""[{"topic":"a","text":"x","prUrl":" https://p/1 "}]""")
+        assertEquals("https://p/1", groups.single().prUrl)
+    }
+
+    // EXP-1245: `turns` (desktop `session_turns_matches_the_shared_fixture`).
+    @Test
+    fun `session turns matches the shared fixture`() {
+        val cases = sessionResultsFixture()["turns"]!!.jsonObject["cases"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["raw"]!!.rawText()
+            val feed = case["feed"]!!.takeUnless { it is JsonNull }?.jsonArray?.map { eventElement ->
+                val event = eventElement.jsonObject
+                val at = event["at"]!!.longOrNull()!!
+                when (event["kind"]!!.jsonPrimitive.content) {
+                    "user_message" -> SessionTurnEvent.UserMessage(
+                        at = at,
+                        text = event["text"]!!.jsonPrimitive.content,
+                        images = event["images"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty(),
+                    )
+                    else -> SessionTurnEvent.Turn(started = event["state"]!!.jsonPrimitive.content == "started", at = at)
+                }
+            }
+            val turns = sessionTurns(raw, feed)
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, expected["perTurn"]!!.jsonPrimitive.boolean, turns.perTurn)
+            fun item(item: ThreadItem): List<String> = when (item) {
+                is ThreadItem.Text -> listOf("text", item.topic, item.text)
+                is ThreadItem.Picture -> listOf("picture", item.entry.attachmentId)
+            }
+            val want = expected["turns"]!!.jsonArray.map { turnElement ->
+                val turn = turnElement.jsonObject
+                val message = turn["message"]!!.takeUnless { it is JsonNull }?.jsonObject?.let { m ->
+                    SessionTurnMessage(
+                        m["text"]!!.jsonPrimitive.content,
+                        m["at"]!!.longOrNull()!!,
+                        m["images"]!!.jsonArray.map { it.jsonPrimitive.content },
+                    )
+                }
+                listOf(
+                    message,
+                    turn["startedAt"]!!.longOrNull(),
+                    turn["endedAt"]!!.longOrNull(),
+                    turn["items"]!!.jsonArray.map { itemElement ->
+                        val i = itemElement.jsonObject
+                        when (i["kind"]!!.jsonPrimitive.content) {
+                            "text" -> listOf("text", i["topic"]!!.jsonPrimitive.content, i["text"]!!.jsonPrimitive.content)
+                            else -> listOf("picture", i["attachmentId"]!!.jsonPrimitive.content)
+                        }
+                    },
+                    turn["reply"]!!.takeUnless { it is JsonNull }?.jsonPrimitive?.content,
+                )
+            }
+            val got = turns.turns.map { listOf(it.message, it.startedAt, it.endedAt, it.items.map(::item), it.reply) }
+            assertEquals(name, want, got)
         }
     }
 

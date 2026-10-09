@@ -48,6 +48,23 @@ data class UploadedAttachment(
 private data class AttachmentIdInput(@SerialName("id") val id: String)
 
 /**
+ * The multipart fields beside a Files upload's bytes: the media probe
+ * ([mediaUploadFields]) plus EXP-1247's `asFile=1` part when the pick came
+ * through a FILE/paperclip path (the server stores `as_file`, the row never
+ * inlines). Absent = today's classification by type.
+ */
+internal fun attachmentUploadFields(
+    width: Int?,
+    height: Int?,
+    durationMs: Long?,
+    asFile: Boolean,
+): Map<String, String> {
+    val out = LinkedHashMap(mediaUploadFields(width, height, durationMs))
+    if (asFile) out["asFile"] = "1"
+    return out
+}
+
+/**
  * Any-content-type issue attachments (EXP-297): upload to the `/files` route,
  * authenticated download of the stored bytes, and the member-level
  * `attachments.delete` mutation.
@@ -75,9 +92,11 @@ class AttachmentsApi @Inject constructor(
         width: Int? = null,
         height: Int? = null,
         durationMs: Long? = null,
+        // EXP-1247: a FILE/paperclip pick — the row is never inlined.
+        asFile: Boolean = false,
     ): UploadedAttachment = post(
         accountId, "api/issues/$issueId/files", bytes, filename, contentType,
-        poster = poster, width = width, height = height, durationMs = durationMs,
+        poster = poster, width = width, height = height, durationMs = durationMs, asFile = asFile,
     )
 
     /**
@@ -92,8 +111,9 @@ class AttachmentsApi @Inject constructor(
         bytes: ByteArray,
         filename: String,
         contentType: String,
+        asFile: Boolean = false,
     ): UploadedAttachment =
-        post(accountId, "api/issue-drafts/$draftId/files", bytes, filename, contentType)
+        post(accountId, "api/issue-drafts/$draftId/files", bytes, filename, contentType, asFile = asFile)
 
     private suspend fun post(
         accountId: String,
@@ -105,6 +125,7 @@ class AttachmentsApi @Inject constructor(
         width: Int? = null,
         height: Int? = null,
         durationMs: Long? = null,
+        asFile: Boolean = false,
     ): UploadedAttachment {
         val account = auth.accounts.value.firstOrNull { it.id == accountId }
         val baseUrl = account?.instanceUrl
@@ -113,7 +134,7 @@ class AttachmentsApi @Inject constructor(
         val (body, boundary) = buildImageUploadBody(
             bytes, filename, contentType,
             poster = poster,
-            fields = mediaUploadFields(width, height, durationMs),
+            fields = attachmentUploadFields(width, height, durationMs, asFile),
         )
         val response = client.post("${baseUrl.trimEnd('/')}/$path") {
             // 50 MB on a mobile uplink needs far more than the client-wide 30s

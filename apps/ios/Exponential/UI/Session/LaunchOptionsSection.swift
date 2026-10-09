@@ -263,16 +263,16 @@ struct LaunchOptionsSection: View {
             // mode are both claude-only (EXP-441/EXP-849); a binding (the
             // trigger variant) has neither.
             if let resumeRow {
-                Toggle("Resume previous run", isOn: resumeRow.isOn)
+                GlassToggleRow("Resume previous run", isOn: resumeRow.isOn)
             }
             if let ultracode, agent == "claude" {
-                Toggle("Ultracode", isOn: ultracode)
+                GlassToggleRow("Ultracode", isOn: ultracode)
             }
             // A resume never re-enters plan mode (the machine clamps it too) —
             // hide the toggle while one is active.
             if let planMode, LaunchVocabulary.supportsPlanMode(agent),
                resumeRow?.active != true {
-                Toggle("Plan mode", isOn: planMode)
+                GlassToggleRow("Plan mode", isOn: planMode)
             }
         } footer: {
             optionsFooter

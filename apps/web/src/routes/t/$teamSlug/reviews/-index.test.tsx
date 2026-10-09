@@ -1,13 +1,13 @@
-// Tests for the Reviews queue's stack merge: every member of the chain the
-// call walks spins, and nothing keeps a spinner the call did not land. Lives
-// under a `-` prefix so the route generator ignores it.
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+// Tests for the Reviews page (EXP-1248): one PrRow per PR, trees nest, a
+// stack hangs off ONE rail over its base branch, bands carry no count, rows
+// only open (no Merge anywhere). Lives under a `-` prefix so the route
+// generator ignores it.
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { stackMergeChoice } from "@/lib/pr-stack"
-import type { ReviewEntry } from "@/hooks/use-reviews-data"
+import type { ReviewEntry, ReviewItem } from "@/hooks/use-reviews-data"
 
 const mocks = vi.hoisted(() => ({
-  mergePr: vi.fn(),
+  navigate: vi.fn(),
   reviews: { current: null as unknown },
 }))
 
@@ -17,22 +17,13 @@ vi.mock(`@tanstack/react-router`, () => ({
     useParams: () => ({ teamSlug: `acme` }),
   }),
   redirect: vi.fn(),
-  useNavigate: () => vi.fn(),
-}))
-vi.mock(`@/lib/trpc-client`, () => ({
-  trpc: { issues: { mergePr: { mutate: mocks.mergePr } } },
+  useNavigate: () => mocks.navigate,
 }))
 vi.mock(`@/hooks/use-reviews-data`, () => ({
   useReviewsData: () => mocks.reviews.current,
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBySlug: () => ({ id: `t1`, slug: `acme` }),
-}))
-vi.mock(`@/hooks/use-team-permissions`, () => ({
-  useTeamPermissions: () => ({ isMember: true }),
-}))
-vi.mock(`@/hooks/use-open-composer`, () => ({
-  useOpenComposerInTeam: () => vi.fn(),
 }))
 vi.mock(`@/hooks/use-cross-team-scope`, () => ({
   useCrossTeamScope: (team: { id: string }) => ({
@@ -41,12 +32,12 @@ vi.mock(`@/hooks/use-cross-team-scope`, () => ({
     grouped: false,
   }),
 }))
-vi.mock(`@/components/agent-session`, () => ({
-  useSteerConfig: () => ({ enabled: true }),
-}))
-vi.mock(`@/components/pr-graph-badge`, () => ({ PrGraphBadge: () => null }))
 
-import { Route, stackMergeEntries } from "@/routes/t/$teamSlug/reviews/index"
+import {
+  Route,
+  reviewBlocks,
+  reviewRowLabel,
+} from "@/routes/t/$teamSlug/reviews/index"
 
 /** An open-PR issue row; `base` = the branch its pull request targets. */
 function issue(id: string, identifier: string, base: string, prUrl?: string) {
@@ -64,13 +55,6 @@ function issue(id: string, identifier: string, base: string, prUrl?: string) {
   }
 }
 
-// EXP-1 (bottom) ← EXP-2 ← EXP-3 (top), and EXP-9 beside the stack.
-const bottom = issue(`b`, `EXP-1`, `master`)
-const middle = issue(`m`, `EXP-2`, `exp/EXP-1`)
-const top = issue(`t`, `EXP-3`, `exp/EXP-2`)
-const lone = issue(`l`, `EXP-9`, `master`)
-const openIssues = [top, bottom, middle, lone]
-
 function entryOf(...issues: ReturnType<typeof issue>[]): ReviewEntry {
   return {
     key: issues[0]!.prUrl,
@@ -78,192 +62,170 @@ function entryOf(...issues: ReturnType<typeof issue>[]): ReviewEntry {
     issues,
   } as unknown as ReviewEntry
 }
-const entries = [top, middle, bottom, lone].map((row) => entryOf(row))
+
+// A tree: EXP-10 with two children. A stack: EXP-1 ← EXP-2 ← EXP-3 (top).
+// EXP-9 alone.
+const root = entryOf(issue(`r`, `EXP-10`, `master`))
+const childA = entryOf(issue(`a`, `EXP-11`, `exp/EXP-10`))
+const childB = entryOf(issue(`c`, `EXP-12`, `exp/EXP-10`))
+const bottom = entryOf(issue(`b`, `EXP-1`, `master`))
+const middle = entryOf(issue(`m`, `EXP-2`, `exp/EXP-1`))
+const top = entryOf(issue(`t`, `EXP-3`, `exp/EXP-2`))
+const lone = entryOf(issue(`l`, `EXP-9`, `master`))
+
+const items: ReviewItem[] = [
+  { kind: `pr`, entry: root, depth: 0 },
+  { kind: `pr`, entry: childA, depth: 1 },
+  { kind: `pr`, entry: childB, depth: 1 },
+  { kind: `stack`, entries: [top, middle, bottom], baseBranch: `master` },
+  { kind: `pr`, entry: lone, depth: 0 },
+]
 
 beforeEach(() => {
-  mocks.mergePr.mockReset()
+  mocks.navigate.mockReset()
   mocks.reviews.current = {
-    groups: [{ board: { id: `b1`, name: `App` }, entries }],
+    groups: [
+      {
+        board: { id: `b1`, name: `App`, slug: `app`, teamId: `t1` },
+        team: undefined,
+        entries: [root, childA, childB, top, middle, bottom, lone],
+        items,
+      },
+    ],
     sessionEntries: [],
-    sessionGroups: [],
-    externalGroups: [],
-    count: entries.length,
+    sessionGroups: [
+      {
+        team: undefined,
+        entries: [
+          {
+            key: `session:s1`,
+            session: { id: `s1`, prNumber: 77, actionName: `Release`, issueId: null },
+          },
+        ],
+      },
+    ],
+    externalGroups: [
+      {
+        teamId: `t1`,
+        repositoryId: `repo1`,
+        fullName: `o/r`,
+        pulls: [
+          { number: 1013, title: `Dockerfiles`, url: `https://github.com/o/r/pull/1013`, draft: false },
+          { number: 1014, title: `WIP`, url: `https://github.com/o/r/pull/1014`, draft: true },
+        ],
+      },
+    ],
+    count: 10,
     isLoading: false,
     externalLoading: false,
     removeExternalPull: vi.fn(),
-    openIssues,
+    openIssues: [],
   }
 })
-
-/** The trailing pill of a row: `Merge` at rest, `Merging…` in flight. */
-function pill(identifier: string): HTMLElement {
-  return within(screen.getByTestId(`review-row-${identifier}`)).getByRole(
-    `button`
-  )
-}
-
-/** A merge the test settles by hand. */
-function pendingMerge() {
-  let resolve!: (value: unknown) => void
-  let reject!: (error: unknown) => void
-  mocks.mergePr.mockReturnValue(
-    new Promise((res, rej) => {
-      resolve = res
-      reject = rej
-    })
-  )
-  return { resolve, reject }
-}
 
 function mount() {
   const Page = (Route as unknown as { component: () => React.ReactElement })
     .component
-  render(<Page />)
+  return render(<Page />)
 }
 
-function pressInDialog(name: string) {
-  fireEvent.click(
-    within(screen.getByTestId(`stack-merge-choice-dialog`)).getByRole(
-      `button`,
-      { name }
-    )
-  )
+/** The PrRow drawing `text` (an identifier or a title). */
+function row(text: string): HTMLElement {
+  return screen.getByText(text).closest(`[data-pr-row]`) as HTMLElement
 }
 
-describe(`stackMergeEntries`, () => {
-  const choice = stackMergeChoice(middle, openIssues)!
-
-  it(`Merge stack walks the whole chain, never a row beside it`, () => {
-    const walked = stackMergeEntries(
-      choice,
-      { issueId: choice.topIssueId, mergeStack: true },
-      entries
-    )
-    expect(walked.map((entry) => entry.issue.identifier).sort()).toEqual([
-      `EXP-1`,
-      `EXP-2`,
-      `EXP-3`,
-    ])
+describe(`reviewRowLabel`, () => {
+  it(`names a single-issue PR by its issue`, () => {
+    expect(reviewRowLabel(lone)).toEqual({ identifier: `EXP-9`, title: `Title EXP-9` })
   })
 
-  it(`Merge this on a middle member walks it and what lies below`, () => {
-    const walked = stackMergeEntries(
-      choice,
-      { issueId: middle.id, mergeStack: true },
-      entries
-    )
-    expect(walked.map((entry) => entry.issue.identifier).sort()).toEqual([
-      `EXP-1`,
-      `EXP-2`,
-    ])
-  })
-
-  it(`a plain merge walks nothing`, () => {
-    expect(stackMergeEntries(choice, { issueId: bottom.id }, entries)).toEqual(
-      []
-    )
-  })
-
-  it(`finds a batch member by any of its issues`, () => {
-    // EXP-2 shares its pull request with EXP-5; the row's newest issue (its
-    // representative) is EXP-5, the chain names the PR `EXP-2 +1`.
-    const sibling = issue(`s`, `EXP-5`, `exp/EXP-1`, middle.prUrl)
-    const batch = entryOf(sibling, middle)
-    const batchChoice = stackMergeChoice(top, [...openIssues, sibling])!
-    expect(batchChoice.members).toEqual([`EXP-1`, `EXP-2 +1`, `EXP-3`])
-    const walked = stackMergeEntries(
-      batchChoice,
-      { issueId: batchChoice.topIssueId, mergeStack: true },
-      [entryOf(top), batch, entryOf(bottom), entryOf(lone)]
-    )
-    expect(walked).toContain(batch)
-    expect(walked).toHaveLength(3)
+  it(`names a batch PR by its first issue plus the rest`, () => {
+    const batch = entryOf(issue(`x`, `EXP-5`, `master`), issue(`y`, `EXP-4`, `master`))
+    expect(reviewRowLabel(batch)).toEqual({ identifier: `EXP-5 +1`, title: `Title EXP-5` })
   })
 })
 
-describe(`Reviews stack merge`, () => {
-  it(`spins every chain member and releases them all on a refusal`, async () => {
-    const merge = pendingMerge()
-    mount()
-    fireEvent.click(pill(`EXP-2`))
-    pressInDialog(`Merge stack`)
-
-    expect(mocks.mergePr).toHaveBeenCalledWith(
-      { issueId: `t`, mergeStack: true },
-      expect.anything()
-    )
-    for (const identifier of [`EXP-1`, `EXP-2`, `EXP-3`]) {
-      expect(pill(identifier).textContent).toBe(`Merging…`)
-      expect(pill(identifier)).toHaveProperty(`disabled`, true)
-    }
-    expect(pill(`EXP-9`).textContent).toBe(`Merge`)
-
-    await act(async () => {
-      merge.reject(new Error(`boom`))
-    })
-    for (const identifier of [`EXP-1`, `EXP-2`, `EXP-3`]) {
-      expect(pill(identifier).textContent).toBe(`Merge`)
-    }
-    // The refusal captions the pressed row alone (a bare Error carries no
-    // server message, so the stack fallback shows).
-    const caption = `The stack could not be merged`
+describe(`reviewBlocks`, () => {
+  it(`keeps a tree in ONE list and gives each stack its own rail`, () => {
+    const blocks = reviewBlocks(items)
+    expect(blocks.map((block) => block.kind)).toEqual([`list`, `stack`, `list`])
     expect(
-      within(screen.getByTestId(`review-row-EXP-2`)).getByText(caption)
-    ).toBeTruthy()
-    expect(screen.getAllByText(caption)).toHaveLength(1)
+      blocks[0]!.kind === `list` && blocks[0]!.rows.map((r) => r.depth)
+    ).toEqual([0, 1, 1])
+  })
+})
+
+describe(`Reviews page`, () => {
+  it(`draws one PrRow per PR: a tree nests, a stack rails over its base`, () => {
+    mount()
+    expect(row(`EXP-11`).style.paddingLeft).toBe(row(`EXP-12`).style.paddingLeft)
+    expect(row(`EXP-11`).style.paddingLeft).not.toBe(row(`EXP-10`).style.paddingLeft)
+
+    const rail = document.querySelector(`[data-slot="stack-rail"]`) as HTMLElement
+    const railRows = [...rail.querySelectorAll(`[data-pr-row]`)]
+    expect(railRows.map((el) => el.textContent)).toEqual([
+      `EXP-3Title EXP-3stack`,
+      `EXP-2Title EXP-2`,
+      `EXP-1Title EXP-1`,
+      `master`,
+    ])
+    expect(railRows[3]!.getAttribute(`data-pr-row`)).toBe(`base`)
   })
 
-  it(`Merge this on a middle member leaves the member above it live`, () => {
-    pendingMerge()
+  it(`carries no Merge, no counts and no dialogs`, () => {
     mount()
-    fireEvent.click(pill(`EXP-2`))
-    pressInDialog(`Merge this pull request`)
+    expect(screen.queryByText(/^Merge/)).toBeNull()
+    expect(screen.queryByRole(`button`, { name: /merge/i })).toBeNull()
+    const header = within(screen.getByTestId(`review-band-b1`)).getByText(`App`)
+      .parentElement as HTMLElement
+    expect(header.textContent).toBe(`App`)
+    expect(screen.queryByRole(`dialog`)).toBeNull()
+  })
 
-    expect(mocks.mergePr).toHaveBeenCalledWith(
-      { issueId: `m`, mergeStack: true },
-      expect.anything()
+  it(`a tree row opens the issue's Guide with reviews as the origin`, () => {
+    mount()
+    fireEvent.click(row(`EXP-11`))
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug: `acme`, boardSlug: `app`, issueIdentifier: `EXP-11` },
+      search: { from: `reviews`, view: `guide` },
+    })
+  })
+
+  it(`a stack member opens its own issue's Guide`, () => {
+    mount()
+    fireEvent.click(row(`EXP-2`))
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({ issueIdentifier: `EXP-2` }),
+        search: { from: `reviews`, view: `guide` },
+      })
     )
-    expect(pill(`EXP-1`).textContent).toBe(`Merging…`)
-    expect(pill(`EXP-2`).textContent).toBe(`Merging…`)
-    expect(pill(`EXP-3`).textContent).toBe(`Merge`)
   })
 
-  it(`a queued stack releases what it did not land`, async () => {
-    const merge = pendingMerge()
+  it(`a run PR opens the run's Guide`, () => {
     mount()
-    fireEvent.click(pill(`EXP-3`))
-    pressInDialog(`Merge stack`)
-
-    await act(async () => {
-      merge.resolve({
-        merged: false,
-        queued: true,
-        stack: [{ identifier: `EXP-1`, prNumber: 1 }],
-      })
+    fireEvent.click(row(`#77`))
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `s1` },
+      search: { from: `reviews`, view: `guide` },
     })
-    // Landed: spins until the echo removes the row. The rest come back.
-    expect(pill(`EXP-1`).textContent).toBe(`Merging…`)
-    expect(pill(`EXP-2`).textContent).toBe(`Merge`)
-    expect(pill(`EXP-3`).textContent).toBe(`Merge`)
   })
 
-  it(`a landed stack keeps every spinner until the echo`, async () => {
-    const merge = pendingMerge()
+  it(`an unlinked PR opens GitHub and wears the external-link glyph`, () => {
+    const open = vi.spyOn(window, `open`).mockReturnValue(null)
     mount()
-    fireEvent.click(pill(`EXP-1`))
-    pressInDialog(`Merge stack`)
-
-    await act(async () => {
-      merge.resolve({
-        merged: true,
-        stack: [`EXP-1`, `EXP-2`, `EXP-3`].map((identifier, at) => ({
-          identifier,
-          prNumber: at + 1,
-        })),
-      })
-    })
-    for (const identifier of [`EXP-1`, `EXP-2`, `EXP-3`]) {
-      expect(pill(identifier).textContent).toBe(`Merging…`)
-    }
+    const unlinked = row(`#1013`)
+    expect(unlinked.querySelector(`svg[aria-hidden]`)).toBeTruthy()
+    fireEvent.click(unlinked)
+    expect(open).toHaveBeenCalledWith(
+      `https://github.com/o/r/pull/1013`,
+      `_blank`,
+      `noopener,noreferrer`
+    )
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    expect(row(`#1014`).textContent).toContain(`draft`)
+    open.mockRestore()
   })
 })

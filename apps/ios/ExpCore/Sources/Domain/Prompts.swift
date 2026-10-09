@@ -232,22 +232,6 @@ public enum Prompts {
         }
     }
 
-    /// EXP-1244: an open pull request NO issue or run links (Reviews
-    /// repository bands), merged through `repositories.mergePull`.
-    public enum MergeExternalPr {
-        public static let entry = primary(
-            "merge-external-pr",
-            texts: [
-                "title": "Merge {repository}#{number}?",
-                "body": "It is squash-merged into {base}. No issue is linked to it.",
-            ],
-            params: ["repository", "number", "base"], answer: "merge", label: "Merge"
-        )
-        public static func copy(repository: String, number: Int, base: String) -> PromptCopy {
-            entry.copy(["repository": repository, "number": "\(number)", "base": base])
-        }
-    }
-
     public enum StopRun {
         public static let entry = destructive(
             "stop-run",
@@ -520,7 +504,7 @@ public enum Prompts {
     /// Every mirrored entry, locked against the fixture's `prompts` key set.
     public static let all: [PromptEntry] = [
         DeleteIssue.entry, DeleteIssues.entry, DeleteFile.entry, MoveIssue.entry,
-        MergeIssuePr.entry, MergeRunPr.entry, MergeExternalPr.entry, StopRun.entry, ResumeRun.entry,
+        MergeIssuePr.entry, MergeRunPr.entry, StopRun.entry, ResumeRun.entry,
         DeleteTrigger.entry, DeleteAction.entry, RemoveDevice.entry, DeleteTeam.entry, TrashBoard.entry,
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,

@@ -682,6 +682,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
                 subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
+                computer_use: None,
             },
             mcp: coding::AgentMcp::ClaudeFile,
             session_id: session_id.to_string(),

@@ -45,7 +45,7 @@ interface Contract {
   codingSessionStatus: Section
   codingSessionEndedBy: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
-  codingSession: { staleHours: number }
+  codingSession: { staleHours: number; launchKeys: string[]; computerUseCap: string }
   device: { onlineWindowSeconds: number }
   team: { agentPromptMaxBytes: number }
   steerFeed: {
@@ -78,6 +78,12 @@ interface Contract {
     showLess: string
     showMoreLines: string
     mergePr: string
+    mergeStack: string
+    mergeThrough: string
+    guideFace: string
+    guideChangesRow: string
+    guideOtherChanges: string
+    guideShowCompleteDiff: string
     closePr: string
     openOnGithub: string
     noChanges: string
@@ -222,6 +228,12 @@ const diffUiStrings: [string, string][] = [
   ["showLess", diffUi.showLess],
   ["showMoreLines", diffUi.showMoreLines],
   ["mergePr", diffUi.mergePr],
+  ["mergeStack", diffUi.mergeStack],
+  ["mergeThrough", diffUi.mergeThrough],
+  ["guideFace", diffUi.guideFace],
+  ["guideChangesRow", diffUi.guideChangesRow],
+  ["guideOtherChanges", diffUi.guideOtherChanges],
+  ["guideShowCompleteDiff", diffUi.guideShowCompleteDiff],
   ["closePr", diffUi.closePr],
   ["openOnGithub", diffUi.openOnGithub],
   ["noChanges", diffUi.noChanges],
@@ -525,6 +537,8 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
 
     public static let issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
+${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
+    public static let codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
@@ -668,6 +682,8 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
 
     const val issueStatusStartedMax: Int = ${contract.issueStatusCategory.startedMax}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
+${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
+    const val codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
@@ -815,6 +831,8 @@ pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax}
 
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
+${rustStrSlice("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
+pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "${contract.codingSession.computerUseCap}";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";

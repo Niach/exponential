@@ -26,6 +26,13 @@
 //! the only image payload — and the viewer renders each marker as a chip.
 //! [`build_steer_image_message`]'s wire shape is FROZEN; the markers ride
 //! inside its text half.
+//!
+//! Wave D ("Add file or image" takes ANY file): [`build_steer_message`] adds
+//! a FILE block after the image block, one `[<filename>](/api/attachments/<uuid>)`
+//! per line (the server's sanitized filename as the link text, `]` and `\`
+//! backslash-escaped). Files carry NO positional marker; the host localizes
+//! them like images (`publisher::file_embed_pattern`, `File #N:` manifest
+//! lines). A message with only images is byte-identical to the frozen builder.
 
 use std::sync::OnceLock;
 
@@ -49,6 +56,73 @@ fn embed_line_pattern() -> &'static Regex {
         Regex::new(r"^!\[image\]\(/api/attachments/([^)\s]+)\)$")
             .expect("the embed line pattern is a valid regex")
     })
+}
+
+/// One file line, exactly as [`build_steer_message`] writes it: the link text
+/// may carry backslash escapes (`\]`, `\\`), never a bare `]`.
+fn file_line_pattern() -> &'static Regex {
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        Regex::new(r"^\[((?:[^\]\\]|\\.)*)\]\(/api/attachments/([^)\s]+)\)$")
+            .expect("the file line pattern is a valid regex")
+    })
+}
+
+/// How many non-image files one steered message may carry (wave D, ×4).
+pub const MAX_STEER_FILES: usize = 4;
+
+/// A non-image attachment of a steered message: the upload's id and the
+/// server's sanitized filename (the link text on the wire).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SteerFile {
+    pub id: String,
+    pub name: String,
+}
+
+impl SteerFile {
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+        }
+    }
+}
+
+/// The link text of a file line: `\` and `]` backslash-escaped.
+pub fn escape_file_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if ch == '\\' || ch == ']' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// The inverse of [`escape_file_name`].
+pub fn unescape_file_name(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// One file's wire line.
+pub fn file_line(file: &SteerFile) -> String {
+    format!(
+        "[{}](/api/attachments/{})",
+        escape_file_name(&file.name),
+        file.id
+    )
 }
 
 /// The 1-based positional reference to one of the message's images.
@@ -75,7 +149,27 @@ pub fn build_steer_image_message(text: &str, attachment_ids: &[String]) -> Strin
     format!("{trimmed}\n\n{embeds}")
 }
 
-/// The inverse of [`build_steer_image_message`].
+/// Wave D: [`build_steer_image_message`] plus a FILE block. The trimmed text,
+/// a BLANK line, the image embeds (one per line, unchanged), then one file
+/// line per file. With no attachments at all the trimmed text goes alone.
+pub fn build_steer_message(text: &str, image_ids: &[String], files: &[SteerFile]) -> String {
+    if files.is_empty() {
+        return build_steer_image_message(text, image_ids);
+    }
+    let trimmed = text.trim();
+    let block = image_ids
+        .iter()
+        .map(|id| format!("![image](/api/attachments/{id})"))
+        .chain(files.iter().map(file_line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if trimmed.is_empty() {
+        return block;
+    }
+    format!("{trimmed}\n\n{block}")
+}
+
+/// The inverse of [`build_steer_image_message`] / [`build_steer_message`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ParsedSteerMessage {
     /// The message without its trailing embed block.
@@ -86,6 +180,9 @@ pub struct ParsedSteerMessage {
     /// deduped. A number with no matching embed is still reported — the
     /// viewer decides what to do with a dangling reference.
     pub markers: Vec<u32>,
+    /// Wave D: the trailing file lines, in order (peeled off BEFORE the
+    /// image embeds). Empty for every images-only message.
+    pub files: Vec<SteerFile>,
 }
 
 /// Split a composed steer message back into its prose and its embeds, and
@@ -94,6 +191,17 @@ pub fn parse_steer_message(message: &str) -> ParsedSteerMessage {
     let lines: Vec<&str> = message.split('\n').collect();
     let mut end = lines.len();
     while end > 0 && lines[end - 1].trim().is_empty() {
+        end -= 1;
+    }
+    let mut files: Vec<SteerFile> = Vec::new();
+    while end > 0 {
+        let Some(captures) = file_line_pattern().captures(lines[end - 1].trim()) else {
+            break;
+        };
+        files.insert(
+            0,
+            SteerFile::new(captures[2].to_string(), unescape_file_name(&captures[1])),
+        );
         end -= 1;
     }
     let mut attachment_ids: Vec<String> = Vec::new();
@@ -118,6 +226,7 @@ pub fn parse_steer_message(message: &str) -> ParsedSteerMessage {
         text,
         attachment_ids,
         markers,
+        files,
     }
 }
 
@@ -351,6 +460,7 @@ mod tests {
                 text: "fix [Image #1]".to_string(),
                 attachment_ids: ids(&[A, B]),
                 markers: vec![1],
+                files: Vec::new(),
             }
         );
     }
@@ -363,6 +473,7 @@ mod tests {
                 text: String::new(),
                 attachment_ids: ids(&[A]),
                 markers: Vec::new(),
+                files: Vec::new(),
             }
         );
     }
@@ -375,6 +486,7 @@ mod tests {
                 text: "just words".to_string(),
                 attachment_ids: Vec::new(),
                 markers: Vec::new(),
+                files: Vec::new(),
             }
         );
     }
@@ -391,5 +503,81 @@ mod tests {
     fn builds_the_marker_the_pattern_matches() {
         assert_eq!(image_marker(3), "[Image #3]");
         assert_eq!(parse_steer_message(&image_marker(3)).markers, vec![3]);
+    }
+    // -- Wave D: the FILE block (same strings ×4) ----------------------------
+
+    const C: &str = "33333333-3333-4333-8333-333333333333";
+    const D: &str = "44444444-4444-4444-8444-444444444444";
+
+    #[test]
+    fn appends_file_lines_after_the_image_embeds() {
+        assert_eq!(
+            build_steer_message("fix the header", &ids(&[A]), &[SteerFile::new(C, "notes.pdf")]),
+            format!(
+                "fix the header\n\n![image](/api/attachments/{A})\n[notes.pdf](/api/attachments/{C})"
+            )
+        );
+    }
+
+    #[test]
+    fn sends_file_lines_alone_and_escapes_the_link_text() {
+        assert_eq!(
+            build_steer_message(
+                "  ",
+                &[],
+                &[SteerFile::new(C, "notes.pdf"), SteerFile::new(D, "a]b\\c.txt")]
+            ),
+            format!("[notes.pdf](/api/attachments/{C})\n[a\\]b\\\\c.txt](/api/attachments/{D})")
+        );
+    }
+
+    #[test]
+    fn an_images_only_message_is_the_frozen_shape() {
+        assert_eq!(
+            build_steer_message("fix", &ids(&[A, B]), &[]),
+            build_steer_image_message("fix", &ids(&[A, B]))
+        );
+        assert_eq!(build_steer_message("  hello  ", &[], &[]), "hello");
+        assert_eq!(MAX_STEER_FILES, 4);
+    }
+
+    #[test]
+    fn parses_the_file_lines_off_the_tail_before_the_embeds() {
+        let message = build_steer_message(
+            "fix [Image #1]",
+            &ids(&[A]),
+            &[SteerFile::new(C, "notes.pdf"), SteerFile::new(D, "a]b\\c.txt")],
+        );
+        assert_eq!(
+            parse_steer_message(&message),
+            ParsedSteerMessage {
+                text: "fix [Image #1]".to_string(),
+                attachment_ids: ids(&[A]),
+                markers: vec![1],
+                files: vec![SteerFile::new(C, "notes.pdf"), SteerFile::new(D, "a]b\\c.txt")],
+            }
+        );
+    }
+
+    #[test]
+    fn reads_file_lines_sent_without_text_or_images() {
+        assert_eq!(
+            parse_steer_message(&format!("[notes.pdf](/api/attachments/{C})")),
+            ParsedSteerMessage {
+                text: String::new(),
+                attachment_ids: Vec::new(),
+                markers: Vec::new(),
+                files: vec![SteerFile::new(C, "notes.pdf")],
+            }
+        );
+    }
+
+    #[test]
+    fn leaves_prose_links_alone() {
+        let inline = format!("see [notes](/api/attachments/{C}) here");
+        assert_eq!(parse_steer_message(&inline).text, inline);
+        assert!(parse_steer_message(&inline).files.is_empty());
+        let external = "[docs](https://example.com/a)";
+        assert_eq!(parse_steer_message(external).text, external);
     }
 }

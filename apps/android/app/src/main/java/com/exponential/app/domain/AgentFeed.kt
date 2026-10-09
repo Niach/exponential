@@ -178,6 +178,8 @@ sealed interface AgentFeedItem {
         val text: String,
         val subagentId: String? = null,
         override val seq: Long? = null,
+        /** EXP-1245: the relay's stamp; the turns thread slots the row by it. */
+        val at: Long? = null,
     ) : AgentFeedItem
 
     /** An interactive question (AskUserQuestion / plan approval, EXP-78).
@@ -1653,6 +1655,7 @@ fun ActivityFeedState.applyActivityEvent(
                     text = text,
                     subagentId = event.str("subagentId")?.takeIf { it.isNotBlank() },
                     seq = seq,
+                    at = event.long("at"),
                 ),
             )
         }

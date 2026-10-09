@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// EXP-702: steer-image upload for coding sessions without an issue (chat,
-// action and batch runs). Deliberately narrower than the issue `/files`
-// route: images only, and only the session's OWNER may upload — steering is
+// EXP-702: steer attachment upload for coding sessions (wave D: any file,
+// images 10 MB, files 50 MB, like the issue `/files` route). Only the
+// session's OWNER may upload — steering is
 // owner-only (EXP-312), so nobody else can put the resulting embed on the
 // wire anyway.
 
@@ -48,8 +48,14 @@ vi.mock(`@/lib/storage`, () => ({
   deleteObject: h.deleteObject,
 }))
 
-import { handleSessionAttachmentUpload } from "@/lib/storage/session-attachment-upload"
-import { maxImageUploadBytes } from "@/lib/storage/issue-attachments"
+import {
+  handleSessionAttachmentUpload,
+  prepareSessionImageBytes,
+} from "@/lib/storage/session-attachment-upload"
+import {
+  maxFileUploadBytes,
+  maxImageUploadBytes,
+} from "@/lib/storage/issue-attachments"
 
 const SESSION_ID = `00000000-0000-4000-8000-000000000002`
 
@@ -137,14 +143,51 @@ describe(`handleSessionAttachmentUpload`, () => {
     })
   })
 
-  it(`rejects non-image content types outright`, async () => {
+  it(`stores a non-image file under the 50 MB file cap`, async () => {
     const formData = new FormData()
-    formData.append(
-      `file`,
-      fileOfSize(`notes.pdf`, `application/pdf`, 4)
-    )
+    formData.append(`file`, fileOfSize(`notes.pdf`, `application/pdf`, 4))
 
-    await expect(upload(formData)).rejects.toMatchObject({
+    const response = await upload(formData)
+    const body = (await response.json()) as {
+      filename: string
+      contentType: string
+      width: number | null
+    }
+    expect(body).toMatchObject({
+      filename: `notes.pdf`,
+      contentType: `application/pdf`,
+      width: null,
+    })
+    expect(h.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ contentType: `application/pdf`, height: null })
+    )
+  })
+
+  it(`accepts a 15 MB file but rejects one over 50 MB`, async () => {
+    const ok = new FormData()
+    ok.append(`file`, fileOfSize(`trace.zip`, `application/zip`, 15 * 1024 * 1024))
+    await expect(upload(ok)).resolves.toBeInstanceOf(Response)
+
+    const big = new FormData()
+    big.append(
+      `file`,
+      fileOfSize(`trace.zip`, `application/zip`, maxFileUploadBytes + 1)
+    )
+    await expect(upload(big)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `Files must be 50 MB or smaller`,
+    })
+  })
+
+  it(`keeps result pictures images-only`, async () => {
+    await expect(
+      prepareSessionImageBytes(
+        { filename: `notes.pdf`, contentType: `application/pdf`, body: new Uint8Array(4) },
+        { teamId: `t-1`, sessionId: SESSION_ID },
+        undefined,
+        { imagesOnly: true }
+      )
+    ).rejects.toMatchObject({
       code: `BAD_REQUEST`,
       message: `Only images can be attached to a session`,
     })

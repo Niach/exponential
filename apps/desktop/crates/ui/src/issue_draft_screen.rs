@@ -9,7 +9,7 @@
 //! over the scrolling body, the large title row, the property tray, the
 //! description, the Files — with only these differences: the collapsed title
 //! reads "New issue" over the typed title (or "Untitled draft"), the bar's
-//! cluster is a primary Create plus an `×` tooltipped "Discard draft", the
+//! cluster is Back + a primary Create, the
 //! tray is the [`IssueDraft`] chip row (no estimate) plus a board chip when
 //! the team has another board, and nothing follows the Files (no relations,
 //! composer, PR row or timeline).
@@ -24,9 +24,8 @@
 //! re-pointed per draft like the PR diff ([`IssueDraftView::set_draft`]).
 //!
 //! EXP-1212: a draft WITH content never goes silently
-//! ([`domain::issue_draft::exit_prompt`]). The `×` asks "Discard this draft
-//! and its files?"
-//! first; every other way off the page is HELD at the ONE choke point all
+//! ([`domain::issue_draft::exit_prompt`]). EXP-1247: the page has no `×`
+//! (Back + Create only); every way off the page is HELD at the ONE choke point all
 //! screen changes pass (`navigation::leave_hold`: navigate, replace, a tab
 //! click's `set_screen`, Back, Forward, a team switch) and asks Discard ·
 //! Save draft · Create issue (ONE dialog; every move held meanwhile appends), the
@@ -50,14 +49,14 @@ use gpui::{
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant, ButtonVariants as _},
+    button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, TextareaState},
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
-use domain::issue_draft::{self as copy, draft_fate, exit_prompt, DraftExit, DraftFate, DraftPrompt};
+use domain::issue_draft::{self as copy, draft_fate, exit_prompt, DraftFate, DraftPrompt};
 use domain::rows::IssueDraftRow;
 
 use crate::controls::WebControl as _;
@@ -175,20 +174,6 @@ pub(crate) fn leave_alert(
     on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> AlertSpec {
     leave_alert_for(true, on_create, on_keep, on_discard)
-}
-
-/// EXP-1212: the `×`'s confirm (Cancel keeps the draft): the window carries
-/// the close button's own label ("Discard draft"), the body the question.
-/// Enter answers Cancel, never the destructive Discard (web, iOS and Android
-/// focus Cancel too); Discard takes a click.
-pub(crate) fn discard_confirm_alert(
-    on_discard: impl Fn(&mut Window, &mut App) -> bool + 'static,
-) -> AlertSpec {
-    AlertSpec::new(copy::DISCARD, copy::DISCARD_CONFIRM_TITLE, copy::DISCARD_CONFIRM)
-        .height(px(DRAFT_ALERT_HEIGHT))
-        .ok_variant(ButtonVariant::Danger)
-        .enter(AlertEnter::Cancel)
-        .on_ok(on_discard)
 }
 
 /// EXP-1212: the leave dialog's three answers.
@@ -569,13 +554,18 @@ impl IssueDraftView {
             window,
             cx,
         );
-        // The editor's paperclip: images embed inline through the editor
-        // itself; everything else uploads onto the draft.
+        // The editor's paperclip (EXP-1247): every pick uploads onto the
+        // draft AS A FILE; a drop's non-image files keep the legacy routing
+        // (a clip still embeds).
         {
             let view = view.clone();
             description.update(cx, |description, _| {
+                let on_drop = view.clone();
                 description.set_attach_handler(Rc::new(move |paths, window, cx| {
-                    let _ = view.update(cx, |this, cx| this.attach_paths(paths, window, cx));
+                    let _ = on_drop.update(cx, |this, cx| this.attach_paths(paths, false, window, cx));
+                }));
+                description.set_attach_as_file_handler(Rc::new(move |paths, window, cx| {
+                    let _ = view.update(cx, |this, cx| this.attach_paths(paths, true, window, cx));
                 }));
             });
         }
@@ -706,7 +696,7 @@ impl IssueDraftView {
     fn sync_guard(&self, cx: &App) {
         let armed = self.active
             && !self.creating
-            && exit_prompt(self.has_content(cx), DraftExit::Leave) == DraftPrompt::Leave;
+            && exit_prompt(self.has_content(cx)) == DraftPrompt::Leave;
         self.armed.set(armed);
     }
 
@@ -816,9 +806,12 @@ impl IssueDraftView {
     /// Picked paths (the editor's paperclip, the Files section's): read off
     /// the foreground (the 50 MB cap), then upload onto the draft. Never
     /// reads the description synchronously — this can run inside its update.
+    /// EXP-1247: `as_file` = a file button's pick (a Files row, never
+    /// embedded); `false` = a drop.
     fn attach_paths(
         &mut self,
         paths: Vec<std::path::PathBuf>,
+        as_file: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -834,7 +827,7 @@ impl IssueDraftView {
                             return;
                         };
                         this.with_editor(cx, |editor, cx| {
-                            editor.queue_file(filename, content_type, bytes, snapshot, cx)
+                            editor.queue_file(filename, content_type, bytes, as_file, snapshot, cx)
                         });
                     }
                     Err(error) => crate::toast::error(format!("{error}"), window, cx),
@@ -846,7 +839,7 @@ impl IssueDraftView {
 
     /// The Files section's paperclip: the native multi-select picker.
     fn pick_files(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,
@@ -856,7 +849,7 @@ impl IssueDraftView {
             let Ok(Ok(Some(paths))) = receiver.await else {
                 return;
             };
-            let _ = this.update_in(cx, |this, window, cx| this.attach_paths(paths, window, cx));
+            let _ = this.update_in(cx, |this, window, cx| this.attach_paths(paths, true, window, cx));
         })
         .detach();
     }
@@ -1245,42 +1238,6 @@ impl IssueDraftView {
         cx.notify();
     }
 
-    /// "Discard draft" (the `×`): EXP-1212 — a draft with content asks
-    /// "Discard this draft and its files?" first (Cancel keeps it); an empty one goes at once.
-    fn discard(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(draft_id) = self.parts.as_ref().map(|parts| parts.target.draft_id.clone()) else {
-            return;
-        };
-        // R2: never while a Create is in flight.
-        if self.creating {
-            return;
-        }
-        if exit_prompt(self.has_content(cx), DraftExit::Discard) != DraftPrompt::DiscardConfirm {
-            self.discard_now(window, cx);
-            return;
-        }
-        let view = cx.entity().downgrade();
-        let opener = window.window_handle();
-        let spec = discard_confirm_alert(move |_, cx| {
-            let view = view.clone();
-            let draft_id = draft_id.clone();
-            // Deferred into the opener: this runs inside the alert window.
-            cx.defer(move |cx| {
-                let _ = opener.update(cx, |_, window, cx| {
-                    let _ = view.update(cx, |this, cx| {
-                        // Only the draft the question was about, still up,
-                        // and never mid-Create (R2).
-                        if this.active && !this.creating && this.shows(&draft_id) {
-                            this.discard_now(window, cx);
-                        }
-                    });
-                });
-            });
-            true
-        });
-        crate::native_dialog::open_alert(window, cx, spec);
-    }
-
     /// The draft goes: the row is deleted and nothing is written again.
     /// Returns its id (`None` with no draft up).
     fn drop_draft(&mut self, cx: &mut gpui::Context<Self>) -> Option<String> {
@@ -1292,31 +1249,6 @@ impl IssueDraftView {
         self.keeping = false;
         self.sync_guard(cx);
         Some(draft_id)
-    }
-
-    /// The confirmed discard: the row goes, then Back — or the board, with
-    /// nowhere to go back to.
-    fn discard_now(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.creating {
-            return;
-        }
-        let Some(parts) = self.parts.as_ref() else {
-            return;
-        };
-        let target = parts.target.clone();
-        self.drop_draft(cx);
-        if self.nav.read(cx).can_go_back() {
-            crate::navigation::go_back(window, cx);
-        } else {
-            crate::navigation::navigate(
-                window,
-                cx,
-                Screen::BoardIssues {
-                    board_id: target.board_id.clone(),
-                },
-            );
-        }
-        purge_draft(&target.draft_id, window, cx);
     }
 
     // -- leaving (EXP-1212) -------------------------------------------------------
@@ -1474,9 +1406,8 @@ impl IssueDraftView {
 
     // -- render -----------------------------------------------------------------
 
-    /// The bar's right cluster: Create, then an `×` that discards (EXP-1191:
-    /// the draft's only action, so no one-item `…` menu; its tooltip says
-    /// what it does).
+    /// The bar's right cluster: Create alone (EXP-1247: no `×`; discarding is
+    /// the leave question's answer, Back the way off).
     fn cluster(&self, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
         let enabled = self.can_create(cx);
         let create = Button::new("draft-create")
@@ -1487,18 +1418,7 @@ impl IssueDraftView {
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.create(Vec::new(), window, cx)
             }));
-        let discard = crate::controls::ghost_icon_button(
-            "draft-discard",
-            Icon::new(registry::UI_CLOSE),
-            cx,
-        )
-        .tooltip(copy::DISCARD)
-        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.discard(window, cx)));
-        // EXP-1191: the `×` glyph, not its hit box, ends on the content edge.
-        let discard = div()
-            .mr(px(-crate::work_header::GHOST_ICON_HANG))
-            .child(discard);
-        vec![create.into_any_element(), discard.into_any_element()]
+        vec![create.into_any_element()]
     }
 
     /// The property tray: the [`IssueDraft`] chips plus the board chip.
@@ -1777,15 +1697,6 @@ impl Render for IssueDraftView {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// EXP-1212: the ×'s confirm never discards on Enter: Cancel (keep the
-    /// draft) is the default answer, as on web, iOS and Android.
-    #[test]
-    fn discard_confirm_gives_enter_to_cancel() {
-        let spec = discard_confirm_alert(|_, _| true);
-        assert_eq!(spec.enter_answer(), AlertEnter::Cancel);
-        assert!(!spec.is_ok_disabled());
-    }
 
     /// EXP-1212: the leave question's default answer is Create issue; without
     /// a title it is shown disabled and Save draft takes Enter.

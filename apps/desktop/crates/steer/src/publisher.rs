@@ -121,8 +121,9 @@ pub type InputHook = Arc<dyn Fn(&[u8]) + Send + Sync>;
 /// EXP-511: attachment id → the local file the agent should read. BLOCKING
 /// (HTTP + a disk write); the input task calls it from `spawn_blocking`.
 /// `Err` is a human-readable reason for the log — the embed then stays as it
-/// arrived.
-pub type AttachmentHook = Arc<dyn Fn(&str) -> Result<PathBuf, String> + Send + Sync>;
+/// arrived. Wave D: the second argument is the FILE's name for a
+/// `[<name>](/api/attachments/<id>)` file line, `None` for an image embed.
+pub type AttachmentHook = Arc<dyn Fn(&str, Option<&str>) -> Result<PathBuf, String> + Send + Sync>;
 
 /// The seam back into the app (§8.9). Every hook is invoked on the steer
 /// runtime — implementations marshal to the gpui foreground themselves where
@@ -192,10 +193,17 @@ pub type CompactHook = Arc<dyn Fn(Option<String>) -> CompactVerdict + Send + Syn
 /// [`PublisherHooks::attachments`] over an account's tRPC client (EXP-511):
 /// downloads into `dest_dir` — `<worktree>/.exp-steer-images`, which the
 /// launcher git-excludes so a steerer's screenshots never reach the PR diff.
+///
+/// Wave D: a FILE line (any content type) lands in the same dir (the name is
+/// load-bearing — existing worktrees' git excludes name it) as
+/// `<id>/<filename>`.
 pub fn image_localizer(trpc: Arc<TrpcClient>, dest_dir: PathBuf) -> AttachmentHook {
-    Arc::new(move |attachment_id| {
-        api::attachments::download_image(&trpc, attachment_id, &dest_dir)
-            .map_err(|err| err.to_string())
+    Arc::new(move |attachment_id, file_name| {
+        match file_name {
+            None => api::attachments::download_image(&trpc, attachment_id, &dest_dir),
+            Some(name) => api::attachments::download_file(&trpc, attachment_id, name, &dest_dir),
+        }
+        .map_err(|err| err.to_string())
     })
 }
 
@@ -210,6 +218,43 @@ fn image_embed_pattern() -> &'static regex::Regex {
         )
         .expect("the image embed pattern is a valid regex")
     })
+}
+
+/// Wave D: the FILE line a steering client sends for an attached non-image
+/// (`buildSteerMessage`'s file block): `[<name>](/api/attachments/<uuid>)`
+/// NOT preceded by `!` (the caller checks that — the regex crate has no
+/// look-behind). The link text may carry the builder's `\]`/`\\` escapes.
+/// Unanchored on purpose, like [`image_embed_pattern`]: a link to one of
+/// OUR attachments anywhere in the prose is localized for the agent too
+/// (the viewers keep showing it as a link); the parsers' tail-only rule
+/// decides what the composer STRIP shows, not what the agent may read.
+fn file_embed_pattern() -> &'static regex::Regex {
+    static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+    PATTERN.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)\[((?:[^\]\\\n]|\\.)*)\]\(/api/attachments/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
+        )
+        .expect("the file embed pattern is a valid regex")
+    })
+}
+
+/// Every file line in `text`: `(token, id, unescaped name)`, skipping the
+/// `[image](…)` half of an image embed.
+fn file_embeds(text: &str) -> Vec<(String, String, String)> {
+    file_embed_pattern()
+        .captures_iter(text)
+        .filter_map(|captures| {
+            let whole = captures.get(0)?;
+            if text[..whole.start()].ends_with('!') {
+                return None;
+            }
+            Some((
+                whole.as_str().to_string(),
+                captures[2].to_string(),
+                domain::image_message::unescape_file_name(&captures[1]),
+            ))
+        })
+        .collect()
 }
 
 /// EXP-511: `(needle, the embed token it replaced)` for every image localized
@@ -266,6 +311,12 @@ pub fn has_image_embed(text: &str) -> bool {
     image_embed_pattern().is_match(text)
 }
 
+/// Wave D: an image embed OR a file line — what the host checks before
+/// localizing a prompt.
+pub fn has_attachment_embed(text: &str) -> bool {
+    has_image_embed(text) || !file_embeds(text).is_empty()
+}
+
 /// EXP-825: [`localize_image_embeds`] for the host's own prompts — the start
 /// prompt's images (and a local composer's) go through the same download +
 /// manifest + restore-map path a steered message takes.
@@ -277,9 +328,22 @@ pub async fn localize_message(text: String, hook: &AttachmentHook, embeds: &Imag
 /// [`restore_image_embeds`] tells a line needle from a bare path.
 const MANIFEST_PREFIX: &str = "Image #";
 
+/// Wave D: the file manifest lines' prefix (numbered apart from the images).
+const FILE_MANIFEST_PREFIX: &str = "File #";
+
 /// One image's manifest line, as the agent reads it.
 fn image_manifest_line(index: usize, target: &str) -> String {
     format!("{MANIFEST_PREFIX}{index}: {target}")
+}
+
+/// One file's manifest line, as the agent reads it.
+fn file_manifest_line(index: usize, target: &str) -> String {
+    format!("{FILE_MANIFEST_PREFIX}{index}: {target}")
+}
+
+/// Is `needle` a whole manifest LINE (vs a bare path)?
+fn is_manifest_needle(needle: &str) -> bool {
+    needle.starts_with(MANIFEST_PREFIX) || needle.starts_with(FILE_MANIFEST_PREFIX)
 }
 
 /// Localize a steered message's image embeds for the agent.
@@ -304,16 +368,26 @@ fn image_manifest_line(index: usize, target: &str) -> String {
 ///
 /// A download that fails keeps its URL in the manifest line — the agent can
 /// still fetch it over MCP, which is the pre-EXP-511 behaviour.
+///
+/// Wave D: FILE lines (`[<name>](/api/attachments/<uuid>)`) localize the same
+/// way into `File #N: <path>` lines AFTER the `Image #N:` ones, numbered on
+/// their own (files carry no positional marker), through the same restore map.
 async fn localize_image_embeds(
     data: String,
     hook: &AttachmentHook,
     embeds: &ImageEmbedMap,
 ) -> String {
-    let mut tokens: Vec<(String, String)> = Vec::new();
+    // (token, id, file name — None for an image)
+    let mut tokens: Vec<(String, String, Option<String>)> = Vec::new();
     for captures in image_embed_pattern().captures_iter(&data) {
         let token = captures[0].to_string();
-        if !tokens.iter().any(|(existing, _)| existing == &token) {
-            tokens.push((token, captures[1].to_string()));
+        if !tokens.iter().any(|(existing, _, _)| existing == &token) {
+            tokens.push((token, captures[1].to_string(), None));
+        }
+    }
+    for (token, id, name) in file_embeds(&data) {
+        if !tokens.iter().any(|(existing, _, _)| existing == &token) {
+            tokens.push((token, id, Some(name)));
         }
     }
     if tokens.is_empty() {
@@ -321,14 +395,24 @@ async fn localize_image_embeds(
     }
     let mut manifest: Vec<String> = Vec::with_capacity(tokens.len());
     let mut restores: Vec<(String, String)> = Vec::new();
-    for (index, (token, id)) in tokens.iter().enumerate() {
-        let number = index + 1;
+    let (mut images, mut files) = (0usize, 0usize);
+    for (token, id, name) in tokens.iter() {
+        let line_for: fn(usize, &str) -> String = if name.is_some() {
+            files += 1;
+            file_manifest_line
+        } else {
+            images += 1;
+            image_manifest_line
+        };
+        let number = if name.is_some() { files } else { images };
         let hook = hook.clone();
         let requested = id.clone();
-        match tokio::task::spawn_blocking(move || hook(&requested)).await {
+        let requested_name = name.clone();
+        match tokio::task::spawn_blocking(move || hook(&requested, requested_name.as_deref())).await
+        {
             Ok(Ok(path)) => {
                 let path = path.display().to_string();
-                let line = image_manifest_line(number, &path);
+                let line = line_for(number, &path);
                 restores.push((line.clone(), token.clone()));
                 restores.push((path, token.clone()));
                 manifest.push(line);
@@ -337,13 +421,13 @@ async fn localize_image_embeds(
                 log::warn!("steer publisher: attachment {id} not localized ({reason})");
                 // No local file — the manifest carries the URL itself, and
                 // the line restores to the token like any other.
-                let line = image_manifest_line(number, token);
+                let line = line_for(number, token);
                 restores.push((line.clone(), token.clone()));
                 manifest.push(line);
             }
             Err(join_err) => {
                 log::warn!("steer publisher: attachment {id} download panicked: {join_err}");
-                let line = image_manifest_line(number, token);
+                let line = line_for(number, token);
                 restores.push((line.clone(), token.clone()));
                 manifest.push(line);
             }
@@ -358,7 +442,7 @@ async fn localize_image_embeds(
     for line in data.split('\n') {
         let mut next = line.to_string();
         let mut touched = false;
-        for (token, _) in &tokens {
+        for (token, _, _) in &tokens {
             if next.contains(token.as_str()) {
                 next = next.replace(token.as_str(), "");
                 touched = true;
@@ -423,7 +507,7 @@ fn restore_image_embeds(event: &mut ActivityEvent, embeds: &ImageEmbedMap) {
     for field in event.text_fields_mut() {
         for lines_pass in [true, false] {
             for (needle, token) in embeds.iter() {
-                if needle.starts_with(MANIFEST_PREFIX) != lines_pass {
+                if is_manifest_needle(needle) != lines_pass {
                     continue;
                 }
                 if field.contains(needle.as_str()) {
@@ -2055,7 +2139,7 @@ mod tests {
         let embeds = ImageEmbeds::default();
         let local = image_dir("start").join("11111111-2222-3333-4444-555555555555.png");
         let localized = local.clone();
-        let hook: AttachmentHook = Arc::new(move |id| {
+        let hook: AttachmentHook = Arc::new(move |id, _name| {
             assert_eq!(id, "11111111-2222-3333-4444-555555555555");
             Ok(localized.clone())
         });
@@ -2106,7 +2190,7 @@ mod tests {
         let local = image_dir("rewrite").join("11111111-2222-3333-4444-555555555555.png");
         let localized = local.clone();
         let mut hooks = recording_hooks(recorded.clone());
-        hooks.attachments = Some(Arc::new(move |id| {
+        hooks.attachments = Some(Arc::new(move |id, _name| {
             assert_eq!(id, "11111111-2222-3333-4444-555555555555");
             Ok(localized.clone())
         }));
@@ -2167,7 +2251,7 @@ mod tests {
         let (port, seen_rx, inject_tx) = fake_relay(&runtime);
         let recorded = Arc::new(Recorded::default());
         let mut hooks = recording_hooks(recorded.clone());
-        hooks.attachments = Some(Arc::new(|_id| Err("offline".to_string())));
+        hooks.attachments = Some(Arc::new(|_id, _name| Err("offline".to_string())));
         let handle = publish(
             &runtime,
             PublishSpec {
@@ -2215,7 +2299,7 @@ mod tests {
         let local = image_dir("slow").join("11111111-2222-3333-4444-555555555555.png");
         let localized = local.clone();
         let mut hooks = recording_hooks(recorded.clone());
-        hooks.attachments = Some(Arc::new(move |_id| {
+        hooks.attachments = Some(Arc::new(move |_id, _name| {
             while !gate.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -2285,7 +2369,7 @@ mod tests {
         hooks.agent = SessionAgent::Claude;
         let sink = sunk.clone();
         hooks.text_sink = Some(Arc::new(move |text| sink.lock().unwrap().push(text)));
-        hooks.attachments = Some(Arc::new(move |_id| Ok(localized.clone())));
+        hooks.attachments = Some(Arc::new(move |_id, _name| Ok(localized.clone())));
         let handle = publish(
             &runtime,
             PublishSpec {
@@ -2375,7 +2459,7 @@ mod tests {
     /// manifest's numbering is readable in the assertions.
     fn localize(message: &str) -> (String, ImageEmbedMap) {
         let counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let hook: AttachmentHook = Arc::new(move |_id| {
+        let hook: AttachmentHook = Arc::new(move |_id, _name| {
             let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
             Ok(PathBuf::from(format!("/img/{n}.png")))
         });
@@ -2387,6 +2471,80 @@ mod tests {
             &embeds,
         ));
         (out, embeds)
+    }
+
+    // ── Wave D: steered FILE lines → `File #N:` manifest lines ─────────────
+
+    const FILE: &str = "[notes.pdf](/api/attachments/33333333-4444-5555-6666-777777777777)";
+
+    /// Like [`localize`], but the hook answers a file's NAME so the
+    /// assertions can see which kind each call was.
+    fn localize_named(message: &str) -> (String, ImageEmbedMap, Arc<Mutex<Vec<Option<String>>>>) {
+        let seen: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let hook: AttachmentHook = Arc::new(move |id, name| {
+            log.lock().unwrap().push(name.map(str::to_string));
+            Ok(match name {
+                Some(name) => PathBuf::from(format!("/w/{id}/{name}")),
+                None => PathBuf::from(format!("/w/{id}.png")),
+            })
+        });
+        let embeds = ImageEmbeds::default();
+        let runtime = SteerRuntime::new().unwrap();
+        let out = runtime.handle().block_on(localize_image_embeds(
+            message.to_string(),
+            &hook,
+            &embeds,
+        ));
+        (out, embeds, seen)
+    }
+
+    #[test]
+    fn file_lines_become_a_file_manifest_after_the_images() {
+        let message = format!("read these [Image #1]\n\n{EMBED}\n{FILE}\n[a\\]b.txt](/api/attachments/44444444-5555-6666-7777-888888888888)");
+        let (out, embeds, seen) = localize_named(&message);
+        assert_eq!(
+            out,
+            "read these [Image #1]\n\n\
+             Image #1: /w/11111111-2222-3333-4444-555555555555.png\n\
+             File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf\n\
+             File #2: /w/44444444-5555-6666-7777-888888888888/a]b.txt"
+        );
+        // The image embed's `[image](…)` half is never mistaken for a file.
+        assert_eq!(
+            seen.lock().unwrap().as_slice(),
+            &[None, Some("notes.pdf".to_string()), Some("a]b.txt".to_string())]
+        );
+        assert!(has_attachment_embed(FILE));
+        assert!(!has_attachment_embed("[notes.pdf](https://example.com/x)"));
+        // An echo of the file line (and of the bare path) restores the token.
+        let mut echo = ActivityEvent::user_message(
+            "File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf".to_string(),
+        );
+        restore_image_embeds(&mut echo, &embeds);
+        assert_eq!(echo, ActivityEvent::user_message(FILE.to_string()));
+        let mut tool = ActivityEvent::tool(
+            "Read",
+            Some("/w/33333333-4444-5555-6666-777777777777/notes.pdf".into()),
+        );
+        restore_image_embeds(&mut tool, &embeds);
+        assert_eq!(tool, ActivityEvent::tool("Read", Some(FILE.to_string())));
+    }
+
+    #[test]
+    fn a_failed_file_download_keeps_the_url_in_its_line() {
+        let hook: AttachmentHook = Arc::new(|_id, _name| Err("offline".to_string()));
+        let embeds = ImageEmbeds::default();
+        let runtime = SteerRuntime::new().unwrap();
+        let out = runtime.handle().block_on(localize_image_embeds(
+            format!("look\n\n{FILE}"),
+            &hook,
+            &embeds,
+        ));
+        assert_eq!(out, format!("look\n\nFile #1: {FILE}"));
+        let mut echo = ActivityEvent::user_message(out);
+        restore_image_embeds(&mut echo, &embeds);
+        assert_eq!(echo, ActivityEvent::user_message(format!("look\n\n{FILE}")));
     }
 
     #[test]
@@ -2430,7 +2588,7 @@ mod tests {
         // second message its bare path is already in the map, pushed ahead of
         // the `Image #2:` line that now needs to win. A single-pass walk
         // would replace the path first and strand `Image #2: ` in the feed.
-        let hook: AttachmentHook = Arc::new(|id| {
+        let hook: AttachmentHook = Arc::new(|id, _name| {
             // Stable per id: the same attachment localizes to the same file
             // however many messages carry it.
             Ok(PathBuf::from(format!("/img/{id}.png")))

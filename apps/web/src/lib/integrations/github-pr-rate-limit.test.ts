@@ -131,6 +131,16 @@ describe(`fetchPullFiles`, () => {
     expect(doFetch).toHaveBeenCalledTimes(1)
   })
 
+  it(`a fresh read skips the cache and seeds it for the next reader`, async () => {
+    const doFetch = vi.fn(async () =>
+      filesResponse([FILE])
+    ) as unknown as GitHubFetch
+    await fetchPullFiles(`Niach/cache-fresh`, 1, null, doFetch)
+    await fetchPullFiles(`Niach/cache-fresh`, 1, null, doFetch, { fresh: true })
+    await fetchPullFiles(`Niach/cache-fresh`, 1, null, doFetch)
+    expect(doFetch).toHaveBeenCalledTimes(2)
+  })
+
   it(`keys the cache on the PR and the auth posture`, async () => {
     const doFetch = vi.fn(async () =>
       filesResponse([FILE])

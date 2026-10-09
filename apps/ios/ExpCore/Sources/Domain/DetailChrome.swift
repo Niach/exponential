@@ -48,7 +48,7 @@ public enum DetailChrome {
     /// the face TABS. The Run tab wears `running` (or `needsInput`, amber,
     /// while the run waits on a person) while its run is LIVE, DRAWN as the
     /// run's agent brand mark (`faceMark`), never a dot; an OPEN pull
-    /// request puts `review` on Results, else on Changes. A face not on show
+    /// request puts `review` on the Guide (EXP-1251). A face not on show
     /// carries no dot, an ended run none.
     public static func faceDots(
         faces: [WorkFaceKind], runLive: Bool, needsInput: Bool, prOpen: Bool
@@ -57,12 +57,8 @@ public enum DetailChrome {
         if runLive, faces.contains(.run) {
             dots[.run] = needsInput ? .needsInput : .running
         }
-        if prOpen {
-            if faces.contains(.results) {
-                dots[.results] = .review
-            } else if faces.contains(.changes) {
-                dots[.changes] = .review
-            }
+        if prOpen, faces.contains(.guide) {
+            dots[.guide] = .review
         }
         return dots
     }

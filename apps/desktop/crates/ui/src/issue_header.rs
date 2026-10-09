@@ -34,7 +34,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -709,15 +709,14 @@ impl IssueHeader {
             close_pr_description(others)
         });
         // EXP-862: the "..." is a GHOST glyph, never a circle.
-        crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
-            .tooltip("Issue actions")
-            .dropdown_menu(move |mut menu, window, cx| {
+        crate::controls::PointerMenu::for_button(crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
+            .tooltip("Issue actions"),
+            move |mut menu, window, cx| {
                 {
                     let url = url.clone();
                     menu = menu.item(
-                        PopupMenuItem::new("Copy link")
+                        crate::controls::pointer_label_item("Copy link", url.is_none())
                             .icon(Icon::from(ExpIcon::Link))
-                            .disabled(url.is_none())
                             .on_click(move |_, _, cx| {
                                 if let Some(url) = url.clone() {
                                     cx.write_to_clipboard(ClipboardItem::new_string(url));
@@ -740,7 +739,7 @@ impl IssueHeader {
                 if is_duplicate {
                     let issue_id = issue_id.clone();
                     menu = menu.item(
-                        PopupMenuItem::new("Unmark duplicate")
+                        crate::controls::pointer_label_item("Unmark duplicate", false)
                             .icon(Icon::new(registry::UI_UNDO))
                             .on_click(move |_, _, cx| {
                                 set_duplicate_of(issue_id.clone(), None, cx);
@@ -1130,13 +1129,6 @@ pub(crate) struct HeaderActionStyles {
     pub(crate) demote_start: bool,
 }
 
-impl HeaderActionStyles {
-    /// Nothing to trail: the tray keeps its chips and no action cluster.
-    pub(crate) fn any(&self) -> bool {
-        self.start_coding || self.merge
-    }
-}
-
 /// The pure rule behind [`IssueHeader::chip_row`]'s trailing cluster.
 pub(crate) fn header_action_styles(start_visible: bool, pr_open: bool) -> HeaderActionStyles {
     HeaderActionStyles {
@@ -1217,7 +1209,6 @@ mod tests {
         // The ordinary issue: Start coding, white, no Merge.
         let plain = header_action_styles(true, false);
         assert!(plain.start_coding && !plain.merge && !plain.demote_start);
-        assert!(plain.any());
 
         // PR open with a startable issue: both show, Merge takes the white.
         let both = header_action_styles(true, true);
@@ -1227,11 +1218,9 @@ mod tests {
         // is nothing to demote.
         let merge_only = header_action_styles(false, true);
         assert!(!merge_only.start_coding && merge_only.merge && !merge_only.demote_start);
-        assert!(merge_only.any());
 
         // Neither: the tray trails nothing at all.
         let neither = header_action_styles(false, false);
-        assert!(!neither.any());
         assert!(!neither.demote_start);
     }
 

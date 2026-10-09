@@ -1,3 +1,4 @@
+import type { ComponentProps, ReactNode } from "react"
 import type { User } from "@/db/schema"
 import type { IssuePriority, IssueEstimation } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -21,26 +22,60 @@ import {
   toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
-  Combobox,
+  Picker,
   PriorityPicker,
   StatusPicker,
   conceptIcon,
   DatePicker,
+  Button,
   GlassGroup,
-  PropertyRow,
+  ListRow,
   UserAvatar,
   BoardGlyph,
 } from "@exp/ui"
 import {
   estimateLabel,
-  estimatePickerOptions,
   parseEstimatePick,
+  estimatePickerValues,
+  NO_ESTIMATE,
 } from "@/lib/issue-estimate"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
 const EstimateGlyph = conceptIcon(`ui-estimate`)
 const LabelsGlyph = conceptIcon(`settings-labels`)
 const UnassignedGlyph = conceptIcon(`ui-unassigned`)
+
+// The ListRow VALUE variant (was PropertyRow, EXP-247/698/1170): the label
+// left and muted, the value + its glyph trailing as one unit, no chevron, the
+// whole row the target (iOS `GlassMetaRow`, Android `MetaRow`). The row is a
+// Button so it can be a picker's trigger; `text` carries no wash of its own
+// and the `!` geometry beats the list row's padding, so the hover and focus
+// are ListRow's.
+function PropertyValueRow({
+  label,
+  value,
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Button>, `value`> & {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <ListRow asChild interactive data-variant="value">
+      <Button
+        type="button"
+        variant="text"
+        className={`h-11! w-full justify-between rounded-none! px-4! py-0! font-normal ${className ?? ``}`}
+        {...props}
+      >
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+          {value}
+        </span>
+      </Button>
+    </ListRow>
+  )
+}
 
 export interface IssueEditorMobilePropertiesProps {
   status: StatusRowOption
@@ -141,7 +176,7 @@ export function IssueEditorMobileProperties({
           }}
           mobileTitle="Status"
           trigger={
-            <PropertyRow
+            <PropertyValueRow
               label="Status"
               disabled={disabled || disableStatus}
               value={
@@ -169,7 +204,7 @@ export function IssueEditorMobileProperties({
           onChange={(next) => void onPriorityChange(next as IssuePriority)}
           mobileTitle="Priority"
           trigger={
-            <PropertyRow
+            <PropertyValueRow
               label="Priority"
               disabled={disabled}
               value={
@@ -192,7 +227,7 @@ export function IssueEditorMobileProperties({
             selectedUserId={assigneeId}
             onSelect={onAssigneeChange}
             trigger={
-              <PropertyRow
+              <PropertyValueRow
                 label="Assignee"
                 disabled={disabled}
                 value={
@@ -231,7 +266,7 @@ export function IssueEditorMobileProperties({
           selectedLabelIds={selectedLabelIds}
           onToggle={onToggleLabel}
           renderTrigger={(selected) => (
-            <PropertyRow
+            <PropertyValueRow
               label="Labels"
               disabled={disabled}
               value={
@@ -258,7 +293,7 @@ export function IssueEditorMobileProperties({
             mobileTitle="Due date"
             placeholder="No date"
             renderTrigger={({ label }) => (
-              <PropertyRow
+              <PropertyValueRow
                 label="Due date"
                 disabled={disabled}
                 value={
@@ -273,15 +308,22 @@ export function IssueEditorMobileProperties({
         )}
 
         {onEstimateChange && estimation && estimation !== `none` && (
-          <Combobox
-            searchable={false}
-            value={estimate == null ? `` : String(estimate)}
+          <Picker
+            mode="single"
+            value={estimate == null ? null : String(estimate)}
             disabled={disabled}
-            options={estimatePickerOptions(estimate ?? null, estimation)}
+            items={estimatePickerValues(estimate ?? null, estimation).map(
+              (value) => ({
+                value: String(value),
+                label: estimateLabel(value, estimation),
+              })
+            )}
+            noneLabel={NO_ESTIMATE}
+            onNone={() => void onEstimateChange(null)}
             onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
             mobileTitle="Estimate"
-            renderTrigger={() => (
-              <PropertyRow
+            trigger={() => (
+              <PropertyValueRow
                 label="Estimate"
                 disabled={disabled}
                 value={
@@ -303,7 +345,7 @@ export function IssueEditorMobileProperties({
             issueIdentifier={board.issueIdentifier}
             onSelect={board.onBoardChange}
             trigger={
-              <PropertyRow
+              <PropertyValueRow
                 label="Board"
                 disabled={disabled}
                 value={

@@ -4,7 +4,8 @@ import SwiftUI
 
 /// EXP-893: the expanded steer composer's footer row — desktop
 /// `steer-composer.tsx` in concept: `Plan mode` (blue while the run is in
-/// plan mode, read-only: EXP-790 keeps plan mode launch-time) · `+` attach ·
+/// plan mode, read-only: EXP-790 keeps plan mode launch-time) · `+` attach
+/// (wave D: Photo | File) ·
 /// spacer · the model pill (the session's `model` config option; picking one
 /// SENDS `/model <alias>` as a plain message, EXP-877; codex gets a plain
 /// label; hidden when the engine reported no model) · the usage ring, which
@@ -15,7 +16,13 @@ import SwiftUI
 struct SessionComposerFooter: View {
     let planModeActive: Bool
     let attachEnabled: Bool
-    let onAttach: () -> Void
+    /// Wave D: the `+` opens the Photo | File sub-choice (iOS only, see
+    /// `SteerAttachChoiceMenu`): the photo picker or the Files importer.
+    let onPhoto: () -> Void
+    let onFile: () -> Void
+    /// Owned by the host so an open menu (its cover resigns the field's
+    /// focus) never reads as an idle composer and folds it away.
+    @Binding var attachMenuOpen: Bool
     /// `WorkFaces.sessionModel` — nil hides the pill.
     let modelValue: String?
     /// The run's agent — claude gets the picker, anything else a label.
@@ -24,6 +31,8 @@ struct SessionComposerFooter: View {
     let usageFraction: Double?
     let usageSeverity: AgentUsageSeverity
     let onUsage: () -> Void
+
+    @State private var attachAnchor: CGRect = .zero
 
     var body: some View {
         Text(AgentFeed.planModeFooterLabel)
@@ -39,9 +48,21 @@ struct SessionComposerFooter: View {
         // concept ×4; `editor-image` stays the comment/description glyph.
         GlassComposerToolButton(
             AppIcons.uiAdd,
-            accessibilityLabel: "Attach image",
-            enabled: attachEnabled,
-            action: onAttach
+            accessibilityLabel: "Add file or image",
+            enabled: attachEnabled
+        ) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { attachMenuOpen = true }
+        }
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+            attachAnchor = frame
+        }
+        .steerAttachChoiceMenu(
+            isPresented: $attachMenuOpen,
+            anchor: attachAnchor,
+            onPhoto: onPhoto,
+            onFile: onFile
         )
 
         Spacer(minLength: 0)

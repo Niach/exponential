@@ -324,24 +324,6 @@ pub(crate) fn inbox_data_key(cx: &App) -> InboxDataKey {
     }
 }
 
-/// Every input [`review_groups`] reads (EXP-915): the team plus the two
-/// collections it joins.
-#[derive(PartialEq, Eq)]
-pub(crate) struct ReviewGroupsKey {
-    team_id: String,
-    issues: u64,
-    boards: u64,
-}
-
-pub(crate) fn review_groups_key(cx: &App, team_id: &str) -> ReviewGroupsKey {
-    let collections = Store::global(cx).collections();
-    ReviewGroupsKey {
-        team_id: team_id.to_string(),
-        issues: collections.issues.read(cx).revision(),
-        boards: collections.boards.read(cx).revision(),
-    }
-}
-
 /// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
 /// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
 /// iOS `Calendar.current`, Android `LocalDate.now()`.
@@ -468,6 +450,23 @@ pub(crate) fn issue_team_id(cx: &App, issue_id: &str) -> Option<String> {
         .read(cx)
         .get(&board_id)
         .map(|board| board.team_id.clone())
+}
+
+/// EXP-1248: the issue's board's `default_branch` — the Stack card's base row
+/// fallback (web `useIssueStack().defaultBranch`), before the literal
+/// `default branch`.
+pub(crate) fn issue_board_default_branch(cx: &App, issue_id: &str) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let board_id = collections
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .map(|issue| issue.board_id.clone())?;
+    collections
+        .boards
+        .read(cx)
+        .get(&board_id)
+        .and_then(|board| board.default_branch.clone())
 }
 
 /// `use-team-data.ts` `useTeamUsers`: `team_members` ⨝ `users`
@@ -909,6 +908,7 @@ pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
 /// in `domain::reviews_queue::representative_order` (newest first, id
 /// ascending); [`representative`](Self::representative) (the first) carries
 /// the shared `pr_number`/`branch` and is the merge/dismiss target.
+#[derive(Clone)]
 pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
 }
@@ -926,11 +926,28 @@ impl ReviewEntry {
     }
 }
 
+/// EXP-1248: one display item of a board band (`domain::reviews_queue`
+/// rule 9, web `ReviewItem`).
+#[derive(Clone)]
+pub enum ReviewItem {
+    /// A lone PR (depth 0) or a PR TREE member, pre-order under its root.
+    Pr { entry: ReviewEntry, depth: usize },
+    /// A linear STACK: entries TOP first, then the base-branch row.
+    Stack {
+        entries: Vec<ReviewEntry>,
+        base_branch: Option<String>,
+    },
+}
+
 /// One Reviews page section: a board and its open-PR entries (the
 /// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
 pub struct ReviewGroup {
     pub board: domain::rows::Board,
+    /// Every entry, flat, newest first.
     pub entries: Vec<ReviewEntry>,
+    /// EXP-1248: the same entries as the band draws them (trees nested,
+    /// stacks railed).
+    pub items: Vec<ReviewItem>,
 }
 
 /// EXP-1244: the Reviews page read, the shared `domain::reviews_queue` (×4,
@@ -968,15 +985,33 @@ pub(crate) fn reviews_queue_from<'a>(
         groups: queue
             .board_groups
             .into_iter()
-            .map(|group| ReviewGroup {
-                board: group.board.clone(),
-                entries: group
-                    .entries
-                    .into_iter()
-                    .map(|entry| ReviewEntry {
-                        issues: entry.issues.into_iter().cloned().collect(),
-                    })
-                    .collect(),
+            .map(|group| {
+                let own = |entry: domain::reviews_queue::QueueEntry<'_>| ReviewEntry {
+                    issues: entry.issues.into_iter().cloned().collect(),
+                };
+                ReviewGroup {
+                    board: group.board.clone(),
+                    items: group
+                        .items
+                        .into_iter()
+                        .map(|item| match item {
+                            domain::reviews_queue::QueueItem::Pr { entry, depth } => {
+                                ReviewItem::Pr {
+                                    entry: own(entry),
+                                    depth,
+                                }
+                            }
+                            domain::reviews_queue::QueueItem::Stack {
+                                entries,
+                                base_branch,
+                            } => ReviewItem::Stack {
+                                entries: entries.into_iter().map(own).collect(),
+                                base_branch,
+                            },
+                        })
+                        .collect(),
+                    entries: group.entries.into_iter().map(own).collect(),
+                }
             })
             .collect(),
         runs: queue
@@ -1065,8 +1100,7 @@ pub(crate) fn reviews_count_key(cx: &App, team_id: &str, pulls_revision: u64) ->
     }
 }
 
-/// The board groups alone (the Reviews second sidebar, the `pr` pick). Reads
-/// only boards + issues, so [`review_groups_key`] stays its whole memo key.
+/// The board groups alone (the `pr` pick). Reads only boards + issues.
 pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     let collections = Store::global(cx).collections();
     reviews_queue_from(
@@ -1077,26 +1111,6 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
         &[],
     )
     .groups
-}
-
-/// EXP-734: the "Agent runs" block alone — issue-less runs with an open PR of
-/// their OWN that no issue carries, newest per PR (the shared queue's runs).
-pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
-    reviews_queue(cx, team_id, &[]).runs
-}
-
-/// Drop a pull from the fetched `repositories.openPulls` state after a
-/// successful merge — the mutation has no Electric echo, so removal is local.
-pub fn remove_merged_pull(
-    repos: &mut [api::repositories::OpenPullsRepo],
-    repository_id: &str,
-    number: u64,
-) {
-    for repo in repos.iter_mut() {
-        if repo.repository_id == repository_id {
-            repo.pulls.retain(|pull| pull.number != number);
-        }
-    }
 }
 
 /// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
@@ -2932,23 +2946,6 @@ mod tests {
             .as_deref(),
             Some("Danny's MacBook")
         );
-    }
-
-    #[test]
-    fn remove_merged_pull_drops_only_the_matching_row() {
-        let mut repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[1])];
-        remove_merged_pull(&mut repos, "repo-1", 1);
-        assert_eq!(
-            repos[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
-            [2]
-        );
-        // Same PR number in another repo is untouched.
-        assert_eq!(repos[1].pulls.len(), 1);
-        // Unknown targets are a no-op.
-        remove_merged_pull(&mut repos, "repo-9", 1);
-        remove_merged_pull(&mut repos, "repo-1", 99);
-        assert_eq!(repos[0].pulls.len(), 1);
-        assert_eq!(repos[1].pulls.len(), 1);
     }
 
     fn queue_board(id: &str, team: &str) -> domain::rows::Board {

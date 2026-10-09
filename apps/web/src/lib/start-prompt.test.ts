@@ -112,4 +112,28 @@ describe(`resolveStartPrompt`, () => {
       await resolveStartPrompt(twice, TEAM, `me`, lookups([mine(IMG_A)]))
     ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
   })
+
+  it(`checks file links like image embeds and caps them at four`, async () => {
+    const prompt = `see log\n\n![image](/api/attachments/${IMG_A})\n[build.log](/api/attachments/${IMG_B})`
+    const l = lookups([mine(IMG_A), mine(IMG_B)])
+    await expect(resolveStartPrompt(prompt, TEAM, `me`, l)).resolves.toEqual({
+      ok: true,
+      prompt,
+    })
+    expect(l.seen).toEqual([[IMG_A, IMG_B]])
+    expect(
+      await resolveStartPrompt(
+        `[build.log](/api/attachments/${IMG_B})`,
+        TEAM,
+        `me`,
+        lookups([mine(IMG_B, { uploaderId: `them` })])
+      )
+    ).toMatchObject({ ok: false, code: `PRECONDITION_FAILED` })
+    const five = [1, 2, 3, 4, 5]
+      .map((n) => `[f${n}.txt](/api/attachments/${IMG_B.slice(0, -1)}${n})`)
+      .join(`\n`)
+    expect(
+      await resolveStartPrompt(five, TEAM, `me`, lookups([]))
+    ).toMatchObject({ ok: false, code: `BAD_REQUEST`, message: `Up to 4 files per start` })
+  })
 })

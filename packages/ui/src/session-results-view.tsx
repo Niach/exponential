@@ -6,16 +6,19 @@ import {
   type RefObject,
 } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
+import { contract } from "@exp/domain-contract"
 import { Button } from "./button"
-import { DiffCounts, DiffPath } from "./diff-counts"
+import { DiffCounts } from "./diff-counts"
 import { DisclosureHeader } from "./disclosure-header"
 import { GlassSectionHeader } from "./glass-rows"
+import { conceptIcon } from "./icons.generated"
 import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
-  groupSessionResults,
-  guideFileRows,
+  GUIDE_CHANGES_TOPIC,
+  guideCoverage,
+  guideFileCountLabel,
   guideSectionCaption,
-  guideSections,
+  type GuideChangeSet,
   SESSION_INLINE_TILE_HEIGHT,
   SESSION_RESULT_TILE_HEIGHT,
   SESSION_RESULTS_EARLIER_LABEL,
@@ -31,7 +34,7 @@ import { cn } from "./cn"
 
 // EXP-879: the RESULTS face — the screenshots a run published with
 // (EXP-933: and each topic's GFM report text, above its tiles)
-// `exponential_sessions_results`, read off the synced `coding_sessions.results`
+// `exponential_sessions_guide` (EXP-1251, formerly `_results`), read off the synced `coding_sessions.results`
 // jsonb. One group band per topic (EXP-818's `GlassSectionHeader`, the same
 // band every list wears) over a wrapping strip of tiles; every tile is the
 // same 320px tall, so an iOS, an Android and a web shot of one screen read as
@@ -57,11 +60,13 @@ import { cn } from "./cn"
 //
 // EXP-1154: the face reads as the GUIDE. The `Summary` topic leads as a plain
 // paragraph (no band, no number); every other topic keeps its band with a
-// muted `01 / 04` caption in the leading slot, its text, the FILES it touched
-// (hairline rows: the dimmed-directory path + `+N −M` when the loaded diff has
-// the path; a tap opens the Changes face on that file) and its tiles. Pure
-// rules `guideSections`/`guideSectionCaption`/`guideFileRows`, fixture
-// `session-results.json` `guide` ×4.
+// muted `01 / 04` caption in the leading slot, its text and its tiles.
+// EXP-1251: per section ONE `Changes · N files · +A −D ›` row (the diff files
+// the topic names, by path or rename source) opens that section's diff page;
+// every file no topic names lands in a trailing unnumbered `Other changes`
+// band (with no report at all, one `Changes` band holds the whole diff) and a
+// final hairline `Show complete diff` row opens everything. Pure rule
+// `guideCoverage`, fixture `session-results.json` `coverage` ×4.
 
 /** The measured CONTENT width of a node, 0 until the first measurement (and in
  *  jsdom, which has no layout): the callers render at the base height then. */
@@ -255,35 +260,50 @@ export function GuideSectionHeader({
   )
 }
 
-/** EXP-1154: one file a Guide section touched: the path, the counts when the
- *  loaded diff knows it; a ghost button row when it opens the file. */
-export function GuideFileRow({
-  path,
-  counts,
-  isMobile = false,
+const GuideChangesGlyph = conceptIcon(`guide-changes`)
+const ChevronRightGlyph = conceptIcon(`ui-chevron-right`)
+
+/** EXP-1251: the label of the Guide's last row. */
+export const GUIDE_SHOW_COMPLETE_DIFF_LABEL = contract.diffUi.guideShowCompleteDiff
+
+/** EXP-1251: what a Changes row opens: a numbered section (1-based), the
+ *  lead, the automatic `Other changes` band or the complete diff. */
+export interface GuideChangesTarget {
+  section: number | `lead` | `other` | `all`
+  files: DiffFile[]
+}
+
+const GUIDE_ROW_CLASS = `flex h-9 w-full min-w-0 items-center gap-2.5 px-1 text-left text-sm`
+
+/** EXP-1251: a section's ONE Changes row: the `guide-changes` glyph, the
+ *  label, the muted file count, the counts and a chevron; inert (no chevron)
+ *  without `onOpen`. */
+export function GuideChangesRow({
+  changes,
   onOpen,
+  label = GUIDE_CHANGES_TOPIC,
+  className,
 }: {
-  path: string
-  counts: { additions: number; deletions: number } | null
-  isMobile?: boolean
+  changes: GuideChangeSet<DiffFile>
   onOpen?: () => void
+  label?: string
+  className?: string
 }) {
   const body = (
     <>
-      <DiffPath path={path} isMobile={isMobile} className="text-xs" />
-      {counts && (
-        <DiffCounts
-          additions={counts.additions}
-          deletions={counts.deletions}
-          className="text-xs"
-        />
-      )}
+      <GuideChangesGlyph className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+        {guideFileCountLabel(changes.fileCount)}
+      </span>
+      <DiffCounts additions={changes.additions} deletions={changes.deletions} className="text-xs" />
+      {onOpen && <ChevronRightGlyph className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
     </>
   )
-  const rowClass = `flex h-8 w-full min-w-0 items-center justify-between gap-3 px-1 text-left text-xs`
+  const rowClass = cn(GUIDE_ROW_CLASS, `border-b border-glass-stroke`, className)
   if (!onOpen) {
     return (
-      <div className={rowClass} data-testid="guide-file-row">
+      <div className={rowClass} data-testid="guide-changes-row">
         {body}
       </div>
     )
@@ -292,8 +312,7 @@ export function GuideFileRow({
     <Button
       variant="ghost"
       onClick={onOpen}
-      title={path}
-      data-testid="guide-file-row"
+      data-testid="guide-changes-row"
       className={cn(rowClass, `rounded-none font-normal hover:bg-glass-row`)}
     >
       {body}
@@ -301,43 +320,41 @@ export function GuideFileRow({
   )
 }
 
-/** EXP-1154: the Guide's row tap, offered only while there is a diff to open
- *  it on; with no files the rows render inert (no counts, no tap). */
-export function guideFileOpener(
-  files: readonly DiffFile[] | null | undefined,
-  open: (path: string) => void
-): ((path: string) => void) | undefined {
-  return files && files.length > 0 ? open : undefined
-}
-
-/** EXP-1154: a Guide section's files, flat hairline-divided rows. */
-export function GuideFileList({
-  paths,
-  files,
-  isMobile = false,
-  onOpenFile,
+/** EXP-1251: the Guide's final hairline row: the whole diff. */
+export function GuideShowCompleteDiffRow({
+  changes,
+  onOpen,
 }: {
-  paths: readonly string[]
-  files?: readonly DiffFile[] | null
-  isMobile?: boolean
-  onOpenFile?: (path: string) => void
+  changes: GuideChangeSet<DiffFile>
+  onOpen?: () => void
 }) {
-  if (paths.length === 0) return null
+  const body = (
+    <>
+      <span className="min-w-0 flex-1 truncate">{GUIDE_SHOW_COMPLETE_DIFF_LABEL}</span>
+      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+        {guideFileCountLabel(changes.fileCount)}
+      </span>
+      <DiffCounts additions={changes.additions} deletions={changes.deletions} className="text-xs" />
+      {onOpen && <ChevronRightGlyph className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+    </>
+  )
+  const rowClass = cn(GUIDE_ROW_CLASS, `border-t border-glass-stroke text-muted-foreground`)
+  if (!onOpen) {
+    return (
+      <div className={rowClass} data-testid="guide-complete-diff">
+        {body}
+      </div>
+    )
+  }
   return (
-    <div
-      className="mt-3 flex flex-col divide-y divide-glass-stroke border-y border-glass-stroke"
-      data-testid="guide-file-list"
+    <Button
+      variant="ghost"
+      onClick={onOpen}
+      data-testid="guide-complete-diff"
+      className={cn(rowClass, `rounded-none font-normal hover:bg-glass-row hover:text-foreground`)}
     >
-      {guideFileRows(paths, files).map((row) => (
-        <GuideFileRow
-          key={row.path}
-          path={row.path}
-          counts={row.counts}
-          isMobile={isMobile}
-          onOpen={onOpenFile ? () => onOpenFile(row.path) : undefined}
-        />
-      ))}
-    </div>
+      {body}
+    </Button>
   )
 }
 
@@ -380,20 +397,17 @@ export function SessionInlineResultTile({
 }
 
 export function SessionResultsView({
-  results,
-  groups: groupsProp,
+  groups,
   attachmentSrc,
   renderText,
   files,
+  onOpenChanges,
   onOpenFile,
-  isMobile = false,
   numbered = true,
   className,
 }: {
-  /** Pictures only (EXP-879); `groups` wins when both are passed. */
-  results?: readonly SessionResultEntry[]
   /** EXP-933: the report — `parseSessionResultGroups`, text and pictures. */
-  groups?: readonly SessionResultGroup[]
+  groups: readonly SessionResultGroup[]
   /** The URL a published shot reads from — the app owns the route, this
    *  package only owns the tiles. */
   attachmentSrc: (attachmentId: string) => string
@@ -401,14 +415,14 @@ export function SessionResultsView({
    *  (issue pills, links); without one the text shows as plain pre-wrapped
    *  prose. */
   renderText?: (text: string) => ReactNode
-  /** EXP-1154: the loaded diff the file rows read their counts from (null or
-   *  absent = paths without counts). */
+  /** EXP-1251: the loaded diff the coverage reads (null or absent = not
+   *  loaded: no Changes rows, no Other changes, no complete row). */
   files?: readonly DiffFile[] | null
-  /** EXP-1154: a file row opens the Changes face on that path; absent = the
-   *  rows are plain text. */
+  /** EXP-1251: a Changes row (or Show complete diff) opens that file set. */
+  onOpenChanges?: (target: GuideChangesTarget) => void
+  /** @deprecated EXP-1251: without `onOpenChanges`, a row opens its FIRST
+   *  file here (the pre-Guide callers). */
   onOpenFile?: (path: string) => void
-  /** Middle-truncates file-row directories on a phone (EXP-698). */
-  isMobile?: boolean
   /** EXP-1154: false = bands without the `01 / 04` caption (the PR-body
    *  fallback's single group). */
   numbered?: boolean
@@ -416,9 +430,14 @@ export function SessionResultsView({
   className?: string
 }) {
   const [preview, setPreview] = useState<SessionResultEntry | null>(null)
-  const groups = groupsProp ?? groupSessionResults(results ?? [])
   const pictures = sessionResultPictures(groups)
-  const guide = guideSections(groups)
+  const coverage = guideCoverage(groups, files)
+  const opener = (target: GuideChangesTarget): (() => void) | undefined => {
+    if (target.files.length === 0) return undefined
+    if (onOpenChanges) return () => onOpenChanges(target)
+    if (onOpenFile) return () => onOpenFile(target.files[0]!.path)
+    return undefined
+  }
   // Every band's wrapping strip sits in the SAME column, so one measurement
   // (the root's content width) fits the whole page.
   const containerRef = useRef<HTMLDivElement>(null)
@@ -426,7 +445,22 @@ export function SessionResultsView({
   const height = width
     ? sessionResultTileHeightFitting(pictures, width)
     : SESSION_RESULT_TILE_HEIGHT
-  const body = (group: SessionResultGroup) => (
+  const changesRow = (
+    changes: GuideChangeSet<DiffFile> | null,
+    section: GuideChangesTarget[`section`]
+  ) =>
+    changes && changes.fileCount > 0 ? (
+      <GuideChangesRow
+        className="mt-3"
+        changes={changes}
+        onOpen={opener({ section, files: changes.files })}
+      />
+    ) : null
+  const body = (
+    group: SessionResultGroup,
+    changes: GuideChangeSet<DiffFile> | null,
+    section: GuideChangesTarget[`section`]
+  ) => (
     <>
       {group.text !== null && (
         <div
@@ -445,12 +479,7 @@ export function SessionResultsView({
           )}
         </div>
       )}
-      <GuideFileList
-        paths={group.files ?? []}
-        files={files}
-        isMobile={isMobile}
-        onOpenFile={onOpenFile}
-      />
+      {changesRow(changes, section)}
       {group.entries.length > 0 && (
         <div className="flex flex-wrap gap-3 pt-3">
           {group.entries.map((entry) => (
@@ -486,12 +515,12 @@ export function SessionResultsView({
       className={cn(`flex flex-col gap-7 px-7 py-5 md:px-5`, className)}
       data-testid="session-results"
     >
-      {guide.lead && (
+      {coverage.lead && (
         <div className="flex flex-col" data-testid="guide-lead">
-          {body(guide.lead)}
+          {body(coverage.lead.group, coverage.lead.changes, `lead`)}
         </div>
       )}
-      {guide.sections.map(({ group, index, total }) => (
+      {coverage.sections.map(({ group, index, total, changes }) => (
         // Keyed by position too: a workflow concatenates several runs'
         // groups, so one topic may band twice.
         <div key={`${index}/${group.topic}`} className="flex flex-col">
@@ -500,9 +529,23 @@ export function SessionResultsView({
             index={numbered ? index : undefined}
             total={numbered ? total : undefined}
           />
-          <div className="flex flex-col pt-2">{body(group)}</div>
+          <div className="flex flex-col pt-2">{body(group, changes, index)}</div>
         </div>
       ))}
+      {coverage.other && (
+        <div className="flex flex-col" data-testid="guide-other-changes">
+          <GuideSectionHeader label={coverage.other.topic} className="text-muted-foreground" />
+          <div className="flex flex-col pt-2">
+            {changesRow(coverage.other.changes, `other`)}
+          </div>
+        </div>
+      )}
+      {coverage.complete && coverage.complete.fileCount > 0 && (
+        <GuideShowCompleteDiffRow
+          changes={coverage.complete}
+          onOpen={opener({ section: `all`, files: coverage.complete.files })}
+        />
+      )}
       {preview && (
         <ResultPreview
           entry={preview}

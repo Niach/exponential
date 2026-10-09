@@ -15,7 +15,7 @@ use gpui::{
 };
 use gpui_component::{
     button::Button,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _,
 };
 use sync::Store;
@@ -320,7 +320,7 @@ impl ActionInputPicks {
                         if optional {
                             let view = view.clone();
                             let key = key.clone();
-                            menu = menu.item(PopupMenuItem::new("None").on_click(
+                            menu = menu.item(crate::controls::pointer_label_item("None", false).on_click(
                                 move |_, _, cx| {
                                     if let Some(view) = view.upgrade() {
                                         view.update(cx, |view, cx| {
@@ -336,7 +336,7 @@ impl ActionInputPicks {
                             let key = key.clone();
                             let repo = repo.clone();
                             menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                                crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
                                     .on_click(move |_, _, cx| {
                                         if let Some(view) = view.upgrade() {
                                             view.update(cx, |view, cx| {
@@ -494,7 +494,7 @@ pub(crate) fn pr_menu<V: 'static>(
         if optional {
             let view = view.clone();
             let key = key.clone();
-            menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
+            menu = menu.item(crate::controls::pointer_label_item("None", false).on_click(move |_, _, cx| {
                 if let Some(view) = view.upgrade() {
                     view.update(cx, |view, cx| {
                         access(view).pr.remove(&key);
@@ -504,14 +504,14 @@ pub(crate) fn pr_menu<V: 'static>(
             }));
         }
         if pulls.is_empty() {
-            menu = menu.item(PopupMenuItem::new("No open pull requests").disabled(true));
+            menu = menu.item(crate::controls::pointer_label_item("No open pull requests", true));
         }
         for (issue_id, label) in &pulls {
             let view = view.clone();
             let key = key.clone();
             let issue_id = issue_id.clone();
             let label = label.clone();
-            menu = menu.item(PopupMenuItem::new(SharedString::from(label.clone())).on_click(
+            menu = menu.item(crate::controls::pointer_label_item(SharedString::from(label.clone()), false).on_click(
                 move |_, _, cx| {
                     if let Some(view) = view.upgrade() {
                         view.update(cx, |view, cx| {

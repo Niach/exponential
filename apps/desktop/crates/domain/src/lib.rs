@@ -106,6 +106,8 @@ pub mod issue_graph;
 pub mod issue_nesting;
 pub mod issue_rail;
 pub mod issue_search;
+// EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
+pub mod list_item;
 pub mod options;
 pub mod placeholder_status;
 pub mod pr_graph;
@@ -120,6 +122,8 @@ pub mod reporter_reply;
 pub mod reviews_queue;
 pub mod rows;
 pub mod session_results;
+// EXP-1248: the big session row's caption, fixture-locked ×4.
+pub mod session_row;
 pub mod session_tree;
 pub mod statuses;
 pub mod tree_guides;

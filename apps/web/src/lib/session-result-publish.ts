@@ -16,7 +16,7 @@ import {
 } from "@/lib/session-result-writes"
 
 // EXP-879/EXP-1172: the ONE write behind every published picture — the
-// token-gated upload route (`sessions_results` and `sessions_show` grants)
+// token-gated upload route (`sessions_guide` and `sessions_show` grants)
 // and `exponential_sessions_show`'s `dataBase64`. The object is already put
 // (`prepareSessionImage*`); this lands the `session_attachments` row and the
 // `coding_sessions.results` entry inside a transaction holding `FOR UPDATE`
@@ -87,11 +87,13 @@ export async function publishSessionResultPicture(
               ...(input.inline.caption ? { caption: input.inline.caption } : {}),
             }
           : {}),
+        // EXP-1245: the write stamp slots the picture into its turn.
+        at: Date.now(),
       })
       if (exceedsSessionResultsCap(upsert.results)) {
         throw new TRPCError({
           code: `CONFLICT`,
-          message: `This run already published the maximum number of results. Remove one first (exponential_sessions_results with remove).`,
+          message: `This run already published the maximum number of results. Remove one first (exponential_sessions_guide with remove).`,
         })
       }
       results = upsert.results

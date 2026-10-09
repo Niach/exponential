@@ -56,6 +56,12 @@ final class ExpToolDisplayTests: XCTestCase {
         XCTAssertEqual(
             ExpToolDisplay.resolve(toolName: "exponential_sessions_results")?.result, .results
         )
+        // The Guide tool answers the same kind; `sessions_results` stays its alias.
+        let guide = ExpToolDisplay.resolve(toolName: "mcp__exponential__exponential_sessions_guide")
+        XCTAssertEqual(guide?.result, .results)
+        XCTAssertEqual(guide?.subjectKey, "topic")
+        XCTAssertEqual(guide?.caption(settled: false), "Writing the Guide")
+        XCTAssertEqual(guide?.caption(settled: true), "Wrote the Guide")
         XCTAssertEqual(
             ExpToolDisplay.resolve(toolName: "exponential_teams_update")?.result,
             ExpToolResultKind.none

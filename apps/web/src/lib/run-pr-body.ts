@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm"
+import type { CodingSessionResult } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { boards, codingSessions, issues, teams } from "@/db/schema"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
@@ -8,11 +9,15 @@ import {
   buildSessionDeepLinkPath,
 } from "@/lib/notification-email-policy"
 import { PR_BODY_RESULTS_LINK_LABEL, prBodyFromResults } from "@/lib/pr-body-from-results"
+import { stampUntaggedResults } from "@/lib/session-result-writes"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 
-// EXP-1154: the I/O half of "the PR body IS the run's report". `pr_open`
-// asks `runPrBody` for the body it sends; every report text write (MCP
-// `sessions_results`) calls `syncRunPrBody` to re-patch the run's open PR.
+// EXP-1154: the I/O half of "the PR body IS the run's report" (EXP-1251: its
+// Guide). `pr_open` asks `runPrBody` for the body it sends; every text write
+// (MCP `sessions_guide`) calls `syncRunPrBody` to re-patch the run's open PR.
+// EXP-1251: each PR's body keeps only its own topics (`prUrl`) plus the
+// untagged ones; `stampRunResultsPrUrl` tags the untagged ones when the run
+// opens a NEW PR, so a later stacked PR never claims them.
 // One module so the MCP tests mock all of it at once; the pure projection is
 // `pr-body-from-results.ts`.
 
@@ -21,7 +26,7 @@ export interface RunReport {
   prUrl: string | null
   prNumber: number | null
   prState: string | null
-  /** The issue's Results page (a run without an issue: the run's page). */
+  /** The issue's Guide (a run without an issue: the run's page). */
   resultsUrl: string | null
 }
 
@@ -50,10 +55,10 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
       teamSlug: row.teamSlug,
       boardSlug: row.boardSlug,
       identifier: row.issueIdentifier,
-    })}?view=results`
+    })}?view=guide`
   } else if (row.teamSlug) {
     // Batch, action and chat runs: the run's own page.
-    resultsUrl = `${appBaseUrl()}${buildSessionDeepLinkPath(row.teamSlug, row.id)}?view=results`
+    resultsUrl = `${appBaseUrl()}${buildSessionDeepLinkPath(row.teamSlug, row.id)}?view=guide`
   }
   return {
     results: row.results,
@@ -65,7 +70,8 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
 }
 
 /** The body `pr_open` sends: the run's report when it has text, else the
- *  caller's `fallback`. Never throws: a failed read keeps the fallback. */
+ *  caller's `fallback`. The PR does not exist yet, so only the UNTAGGED
+ *  topics count (EXP-1251). Never throws: a failed read keeps the fallback. */
 export async function runPrBody(
   sessionId: string | null,
   fallback: string | undefined
@@ -74,7 +80,7 @@ export async function runPrBody(
   try {
     const report = await loadRunReport(sessionId)
     const derived = report
-      ? prBodyFromResults(report.results, { resultsUrl: report.resultsUrl })
+      ? prBodyFromResults(report.results, { resultsUrl: report.resultsUrl, prUrl: null })
       : null
     if (derived) return { body: derived, fromResults: true }
   } catch (err) {
@@ -143,7 +149,10 @@ async function syncRunPrBodyNow(
     if (opts.expectPrUrl !== undefined && report.prUrl !== opts.expectPrUrl) {
       return `skipped`
     }
-    let body = prBodyFromResults(report.results, { resultsUrl: report.resultsUrl })
+    let body = prBodyFromResults(report.results, {
+      resultsUrl: report.resultsUrl,
+      prUrl: report.prUrl,
+    })
     if (!body && opts.removal && report.resultsUrl) {
       body = `[${PR_BODY_RESULTS_LINK_LABEL}](${report.resultsUrl})`
     }
@@ -162,5 +171,41 @@ async function syncRunPrBodyNow(
   } catch (err) {
     console.warn(`[run-pr-body] PR body sync failed for ${sessionId}`, err)
     return `failed`
+  }
+}
+
+/**
+ * EXP-1251: call once a run's NEW PR is stamped on its row (`pr_open`): the
+ * text topics it filed so far without a `prUrl` are that PR's, so they get
+ * its url (under the run's row lock, a jsonb read-modify-write). Tagged
+ * topics keep theirs. Best effort: false on any error, never throws.
+ */
+export async function stampRunResultsPrUrl(
+  sessionId: string,
+  prUrl: string
+): Promise<boolean> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ results: codingSessions.results })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, sessionId))
+        .limit(1)
+        .for(`update`)
+      if (!locked) return false
+      const stamped = stampUntaggedResults(
+        (locked.results ?? null) as CodingSessionResult[] | null,
+        prUrl
+      )
+      if (!stamped.changed) return false
+      await tx
+        .update(codingSessions)
+        .set({ results: stamped.results, updatedAt: new Date() })
+        .where(eq(codingSessions.id, sessionId))
+      return true
+    })
+  } catch (err) {
+    console.warn(`[run-pr-body] prUrl stamp failed for ${sessionId}`, err)
+    return false
   }
 }

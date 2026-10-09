@@ -8,7 +8,7 @@
 //! entry; the rail refreshes a team older than [`STALE`] when the active team
 //! changes and on window activation — never on a timer (the server caches
 //! 60 s too). A failed fetch lists nothing; a merged pull has no Electric
-//! echo, so [`OpenPulls::remove_merged`] drops it locally.
+//! echo, so the page's force-refresh on entry is what drops it.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -108,17 +108,6 @@ impl OpenPulls {
                 });
             })
             .detach();
-        });
-    }
-
-    /// A merged pull has no Electric echo: drop it from every team's entry.
-    pub fn remove_merged(repository_id: &str, number: u64, cx: &mut App) {
-        Self::global(cx).update(cx, |this, cx| {
-            for entry in this.entries.values_mut() {
-                queries::remove_merged_pull(&mut entry.repos, repository_id, number);
-            }
-            this.revision += 1;
-            cx.notify();
         });
     }
 }

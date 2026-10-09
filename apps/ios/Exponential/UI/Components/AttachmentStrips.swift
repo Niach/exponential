@@ -89,6 +89,10 @@ protocol PendingAttachmentItem: Identifiable where ID == UUID {
     /// EXP-824: a queued video's poster frame; nil for everything else.
     var poster: Data? { get }
     var durationMs: Int? { get }
+    /// Requirements (not just extension members) so a steer FILE can opt
+    /// out: whatever its type, it is a file tile, never an inline preview.
+    var isImage: Bool { get }
+    var isVideo: Bool { get }
 }
 
 extension PendingAttachmentItem {
@@ -100,6 +104,162 @@ extension PendingAttachmentItem {
 
 extension PendingCommentAttachment: PendingAttachmentItem {}
 extension PendingSteerImage: PendingAttachmentItem {}
+
+/// Wave D: a steer/start FILE always draws the Files-section file tile.
+extension PendingSteerFile: PendingAttachmentItem {
+    var isImage: Bool { false }
+    var isVideo: Bool { false }
+}
+
+/// One tile of a mixed strip (the steer + launch composers queue images and
+/// files in two lists, drawn as ONE strip: images first, then files).
+struct PendingStripItem: PendingAttachmentItem {
+    let id: UUID
+    let data: Data
+    let filename: String
+    let contentType: String
+    let isImage: Bool
+    let isVideo: Bool
+
+    init(_ item: some PendingAttachmentItem) {
+        id = item.id
+        data = item.data
+        filename = item.filename
+        contentType = item.contentType
+        isImage = item.isImage
+        isVideo = item.isVideo
+    }
+
+    static func steer(images: [PendingSteerImage], files: [PendingSteerFile]) -> [PendingStripItem] {
+        images.map(PendingStripItem.init) + files.map(PendingStripItem.init)
+    }
+}
+
+// MARK: - The "Add file or image" sub-choice (wave D, iOS only)
+
+/// iOS's one sub-choice ×4 parity note (fixture `composer-menu.json`): web,
+/// desktop and Android open ONE system chooser for "Add file or image"; a
+/// phone's photo library and its Files app are two pickers, so the row opens
+/// this two-entry glass menu — Photo (the photo picker) | File
+/// (`fileImporter(.item)`). Floats from `anchor` (the trigger's global frame).
+struct SteerAttachChoiceMenu: ViewModifier {
+    @Binding var isPresented: Bool
+    let anchor: CGRect
+    let onPhoto: () -> Void
+    let onFile: () -> Void
+
+    func body(content: Content) -> some View {
+        content.glassMenuOverlay(isPresented: $isPresented, anchor: anchor) {
+            GlassMenuItem("Photo", icon: AppIcons.editorImage) { Self.afterDismiss(onPhoto) }
+                .accessibilityIdentifier("composer-attach-photo")
+            GlassMenuItem("File", icon: AppIcons.uiAttach) { Self.afterDismiss(onFile) }
+                .accessibilityIdentifier("composer-attach-file")
+        }
+    }
+
+    /// The menu rides a full-screen cover; a picker presented in the same
+    /// beat as its dismissal is dropped, so the pick lands a beat later.
+    private static func afterDismiss(_ action: @escaping () -> Void) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            action()
+        }
+    }
+}
+
+extension View {
+    func steerAttachChoiceMenu(
+        isPresented: Binding<Bool>,
+        anchor: CGRect,
+        onPhoto: @escaping () -> Void,
+        onFile: @escaping () -> Void
+    ) -> some View {
+        modifier(SteerAttachChoiceMenu(
+            isPresented: isPresented, anchor: anchor, onPhoto: onPhoto, onFile: onFile
+        ))
+    }
+}
+
+// MARK: - A steered message's file line (wave D)
+
+/// A sent steer/start message's `[<filename>](/api/attachments/<id>)` line,
+/// drawn as the comment thread's file row (glyph + name, tap = Quick Look
+/// over a temp download) — never a broken image. Session files are not
+/// synced rows, so the glyph reads the filename's extension.
+struct SteerFileLinkRow: View {
+    let file: SteerImageMessage.File
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+    @State private var previewURL: URL?
+    @State private var downloading = false
+
+    private var contentType: String {
+        AttachmentFiles.canonicalContentType(
+            UTType(filenameExtension: (file.name as NSString).pathExtension)?.preferredMIMEType
+        )
+    }
+
+    var body: some View {
+        Button {
+            open()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: AttachmentFiles.sfSymbolName(forContentType: contentType))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(file.name)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if downloading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .glassRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(file.name)
+        .accessibilityIdentifier("steer-file-\(file.id)")
+        .quickLookPreview($previewURL)
+    }
+
+    private func open() {
+        guard !downloading else { return }
+        downloading = true
+        Task {
+            defer { downloading = false }
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("attachments", isDirectory: true)
+                .appendingPathComponent(file.id, isDirectory: true)
+            let destination = directory
+                .appendingPathComponent(AttachmentFiles.sanitizedFilename(file.name))
+            if !FileManager.default.fileExists(atPath: destination.path) {
+                // A failed download (401, offline, a full disk) says so
+                // instead of a silent no-op tap.
+                guard let data = try? await deps.attachmentsApi.download(
+                    accountId: accountId, relativeUrl: "/api/attachments/\(file.id)"
+                ) else {
+                    toaster.error("Could not download the file")
+                    return
+                }
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                guard (try? data.write(to: destination, options: .atomic)) != nil else {
+                    toaster.error("Could not download the file")
+                    return
+                }
+            }
+            previewURL = destination
+        }
+    }
+}
 
 // MARK: - Pending strip
 
@@ -607,6 +767,40 @@ enum AttachmentPicks {
                         ?? "Couldn't process this video."
                 )
             }
+        }.value
+    }
+
+    /// Wave D: a steer/start composer's FILE pick — raw bytes, no media
+    /// transcode (the agent reads the file as it is). An inline image stays
+    /// an image (the caller queues it with its `[Image #N]` marker); any
+    /// other type is a file. Over its cap (images 10 MB, files 50 MB) =
+    /// the ONE rejection copy ×4.
+    static func readPickedSteerFile(at url: URL) async -> AttachmentPickOutcome {
+        let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
+        let contentType = AttachmentFiles.canonicalContentType(
+            UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+        )
+        let limit = AttachmentFiles.isInlineImage(contentType: contentType)
+            ? AttachmentFiles.maxImageUploadBytes
+            : AttachmentFiles.maxFileUploadBytes
+        return await Task.detached { () -> AttachmentPickOutcome in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+            if let size, size > limit {
+                return AttachmentPickOutcome(failure: SteerImageMessage.attachmentRejectedMessage)
+            }
+            guard let data = try? Data(contentsOf: url) else {
+                return AttachmentPickOutcome(failure: "Couldn't read this file.")
+            }
+            guard data.count <= limit else {
+                return AttachmentPickOutcome(failure: SteerImageMessage.attachmentRejectedMessage)
+            }
+            return AttachmentPickOutcome(
+                attachment: PendingCommentAttachment(
+                    data: data, filename: filename, contentType: contentType
+                )
+            )
         }.value
     }
 

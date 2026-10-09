@@ -40,10 +40,10 @@ public enum NotificationRouting {
             // EXP-933: a targeted message carries its issue (and
             // `face: results`); an issue-less one renders in the inbox alone.
             guard let issueId = nonEmpty(userInfo["issueId"]) else { return .inbox }
-            return .issue(id: issueId, face: .results)
+            return .issue(id: issueId, face: .guide)
         }
         if let issueId = nonEmpty(userInfo["issueId"]) {
-            let face: WorkFaceKind = userInfo["face"] as? String == resultsFaceHint ? .results : .issue
+            let face: WorkFaceKind = userInfo["face"] as? String == resultsFaceHint ? .guide : .issue
             return .issue(id: issueId, face: face)
         }
         return .none
@@ -52,6 +52,6 @@ public enum NotificationRouting {
     /// The face an issue inbox row opens on, by its LATEST notification's
     /// type: an agent's message → Results, everything else → Issue.
     public static func issueFace(latestType: String?) -> WorkFaceKind {
-        latestType == DomainContract.notificationTypeAgentMessage ? .results : .issue
+        latestType == DomainContract.notificationTypeAgentMessage ? .guide : .issue
     }
 }

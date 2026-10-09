@@ -11,6 +11,7 @@ import {
   MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
+import { MAX_STEER_FILES } from "@/lib/steer-image-message"
 import type { MergePullResult } from "@/lib/trpc/repositories"
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import {
@@ -678,6 +679,9 @@ export const codingSessionsRouter = router({
         // EXP-711: per-merge override of the team's end-sessions-on-merge
         // setting, like issues.mergePr.
         endSessions: z.boolean().optional(),
+        // EXP-1248: merge through the run's PR when it is an open-stack
+        // member (it lands with everything beneath it), like issues.mergePr.
+        mergeStack: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
@@ -741,6 +745,7 @@ export const codingSessionsRouter = router({
         userId: ctx.session.user.id,
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
+        mergeStack: input.mergeStack,
       })
     }),
 
@@ -823,18 +828,24 @@ export const codingSessionsRouter = router({
           // refused, so one vanished server can never fail a start. Absent =
           // no pick (NULL).
           mcpServerIds: z.array(z.string().uuid()).max(16).optional(),
+          // EXP-1249: the run's per-run computer-use flag as the device
+          // launched it (the start frame's `computerUse`; absent/null = the
+          // device default). Accepted beside `mcpServerIds` so a device that
+          // echoes its launch payload never fails a start; not stored.
+          computerUse: z.boolean().nullable().optional(),
           // Label fallback for a start that outran `devices.register` — see
           // resolveSessionDevice. Never used when the registry has a row.
           deviceLabel: z.string().max(255).optional(),
           // EXP-432 shared-device attribution (see resolveStartAttribution).
           startedById: z.string().min(1).max(128).optional(),
           deviceId: z.string().min(1).max(128).optional(),
-          // EXP-825: the images the start's `prompt` embedded — uploaded to
-          // the team's pending store before this row existed (session_id
-          // NULL). Parsed out of the frame by the device; bound here.
+          // EXP-825: the images (and, wave D, files) the start's `prompt`
+          // embedded — uploaded to the team's pending store before this row
+          // existed (session_id NULL). Parsed out of the frame by the device;
+          // bound here.
           attachmentIds: z
             .array(z.string().uuid())
-            .max(MAX_START_PROMPT_IMAGES)
+            .max(MAX_START_PROMPT_IMAGES + MAX_STEER_FILES)
             .optional(),
           // EXP-530: set by a device's automation host when an automation
           // fires. NULL/absent = a person started the run. EXP-583: the

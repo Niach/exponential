@@ -87,7 +87,9 @@ async function uploadSessionResult({
   const scope = { teamId: run.teamId, sessionId: run.id }
   // Validates the part (images only, 10 MB), charges the team's storage
   // budget, probes the pixel size and puts the object — no row yet.
-  const prepared = await prepareSessionImage(request, scope, payload.a)
+  const prepared = await prepareSessionImage(request, scope, payload.a, {
+    imagesOnly: true,
+  })
   const published = await publishSessionResultPicture(
     {
       sessionId: run.id,

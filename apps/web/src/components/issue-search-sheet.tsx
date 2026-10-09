@@ -1,23 +1,9 @@
-import { useState, useMemo, useEffect, useRef, type ReactNode } from "react"
+import { useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Button,
-  issuePickerItems,
-  PickerList,
-  useIsMobile,
-  conceptIcon,
-  type PickerItem,
-  BoardGlyph,
-} from "@exp/ui"
+import { Button, useIsMobile, conceptIcon, BoardGlyph } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
-import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
+import { IssuePickerHost } from "@/components/issue-picker-host"
 import {
   ISSUE_SEARCH_DEFAULT_LIMIT,
   ISSUE_SEARCH_EMPTY_DETAIL,
@@ -65,29 +51,27 @@ interface SearchResult extends IssueSearchRow {
 
 const NO_ROWS: SearchResult[] = []
 
-// One engine, one body, two shells.
-//
-// The engine is the shared one (EXP-892, `useIssueSearchResults`: instant
-// local ranking over the synced rows, the server's full-text pass spliced in
-// behind). The body is the shared picker (EXP-1021, `PickerList` — the
-// primitive's body with no surface around it, since both shells ARE one):
-// the search field, the rows and the empty state all come from it, so this
-// surface can no longer drift from every other searchable list — cmdk owns
-// the keyboard model (top row selected as results arrive, ↑/↓, Enter opens,
-// hover moves the selection) and its own filter stays OFF, since `results` is
-// already the local+server merge. Picking NAVIGATES, so `value={null}`: no
-// row is ever the picked one and none wears a check.
-//
-// Only the shell differs: a full-screen page-like sheet on mobile (reached
-// from the topbar, back arrow above the field) and a centered dialog on
-// desktop (reached from the sidebar or Cmd/Ctrl+F).
+// EXP-922: the ONE limit every search surface uses (web, desktop, iOS,
+// Android) — the same query returns the same rows on every client; an empty
+// query lists nothing (the hint shows instead).
+const SEARCH_ENGINE = {
+  limit: ISSUE_SEARCH_DEFAULT_LIMIT,
+  emptyQuery: `none`,
+} as const
+
+// One engine, one body, two shells — THE issue picker host
+// (`issue-picker-host.tsx`) in its `page` shell: a centred dialog on a
+// pointer device (the sidebar, Cmd/Ctrl+F), a full-screen page on a phone
+// with the back arrow inside the field's row (EXP-971). The engine lists
+// nothing on an empty query (the hint shows instead), and picking NAVIGATES,
+// so no row is ever the picked one. This surface keeps its own two-line row
+// (the board and the identifier under the title, EXP-922).
 export function IssueSearchSheet({
   open,
   onOpenChange,
   teamId,
   teamSlug,
 }: IssueSearchSheetProps) {
-  const [query, setQuery] = useState(``)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const boards = useTeamBoards(teamId)
@@ -113,59 +97,9 @@ export function IssueSearchSheet({
     [rows]
   )
 
-  const { results } = useIssueSearchResults<SearchResult>({
-    teamId,
-    query,
-    rows,
-    // EXP-922: the ONE limit every search surface uses (web, desktop, iOS,
-    // Android) — the same query returns the same rows on every client.
-    limit: ISSUE_SEARCH_DEFAULT_LIMIT,
-    // Prefer the local Electric row when the id is synced locally so rows
-    // render identically; otherwise render from the server fields.
-    resolveHit: (hit) =>
-      localById.get(hit.id) ?? {
-        ...hit,
-        description: null,
-        createdAt: null,
-        updatedAt: null,
-      },
-    server: open,
-    emptyQuery: `none`,
-  })
-
-  // The item carries the IDENTITY only; the row it stands for is looked up
-  // here (two issues can share a title).
-  // EXP-1021: NO resolved status glyph on the item. This surface keeps its
-  // own two-line body (the board and the identifier under the title,
-  // EXP-922), so `renderItem` below replaces the row entirely and draws
-  // `IssueStatusIcon` itself — a glyph resolved into the item here would be
-  // built for every hit on every keystroke and then thrown away.
-  const items = useMemo(
-    () =>
-      issuePickerItems(
-        results.map((issue) => ({
-          id: issue.id,
-          identifier: issue.identifier,
-          title: issue.title,
-        }))
-      ),
-    [results]
-  )
-  const resultById = useMemo(
-    () => new Map<string, SearchResult>(results.map((i) => [i.id, i])),
-    [results]
-  )
-
-  const handleOpenChange = (o: boolean) => {
-    onOpenChange(o)
-    if (!o) setQuery(``)
-  }
-
   const handlePick = (issue: SearchResult) => {
     const board = boardMap.get(issue.boardId)
     if (!board) return
-    onOpenChange(false)
-    setQuery(``)
     void navigate({
       to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
       params: {
@@ -176,23 +110,9 @@ export function IssueSearchSheet({
     })
   }
 
-  // cmdk's input takes no `autoFocus`, and both shells are Radix dialogs whose
-  // own open-focus lands on the first tabbable child — the back arrow on
-  // mobile. So the field is focused explicitly once the shell is mounted.
-  const shellRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const frame = requestAnimationFrame(() => {
-      shellRef.current
-        ?.querySelector<HTMLInputElement>(`[data-slot=command-input]`)
-        ?.focus()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [open])
-
   // EXP-922: the empty states read the same on all four clients — one copy
   // set in `lib/issue-search.ts`, drift-gated by issue-search-surfaces.test.ts.
-  const emptyState =
+  const emptyState = (query: string) =>
     query.trim() === `` ? (
       <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
         <SearchGlyph className="size-8 mb-3 opacity-50" />
@@ -205,9 +125,7 @@ export function IssueSearchSheet({
       </div>
     )
 
-  const renderItem = (item: PickerItem) => {
-    const issue = resultById.get(item.value)
-    if (!issue) return null
+  const renderRow = (issue: SearchResult) => {
     const board = boardMap.get(issue.boardId)
     return (
       <>
@@ -227,90 +145,50 @@ export function IssueSearchSheet({
     )
   }
 
-  // The list is the whole body; the shell caps its height, so the primitive's
-  // own 18.75rem cap comes off. The rows wear FLAT_ROWS on both shells, and
-  // the field is ALWAYS the primitive's own: it is the cmdk root's key owner
-  // (top row selected, ↑/↓, Enter opens), so a shell that wants chrome in
-  // the field's row passes it as `leading` instead of drawing its own field.
-  const list = (
-    className?: string,
-    leading?: ReactNode,
-    inputVariant?: `inline` | `field`
-  ) => (
-    <PickerList
+  return (
+    <IssuePickerHost
+      shell="page"
       mode="single"
-      items={items}
-      // Picking NAVIGATES, so nothing is ever the picked row and none wears
-      // a check.
-      value={null}
-      onChange={(id) => {
-        const issue = resultById.get(id)
-        if (issue) handlePick(issue)
-      }}
-      search
-      shouldFilter={false}
-      leading={leading}
-      inputVariant={inputVariant}
-      query={query}
-      onQueryChange={setQuery}
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Search issues"
+      teamId={teamId}
+      rows={rows}
+      {...SEARCH_ENGINE}
+      // Prefer the local Electric row when the id is synced locally so rows
+      // render identically; otherwise render from the server fields.
+      resolveHit={(hit) =>
+        localById.get(hit.id) ?? {
+          ...hit,
+          description: null,
+          createdAt: null,
+          updatedAt: null,
+        }
+      }
       searchPlaceholder={ISSUE_SEARCH_PLACEHOLDER}
       emptyText={emptyState}
-      renderItem={renderItem}
-      className={className}
+      statusGlyphs={false}
+      renderItem={renderRow}
+      onPick={handlePick}
+      // The rows wear FLAT_ROWS on both shells; the shell caps the height.
+      className={
+        isMobile
+          ? FLAT_ROWS
+          : `${FLAT_ROWS} **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
+      }
       listClassName="max-h-none"
-    />
-  )
-
-  if (isMobile) {
-    return (
-      <Sheet open={open} onOpenChange={handleOpenChange}>
-        {/* Page-like, not a sheet: it covers the whole screen, so it takes
-            the New-issue page's chrome instead — no grabber, no radius, a
-            leading back arrow where a sheet would have nothing (EXP-687).
-            EXP-971: the arrow and the field share ONE header row — the arrow
-            rides INSIDE the primitive's field row (`leading`), so the field
-            stays cmdk's and Enter/↑/↓ keep reaching the list, and the list
-            starts directly under it instead of under a second, field-only
-            row. The field wears the SearchField look (`inputVariant="field"`:
-            the glass box, glyph inside, a clear once typed) as a pill. */}
-        <SheetContent
-          ref={shellRef}
-          side="bottom"
-          showGrabber={false}
-          className="top-0 flex h-[100dvh] max-h-none flex-col gap-0 rounded-none p-0"
+      backButton={(close) => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label="Back"
+          onClick={close}
+          className="shrink-0 text-muted-foreground"
         >
-          <SheetTitle className="sr-only">Search issues</SheetTitle>
-          {list(
-            `${FLAT_ROWS} **:data-[slot=command-input-wrapper]:border-border/50 **:data-[slot=command-input]:rounded-full`,
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Back"
-              onClick={() => handleOpenChange(false)}
-              className="shrink-0 text-muted-foreground"
-            >
-              <UiBackIcon className="size-4" />
-            </Button>,
-            `field`
-          )}
-        </SheetContent>
-      </Sheet>
-    )
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        ref={shellRef}
-        showCloseButton={false}
-        className="p-0 sm:p-0 gap-0 flex flex-col overflow-hidden sm:top-[15%] sm:max-h-[60vh] sm:translate-y-0 sm:max-w-lg"
-      >
-        <DialogTitle className="sr-only">Search issues</DialogTitle>
-        {list(
-          `${FLAT_ROWS} **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
-        )}
-      </DialogContent>
-    </Dialog>
+          <UiBackIcon className="size-4" />
+        </Button>
+      )}
+    />
   )
 }

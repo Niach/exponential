@@ -29,9 +29,9 @@ class IssueDraftPageTest {
     @Test
     fun `the copy is the contract's`() {
         val copy = fixture().getValue("copy").jsonObject
-        val nested = setOf("discardConfirm", "leave")
+        val nested = setOf("leave")
         assertEquals(
-            setOf("header", "titlePlaceholder", "descriptionPlaceholder", "create", "discard", "untitled", "discardedElsewhere") + nested,
+            setOf("header", "titlePlaceholder", "descriptionPlaceholder", "create", "untitled", "discardedElsewhere") + nested,
             copy.keys,
         )
         assertCopy(
@@ -40,7 +40,6 @@ class IssueDraftPageTest {
                 "titlePlaceholder" to IssueDraftPage.TITLE_PLACEHOLDER,
                 "descriptionPlaceholder" to IssueDraftPage.DESCRIPTION_PLACEHOLDER,
                 "create" to IssueDraftPage.CREATE,
-                "discard" to IssueDraftPage.DISCARD,
                 "untitled" to IssueDraftPage.UNTITLED,
                 "discardedElsewhere" to IssueDraftPage.DISCARDED_ELSEWHERE,
             ),
@@ -48,15 +47,12 @@ class IssueDraftPageTest {
         )
     }
 
+    // EXP-1247: the close button and its confirm are gone (Back + Create only).
     @Test
-    fun `the discard confirm copy is the contract's`() {
-        assertCopy(
-            mapOf(
-                "title" to IssueDraftPage.DISCARD_CONFIRM_TITLE,
-                "confirm" to IssueDraftPage.DISCARD_CONFIRM,
-            ),
-            fixture().getValue("copy").jsonObject.getValue("discardConfirm").jsonObject,
-        )
+    fun `the copy carries no discard button or discard confirm`() {
+        val copy = fixture().getValue("copy").jsonObject
+        assertFalse(copy.containsKey("discard"))
+        assertFalse(copy.containsKey("discardConfirm"))
     }
 
     @Test
@@ -89,10 +85,8 @@ class IssueDraftPageTest {
 
     @Test
     fun `a draft with content never goes silently`() {
-        val exits = IssueDraftPage.Exit.entries
-        for (exit in exits) assertEquals(IssueDraftPage.Prompt.None, IssueDraftPage.prompt(false, exit))
-        assertEquals(IssueDraftPage.Prompt.DiscardConfirm, IssueDraftPage.prompt(true, IssueDraftPage.Exit.Discard))
-        assertEquals(IssueDraftPage.Prompt.Leave, IssueDraftPage.prompt(true, IssueDraftPage.Exit.Leave))
+        assertEquals(IssueDraftPage.Prompt.None, IssueDraftPage.prompt(false))
+        assertEquals(IssueDraftPage.Prompt.Leave, IssueDraftPage.prompt(true))
     }
 
     @Test
@@ -101,15 +95,13 @@ class IssueDraftPageTest {
         assertFalse(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = true))
         assertEquals(
             IssueDraftPage.Prompt.Leave,
-            IssueDraftPage.prompt(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = false), IssueDraftPage.Exit.Leave),
+            IssueDraftPage.prompt(IssueDraftPage.hasContent("", "", 0, attachmentsKnown = false)),
         )
     }
 
     @Test
     fun `nothing is asked while a create is in flight`() {
-        for (exit in IssueDraftPage.Exit.entries) {
-            assertEquals(IssueDraftPage.Prompt.None, IssueDraftPage.prompt(true, exit, creating = true))
-        }
+        assertEquals(IssueDraftPage.Prompt.None, IssueDraftPage.prompt(true, creating = true))
     }
 
     @Test
@@ -122,8 +114,6 @@ class IssueDraftPageTest {
             listOf(IssueDraftPage.LeaveChoice.Discard, IssueDraftPage.LeaveChoice.Create),
             IssueDraftPage.leaveChoices(canKeep = false),
         )
-        // Its close button still confirms a discard with content.
-        assertEquals(IssueDraftPage.Prompt.DiscardConfirm, IssueDraftPage.prompt(true, IssueDraftPage.Exit.Discard))
     }
 
     @Test

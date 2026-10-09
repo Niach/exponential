@@ -153,7 +153,7 @@ struct DeviceReadinessView: View {
     }
 
     private func switchRow(_ row: DeviceReadiness.Row) -> some View {
-        Toggle(
+        GlassToggleRow(
             row.label,
             isOn: computerUse ?? .constant(row.switchOn)
         )

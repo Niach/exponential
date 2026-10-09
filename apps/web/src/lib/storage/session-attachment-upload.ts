@@ -8,7 +8,9 @@ import {
   buildPendingSessionAttachmentStorageKey,
   buildSessionAttachmentStorageKey,
   canonicalizeContentType,
+  getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
+  maxFileUploadBytes,
   maxImageUploadBytes,
   sanitizeUploadFilename,
 } from "@/lib/storage/issue-attachments"
@@ -31,13 +33,13 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Steer-image upload (EXP-702). Every steered image — issue runs included —
- * lands in the session's own server-only store, keeping steering screenshots
- * out of the issue's Files section. Same request/response contract as the
- * issue `/files` route, but deliberately narrower: images only (the steer
- * composer sends nothing else), and only the session's OWNER may upload —
- * steering is owner-only (EXP-312), so nobody else can put the resulting
- * embed on the wire anyway.
+ * Steer attachment upload (EXP-702, wave D any file). Every steered image or
+ * file — issue runs included — lands in the session's own server-only store,
+ * keeping steering attachments out of the issue's Files section. Same
+ * request/response contract and the same per-type caps as the issue `/files`
+ * route (images 10 MB, anything else 50 MB), but only the session's OWNER may
+ * upload: steering is owner-only (EXP-312), so nobody else can put the
+ * resulting link on the wire anyway.
  */
 export async function handleSessionAttachmentUpload({
   params,
@@ -86,7 +88,7 @@ export async function handleSessionAttachmentUpload({
   if (run.userId !== session.user.id) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `Only the session owner can attach images`,
+      message: `Only the session owner can attach files`,
     })
   }
 
@@ -97,9 +99,9 @@ export async function handleSessionAttachmentUpload({
 }
 
 /**
- * EXP-825: an image attached to a START — the Agent page composer, before
- * any session exists. Same rules as the session route (images only, the
- * same size cap, the team's storage budget), scoped to the TEAM: the row
+ * EXP-825: an image or file attached to a START — the Agent page composer,
+ * before any session exists. Same rules as the session route (any type, the
+ * same per-type caps, the team's storage budget), scoped to the TEAM: the row
  * carries a NULL session_id until the device that runs the start binds it
  * (`codingSessions.start` `attachmentIds`); a start that never happens
  * leaves an orphan the sweep reclaims after its grace window.
@@ -152,11 +154,18 @@ export interface PreparedSessionImage {
   height: number | null
 }
 
+export interface PrepareSessionAttachmentOptions {
+  /** Result pictures (`sessions_show`, `/api/session-results`) stay images;
+   *  the steer and start uploads take any file. */
+  imagesOnly?: boolean
+}
+
 export async function prepareSessionImage(
   request: Request,
   scope: { teamId: string; sessionId: string | null },
   /** EXP-1172: a pre-allocated id (a sessions_show grant); else a fresh one. */
-  attachmentId?: string
+  attachmentId?: string,
+  options: PrepareSessionAttachmentOptions = {}
 ): Promise<PreparedSessionImage> {
   const formData = await request.formData()
   const file = formData.get(`file`)
@@ -176,7 +185,8 @@ export async function prepareSessionImage(
       size: file.size,
     },
     scope,
-    attachmentId
+    attachmentId,
+    options
   )
 }
 
@@ -191,11 +201,13 @@ export async function prepareSessionImageBytes(
     size?: number
   },
   scope: { teamId: string; sessionId: string | null },
-  attachmentId: string = crypto.randomUUID()
+  attachmentId: string = crypto.randomUUID(),
+  options: PrepareSessionAttachmentOptions = {}
 ): Promise<PreparedSessionImage> {
   const contentType = canonicalizeContentType(file.contentType)
+  const isImage = isAcceptedImageContentType(contentType)
 
-  if (!isAcceptedImageContentType(contentType)) {
+  if (options.imagesOnly && !isImage) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
       message: `Only images can be attached to a session`,
@@ -210,16 +222,21 @@ export async function prepareSessionImageBytes(
     })
   }
 
-  if (size > maxImageUploadBytes) {
+  if (size > getMaxUploadBytesForContentType(contentType)) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `Images must be ${maxImageUploadBytes / (1024 * 1024)} MB or smaller`,
+      message: isImage
+        ? `Images must be ${maxImageUploadBytes / (1024 * 1024)} MB or smaller`
+        : `Files must be ${maxFileUploadBytes / (1024 * 1024)} MB or smaller`,
     })
   }
 
   await assertWithinStorageLimit(scope.teamId, size)
 
-  const filename = sanitizeUploadFilename(file.filename, `image`)
+  const filename = sanitizeUploadFilename(
+    file.filename,
+    isImage ? `image` : `file`
+  )
   const storageKey =
     scope.sessionId === null
       ? buildPendingSessionAttachmentStorageKey(
@@ -234,9 +251,9 @@ export async function prepareSessionImageBytes(
         )
   const url = buildAttachmentUrl(attachmentId)
   const body = file.body
-  // Best-effort intrinsic dimensions; never block the upload if probing
-  // fails.
-  const dimensions = getImageDimensions(body)
+  // Best-effort intrinsic dimensions, images only; never block the upload if
+  // probing fails.
+  const dimensions = isImage ? getImageDimensions(body) : null
 
   await uploadObject({
     body,

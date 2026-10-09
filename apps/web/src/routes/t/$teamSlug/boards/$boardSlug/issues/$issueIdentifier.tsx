@@ -10,10 +10,12 @@ import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import {
-  ChangesFaceLabel,
+  ChangesFileSheet,
   parseSessionResultGroups,
   PrGithubButton,
+  sessionResultsForPr,
   useIsMobile,
+  type GuideChangesTarget,
 } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import {
@@ -22,10 +24,10 @@ import {
   type PastRunRow,
 } from "@/hooks/use-agents-data"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
-import { useReviewFiles, type ReviewFilesState } from "@/hooks/use-review-files"
+import { useReviewFiles } from "@/hooks/use-review-files"
 import { usePrDescription } from "@/hooks/use-pr-description"
-import { runFaceSearch, useLiveDiffHandoff } from "@/hooks/use-issue-face-nav"
-import { totals, type DiffFile } from "@exp/domain-contract/diff"
+import { runFaceSearch } from "@/hooks/use-issue-face-nav"
+import type { DiffFile } from "@exp/domain-contract/diff"
 import { useSession } from "@/hooks/use-session"
 import {
   shouldConnectSessionDiff,
@@ -34,47 +36,51 @@ import {
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
-import { useSteerConfig } from "@/components/agent-session"
+import { renderResultText, useSteerConfig } from "@/components/agent-session"
 import { BoardNotFound } from "@/components/board-not-found"
 import {
-  IssueChangesBody,
-  IssueChangesFace,
-  MergeCapsule,
-} from "@/components/issue-changes-face"
-import { IssueDetailView } from "@/components/issue-detail-view"
-import {
-  IssueResultsBody,
-  IssueResultsFace,
+  GuideBody,
+  GuideFace,
+  GuideStackCard,
+  guideFilesOf,
   prDescriptionGroups,
-} from "@/components/issue-results-face"
-import { MobileMergeCircle } from "@/components/mobile-merge-circle"
-import { publishReviewFiles } from "@/lib/review-files-slot"
-import { MobileFaceTabs, useFaceSwipe } from "@/components/mobile-face-tabs"
+  useIssueStack,
+} from "@/components/guide-face"
+import { GuideSectionDiff } from "@/components/guide-section-diff"
+import { IssueDetailView } from "@/components/issue-detail-view"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
+import {
+  MergeCapsule,
+  MobileMergeCircle,
+  useMergeThrough,
+} from "@/components/session-merge-button"
+import {
+  ISSUE_FACE_LABEL,
+  GUIDE_FACE_LABEL,
+  MobileFaceTabs,
+  runFaceLabel,
+  useFaceSwipe,
+  WorkFaceToggle,
+} from "@/components/work-faces"
 import { selectIssueRuns } from "@/lib/past-runs"
 import {
   availableFaces,
-  changesFaceCounts,
   codingTarget,
   faceDots,
+  guideSearch,
+  guideSectionPage,
   isSessionLive,
   issueResultsRun,
-  toggleFaceDots,
-  type ChangesFaceCounts,
+  resultsCandidateRows,
+  parseGuideSearch,
+  type GuideSearch,
+  type GuideSectionKey,
   type WorkFaceKind,
 } from "@/lib/work-faces"
-import {
-  ISSUE_FACE_LABEL,
-  RESULTS_FACE_LABEL,
-  runFaceLabel,
-  WorkFaceToggle,
-} from "@/components/team/work-face-toggle"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
 
-type IssueSearch = { from?: string; view?: `diff` | `results`; file?: string }
-
-/** One stable empty list, so a loading diff is not a new array per render. */
-const EMPTY_FILES: DiffFile[] = []
+type IssueSearch = { from?: string } & GuideSearch
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -91,24 +97,16 @@ export const Route = createFileRoute(
   // EXP-851: `?from=` is the LIST this issue was opened from
   // (`lib/detail-origin.ts`) — the sidebar keeps it beside the issue, and
   // absent means the main menu stays.
-  // EXP-893: `?view=diff` is the Changes face over the issue's PR / branch
-  // files (a run's live diff lives on the session route instead). EXP-1154:
-  // at every width — it IS the review of the PR (the Reviews detail page is
-  // gone), always honoured ("No changes yet" when nothing was pushed);
-  // `?file=` seeds the file in focus.
-  // EXP-933: `?view=results` is the issue's Results face — the report of the
-  // run `issueResultsRun` picks (any member's), drawn on the issue itself as
-  // the Guide (EXP-1154); an agent message deep-links here. No report and no
-  // open PR = the issue face.
+  // EXP-1251: `?view=guide` is the issue's GUIDE face — the report of the
+  // run `issueResultsRun` picks (any member's; an agent message deep-links
+  // here) over the diff (my run's live diff, else the PR / branch files);
+  // `&section=N|lead|other|all&file=` opens a section's changes as a page
+  // under it. The legacy `?view=results` lands on the Guide, `?view=diff` on
+  // its complete diff (`parseGuideSearch`).
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
-    view:
-      search.view === `diff` || search.view === `results`
-        ? search.view
-        : undefined,
-    file:
-      typeof search.file === `string` && search.file ? search.file : undefined,
+    ...parseGuideSearch(search),
   }),
   component: IssueDetailPage,
 })
@@ -152,7 +150,7 @@ function IssueDetailPage() {
   // EXP-870: the Run face — the run this issue's work tab is bound to, else
   // the issue's newest run of mine (`codingTarget`: the bound run when live,
   // else the newest live own run, else the newest own run). No such run =
-  // the toggle has one face and does not render (EXP-877).
+  // no Run face (EXP-877).
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const { data: authSession } = useSession()
@@ -165,6 +163,19 @@ function IssueDetailPage() {
             .where(({ s }) => eq(s.issueId, issue.id))
         : undefined,
     [issue?.id]
+  )
+  // EXP-1251: a run on ANOTHER issue (or a batch run) may tag Guide topics
+  // with this issue's PR (it stacked this PR on its own), so the third step
+  // of `issueResultsRun` reads the team's runs, live only while a PR exists.
+  const issuePrUrl = issue?.prUrl ?? null
+  const { data: teamRunRows } = useLiveQuery(
+    (query) =>
+      team && issuePrUrl
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.teamId, team.id))
+        : undefined,
+    [team?.id, issuePrUrl]
   )
   const { tabs } = useWorkTabs(team?.id)
   const boundRunId = issue
@@ -195,17 +206,10 @@ function IssueDetailPage() {
       ).length > 1,
     [runRows, currentUserId, issue?.id]
   )
-
-  // EXP-893: the phone's Work screen — the issue's runs of mine for the
-  // switcher's run rows (EXP-950: and the wide toggle's run menu), the target
-  // run's live diff (so the Changes face is known without mounting the
-  // view), and the faces on offer.
   const { runs: issueRuns } = useIssueRuns(issue?.id, team?.id, currentUserId)
-  // EXP-889: every width — the wide toggle's diff item reads it too.
-  // EXP-875: but it DIALS only for a run whose diff is still a live thing —
-  // running, PR open, or freshly merged — and never with steering off. An
-  // ended run used to have its ticket minted and its device asked to
-  // republish its journal every time anyone opened the issue.
+  // EXP-875: the run's live diff DIALS only for a run whose diff is still a
+  // live thing — running, PR open, or freshly merged — and never with
+  // steering off.
   const steerConfig = useSteerConfig()
   const diffStats = useSessionDiffStats(runTarget?.id, {
     connect: shouldConnectSessionDiff({
@@ -216,39 +220,90 @@ function IssueDetailPage() {
     }),
     status: runTarget?.status,
   })
-  const showChanges = search.view === `diff`
+  const liveDiff = diffStats.fileCount > 0
   // EXP-1154: a pushed branch with no PR yet counts too (the ×4 rule); the
-  // branch diff answering `none` (never pushed) drops the face again.
+  // branch diff answering `none` (never pushed) drops it again.
   const branchOnly =
     issue?.prNumber == null && Boolean(issue?.branch?.trim())
-  // EXP-952: source B — the issue's PR / branch files, read only when there
-  // is no live diff (or the face is asked for). Resolved HERE, not inside the
-  // Changes face, because the tabs have to count the very files that face
-  // draws — otherwise its Changes row printed no `+N −M` until the face had
-  // been opened once (Android's `WorkScreen` owns its `ChangesViewModel` the
-  // same way, and the session route hoists `useReviewFiles` for the run's
-  // Changes face). EXP-1154: every width — md+ draws the face too now.
+  const askedGuide = search.view === `guide`
+  // EXP-952: the PR / branch files, read only when there is no live diff —
+  // resolved HERE so the Guide's rows count the very files its pages draw.
   const { state: prFilesState, reload: reloadPrFiles } = useReviewFiles(
     issue ?? null,
     {
       enabled:
-        showChanges ||
-        (diffStats.fileCount === 0 &&
-          (issue?.prState === `open` || branchOnly)),
+        !liveDiff &&
+        (askedGuide || issue?.prState === `open` || branchOnly),
     }
   )
-  const hasChanges =
-    diffStats.fileCount > 0 ||
+  const hasDiff =
+    liveDiff ||
     issue?.prState === `open` ||
     (branchOnly && prFilesState.kind !== `none`)
-  const prFiles = prFilesState.kind === `files` ? prFilesState.files : EMPTY_FILES
-  // EXP-1154: the file in focus on the Changes face — seeded by `?file=`
-  // (a Results file row), then the tree / sheet / cards own it.
+  /** The diff the Guide counts (null = not loaded): the live diff when my
+   *  run has one, else the PR's. */
+  const guideFiles: readonly DiffFile[] | null = liveDiff
+    ? diffStats.files
+    : guideFilesOf(prFilesState)
+
+  // EXP-933/1251: the report belongs to a RUN — `issueResultsRun` picks it
+  // (my target run when it has results, else the newest run on the issue by
+  // ANY member, else a run that tagged a topic with this issue's PR), and the
+  // issue shows only its own PR's topics (`sessionResultsForPr`).
+  const resultsRun = useMemo(
+    () =>
+      issue
+        ? issueResultsRun(
+            resultsCandidateRows(
+              (runRows ?? []) as CodingSession[],
+              (teamRunRows ?? []) as CodingSession[]
+            ),
+            issue.id,
+            boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
+            currentUserId,
+            now,
+            issue.prUrl
+          )
+        : null,
+    [runRows, teamRunRows, issue, boundRunId, currentUserId, now]
+  )
+  const resultGroups = useMemo(
+    () =>
+      resultsRun
+        ? parseSessionResultGroups(
+            sessionResultsForPr(resultsRun.results, issue?.prUrl)
+          )
+        : [],
+    [resultsRun, issue?.prUrl]
+  )
+  const hasRunResults = resultGroups.length > 0
+  const hasGuide = hasRunResults || hasDiff
+  const showGuide = askedGuide && (hasGuide || search.section !== undefined)
+  const { state: prDescriptionState } = usePrDescription(issue ?? null, {
+    enabled: showGuide && !hasRunResults && issue?.prState === `open`,
+  })
+  const guideGroups = useMemo(
+    () =>
+      hasRunResults
+        ? resultGroups
+        : prDescriptionGroups(prDescriptionState, guideFiles),
+    [hasRunResults, resultGroups, prDescriptionState, guideFiles]
+  )
+  // EXP-1251: a section page — null while its files load or for a stale
+  // section (then the Guide shows).
+  const sectionPage = useMemo(
+    () =>
+      showGuide && search.section !== undefined
+        ? guideSectionPage(guideGroups, guideFiles, search.section, hasRunResults)
+        : null,
+    [showGuide, search.section, guideGroups, guideFiles, hasRunResults]
+  )
+  // The file in focus on a section page: seeded by `?file=`, then the tree /
+  // sheet / cards own it. The route is reused across issues, so issue B
+  // never opens on issue A's file (reset during render, before use).
   const [selectedFile, setSelectedFile] = useState<string | null>(
     search.file ?? null
   )
-  // The route is reused across issues (no remount on a param change): issue
-  // B must never open on issue A's file. Reset during render, before use.
   const [selectedFor, setSelectedFor] = useState(issue?.id ?? null)
   if (selectedFor !== (issue?.id ?? null)) {
     setSelectedFor(issue?.id ?? null)
@@ -257,147 +312,67 @@ function IssueDetailPage() {
   useEffect(() => {
     if (search.file) setSelectedFile(search.file)
   }, [search.file])
-  // EXP-1152: the phone's Changes tab wears the `+N −M` of the very files
-  // that face draws — the run's live diff, else the PR's — the word until
-  // either is known (the desktop `FaceToggle::diff` rule).
-  const changesCounts = useMemo(
-    () =>
-      changesFaceCounts(
-        diffStats.fileCount > 0
-          ? {
-              files: diffStats.fileCount,
-              additions: diffStats.additions,
-              deletions: diffStats.deletions,
-            }
-          : prFilesState.kind === `files`
-            ? totals(prFilesState.files)
-            : null
-      ),
-    [diffStats.fileCount, diffStats.additions, diffStats.deletions, prFilesState]
-  )
-
-  // EXP-879/933: the results belong to a RUN — `issueResultsRun` picks it
-  // (my target run when it has results, else the newest run on the issue by
-  // ANY member that has some). My run: the Results segment opens the run's
-  // `?view=results`. A teammate's: the issue draws the report itself
-  // (`?view=results` here), since their run is not mine to open.
-  const resultsRun = useMemo(
-    () =>
-      issue
-        ? issueResultsRun(
-            (runRows ?? []) as CodingSession[],
-            issue.id,
-            boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
-            currentUserId,
-            now
-          )
-        : null,
-    [runRows, issue, boundRunId, currentUserId, now]
-  )
-  const resultGroups = useMemo(
-    () => parseSessionResultGroups(resultsRun?.results),
-    [resultsRun?.results]
-  )
-  const hasRunResults = resultsRun !== null && resultGroups.length > 0
-  const resultsMine =
-    hasRunResults &&
-    Boolean(currentUserId) &&
-    resultsRun.userId === currentUserId
-  // EXP-1154: an open PR with no report still has a Results face — the
-  // GitHub PR body as one unnumbered group.
-  const hasGuide = hasRunResults || issue?.prState === `open`
-  /** A stale or guide-less `?view=results` falls back to the issue face. */
-  const showResults = search.view === `results` && hasGuide
-  const { state: prDescriptionState } = usePrDescription(issue ?? null, {
-    enabled: showResults && !hasRunResults,
-  })
-  const guideGroups = useMemo(
-    () =>
-      hasRunResults ? resultGroups : prDescriptionGroups(prDescriptionState),
-    [hasRunResults, resultGroups, prDescriptionState]
-  )
 
   const goRun = useCallback(
-    (
-      sessionId: string,
-      view?: `diff` | `results`,
-      /** EXP-1154: the file in focus on the run's Changes face. */
-      file?: string,
-      replace: boolean = isMobile
-    ) => {
+    (sessionId: string, replace: boolean = isMobile) => {
       void navigate({
         to: `/t/$teamSlug/sessions/$sessionId`,
         params: { teamSlug, sessionId },
-        search: runFaceSearch({ from: search.from, view, file }),
+        search: runFaceSearch({ from: search.from }),
         replace,
       })
     },
     [navigate, teamSlug, search.from, isMobile]
   )
+  /** The issue face (no target) or its Guide / a Guide section page. */
   const goFace = useCallback(
-    (view?: `diff` | `results`, file?: string) => {
+    (target?: { section?: GuideSectionKey; file?: string | null }) => {
       if (!board) return
       void navigate({
         to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
         params: { teamSlug, boardSlug: board.slug, issueIdentifier },
-        search: {
-          ...(search.from ? { from: search.from } : {}),
-          ...(view ? { view } : {}),
-          ...(file ? { file } : {}),
-        },
+        search: target
+          ? guideSearch({ from: search.from, ...target })
+          : search.from
+            ? { from: search.from }
+            : {},
         replace: isMobile,
       })
     },
     [navigate, teamSlug, board, issueIdentifier, search.from, isMobile]
   )
-  /** EXP-1154: a Guide file row — the Changes face on that file. The run's
-   *  live diff when there is one, else the PR's right here. */
-  const liveDiff = diffStats.fileCount > 0
-  const openFile = useCallback(
-    (path: string) => {
-      setSelectedFile(path)
-      if (liveDiff && runTarget) goRun(runTarget.id, `diff`, path)
-      else goFace(`diff`, path)
+  const openGuide = useCallback(() => goFace({}), [goFace])
+  const openSection = useCallback(
+    (target: GuideChangesTarget) => {
+      setSelectedFile(null)
+      goFace({ section: target.section })
     },
-    [liveDiff, runTarget, goRun, goFace]
+    [goFace]
   )
-  /** The Guide's rows count off the files that tap opens: the live diff when
-   *  the run has one, else the PR's. */
-  const guideFiles = liveDiff ? diffStats.files : prFiles
-  // EXP-1154: a `?view=diff` deep link while the run has a live diff hands
-  // off to the run (it owns that diff), replacing the entry so Back skips it;
-  // the issue's PR-files face is only for the no-live-diff case.
-  const handoffToRun = useCallback(
-    (sessionId: string, view: `diff`, file?: string) =>
-      goRun(sessionId, view, file, true),
-    [goRun]
+  // EXP-1248: a stack member REPLACES the subject in place — the same face,
+  // never a new tab.
+  const { stack, memberTarget, defaultBranch } = useIssueStack(issue, team?.id)
+  const openStackMember = useCallback(
+    (issueId: string) => {
+      const target = memberTarget(issueId)
+      if (!target) return
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: {
+          teamSlug,
+          boardSlug: target.boardSlug,
+          issueIdentifier: target.identifier,
+        },
+        search: guideSearch({ from: search.from }),
+        replace: true,
+      })
+    },
+    [memberTarget, navigate, teamSlug, search.from]
   )
-  useLiveDiffHandoff(
-    { showChanges, liveDiff, runId: runTarget?.id, file: search.file },
-    handoffToRun
-  )
-  const backToIssue = useCallback(() => goFace(), [goFace])
-
-  // EXP-916/945/1154: on md+ the Changes face's file TREE is the sidebar's
-  // panel (`ReviewFilesNav`), keyed by the identifier the occupant matches,
-  // its back row the issue itself. Cleared whenever the face is not up.
-  const publishTree = showChanges && !isMobile && Boolean(issue)
-  useEffect(() => {
-    if (!publishTree) return
-    publishReviewFiles({
-      subjectId: issueIdentifier,
-      status: prFilesState.kind,
-      files: prFiles,
-      selected: selectedFile,
-      onSelect: setSelectedFile,
-      back: { label: issueIdentifier, onBack: backToIssue },
-    })
-  }, [publishTree, issueIdentifier, prFilesState.kind, prFiles, selectedFile, backToIssue])
-  useEffect(() => {
-    if (publishTree) return
-    publishReviewFiles(null)
-  }, [publishTree])
-  useEffect(() => () => publishReviewFiles(null), [])
+  const mergeThrough = useMergeThrough()
+  const isMember = useIsTeamMember(team?.id ?? ``, currentUserId ?? ``)
+  const canMerge =
+    Boolean(currentUserId) && isMember && issue?.prState === `open`
 
   if (!team || !board) {
     // Ready-and-empty boards means the slug is dead (trashed board, rename,
@@ -436,15 +411,27 @@ function IssueDetailPage() {
   }
 
   const readOnly = !permissions.canMutateIssue(issue)
-  const openResults = () => {
-    if (resultsRun && resultsMine) goRun(resultsRun.id, `results`)
-    else goFace(`results`)
-  }
-  const guideBody = (
-    <IssueResultsBody
+  const stackCard = stack ? (
+    <GuideStackCard
+      stack={stack}
+      defaultBranch={defaultBranch}
+      onOpen={openStackMember}
+      onMergeThrough={canMerge ? mergeThrough.request : undefined}
+    />
+  ) : undefined
+  const guideBody = sectionPage ? (
+    <GuideSectionDiff
+      page={sectionPage}
+      selected={selectedFile}
+      onSelect={setSelectedFile}
+      onBack={openGuide}
+      isMobile={isMobile}
+    />
+  ) : (
+    <GuideBody
       groups={guideGroups}
       files={guideFiles}
-      onOpenFile={hasChanges ? openFile : undefined}
+      filesState={liveDiff ? null : prFilesState}
       numbered={hasRunResults}
       loading={!hasRunResults && prDescriptionState.kind === `loading`}
       error={
@@ -452,15 +439,41 @@ function IssueDetailPage() {
           ? prDescriptionState.message
           : null
       }
+      stack={stackCard}
+      onOpenChanges={openSection}
+      onRetry={reloadPrFiles}
+      renderText={renderResultText}
     />
   )
+  const faces = availableFaces({
+    hasIssue: true,
+    hasRun: Boolean(runTarget),
+    hasResults: hasRunResults,
+    hasDiff: hasDiff || showGuide,
+  })
+  // EXP-1162: the state lives on the TABS — the Run tab says its run is live
+  // (amber while it waits on a person), the Guide tab that the pull request
+  // is open.
+  const dots = faceDots({
+    faces,
+    runLive: runTarget ? isSessionLive(runTarget, now) : false,
+    needsInput: runTarget?.needsInput === true,
+    prOpen: issue.prState === `open`,
+  })
+  const face: WorkFaceKind = showGuide ? `guide` : `issue`
+  const onFace = (next: WorkFaceKind) => {
+    if (next === `issue`) goFace()
+    else if (next === `run` && runTarget) goRun(runTarget.id)
+    else if (next === `guide`) openGuide()
+  }
+  const mergeTarget = {
+    ...mergeTargetProps({ kind: `issue`, issue }),
+    steerEnabled: steerConfig?.enabled === true,
+  }
 
   // EXP-893: the phone. Faces are screen state behind `replace` navigations,
-  // so Back always leaves the issue. The Changes face: the run's live diff
-  // (the session route's `?view=diff`) when there is one, else the issue's
-  // PR files right here. EXP-1150: the faces are TABS under the header
-  // (`MobileFaceTabs`) and the body swipes between them (`useFaceSwipe`);
-  // the bar's right circle is the view's own Start coding.
+  // so Back always leaves the issue. EXP-1150: the faces are TABS under the
+  // header and the body swipes between them.
   if (isMobile) {
     return (
       <MobileIssuePage
@@ -469,241 +482,130 @@ function IssueDetailPage() {
         team={team}
         users={users}
         teamSlug={teamSlug}
-        currentUserId={currentUserId}
         readOnly={readOnly}
         origin={search.from}
-        view={search.view}
+        faces={faces}
+        face={face}
+        dots={dots}
         runTarget={runTarget}
-        runLive={runTarget ? isSessionLive(runTarget, now) : false}
         issueRuns={issueRuns}
-        hasChanges={hasChanges}
-        liveDiff={liveDiff}
-        changesCounts={changesCounts}
-        prFilesState={prFilesState}
-        reloadPrFiles={reloadPrFiles}
+        onFace={onFace}
+        goRun={goRun}
+        guideBody={guideBody}
+        sectionFiles={sectionPage?.files ?? null}
         selectedFile={selectedFile}
         onSelectFile={setSelectedFile}
-        hasResults={hasGuide}
-        showResults={showResults}
-        guideBody={guideBody}
-        goFace={goFace}
-        goRun={goRun}
-        openResults={openResults}
+        mergeCapsule={canMerge ? <MergeCapsule {...mergeTarget} /> : undefined}
+        mergeCircle={
+          canMerge ? <MobileMergeCircle {...mergeTarget} /> : undefined
+        }
+        mergeThroughDialog={mergeThrough.dialog}
       />
     )
   }
 
-  // EXP-851: the issue IS the content panel — the board list that used to sit
-  // on its left moved into the sidebar's list nav (one list, one place, every
-  // detail), which is what gives the description and timeline the full width.
+  // EXP-851: the issue IS the content panel; the Guide draws in its work
+  // column under the same header (EXP-1251).
   return (
-    <IssueDetailView
-      issue={issue}
-      users={users}
-      board={board}
-      teamSlug={teamSlug}
-      teamId={team.id}
-      readOnly={readOnly}
-      origin={search.from}
-      faceBody={
-        showChanges ? (
-          <IssueChangesBody
-            state={prFilesState}
-            selected={selectedFile}
-            onSelect={setSelectedFile}
-            onRetry={reloadPrFiles}
+    <>
+      <IssueDetailView
+        issue={issue}
+        users={users}
+        board={board}
+        teamSlug={teamSlug}
+        teamId={team.id}
+        readOnly={readOnly}
+        origin={search.from}
+        faceBody={showGuide ? guideBody : undefined}
+        /* EXP-949/1251: GitHub only while the Guide shows. */
+        headerAction={
+          showGuide && issue.prUrl ? (
+            <PrGithubButton prUrl={issue.prUrl} />
+          ) : undefined
+        }
+        faceToggle={
+          <WorkFaceToggle
+            face={face}
+            /* EXP-1162: the tabs carry the state — live run, open PR. */
+            run={runFaceMark(runTarget, issue.prState)}
+            dots={dots}
+            runMenu={{
+              runs: issueRuns,
+              checkedRunId: runTarget?.id,
+              onOpen: (target) => goRun(target.id),
+            }}
+            items={faces.map((kind) => ({
+              face: kind,
+              label:
+                kind === `issue`
+                  ? ISSUE_FACE_LABEL
+                  : kind === `run`
+                    ? runFaceLabel(multipleRuns)
+                    : GUIDE_FACE_LABEL,
+              onSelect: () => onFace(kind),
+            }))}
           />
-        ) : showResults ? (
-          guideBody
-        ) : undefined
-      }
-      /* EXP-949/1154: GitHub only while the Changes face shows. */
-      headerAction={
-        showChanges && issue.prUrl ? (
-          <PrGithubButton prUrl={issue.prUrl} />
-        ) : undefined
-      }
-      faceToggle={
-        <WorkFaceToggle
-          face={showChanges ? `diff` : showResults ? `results` : `issue`}
-          /* EXP-1162: the tabs carry the state — live run, open PR. */
-          run={runFaceMark(runTarget, issue.prState)}
-          dots={toggleFaceDots(
-            faceDots({
-              faces: availableFaces({
-                hasIssue: true,
-                hasRun: Boolean(runTarget),
-                hasChanges: hasChanges || showChanges,
-                hasResults: hasGuide,
-              }),
-              runLive: runTarget ? isSessionLive(runTarget, now) : false,
-              needsInput: runTarget?.needsInput === true,
-              prOpen: issue.prState === `open`,
-            })
-          )}
-          runMenu={{
-            runs: issueRuns,
-            checkedRunId: runTarget?.id,
-            onOpen: (target) => goRun(target.id),
-          }}
-          items={[
-            {
-              face: `issue`,
-              label: ISSUE_FACE_LABEL,
-              onSelect: () => {
-                if (showResults || showChanges) goFace()
-              },
-            },
-            ...(runTarget
-              ? [
-                  {
-                    face: `run` as const,
-                    label: runFaceLabel(multipleRuns),
-                    onSelect: () => goRun(runTarget.id),
-                  },
-                ]
-              : []),
-            // EXP-889: the run's live diff opens the run on its Changes
-            // sub-face; EXP-1154: else the PR / branch files right here.
-            ...(hasChanges || showChanges
-              ? [
-                  {
-                    face: `diff` as const,
-                    // EXP-1152: the counts recipe every face strip shares.
-                    label: <ChangesFaceLabel counts={changesCounts} />,
-                    onSelect: () => {
-                      if (liveDiff && runTarget) goRun(runTarget.id, `diff`)
-                      else if (!showChanges) goFace(`diff`)
-                    },
-                  },
-                ]
-              : []),
-            // EXP-879/933: the report, last in the strip — mine opens on my
-            // run, a teammate's (EXP-1154: or the PR body) right here.
-            ...(hasGuide
-              ? [
-                  {
-                    face: `results` as const,
-                    label: RESULTS_FACE_LABEL,
-                    onSelect: openResults,
-                  },
-                ]
-              : []),
-          ]}
-        />
-      }
-    />
+        }
+      />
+      {mergeThrough.dialog}
+    </>
   )
 }
 
 /** EXP-893 / EXP-1150: the phone's Work screen over an ISSUE subject — the
- *  face on show (issue, its PR files, or the Guide), the face tabs every one
- *  of them wears under the header, and the swipe between them. EXP-1154: the
- *  ONE merge is the white capsule on the floating bar — in the Changes and
- *  Results bars' cluster, floating above the Issue face's composer bar. A
- *  child so the swipe hook sits past the page's early returns. */
+ *  face on show (the issue or its Guide), the face tabs every one of them
+ *  wears under the header, and the swipe between them. EXP-1154: the ONE
+ *  merge is the white capsule on the Guide's bar, the circle beside the
+ *  Issue face's composer. A child so the swipe hook sits past the page's
+ *  early returns. */
 function MobileIssuePage({
   issue,
   board,
   team,
   users,
   teamSlug,
-  currentUserId,
   readOnly,
   origin,
-  view,
+  faces,
+  face,
+  dots,
   runTarget,
-  runLive,
   issueRuns,
-  hasChanges,
-  liveDiff,
-  changesCounts,
-  prFilesState,
-  reloadPrFiles,
+  onFace,
+  goRun,
+  guideBody,
+  sectionFiles,
   selectedFile,
   onSelectFile,
-  hasResults,
-  showResults,
-  guideBody,
-  goFace,
-  goRun,
-  openResults,
+  mergeCapsule,
+  mergeCircle,
+  mergeThroughDialog,
 }: {
   issue: Issue
   board: NonNullable<ReturnType<typeof useBoardViewData>[`board`]>
   team: NonNullable<ReturnType<typeof useBoardViewData>[`team`]>
   users: ReturnType<typeof useBoardViewData>[`users`]
   teamSlug: string
-  currentUserId: string | undefined
   readOnly: boolean
   origin?: string
-  view?: `diff` | `results`
+  faces: WorkFaceKind[]
+  face: WorkFaceKind
+  dots: ReturnType<typeof faceDots>
   runTarget: CodingSession | null
-  runLive: boolean
   issueRuns: readonly PastRunRow[]
-  hasChanges: boolean
-  /** The target run has a live diff: Changes opens on the run. */
-  liveDiff: boolean
-  /** EXP-1152: the Changes tab's `+N −M` (null = the word). */
-  changesCounts: ChangesFaceCounts | null
-  prFilesState: ReviewFilesState
-  reloadPrFiles: () => void
-  /** EXP-1154: the file in focus on the Changes face (`?file=`). */
+  onFace: (face: WorkFaceKind) => void
+  goRun: (sessionId: string) => void
+  /** The Guide (or a section page), built by the page. */
+  guideBody: ReactNode
+  /** A section page's files: the bar's file sheet. */
+  sectionFiles: readonly DiffFile[] | null
   selectedFile: string | null
   onSelectFile: (path: string) => void
-  /** EXP-1154: the Guide exists (a report, or an open PR's body). */
-  hasResults: boolean
-  showResults: boolean
-  /** The Guide (`IssueResultsBody`), built by the page. */
-  guideBody: ReactNode
-  goFace: (view?: `diff` | `results`) => void
-  goRun: (sessionId: string, view?: `diff` | `results`) => void
-  openResults: () => void
+  mergeCapsule?: ReactNode
+  mergeCircle?: ReactNode
+  mergeThroughDialog: ReactNode
 }) {
-  // EXP-1154: `?view=diff` is always honoured ("No changes yet").
-  const showChanges = view === `diff`
-  const faces = availableFaces({
-    hasIssue: true,
-    hasRun: Boolean(runTarget),
-    hasChanges: hasChanges || showChanges,
-    hasResults,
-  })
-  // EXP-1162: the state lives on the TABS, never on the title — the Run tab
-  // says its run is live (amber while it waits on a person), the Results /
-  // Changes tab that the pull request is open. The synced row is all the
-  // issue face knows.
-  const dots = faceDots({
-    faces,
-    runLive,
-    needsInput: runTarget?.needsInput === true,
-    prOpen: issue.prState === `open`,
-  })
-  const face: WorkFaceKind = showChanges
-    ? `changes`
-    : showResults
-      ? `results`
-      : `issue`
-  const onFace = (next: WorkFaceKind) => {
-    if (next === `issue`) goFace()
-    else if (next === `run` && runTarget) goRun(runTarget.id)
-    else if (next === `changes`) {
-      if (liveDiff && runTarget) goRun(runTarget.id, `diff`)
-      else goFace(`diff`)
-    } else if (next === `results`) {
-      openResults()
-    }
-  }
   const swipe = useFaceSwipe(faces, face, onFace)
-  // EXP-1154: the white Merge capsule — the tray's own gating (membership,
-  // the relay); it self-hides unless the PR is open.
-  const isMember = useIsTeamMember(team.id, currentUserId ?? ``)
-  const steerConfig = useSteerConfig()
-  const canMerge = Boolean(currentUserId) && isMember && issue.prState === `open`
-  const mergeTarget = {
-    ...mergeTargetProps({ kind: `issue`, issue }),
-    steerEnabled: steerConfig?.enabled === true,
-  }
-  const mergeCapsule = canMerge ? <MergeCapsule {...mergeTarget} /> : undefined
   const tabs = (
     <MobileFaceTabs
       faces={faces}
@@ -712,44 +614,41 @@ function MobileIssuePage({
       run={runFaceMark(runTarget, issue.prState)}
       runs={issueRuns}
       viewedRunId={runTarget?.id ?? null}
-      changesCounts={changesCounts}
       onFace={onFace}
       onOpenRun={(target) => goRun(target.id)}
     />
   )
-  if (showChanges) {
+  if (face === `guide`) {
     return (
-      <IssueChangesFace
-        issue={issue}
-        board={board}
-        teamSlug={teamSlug}
-        teamId={team.id}
-        readOnly={readOnly}
-        origin={origin}
-        filesState={prFilesState}
-        onRetry={reloadPrFiles}
-        selected={selectedFile}
-        onSelect={onSelectFile}
-        merge={mergeCapsule}
-        tabs={tabs}
-        swipe={swipe}
-      />
-    )
-  }
-  if (showResults) {
-    return (
-      <IssueResultsFace
-        issue={issue}
-        board={board}
-        teamSlug={teamSlug}
-        teamId={team.id}
-        readOnly={readOnly}
-        origin={origin}
-        body={guideBody}
-        merge={mergeCapsule}
-        tabs={tabs}
-        swipe={swipe}
-      />
+      <>
+        <GuideFace
+          issue={issue}
+          board={board}
+          teamSlug={teamSlug}
+          teamId={team.id}
+          readOnly={readOnly}
+          origin={origin}
+          body={guideBody}
+          action={issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined}
+          graphBadge={
+            /* SLOP-16: the same "Related work" overlay every face opens. */
+            <PrGraphBadge teamId={team.id} teamSlug={teamSlug} issue={issue} />
+          }
+          leading={
+            sectionFiles && sectionFiles.length > 0 ? (
+              <ChangesFileSheet
+                files={sectionFiles}
+                selected={selectedFile}
+                onSelect={onSelectFile}
+              />
+            ) : undefined
+          }
+          merge={mergeCapsule}
+          tabs={tabs}
+          swipe={swipe}
+        />
+        {mergeThroughDialog}
+      </>
     )
   }
   return (
@@ -761,11 +660,7 @@ function MobileIssuePage({
       teamId={team.id}
       readOnly={readOnly}
       origin={origin}
-      mobileWork={{
-        tabs,
-        swipe,
-        merge: canMerge ? <MobileMergeCircle {...mergeTarget} /> : undefined,
-      }}
+      mobileWork={{ tabs, swipe, merge: mergeCircle }}
     />
   )
 }

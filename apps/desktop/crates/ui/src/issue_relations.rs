@@ -35,7 +35,7 @@ use gpui::{
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::ButtonVariants as _, h_flex, menu::PopupMenuItem, progress::ProgressCircle, v_flex,
+    button::ButtonVariants as _, h_flex, progress::ProgressCircle, v_flex,
     ActiveTheme as _, ElementExt as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -636,6 +636,136 @@ pub(crate) struct IssueRowOpts {
 /// connector gutter is measured off it.
 const ISSUE_ROW_PAD: f32 = 12.;
 
+/// Wave D — the densities of THE issue row shell ([`issue_row_shell`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IssueRowDensity {
+    /// The relations card / dialogs: `px_3 py_1`, 14px title.
+    Card,
+    /// The narrow side list: the 28px compact row (`flat_row_compact`).
+    Compact,
+    /// A two-line row (title over a `sub_line`): `px_2 py_1p5`, 12px type,
+    /// the lead and trailing pinned to the top (the inbox).
+    TwoLine,
+}
+
+/// Wave D — the SLOTS of one issue row: leading glyph(s), mono identifier,
+/// title, an optional muted sub-line under the title and trailing bits.
+/// Every desktop issue row (relations, side list, inbox) fills these
+/// instead of laying its own row out.
+pub(crate) struct IssueRowSlots {
+    pub(crate) lead: Option<AnyElement>,
+    pub(crate) identifier: Option<SharedString>,
+    pub(crate) title: SharedString,
+    /// `None` = the row's foreground.
+    pub(crate) title_color: Option<gpui::Hsla>,
+    pub(crate) title_medium: bool,
+    pub(crate) sub_line: Option<SharedString>,
+    pub(crate) trailing: Vec<AnyElement>,
+}
+
+impl IssueRowSlots {
+    pub(crate) fn new(title: impl Into<SharedString>) -> Self {
+        Self {
+            lead: None,
+            identifier: None,
+            title: title.into(),
+            title_color: None,
+            title_medium: false,
+            sub_line: None,
+            trailing: Vec::new(),
+        }
+    }
+}
+
+/// Wave D — THE issue row shell: [`IssueRowSlots`] laid out at `density`,
+/// with the hover wash, the active fill and the pointer. The caller hangs
+/// its behaviour (click, menu, preview, tree guides, rail) off the returned
+/// element.
+pub(crate) fn issue_row_shell(
+    id: impl Into<ElementId>,
+    slots: IssueRowSlots,
+    density: IssueRowDensity,
+    active: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let IssueRowSlots {
+        lead,
+        identifier,
+        title,
+        title_color,
+        title_medium,
+        sub_line,
+        trailing,
+    } = slots;
+    let muted = cx.theme().muted_foreground;
+    let base = match density {
+        IssueRowDensity::Card => crate::surface::flat_row()
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_1(),
+        IssueRowDensity::Compact => crate::surface::flat_row_compact(),
+        IssueRowDensity::TwoLine => crate::surface::flat_row()
+            .flex()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5(),
+    };
+    let identifier = identifier.map(|identifier| {
+        div()
+            .flex_shrink_0()
+            .text_xs()
+            .text_color(muted)
+            .font_family(theme::terminal::FONT_FAMILY)
+            .child(identifier)
+    });
+    let title = div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .when(density == IssueRowDensity::Card, |title| title.text_sm())
+        .when(density == IssueRowDensity::TwoLine, |title| title.text_xs())
+        .when(title_medium, |title| title.font_weight(gpui::FontWeight::MEDIUM))
+        .when_some(title_color, |title, color| title.text_color(color))
+        .child(title);
+    let row = base
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .flex_shrink_0()
+        .cursor_pointer()
+        .when(active, |row| row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .children(lead);
+    let row = match sub_line {
+        Some(sub_line) => row.child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .gap_1p5()
+                        .children(identifier)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .truncate()
+                        .text_color(muted)
+                        .child(sub_line),
+                ),
+        ),
+        None => row.children(identifier).child(title),
+    };
+    row.children(trailing)
+}
+
 /// SLOP-16 round 3 — THE issue row: status glyph · mono identifier · title
 /// · (hover ✕) · assignee, a flat `px_3 py_1` row. Opens the issue; hovering
 /// shows the shared issue preview card. The relations card draws it, and so
@@ -662,16 +792,6 @@ pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut A
         )
     });
     let issue_id = other.id.clone();
-    let mut title = div()
-        .flex_1()
-        .min_w_0()
-        .text_sm()
-        .truncate()
-        .child(title_text.unwrap_or_else(|| SharedString::from(other.title.clone())));
-    // A closed issue's title is dimmed (web `text-foreground/60`).
-    if !open {
-        title = title.text_color(cx.theme().foreground.opacity(0.6));
-    }
     // EXP-760: the row opens the shared issue hover preview — the same card
     // the `#IDENT` pills in prose show. The row's painted rectangle is the
     // anchor, captured at prepaint (the `Popup` recipe) because a hover
@@ -683,69 +803,64 @@ pub(crate) fn issue_row(key: &str, other: &Issue, opts: IssueRowOpts, cx: &mut A
         Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
     let anchor_write = anchor.clone();
     let depth = guides.as_ref().map_or(0, |guides| guides.depth());
-    crate::surface::flat_row()
-        .id(ElementId::from(SharedString::from(row_key)))
-        .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
-        .on_hover(move |hovered, window, cx| {
-            let host = crate::issue_preview::host_for_window(window, cx);
-            if *hovered {
-                let issue_id = preview_issue.clone();
-                let bounds = anchor.get();
-                host.update(cx, |host, cx| {
-                    host.request(preview_key.clone(), issue_id, bounds, cx)
-                });
-            } else {
-                host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
-            }
-        })
-        .group(ROW_GROUP)
-        .flex()
-        .w_full()
-        .min_w_0()
-        .relative()
-        .items_center()
-        .gap_2()
-        .px_3()
-        .py_1()
-        .when(depth > 0, |row| {
-            row.pl(px(ISSUE_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
-        })
-        .children(
-            guides
-                .as_ref()
-                .and_then(|guides| crate::tree_guides::guide_layer(guides, ISSUE_ROW_PAD, 0.)),
-        )
-        .cursor_pointer()
-        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        .on_click(move |_, window, cx| {
-            let screen = Screen::IssueDetail {
-                issue_id: issue_id.clone(),
-            };
-            if in_dialog {
-                crate::native_dialog::close_then(window, cx, move |window, cx| {
-                    navigate(window, cx, screen);
-                });
-            } else {
-                navigate(window, cx, screen);
-            }
-        })
-        .child(
+    let slots = IssueRowSlots {
+        lead: Some(
             crate::icons::resolved_status_icon(&status, cx)
                 .small()
-                .flex_shrink_0(),
-        )
-        .child(
-            div()
                 .flex_shrink_0()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(SharedString::from(other.identifier.clone())),
-        )
-        .child(title)
-        .children(remove)
-        .children(assignee)
-        .into_any_element()
+                .into_any_element(),
+        ),
+        identifier: Some(SharedString::from(other.identifier.clone())),
+        // A closed issue's title is dimmed (web `text-foreground/60`).
+        title_color: (!open).then(|| cx.theme().foreground.opacity(0.6)),
+        title_medium: false,
+        sub_line: None,
+        trailing: remove.into_iter().chain(assignee.map(IntoElement::into_any_element)).collect(),
+        title: title_text.unwrap_or_else(|| SharedString::from(other.title.clone())),
+    };
+    issue_row_shell(
+        ElementId::from(SharedString::from(row_key)),
+        slots,
+        IssueRowDensity::Card,
+        false,
+        cx,
+    )
+    .on_prepaint(move |bounds, _window, _cx| anchor_write.set(bounds))
+    .on_hover(move |hovered, window, cx| {
+        let host = crate::issue_preview::host_for_window(window, cx);
+        if *hovered {
+            let issue_id = preview_issue.clone();
+            let bounds = anchor.get();
+            host.update(cx, |host, cx| {
+                host.request(preview_key.clone(), issue_id, bounds, cx)
+            });
+        } else {
+            host.update(cx, |host, cx| host.release(preview_key.clone(), cx));
+        }
+    })
+    .group(ROW_GROUP)
+    .relative()
+    .when(depth > 0, |row| {
+        row.pl(px(ISSUE_ROW_PAD + crate::tree_guides::LEVEL_PITCH * depth as f32))
+    })
+    .children(
+        guides
+            .as_ref()
+            .and_then(|guides| crate::tree_guides::guide_layer(guides, ISSUE_ROW_PAD, 0.)),
+    )
+    .on_click(move |_, window, cx| {
+        let screen = Screen::IssueDetail {
+            issue_id: issue_id.clone(),
+        };
+        if in_dialog {
+            crate::native_dialog::close_then(window, cx, move |window, cx| {
+                navigate(window, cx, screen);
+            });
+        } else {
+            navigate(window, cx, screen);
+        }
+    })
+    .into_any_element()
 }
 
 /// The hover-revealed "Remove relation" ✕ of a row (or the parent line).
@@ -785,7 +900,7 @@ pub(crate) fn add_relation_submenu(
     for pick in RELATION_PICKS {
         let issue_id = issue_id.to_string();
         menu = menu.item(
-            PopupMenuItem::new(pick.label)
+            crate::controls::pointer_label_item(pick.label, false)
                 .icon(Icon::new(pick_icon(&pick)))
                 .on_click(move |_, window, cx| {
                     open_relation_target_picker(issue_id.clone(), pick, window, cx);

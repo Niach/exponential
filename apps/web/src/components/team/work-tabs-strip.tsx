@@ -8,15 +8,11 @@ import {
   AgentRunMark,
   conceptIcon,
   Button,
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   LiveDot,
+  Menu,
+  MenuGestureHost,
+  menuProps,
+  type MenuSessionProps,
 } from "@exp/ui"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
@@ -31,7 +27,7 @@ import {
   type WorkTab,
 } from "@/lib/work-tabs"
 import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
-import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/components/agent-session-row"
+import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/lib/session-row-caption"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
@@ -53,6 +49,9 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 //     Close others / Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
 //     (`partitionTabs`, measured against the real chips).
+
+/** The work-tab chips' context-menu kind (`menuProps`). */
+const TAB_MENU_KIND = `work-tab`
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 
@@ -273,6 +272,9 @@ export function WorkTabsStrip({
       <div
         key={chip.key}
         data-testid={interactive ? `work-tab-${chip.key}` : undefined}
+        // A right-click (or long-press) opens the tab menu through the
+        // strip's gesture host, the way issue rows open theirs.
+        {...(interactive ? menuProps(TAB_MENU_KIND, chip.key) : {})}
         data-active={active || undefined}
         onMouseDown={
           interactive
@@ -328,89 +330,107 @@ export function WorkTabsStrip({
         </Button>
       </div>
     )
-    if (!interactive) return body
+    return body
+  }
+
+  const tabMenu = ({ target, open: menuOpen, onOpenChange }: MenuSessionProps) => {
+    const others = allKeys.filter((key) => key !== target.id)
     return (
-      <ContextMenu key={chip.key}>
-        <ContextMenuTrigger asChild>{body}</ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onSelect={() => close([chip.key])}>
-            Close
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={allKeys.filter((key) => key !== chip.key).length === 0}
-            onSelect={() => close(allKeys.filter((key) => key !== chip.key))}
-          >
-            Close others
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => close(allKeys)}>
-            Close all
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+      <Menu
+        mode="pointer"
+        anchor={target.anchor}
+        open={menuOpen}
+        onOpenChange={onOpenChange}
+        returnFocus={target.origin}
+        aria-label="Tab actions"
+        title="Tab"
+        entries={[
+          { kind: `item`, id: `close`, label: `Close`, onSelect: () => close([target.id]) },
+          {
+            kind: `item`,
+            id: `close-others`,
+            label: `Close others`,
+            disabled: others.length === 0,
+            onSelect: () => close(others),
+          },
+          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => close(allKeys) },
+        ]}
+      />
     )
   }
 
   return (
-    <div
-      className="relative flex h-full min-w-0 flex-1 items-center"
-      data-testid="work-tabs-strip"
-    >
-      {/* The measurement row: every chip at its natural width, invisible and
-          out of the tab order and the accessibility tree. */}
+    <MenuGestureHost menus={{ [TAB_MENU_KIND]: tabMenu }}>
       <div
-        ref={measureRef}
-        aria-hidden
-        inert
-        className="pointer-events-none invisible absolute top-0 left-0 flex w-max gap-1"
+        className="relative flex h-full min-w-0 flex-1 items-center"
+        data-testid="work-tabs-strip"
       >
-        {chips.map((chip) => renderChip(chip, false))}
-      </div>
-      <Button
-        ref={overflowMeasureRef}
-        aria-hidden
-        tabIndex={-1}
-        variant="ghost"
-        size="sm"
-        className="pointer-events-none invisible absolute top-0 left-0 px-2"
-      >
-        +{Math.max(chips.length, 1)}
-      </Button>
+        {/* The measurement row: every chip at its natural width, invisible and
+            out of the tab order and the accessibility tree. */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          inert
+          className="pointer-events-none invisible absolute top-0 left-0 flex w-max gap-1"
+        >
+          {chips.map((chip) => renderChip(chip, false))}
+        </div>
+        <Button
+          ref={overflowMeasureRef}
+          aria-hidden
+          tabIndex={-1}
+          variant="ghost"
+          size="sm"
+          className="pointer-events-none invisible absolute top-0 left-0 px-2"
+        >
+          +{Math.max(chips.length, 1)}
+        </Button>
 
-      <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1">
-        {chips.map((chip, index) =>
-          visibleSet.has(index) ? renderChip(chip, true) : null
-        )}
-        {hidden.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="shrink-0 px-2 text-muted-foreground"
-                aria-label={`${hidden.length} more tabs`}
-              >
-                +{hidden.length}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-72">
-              {hidden.map((chip) => (
-                <DropdownMenuItem key={chip.key} onClick={() => open(chip.tab)}>
+        <div ref={containerRef} className="flex min-w-0 flex-1 items-center gap-1">
+          {chips.map((chip, index) =>
+            visibleSet.has(index) ? renderChip(chip, true) : null
+          )}
+          {hidden.length > 0 && (
+            <Menu
+              align="end"
+              aria-label="More tabs"
+              title="Tabs"
+              contentClassName="w-72"
+              entries={hidden.map((chip) => ({
+                kind: `item` as const,
+                id: chip.key,
+                icon: (
                   <span className="flex size-3.5 shrink-0 items-center justify-center">
                     {chip.lead}
                   </span>
-                  {chip.identifier && (
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                      {chip.identifier}
-                    </span>
-                  )}
-                  <span className="min-w-0 truncate">{chip.title}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+                ),
+                label: (
+                  <>
+                    {chip.identifier && (
+                      <span className="mr-1.5 font-mono text-xs text-muted-foreground">
+                        {chip.identifier}
+                      </span>
+                    )}
+                    {chip.title}
+                  </>
+                ),
+                onSelect: () => open(chip.tab),
+              }))}
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 px-2 text-muted-foreground"
+                  aria-label={`${hidden.length} more tabs`}
+                >
+                  +{hidden.length}
+                </Button>
+              }
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </MenuGestureHost>
   )
 }
 

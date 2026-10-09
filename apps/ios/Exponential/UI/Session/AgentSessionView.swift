@@ -18,9 +18,10 @@ import UniformTypeIdentifiers
 /// belong to `WorkScreen`; this view reports what they need through
 /// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
 /// coding offer (`startReadiness`).
-/// EXP-1152: the Run face ONLY — the run's live diff is `RunChangesFace`, its
-/// own page beside this one in the Work screen's pager (both pages are up at
-/// once, and ONE view must consume `request` and report `RunChrome`).
+/// EXP-1152/1251: the Run face ONLY — the run's live diff is on the Guide
+/// face (`GuideFace`), its own page beside this one in the Work screen's
+/// pager (both pages are up at once, and ONE view must consume `request` and
+/// report `RunChrome`).
 /// The feed's scroll constants — outside the view (EXP-893: it used to be
 /// generic, and a generic type cannot hold stored statics).
 enum AgentSessionLayout {
@@ -118,6 +119,9 @@ struct AgentSessionView: View {
     @State private var model: AgentSessionModel?
     /// This view's ONE claim on that model (`attach` / `detach` are counted).
     @State private var claimed = false
+    /// EXP-1245: the owner's turn facts (`SessionTurnLog`), re-read on every
+    /// turn edge and new feed row; empty = the single-row thread.
+    @State private var turnEvents: [SessionTurnEvent] = []
     @State private var showKillConfirm = false
     /// EXP-688: the Usage sheet — the per-window cards that used to be a
     /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
@@ -132,6 +136,9 @@ struct AgentSessionView: View {
     @State private var agentTab: String?
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
+    /// Wave D: the `+`'s Photo | File menu and the Files importer it opens.
+    @State private var showAttachMenu = false
+    @State private var showFileImporter = false
     /// EXP-724: the draft the `/` menu was dismissed at (Escape / an accepted
     /// row). Keyed on the DRAFT, not a bool, so the menu comes back on its own
     /// the moment the text changes and no `onChange` has to race the accept.
@@ -301,6 +308,17 @@ struct AgentSessionView: View {
                 guard !newItems.isEmpty else { return }
                 Task { await ingestPhotos(newItems) }
             }
+            .background {
+                Color.clear
+                    .fileImporter(
+                        isPresented: $showFileImporter,
+                        allowedContentTypes: [.item],
+                        allowsMultipleSelection: true
+                    ) { result in
+                        guard case let .success(urls) = result else { return }
+                        Task { await ingestFiles(urls) }
+                    }
+            }
             // EXP-790: blur collapses the composer ONLY when nothing would be
             // lost — empty draft, no pending images, no picker mid-flight
             // (presenting one resigns first responder). Copied from
@@ -315,6 +333,9 @@ struct AgentSessionView: View {
             .onChange(of: model?.agentWorking) { _, _ in
                 if let model { collapseIdleComposer(model) }
             }
+            // EXP-1245: the turn slot and the feed feed the owner's turns.
+            .onChange(of: model?.turn, initial: true) { _, _ in recordTurns() }
+            .onChange(of: model?.feed.last?.id) { _, _ in recordTurns() }
             // EXP-893: the screen's Stop pill — the confirm is still this
             // view's, where the model is.
             // A request already set when this view mounts (a continuation
@@ -400,8 +421,8 @@ struct AgentSessionView: View {
         // consider the composer again.
         if editing == true { composerFocusPending = false }
         guard composerExpanded, editing == false, let model else { return }
-        guard !showPhotoPicker, photoItems.isEmpty else { return }
-        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+        guard !showPhotoPicker, !showFileImporter, !showAttachMenu, photoItems.isEmpty else { return }
+        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty, model.pendingFiles.isEmpty else { return }
         withAnimation(motion.standard) { composerExpanded = false }
     }
 
@@ -416,8 +437,8 @@ struct AgentSessionView: View {
         // so the field still reads as unfocused — never fold it under them.
         guard !composerFocusPending else { return }
         guard model.draftEditor.isEditing == false else { return }
-        guard !showPhotoPicker, photoItems.isEmpty else { return }
-        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+        guard !showPhotoPicker, !showFileImporter, !showAttachMenu, photoItems.isEmpty else { return }
+        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty, model.pendingFiles.isEmpty else { return }
         guard composerMenu(model) == .none, slashConfirm == nil else { return }
         withAnimation(motion.standard) { composerExpanded = false }
     }
@@ -631,6 +652,69 @@ struct AgentSessionView: View {
         sessionThread((model.session ?? session).results)
     }
 
+    /// EXP-1245: the thread as TURNS — the owner's relay feed (this model)
+    /// delimits them; `perTurn` false = today's single-row thread.
+    private func turns(_ model: AgentSessionModel) -> SessionTurns {
+        sessionTurns((model.session ?? session).results, feed: turnEvents)
+    }
+
+    /// Folds the model's turn slot and new feed rows into the run's log.
+    private func recordTurns() {
+        guard let model else { return }
+        let log = SessionTurnLog.log(for: session.id)
+        let now = Date().timeIntervalSince1970 * 1000
+        log.recordTurnSlot(model.turn.state, startedAt: model.turn.startedAt.map(Double.init), now: now)
+        let rows = SessionTurnLog.rows(model.feed)
+        log.recordFeedMessages(rows, now: now)
+        let start = WireTimestamps.parse((model.session ?? session).startedAt)
+            .map { $0.timeIntervalSince1970 * 1000 }
+        let events = log.turnEvents(rows, runStartedAt: start)
+        if events != turnEvents { turnEvents = events }
+    }
+
+    /// Web M6 ×4: whether the first turn's end was observed (else its row
+    /// reads `Done on <device>` with no duration).
+    private func firstEndKnown(_ model: AgentSessionModel) -> Bool {
+        let start = WireTimestamps.parse((model.session ?? session).startedAt)
+            .map { $0.timeIntervalSince1970 * 1000 }
+        return firstTurnEndKnown(turnEvents, runStartedAt: start)
+    }
+
+    /// One turn's status row: a settled turn reads `Done on <device> · <turn
+    /// time>`, the open one the run's row timed from the turn's start (with
+    /// the tool line); a message still waiting has none.
+    @ViewBuilder
+    private func turnStatusRow(
+        _ model: AgentSessionModel, turn: SessionTurn, isLast: Bool, endKnown: Bool
+    ) -> some View {
+        let row = model.session ?? session
+        let state = runRowState(model)
+        let device = hostLabel
+        let runEnd = WireTimestamps.parse(row.endedAt ?? row.updatedAt)
+        let open = turn.endedAt == nil
+        if WorkFaces.turnRowCaption(
+            turn, state: state, device: device, runEndedAt: runEnd, now: Date(), endKnown: endKnown
+        ) != nil {
+            RunStatusRow(
+                agent: row.agent,
+                markState: open
+                    ? runningRowMarkState(displayState(model), paused: hostPaused, working: model.agentWorking)
+                    : nil,
+                ended: !open || model.sessionEnded,
+                rowState: open ? state : .done,
+                caption: { now in
+                    WorkFaces.turnRowCaption(
+                        turn, state: state, device: device, runEndedAt: runEnd, now: now, endKnown: endKnown
+                    )
+                        ?? RunRowCaption(text: "", tone: .muted)
+                },
+                toolLine: open && isLast && model.phase == .live ? AgentFeed.lastToolLine(model.feed) : nil,
+                showWork: showWork,
+                onToggle: { showWork.toggle() }
+            )
+        }
+    }
+
     /// The empty-feed placeholders: the transcript's while it has no rows;
     /// the thread's only while it is empty too and no card waits.
     private func feedPlaceholder(_ model: AgentSessionModel) -> Bool {
@@ -643,7 +727,10 @@ struct AgentSessionView: View {
     /// with Show work; only the row's button label flips.
     private func feedArea(_ model: AgentSessionModel) -> some View {
         VStack(spacing: 0) {
-            runStatusRow(model)
+            // EXP-1245: the owner's thread of turns draws a row per turn.
+            if showWork || !turns(model).perTurn {
+                runStatusRow(model)
+            }
             feedBody(model)
         }
         // The thread has ONE conversation: hiding the work drops a subagent tab.
@@ -973,16 +1060,26 @@ struct AgentSessionView: View {
     /// no Working… footer: the status row above is the indicator.
     private func threadList(_ model: AgentSessionModel) -> some View {
         let runThread = thread(model)
+        let runTurns = turns(model)
         let cards = model.cardPending ? model.rows.filter(AgentFeed.isPendingCard) : []
         return GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
-                            threadItem(item)
-                        }
-                        if let reply = runThread.reply {
-                            NarrationBubble(text: reply, context: markdownContext)
+                        if runTurns.perTurn {
+                            ForEach(Array(runTurns.turns.enumerated()), id: \.offset) { index, turn in
+                                turnView(
+                                    model, turn: turn, isLast: index == runTurns.turns.count - 1,
+                                    endKnown: index > 0 || firstEndKnown(model)
+                                )
+                            }
+                        } else {
+                            ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
+                                threadItem(item)
+                            }
+                            if let reply = runThread.reply {
+                                NarrationBubble(text: reply, context: markdownContext)
+                            }
                         }
                         ForEach(cards, id: \.id) { row in
                             feedRow(row, isLast: row.id == cards.last?.id)
@@ -1002,11 +1099,46 @@ struct AgentSessionView: View {
                 .onChange(of: runThread) { _, _ in
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
+                .onChange(of: runTurns.turns.count) { _, _ in
+                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                }
                 .onChange(of: cards.count) { _, _ in
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                 }
             }
         }
+    }
+
+    /// EXP-1245: one turn — the owner's bubble, the turn's status row, then
+    /// its results and reply under the row.
+    @ViewBuilder
+    private func turnView(
+        _ model: AgentSessionModel, turn: SessionTurn, isLast: Bool, endKnown: Bool
+    ) -> some View {
+        if let message = turn.message {
+            UserMessageBubble(
+                text: SteerImageMessage.buildMessage(
+                    text: message.text,
+                    imageIds: message.images.map {
+                        $0.replacingOccurrences(of: "/api/attachments/", with: "")
+                    },
+                    files: message.files
+                ),
+                context: markdownContext,
+                caption: userMessageCaption(name: deps.auth.userName, at: message.at, device: nil)
+            )
+        }
+        turnStatusRow(model, turn: turn, isLast: isLast, endKnown: endKnown)
+            .padding(.horizontal, -AgentSessionLayout.gutter)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(turn.items.enumerated()), id: \.offset) { _, item in
+                threadItem(item)
+            }
+            if let reply = turn.reply {
+                NarrationBubble(text: reply, context: markdownContext)
+            }
+        }
+        .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
     }
 
     @ViewBuilder
@@ -1609,6 +1741,7 @@ struct AgentSessionView: View {
     /// typed before navigating away reopens the field on return).
     private func composerOpen(_ model: AgentSessionModel) -> Bool {
         composerExpanded || !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
+            || !model.pendingFiles.isEmpty
     }
 
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
@@ -1754,7 +1887,9 @@ struct AgentSessionView: View {
         // EXP-702: images attach to the SESSION, so every run can carry them —
         // a batch or action run no longer has "nowhere to put them".
         let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
+            && model.pendingFiles.count >= SteerImageMessage.maxFiles
         let canSend = !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
+            || !model.pendingFiles.isEmpty
         // EXP-621: only SENDING waits for the socket — the field, the picker
         // and the strip stay usable so the draft is ready the moment the
         // reconnect lands.
@@ -1813,9 +1948,15 @@ struct AgentSessionView: View {
             .padding(.horizontal, 6)
             .padding(.top, 6)
         } strip: {
-            if !model.pendingImages.isEmpty {
-                PendingAttachmentStrip(items: model.pendingImages) { id in
-                    removePendingImage(model, id: id)
+            if !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty {
+                PendingAttachmentStrip(
+                    items: PendingStripItem.steer(images: model.pendingImages, files: model.pendingFiles)
+                ) { id in
+                    if model.pendingImages.contains(where: { $0.id == id }) {
+                        removePendingImage(model, id: id)
+                    } else {
+                        model.pendingFiles.removeAll { $0.id == id }
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
@@ -1833,7 +1974,9 @@ struct AgentSessionView: View {
             SessionComposerFooter(
                 planModeActive: model.planModeActive,
                 attachEnabled: !attachDisabled,
-                onAttach: { showPhotoPicker = true },
+                onPhoto: { showPhotoPicker = true },
+                onFile: { showFileImporter = true },
+                attachMenuOpen: $showAttachMenu,
                 modelValue: WorkFaces.sessionModel(model.sessionConfig),
                 agent: model.catalogAgent,
                 onPickModel: { alias in sendModelSwitch(model, alias) },
@@ -1896,7 +2039,7 @@ struct AgentSessionView: View {
     }
 
     private func performSend(_ model: AgentSessionModel) {
-        guard !model.pendingImages.isEmpty else {
+        guard !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty else {
             guard !model.trimmedDraft.isEmpty else { return }
             // Clear ONLY once the frames are actually out (EXP-621): a send
             // into a dropped socket used to wipe the composer with nothing
@@ -1908,17 +2051,46 @@ struct AgentSessionView: View {
         Task { await sendWithImages(model) }
     }
 
-    /// Upload the pending images and send ONE composed message (EXP-511). A
-    /// failure keeps the draft and the strip — the model hands back the images
-    /// with their already-uploaded ids so a retry only uploads the rest.
+    /// Upload the pending images and files and send ONE composed message
+    /// (EXP-511, wave D). A failure keeps the draft and the strip — the model
+    /// hands back both lists with their already-uploaded ids so a retry only
+    /// uploads the rest.
     private func sendWithImages(_ model: AgentSessionModel) async {
-        if let remaining = await model.sendSteerImages(
-            model.draftText, images: model.pendingImages
+        if let remaining = await model.sendSteerAttachments(
+            model.draftText, images: model.pendingImages, files: model.pendingFiles
         ) {
-            model.pendingImages = remaining
+            model.pendingImages = remaining.images
+            model.pendingFiles = remaining.files
         } else {
             model.draftText = ""
             model.pendingImages = []
+            model.pendingFiles = []
+        }
+    }
+
+    /// Wave D: Files-app picks, ANY type — an inline image queues as an image
+    /// (marker and all), the rest as file tiles capped at four.
+    private func ingestFiles(_ urls: [URL]) async {
+        guard let model else { return }
+        model.steerImageError = nil
+        for url in urls {
+            let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
+            guard let picked = outcome.attachment else {
+                model.steerImageError = outcome.failure
+                continue
+            }
+            if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
+                guard model.pendingImages.count < SteerImageMessage.maxImages else { continue }
+                queuePendingImage(model, picked)
+            } else {
+                guard model.pendingFiles.count < SteerImageMessage.maxFiles else {
+                    model.steerImageError = SteerImageMessage.filesFullMessage
+                    continue
+                }
+                model.pendingFiles.append(PendingSteerFile(
+                    data: picked.data, filename: picked.filename, contentType: picked.contentType
+                ))
+            }
         }
     }
 
@@ -2116,6 +2288,9 @@ private struct NarrationBubble: View {
 private struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
+    /// EXP-1245: the turn bubble's muted caption (`<name> · <time>`), under
+    /// the bubble on the trailing edge; nil in the transcript.
+    var caption: String?
 
     @State private var expanded = false
 
@@ -2141,7 +2316,8 @@ private struct UserMessageBubble: View {
 
     var body: some View {
         let parsed = parsed
-        let hasImages = !parsed.attachmentIds.isEmpty
+        // Wave D: trailing file lines split off exactly like the embeds.
+        let hasImages = !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty
         // Clamp the PROSE, never the wire message: four embed lines are four
         // more "lines" of nothing, and they used to push a two-line steer into
         // the fold — which then hid the images the fold was measuring.
@@ -2185,7 +2361,7 @@ private struct UserMessageBubble: View {
                 }
                 // OUTSIDE the fold: the images are the point of the message,
                 // and a long prose clamp must never be what hides them.
-                if hasImages {
+                if !parsed.attachmentIds.isEmpty {
                     AgentMarkdownText(
                         text: SteerImageMessage.build(
                             text: "", attachmentIds: parsed.attachmentIds
@@ -2195,6 +2371,16 @@ private struct UserMessageBubble: View {
                         hugsWidth: true
                     )
                     .padding(.top, parsed.text.isEmpty ? 0 : 4)
+                }
+                // Wave D: each file line = the comment thread's file row
+                // (glyph + name, opens the attachment), never a broken image.
+                if !parsed.files.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(parsed.files.enumerated()), id: \.offset) { _, file in
+                            SteerFileLinkRow(file: file)
+                        }
+                    }
+                    .padding(.top, parsed.text.isEmpty && parsed.attachmentIds.isEmpty ? 0 : 4)
                 }
             }
             .padding(.horizontal, 12)
@@ -2207,6 +2393,28 @@ private struct UserMessageBubble: View {
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
             )
+        }
+        .modifier(BubbleCaption(caption: caption))
+    }
+}
+
+/// EXP-1245: the turn bubble's caption, muted under it on the trailing edge.
+private struct BubbleCaption: ViewModifier {
+    let caption: String?
+
+    func body(content: Content) -> some View {
+        if let caption, !caption.isEmpty {
+            VStack(alignment: .trailing, spacing: 4) {
+                content
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .padding(.trailing, 4)
+                    .accessibilityIdentifier("user-message-caption")
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            content
         }
     }
 }

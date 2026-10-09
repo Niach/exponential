@@ -29,15 +29,15 @@ object PushDeepLinks {
     /** EXP-933: query param naming the Work screen face an issue link opens on. */
     const val PARAM_FACE = "face"
 
-    /** The [PARAM_FACE] value of the Results face. */
-    const val FACE_RESULTS = "results"
+    /** The [PARAM_FACE] value of the Guide face (EXP-1251). */
+    const val FACE_GUIDE = "guide"
 
     sealed interface Target {
         data class Issue(val id: String) : Target
 
         /** EXP-933: an `agent_message` about an issue — the issue's Work
-         *  screen on its Results face, where the run's report lives. */
-        data class IssueResults(val id: String) : Target
+         *  screen on its Guide face, where the run's report lives. */
+        data class IssueGuide(val id: String) : Target
 
         /** The coding run a `session_blocked` push is about (EXP-980). */
         data class Session(val id: String) : Target
@@ -60,7 +60,7 @@ object PushDeepLinks {
         issueId: String?,
         sessionId: String? = null,
     ): Target? = when {
-        type == TYPE_AGENT_MESSAGE && !issueId.isNullOrEmpty() -> Target.IssueResults(issueId)
+        type == TYPE_AGENT_MESSAGE && !issueId.isNullOrEmpty() -> Target.IssueGuide(issueId)
         !issueId.isNullOrEmpty() -> Target.Issue(issueId)
         type == TYPE_SESSION_BLOCKED && !sessionId.isNullOrEmpty() -> Target.Session(sessionId)
         type == TYPE_SESSION_BLOCKED -> Target.Inbox
@@ -77,7 +77,7 @@ object PushDeepLinks {
     fun uri(target: Target, targetUserId: String?): String {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
-            is Target.IssueResults -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_RESULTS"
+            is Target.IssueGuide -> "exponential://issue/${target.id}?$PARAM_FACE=$FACE_GUIDE"
             is Target.Session -> "exponential://session/${target.id}"
             Target.Inbox -> "exponential://inbox"
         }

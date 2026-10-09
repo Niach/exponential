@@ -65,6 +65,9 @@ class ReviewsQueueTest {
         sortOrder = 1.0,
         prUrl = json.string("prUrl"),
         prState = json.string("prState"),
+        // EXP-1248: the stack edge (absent = no edge).
+        branch = json.string("branch"),
+        prBaseBranch = json.string("prBaseBranch"),
         createdAt = json.string("createdAt")!!,
         updatedAt = json.string("createdAt")!!,
     )
@@ -172,6 +175,46 @@ class ReviewsQueueTest {
                 ),
                 nav,
             )
+        }
+    }
+
+    // EXP-1248: rule 9, a band's entries as drawn (tree nesting, stack items),
+    // replayed x4 (web "reviewsQueue items", desktop
+    // `queue_items_match_the_fixture`, iOS `ReviewsQueueTests.testGrouping`).
+    @Test
+    fun grouping() {
+        val cases = fixture.list("groupingCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val name = case.string("name")!!
+            val input = case.getValue("input").jsonObject
+            val queue = ReviewsQueue.build(
+                teams = input.list("teams").map(::team),
+                boards = input.list("boards").map(::board),
+                issues = input.list("issues").map(::issue),
+                sessions = input.list("sessions").map(::session),
+                pulls = input.list("pulls").map(::pullRepo),
+            )
+            val expected = case.getValue("expected").jsonObject.list("boards").map { band ->
+                band.string("boardId") to band.list("items").map { item ->
+                    when (item.string("kind")) {
+                        "pr" -> listOf("pr", item.string("key"), item.getValue("depth").jsonPrimitive.int.toString())
+                        else -> listOf("stack") +
+                            item.getValue("keys").jsonArray.map { it.jsonPrimitive.content } +
+                            listOf("base:${item.string("baseBranch")}")
+                    }
+                }
+            }
+            val actual = queue.boardGroups.map { group ->
+                group.board.id to group.items.map { item ->
+                    when (item) {
+                        is ReviewsQueue.Item.Pr -> listOf("pr", item.entry.key, item.depth.toString())
+                        is ReviewsQueue.Item.Stack -> listOf("stack") +
+                            item.entries.map { it.key } + listOf("base:${item.baseBranch}")
+                    }
+                }
+            }
+            assertEquals(name, expected, actual)
         }
     }
 }

@@ -38,24 +38,28 @@ struct FixConflictsCard: View {
         .glassSection()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-composer-fix-conflicts")
-        .sheet(isPresented: $showsPicker) {
-            GlassPickerSheet(
+        // EXP-1021: the SHARED picker's sheet, opened by the PR row below
+        // (the card draws its own trigger, so the picker's stays hidden).
+        .background {
+            GlassPicker(
+                items: pool.map { PickerItem(value: $0.issueId, label: $0.label) },
+                mode: .single,
+                value: [model.value(for: def)],
+                onChange: { picked in
+                    guard let issueId = picked.first else { return }
+                    model.setValue(issueId, for: def)
+                },
                 title: "Select a pull request",
-                items: pool,
-                selectedID: model.value(for: def),
-                idFor: \.issueId,
-                onSelect: { model.setValue($0.issueId, for: def) }
-            ) { option in
-                Text(option.label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                open: $showsPicker,
+                hideTrigger: true
+            ) {
+                EmptyView()
             }
         }
     }
 
-    /// The trigger row. A plain tap target (not a Button) like
-    /// `GlassPickerRow`, so it reads the same inside the composer card.
+    /// The trigger row. A plain tap target (not a Button), so it reads the
+    /// same inside the composer card as the other picker rows.
     private func prRow(_ pr: FixConflictsPr?, enabled: Bool) -> some View {
         HStack(spacing: 12) {
             if let pr {

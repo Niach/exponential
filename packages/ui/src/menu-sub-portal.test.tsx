@@ -1,15 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
-  ContextMenuTrigger,
-} from "./context-menu"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -64,39 +55,6 @@ describe(`menu sub content portaling`, () => {
 
     const content = document.querySelector(`[data-slot="dropdown-menu-content"]`)
     const sub = document.querySelector(`[data-slot="dropdown-menu-sub-content"]`)
-
-    expect(content).toBeTruthy()
-    expect(sub).toBeTruthy()
-    expect(content?.contains(sub)).toBe(false)
-  })
-
-  it(`renders context-menu sub content outside the parent content element`, () => {
-    render(
-      <ContextMenu>
-        <ContextMenuTrigger>Row</ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>Delete issue</ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem>Confirm delete</ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-        </ContextMenuContent>
-      </ContextMenu>
-    )
-
-    act(() => {
-      fireEvent.contextMenu(screen.getByText(`Row`))
-    })
-
-    const subTrigger = screen.getByText(`Delete issue`)
-    act(() => {
-      subTrigger.focus()
-      fireEvent.keyDown(subTrigger, { key: `ArrowRight` })
-    })
-
-    const content = document.querySelector(`[data-slot="context-menu-content"]`)
-    const sub = document.querySelector(`[data-slot="context-menu-sub-content"]`)
 
     expect(content).toBeTruthy()
     expect(sub).toBeTruthy()

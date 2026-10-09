@@ -38,7 +38,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _,
 };
 use serde_json::{json, Value};
@@ -860,7 +860,7 @@ impl TriggerEditorState {
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for (interval, label) in INTERVAL_LABELS {
                     let view = view.clone();
-                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                    menu = menu.item(crate::controls::pointer_label_item(label, false).on_click(move |_, _, cx| {
                         if let Some(view) = view.upgrade() {
                             view.update(cx, |view, cx| {
                                 access(view).interval = interval;
@@ -886,7 +886,7 @@ impl TriggerEditorState {
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         for (day, label) in WEEKDAY_LABELS {
                             let view = view.clone();
-                            menu = menu.item(PopupMenuItem::new(label).on_click(
+                            menu = menu.item(crate::controls::pointer_label_item(label, false).on_click(
                                 move |_, _, cx| {
                                     if let Some(view) = view.upgrade() {
                                         view.update(cx, |view, cx| {
@@ -916,7 +916,7 @@ impl TriggerEditorState {
                     for day in 1..=28u32 {
                         let view = view.clone();
                         menu = menu.item(
-                            PopupMenuItem::new(SharedString::from(format!("Day {day}"))).on_click(
+                            crate::controls::pointer_label_item(SharedString::from(format!("Day {day}")), false).on_click(
                                 move |_, _, cx| {
                                     if let Some(view) = view.upgrade() {
                                         view.update(cx, |view, cx| {
@@ -961,7 +961,7 @@ impl TriggerEditorState {
             .dropdown_menu(move |mut menu, _window, _cx| {
                 for (event, label) in EVENT_LABELS {
                     let view = view.clone();
-                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                    menu = menu.item(crate::controls::pointer_label_item(label, false).on_click(move |_, _, cx| {
                         if let Some(view) = view.upgrade() {
                             view.update(cx, |view, cx| {
                                 access(view).event = event;

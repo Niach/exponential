@@ -17,6 +17,7 @@
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
 //! the strip collapse into a "+N" overflow menu (EXP-288).
 
+use crate::controls::PointerContextMenuExt as _;
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
@@ -28,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -48,10 +48,6 @@ use crate::slide_swap::{self, SwapAnim};
 /// EXP-870: how often the live tabs re-derive what the CLOCK changes (a usage
 /// wall expiring) — the 5s the session lists ride.
 const LIVE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// EXP-923: the gap between strip chips. (EXP-877's agent CLUSTERS are gone
-/// with the live tabs — the strip is a flat list of plain chips again.)
-const STRIP_GAP: f32 = 4.;
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
@@ -224,7 +220,7 @@ pub(crate) fn request_issue_results(issue_id: &str, window: &mut Window, cx: &mu
     };
     let detail = panel.read(cx).issue_detail.clone();
     let wanted = issue_id.to_string();
-    detail.update(cx, |detail, cx| detail.set_results_open_for(Some(wanted), cx));
+    detail.update(cx, |detail, cx| detail.set_guide_open_for(Some(wanted), cx));
 }
 
 /// EXP-1154 — ask this window's issue detail to open `issue_id` on its
@@ -246,7 +242,7 @@ pub(crate) fn request_issue_changes(
     let detail = panel.read(cx).issue_detail.clone();
     let wanted = issue_id.to_string();
     detail.update(cx, |detail, cx| {
-        detail.set_changes_open_for(Some(wanted), cx);
+        detail.set_guide_open_for(Some(wanted), cx);
         if let Some(path) = path {
             detail.select_changes_path(path, cx);
         }
@@ -404,6 +400,11 @@ struct TabEntry {
     /// the chip's lead says: an issue tab whose run is going wears the run's
     /// mark instead of the issue's status glyph.
     live: bool,
+    /// EXP-1250: the list preview slot this tab IS — set only when a list
+    /// step opened it ([`preview_slot`]), never derived from `origin`, so a
+    /// tab the user opened elsewhere and merely focused from a list is never
+    /// replaced by the next step.
+    slot: Option<PreviewSlot>,
 }
 
 impl TabEntry {
@@ -422,6 +423,7 @@ impl TabEntry {
             issue_id,
             run_id,
             live: false,
+            slot: None,
         }
     }
 
@@ -604,6 +606,98 @@ fn opens_no_tab(
         }
 }
 
+/// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
+/// leaving team's non-terminal tabs are PARKED under its id, the arriving
+/// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
+/// is not team-scoped) stay in the strip throughout. Pure.
+fn swap_team_tabs(
+    tabs: Vec<TabEntry>,
+    parked: &mut HashMap<String, Vec<TabEntry>>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> Vec<TabEntry> {
+    let (terminals, team_tabs): (Vec<TabEntry>, Vec<TabEntry>) = tabs
+        .into_iter()
+        .partition(|tab| matches!(tab.screen, Screen::Terminal { .. }));
+    if let Some(from) = from {
+        if team_tabs.is_empty() {
+            parked.remove(from);
+        } else {
+            parked.insert(from.to_string(), team_tabs);
+        }
+    }
+    let mut next = to.and_then(|to| parked.remove(to)).unwrap_or_default();
+    next.extend(terminals);
+    next
+}
+
+/// EXP-1250 — a list's ONE reusable tab (a preview slot), keyed per LIST
+/// like the web's `previewSlotKey`: both Inbox tabs (notifications, My
+/// Issues) share one, Agent › Recent has its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewSlot {
+    Inbox,
+    Recent,
+}
+
+/// The slot an open lands in: only an EXPLICIT list origin is a list step.
+fn preview_slot_key(pending: Option<&PendingOrigin>) -> Option<PreviewSlot> {
+    let Some(PendingOrigin::Explicit(origin)) = pending else {
+        return None;
+    };
+    match origin.tool {
+        crate::sidebar::ToolWindow::Inbox => Some(PreviewSlot::Inbox),
+        crate::sidebar::ToolWindow::RecentRuns => Some(PreviewSlot::Recent),
+        _ => None,
+    }
+}
+
+/// EXP-1250 — the tab a list step REPLACES: the one that list's previous
+/// step opened (its explicit slot marker), instead of growing the strip by
+/// one chip per step. `None` = push a new tab (which becomes the slot). An
+/// existing tab for the SAME work is found before this and simply focused.
+/// Pure.
+fn preview_slot(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+    let key = preview_slot_key(pending)?;
+    tabs.iter().position(|tab| tab.slot == Some(key))
+}
+
+/// EXP-1250 — a navigation lands on a tab that ALREADY holds the work. A
+/// list step (a preview origin) keeps the tab's own list and slot, mirroring
+/// the web's `nextFrom`: a tab opened from a board and focused from the Inbox
+/// stays a board tab and never becomes the Inbox slot. Any other real
+/// navigation refreshes the list (latest wins); an explicit non-list origin
+/// or a rail open promotes a slot tab to a kept one. Pure.
+fn focus_existing_tab(tab: &mut TabEntry, pending: Option<&PendingOrigin>, derived: Option<TabOrigin>) {
+    if preview_slot_key(pending).is_some() {
+        return;
+    }
+    tab.origin = resolve_tab_origin(pending, tab.origin.as_ref(), derived);
+    if matches!(
+        pending,
+        Some(PendingOrigin::Explicit(_)) | Some(PendingOrigin::Rail)
+    ) {
+        tab.slot = None;
+    }
+}
+
+/// EXP-1248 — the tab a Stack card pick rebinds IN PLACE: the one showing
+/// the screen being replaced. Pure.
+fn replaced_tab(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+    let Some(PendingOrigin::ReplaceTab(from)) = pending else {
+        return None;
+    };
+    tabs.iter().position(|tab| tab.holds(from))
+}
+
+/// EXP-1248 — point `tab` at `screen` (a fresh issue binding, no run), keeping
+/// its list and slot. Returns the old entry so the caller forgets its state.
+fn rebind_tab(tab: &mut TabEntry, screen: Screen, issue_id: Option<String>) -> TabEntry {
+    let mut fresh = TabEntry::new(screen, tab.origin.clone(), issue_id);
+    fresh.slot = tab.slot;
+    std::mem::replace(tab, fresh)
+}
+
 /// EXP-923 — the tabs a MERGE end takes with it: the ones bound to a run in
 /// `merged`, plus every tab on the same ISSUE (the issue's own tab, which
 /// would otherwise sit there over a done issue whose branch is gone). Every
@@ -657,7 +751,9 @@ fn resolve_tab_origin(
     match pending {
         None => existing.cloned(),
         Some(PendingOrigin::Explicit(origin)) => Some(origin.clone()),
-        Some(PendingOrigin::Derive) => derived.or_else(|| existing.cloned()),
+        Some(PendingOrigin::Derive) | Some(PendingOrigin::ReplaceTab(_)) => {
+            derived.or_else(|| existing.cloned())
+        }
         // EXP-923: the rail's Running rows lend no list either.
         Some(PendingOrigin::Rail) | Some(PendingOrigin::LiveRail) => None,
     }
@@ -1196,8 +1292,11 @@ pub struct ScreensPanel {
     /// as of the last tick — those move with the clock, not with a row.
     live_chip_facts: Vec<(String, crate::queries::LiveSig)>,
     _live_tick: gpui::Task<()>,
-    /// The team the tabs belong to — a switch drops them.
+    /// The team the strip's tabs belong to ([`crate::navigation::tabs_team_id`]).
     tabs_team: Option<String>,
+    /// EXP-1250: the OTHER teams' tabs, parked on a team switch and restored
+    /// on the way back ([`swap_team_tabs`]) — a switch never drops a tab.
+    parked_tabs: HashMap<String, Vec<TabEntry>>,
     /// The screen shown at the last nav notify (EXP-369): the panes are
     /// long-lived, so a transition INTO one is the only "opened" signal a
     /// pane that fetches server-only data gets.
@@ -1227,23 +1326,26 @@ pub struct ScreensPanel {
 /// than beside [`TabFace`].
 ///
 /// Doubles as the `EXP_DEV_RUN_FACE` dev hook (§11.4 headless verification,
-/// the `EXP_DEV_*` family): `diff`/`changes` opens a run on its Changes face
-/// and `results` on its Results face, so the capture lane photographs either
+/// the `EXP_DEV_*` family): `guide` (and the legacy `results`/`diff`/
+/// `changes`) opens a run on its Guide, so the capture lane photographs it
 /// without synthetic input; anything else, and the absence of the var, is
-/// the transcript.
+/// the transcript. EXP-1251: the Guide's diff pages are the Guide's own
+/// state ([`crate::steer_viewer::SteerSessionView::open_guide_page`]).
+/// Wave D: `guide-all` opens the Guide AND its complete diff page (the web
+/// `?view=guide&section=all`), which is what the run-changes capture shoots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunFace {
     Run,
-    Diff,
-    Results,
+    Guide,
 }
 
 /// Pure over the env value, so the mapping is a unit test rather than a
 /// capture run.
 pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
     match value.map(str::trim) {
-        Some("diff") | Some("changes") => Some(RunFace::Diff),
-        Some("results") => Some(RunFace::Results),
+        Some("guide") | Some("guide-all") | Some("results") | Some("diff") | Some("changes") => {
+            Some(RunFace::Guide)
+        }
         Some("run") | Some("transcript") => Some(RunFace::Run),
         _ => None,
     }
@@ -1251,6 +1353,17 @@ pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
 
 fn dev_run_face() -> Option<RunFace> {
     parse_run_face(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
+}
+
+/// Wave D: the Guide page `EXP_DEV_RUN_FACE` lands on — `guide-all` = the
+/// complete diff ([`crate::session_results::GuidePage::All`]); every other
+/// value stays on the Guide itself.
+pub(crate) fn parse_dev_guide_page(value: Option<&str>) -> Option<crate::session_results::GuidePage> {
+    (value.map(str::trim) == Some("guide-all")).then_some(crate::session_results::GuidePage::All)
+}
+
+fn dev_guide_page() -> Option<crate::session_results::GuidePage> {
+    parse_dev_guide_page(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
 }
 
 /// EXP-1175 — `EXP_DEV_SHOW_WORK=1` opens every Run face on the full
@@ -1401,6 +1514,7 @@ impl ScreensPanel {
                 }
             }),
             tabs_team: None,
+            parked_tabs: HashMap::new(),
             active_screen: None,
             slot_width: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             resize_drag: None,
@@ -1414,15 +1528,12 @@ impl ScreensPanel {
         // opens straight onto the Inbox shows no entry animation (the shell
         // does the same for a window opening into Settings).
         this.side_anim = SwapAnim::new(this.current_side(window, cx));
-        // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=changes|
-        // results` opens the issue tab on that face, so a capture run reaches
-        // the review of a PR (its Changes face) without synthetic input.
-        if let Some((issue_id, face)) = crate::navigation::dev_issue_face() {
-            this.issue_detail.update(cx, |detail, cx| match face {
-                RunFace::Diff => detail.set_changes_open_for(Some(issue_id), cx),
-                RunFace::Results => detail.set_results_open_for(Some(issue_id), cx),
-                RunFace::Run => {}
-            });
+        // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=guide`
+        // opens the issue tab on its Guide, so a capture run reaches the
+        // review of a PR without synthetic input.
+        if let Some(issue_id) = crate::navigation::dev_issue_face() {
+            this.issue_detail
+                .update(cx, |detail, cx| detail.set_guide_open_for(Some(issue_id), cx));
         }
         this
     }
@@ -1502,8 +1613,9 @@ impl ScreensPanel {
         });
     }
 
-    /// Reconcile tabs with the navigation state: drop tabs on a team
-    /// switch, open (or keep) a tab for the active DETAIL screen, and
+    /// Reconcile tabs with the navigation state: swap the strip to the new
+    /// team's tabs on a team switch (EXP-1250: parked, never dropped), open
+    /// (or keep) a tab for the active DETAIL screen, and
     /// re-point the shared views at it. Runs in observers (never
     /// mid-render). MUST never call `activate_tool`/`select_*` — the rail
     /// observer + this nav observer would feed back.
@@ -1513,7 +1625,9 @@ impl ScreensPanel {
         // unconditionally, so a marker left by a navigation that never
         // reached its issue can't survive to the next one.
         let mut pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
-        let team = active_team_id(&self.nav, cx);
+        // EXP-1250: the window's CHOSEN team — `active_team_id`'s fallback
+        // (its row still syncing) never counts as a switch.
+        let team = crate::navigation::tabs_team_id(&self.nav, cx);
         if team != self.tabs_team {
             // EXP-1192: a window that opened on a detail BEFORE its team
             // synced (a dev-seeded launch) rebuilds that tab below — it keeps
@@ -1523,25 +1637,25 @@ impl ScreensPanel {
                     .and_then(|screen| self.origin_of(&screen))
                     .map(PendingOrigin::Explicit);
             }
-            // Dropping the tabs tears the issue detail down without a blur —
+            // Parking the tabs tears the issue detail down without a blur —
             // flush a pending description edit first (EXP-68).
             self.issue_detail
                 .update(cx, |detail, cx| detail.flush_description(cx));
+            // EXP-1250: the leaving team's tabs are PARKED and the arriving
+            // team's come back (EXP-769: terminals stay put throughout).
+            let previous = self.tabs_team.take();
+            let tabs = std::mem::take(&mut self.tabs);
+            self.tabs =
+                swap_team_tabs(tabs, &mut self.parked_tabs, previous.as_deref(), team.as_deref());
             self.tabs_team = team;
-            // EXP-769: terminal tabs SURVIVE a team switch — a PTY is not
-            // team-scoped, and dropping its chip would orphan a running shell
-            // (the manager would keep it alive, invisibly). Everything else
-            // is team data and goes.
-            self.tabs
-                .retain(|tab| matches!(tab.screen, Screen::Terminal { .. }));
             self.pending_run_face = None;
             self.tabless = None;
-            // EXP-746: the session views go with their tabs (a dropped tab
-            // must not keep a relay socket or an engine drain alive).
+            // EXP-746: the session views go (a parked tab must not keep a
+            // relay socket or an engine drain alive); they rebuild lazily
+            // when their tab is activated again.
             self.shutdown_all_sessions(cx);
-            // EXP-894: the per-tab drafts go with their tabs.
-            self.issue_detail
-                .update(cx, |detail, _| detail.clear_tab_states());
+            // EXP-894/EXP-1250: the per-tab drafts stay stashed: their tabs
+            // are parked, not closed, and come back with them.
             // The sidebar selections are team-scoped too (trunk-relative
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
@@ -1622,12 +1736,9 @@ impl ScreensPanel {
         match existing {
             Some(ix) => {
                 // Dedupe keeps ONE tab; a real re-navigation refreshes its
-                // list (LATEST wins), a plain activation keeps it.
-                self.tabs[ix].origin = resolve_tab_origin(
-                    pending_origin.as_ref(),
-                    self.tabs[ix].origin.as_ref(),
-                    derived,
-                );
+                // list (LATEST wins), a plain activation or a list step
+                // keeps it (EXP-1250).
+                focus_existing_tab(&mut self.tabs[ix], pending_origin.as_ref(), derived);
                 self.tabs[ix].screen = screen.clone();
                 if self.tabs[ix].issue_id.is_none() {
                     self.tabs[ix].issue_id = issue_of_screen.clone();
@@ -1638,11 +1749,27 @@ impl ScreensPanel {
             }
             None if opens_no_tab => {}
             None => {
-                self.tabs.push(TabEntry::new(
-                    screen.clone(),
-                    resolve_tab_origin(pending_origin.as_ref(), None, derived),
-                    issue_of_screen.clone(),
-                ));
+                if let Some(ix) = replaced_tab(&self.tabs, pending_origin.as_ref()) {
+                    // EXP-1248: a Stack card pick swaps the tab's issue.
+                    let replaced = rebind_tab(&mut self.tabs[ix], screen.clone(), issue_of_screen.clone());
+                    self.forget_tab(&replaced, cx);
+                } else {
+                    let mut entry = TabEntry::new(
+                        screen.clone(),
+                        resolve_tab_origin(pending_origin.as_ref(), None, derived),
+                        issue_of_screen.clone(),
+                    );
+                    entry.slot = preview_slot_key(pending_origin.as_ref());
+                    match preview_slot(&self.tabs, pending_origin.as_ref()) {
+                        // EXP-1250: the list's preview slot — the step
+                        // replaces the tab the previous step opened.
+                        Some(ix) => {
+                            let replaced = std::mem::replace(&mut self.tabs[ix], entry);
+                            self.forget_tab(&replaced, cx);
+                        }
+                        None => self.tabs.push(entry),
+                    }
+                }
             }
         }
         match screen {
@@ -1980,6 +2107,13 @@ impl ScreensPanel {
         };
         self.pending_run_face = None;
         view.update(cx, |view, cx| view.set_run_face(face, cx));
+        // Wave D (dev): `EXP_DEV_RUN_FACE=guide-all` goes on to the complete
+        // diff page.
+        if face == RunFace::Guide {
+            if let Some(page) = dev_guide_page() {
+                view.update(cx, |view, cx| view.open_guide_page(page, cx));
+            }
+        }
     }
 
     /// EXP-923: mark the tabs whose run is live ([`live_tab_plan`]) — it
@@ -2517,7 +2651,8 @@ impl ScreensPanel {
         let mut strip = h_flex()
             .id("center-tab-strip")
             .max_w_full()
-            .gap(px(STRIP_GAP))
+            // EXP-1250: paint the gap the packer measured, so "fits" fits.
+            .gap(px(chip_gap(window)))
             .items_center();
         for pos in 0..top.len() {
             if shown.contains(&pos) {
@@ -2579,13 +2714,13 @@ impl ScreensPanel {
             // used to lose to the Linux WM window menu; the strip's
             // `app_title_bar::interactive` wrapper now swallows the press that
             // popped it (EXP-294).
-            .context_menu({
+            .pointer_context_menu({
                 let panel = panel.clone();
                 move |menu, _window, _cx| {
                     let close = panel.clone();
                     let close_others = panel.clone();
                     let close_all = panel.clone();
-                    let menu = menu.item(PopupMenuItem::new("Close").on_click(
+                    let menu = menu.item(crate::controls::pointer_label_item("Close", false).on_click(
                         move |_, window, cx| {
                             let _ = close.update(cx, |this, cx| {
                                 this.close_tab(ix, window, cx);
@@ -2593,15 +2728,14 @@ impl ScreensPanel {
                         },
                     ));
                     menu.item(
-                        PopupMenuItem::new("Close others")
-                            .disabled(tab_count <= 1)
+                        crate::controls::pointer_label_item("Close others", tab_count <= 1)
                             .on_click(move |_, window, cx| {
                                 let _ = close_others.update(cx, |this, cx| {
                                     this.close_other_tabs(ix, window, cx);
                                 });
                             }),
                     )
-                    .item(PopupMenuItem::new("Close all").on_click(move |_, window, cx| {
+                    .item(crate::controls::pointer_label_item("Close all", false).on_click(move |_, window, cx| {
                         let _ = close_all.update(cx, |this, cx| {
                             this.close_all_tabs(window, cx);
                         });
@@ -2685,17 +2819,17 @@ impl ScreensPanel {
             })
             .collect();
         let panel = cx.entity().downgrade();
-        Button::new(id)
+        let trigger = Button::new(id)
             .ghost().cursor_pointer()
             .xsmall()
             .label(format!("+{}", hidden_entries.len()))
-            .tooltip("More tabs")
-            .dropdown_menu(move |mut menu, _window, cx| {
+            .tooltip("More tabs");
+        crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, cx| {
                 menu = menu.scrollable(true).max_h(px(320.));
                 for (screen, lead, title) in &hidden_entries {
                     let panel = panel.clone();
                     let screen = screen.clone();
-                    let mut item = PopupMenuItem::new(title.clone());
+                    let mut item = crate::controls::pointer_label_item(title.clone(), false);
                     if let Some(icon) = lead.icon(cx) {
                         item = item.icon(icon);
                     }
@@ -2818,12 +2952,12 @@ impl ScreensPanel {
                 if let Screen::Terminal { .. } = &screen {
                     let terminal = screen.clone();
                     let panel = panel.clone();
-                    return chip.context_menu(move |menu, _window, _cx| {
+                    return chip.pointer_context_menu(move |menu, _window, _cx| {
                         let undock = panel.clone();
                         let undock_screen = terminal.clone();
                         let close = panel.clone();
                         let close_screen = terminal.clone();
-                        menu.item(PopupMenuItem::new("Open in new window").on_click(
+                        menu.item(crate::controls::pointer_label_item("Open in new window", false).on_click(
                             move |_, window, cx| {
                                 let _ = undock.update(cx, |this, cx| {
                                     if let Some(ix) = this
@@ -2836,7 +2970,7 @@ impl ScreensPanel {
                                 });
                             },
                         ))
-                        .item(PopupMenuItem::new("Close").on_click(move |_, window, cx| {
+                        .item(crate::controls::pointer_label_item("Close", false).on_click(move |_, window, cx| {
                             let _ = close.update(cx, |this, cx| {
                                 this.close_screen_tab_killing(&close_screen, window, cx);
                             });
@@ -2983,7 +3117,7 @@ impl ScreensPanel {
         // already showing its rows. A no-op while nothing changed; never
         // called for `None`, so an outgoing list keeps its rows through its
         // slide out.
-        if let Some(kind @ (SecondSidebar::Inbox | SecondSidebar::Reviews)) = side {
+        if let Some(kind @ SecondSidebar::Inbox) = side {
             let tab = self.side_inbox_tab(kind, cx);
             self.side_list
                 .update(cx, |list, cx| list.set_side(kind, tab, cx));
@@ -3025,7 +3159,7 @@ impl ScreensPanel {
     /// load-bearing for entity children (the dock wrapper's flex-child rule).
     fn side_child(&self, kind: SecondSidebar, width: f32) -> gpui::AnyElement {
         let child = match kind {
-            SecondSidebar::Inbox | SecondSidebar::Reviews => {
+            SecondSidebar::Inbox => {
                 self.side_list.clone().into_any_element()
             }
             SecondSidebar::RecentRuns => self.recent_runs.clone().into_any_element(),
@@ -3929,10 +4063,10 @@ impl Render for ScreensPanel {
 }
 
 /// EXP-1192: the resize panel (and remembered width) of each second sidebar
-/// — the Inbox and Reviews share the `list` column, Recent runs has its own.
+/// — the Inbox owns the `list` column, Recent runs has its own.
 fn side_panel(kind: SecondSidebar) -> crate::resize_edge::SidebarPanel {
     match kind {
-        SecondSidebar::Inbox | SecondSidebar::Reviews => crate::resize_edge::SidebarPanel::List,
+        SecondSidebar::Inbox => crate::resize_edge::SidebarPanel::List,
         SecondSidebar::RecentRuns => crate::resize_edge::SidebarPanel::Recent,
     }
 }
@@ -4000,14 +4134,13 @@ mod tests {
         takes_over_tab, ChipLead, DevDialog, RunFace, DEV_DIALOG_SPECS,
     };
 
-    /// EXP-1192: the Inbox and Reviews sidebars share the `list` column's
-    /// remembered width; Recent runs keeps its own.
+    /// EXP-1192: the Inbox sidebar keeps the `list` column's remembered
+    /// width; Recent runs keeps its own.
     #[test]
     fn each_second_sidebar_resizes_its_panel() {
         use crate::navigation::SecondSidebar;
         use crate::resize_edge::SidebarPanel;
         assert_eq!(side_panel(SecondSidebar::Inbox), SidebarPanel::List);
-        assert_eq!(side_panel(SecondSidebar::Reviews), SidebarPanel::List);
         assert_eq!(side_panel(SecondSidebar::RecentRuns), SidebarPanel::Recent);
     }
 
@@ -4021,7 +4154,6 @@ mod tests {
         assert_eq!(side_slot_width(None, 1200.), 0.);
         for kind in [
             SecondSidebar::Inbox,
-            SecondSidebar::Reviews,
             SecondSidebar::RecentRuns,
         ] {
             for extent in [400., 800., 1200., 3000.] {
@@ -4053,16 +4185,25 @@ mod tests {
         assert!(!DEV_DIALOG_SPECS.contains("create-issue"));
     }
 
-    /// EXP-895/EXP-879 (dev): `EXP_DEV_RUN_FACE` opens a run on its Changes
-    /// or its Results face, so the capture lane photographs either without
-    /// synthetic input. Unset — and anything unrecognised — leaves the
-    /// transcript up.
+    /// EXP-895/EXP-879/EXP-1251 (dev): `EXP_DEV_RUN_FACE` opens a run on its
+    /// Guide (the legacy Changes/Results words included), so the capture
+    /// lane photographs it without synthetic input. Unset — and anything
+    /// unrecognised — leaves the transcript up.
     #[test]
-    fn the_dev_run_face_opens_the_diff() {
-        assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Diff));
-        assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Diff));
-        assert_eq!(parse_run_face(Some("results")), Some(RunFace::Results));
-        assert_eq!(parse_run_face(Some(" results ")), Some(RunFace::Results));
+    fn the_dev_run_face_opens_the_guide() {
+        assert_eq!(parse_run_face(Some("guide")), Some(RunFace::Guide));
+        // Wave D: `guide-all` = the Guide's complete diff page.
+        assert_eq!(parse_run_face(Some("guide-all")), Some(RunFace::Guide));
+        assert_eq!(
+            super::parse_dev_guide_page(Some(" guide-all ")),
+            Some(crate::session_results::GuidePage::All)
+        );
+        assert_eq!(super::parse_dev_guide_page(Some("guide")), None);
+        assert_eq!(super::parse_dev_guide_page(None), None);
+        assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some("results")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some(" results ")), Some(RunFace::Guide));
         assert_eq!(parse_run_face(Some("run")), Some(RunFace::Run));
         assert_eq!(parse_run_face(Some("transcript")), Some(RunFace::Run));
         assert_eq!(parse_run_face(Some("")), None);
@@ -4070,9 +4211,11 @@ mod tests {
         assert_eq!(parse_run_face(None), None);
     }
     use super::{
-        live_tab_plan, opens_no_tab, tabs_closed_by_merge, LivePlanOp, TabEntry, TabLiveView,
-        TablessWork,
+        focus_existing_tab, live_tab_plan, opens_no_tab, preview_slot, preview_slot_key,
+        rebind_tab, replaced_tab, swap_team_tabs, tabs_closed_by_merge, LivePlanOp,
+        PreviewSlot, TabEntry, TabLiveView, TablessWork,
     };
+    use std::collections::HashMap;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
     use crate::sidebar::ToolWindow;
 
@@ -4084,6 +4227,169 @@ mod tests {
         }
     }
 
+    fn issue_tab(id: &str, origin: Option<TabOrigin>) -> TabEntry {
+        TabEntry::new(
+            Screen::IssueDetail {
+                issue_id: id.to_string(),
+            },
+            origin,
+            None,
+        )
+    }
+
+    fn tab_ids(tabs: &[TabEntry]) -> Vec<String> {
+        tabs.iter()
+            .map(|tab| tab.issue_id.clone().unwrap_or_default())
+            .collect()
+    }
+
+    /// EXP-1250: a team switch PARKS the strip and the way back RESTORES it,
+    /// in order; the other team's tabs never leak across.
+    #[test]
+    fn a_team_switch_and_back_restores_the_tabs() {
+        let mut parked = HashMap::new();
+        let team_a = vec![issue_tab("a1", None), issue_tab("a2", Some(origin(ToolWindow::Inbox)))];
+        let on_b = swap_team_tabs(team_a, &mut parked, Some("A"), Some("B"));
+        assert!(on_b.is_empty(), "B has no tabs yet");
+        let on_b = vec![issue_tab("b1", None)];
+        let back_on_a = swap_team_tabs(on_b, &mut parked, Some("B"), Some("A"));
+        assert_eq!(tab_ids(&back_on_a), ["a1", "a2"]);
+        assert_eq!(
+            back_on_a[1].origin.as_ref().map(|origin| origin.tool),
+            Some(ToolWindow::Inbox),
+            "a tab keeps its list across the round trip"
+        );
+        let again_on_b = swap_team_tabs(back_on_a, &mut parked, Some("A"), Some("B"));
+        assert_eq!(tab_ids(&again_on_b), ["b1"]);
+        // The first sync (no team before) parks nothing.
+        let mut fresh = HashMap::new();
+        let first = swap_team_tabs(vec![issue_tab("x", None)], &mut fresh, None, Some("A"));
+        assert!(first.is_empty());
+        assert!(fresh.is_empty());
+    }
+
+    /// The `sync_tabs` None-arm for a list step, minus the views: replace the
+    /// list's slot tab or push a new one that becomes the slot.
+    fn open_new(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
+        let origin = match pending {
+            PendingOrigin::Explicit(origin) => Some(origin.clone()),
+            _ => None,
+        };
+        let mut entry = issue_tab(id, origin);
+        entry.slot = preview_slot_key(Some(pending));
+        match preview_slot(tabs, Some(pending)) {
+            Some(ix) => tabs[ix] = entry,
+            None => tabs.push(entry),
+        }
+    }
+
+    /// The whole lookup: an existing tab for the work is focused, else a new
+    /// one opens (into a slot when the origin has one).
+    fn open(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
+        match tabs.iter().position(|tab| tab.issue_id.as_deref() == Some(id)) {
+            Some(ix) => focus_existing_tab(&mut tabs[ix], Some(pending), None),
+            None => open_new(tabs, id, pending),
+        }
+    }
+
+    fn inbox_tab(tab: crate::sidebar::InboxTab) -> PendingOrigin {
+        PendingOrigin::Explicit(TabOrigin {
+            tool: ToolWindow::Inbox,
+            board_id: None,
+            inbox_tab: Some(tab),
+        })
+    }
+
+    /// EXP-1250: N issues opened from the Inbox list = ONE tab (the preview
+    /// slot is replaced in place); any other open still pushes its own.
+    #[test]
+    fn n_inbox_opens_keep_one_tab() {
+        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
+        let mut tabs: Vec<TabEntry> = vec![issue_tab("pinned", None)];
+        for id in ["i1", "i2", "i3", "i4"] {
+            open(&mut tabs, id, &inbox);
+        }
+        assert_eq!(tab_ids(&tabs), ["pinned", "i4"]);
+        // A derived or rail open is not a list step: it pushes.
+        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Derive)), None);
+        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Rail)), None);
+        assert_eq!(preview_slot(&tabs, None), None);
+        // My Issues is the same LIST slot as the notifications.
+        open(&mut tabs, "m1", &inbox_tab(crate::sidebar::InboxTab::MyIssues));
+        assert_eq!(tab_ids(&tabs), ["pinned", "m1"]);
+        // Agent › Recent has its OWN slot: stepping it keeps one more tab,
+        // and never replaces the Inbox's.
+        let recent = PendingOrigin::Explicit(origin(ToolWindow::RecentRuns));
+        for id in ["r1", "r2", "r3"] {
+            open(&mut tabs, id, &recent);
+        }
+        assert_eq!(tab_ids(&tabs), ["pinned", "m1", "r3"]);
+        assert_eq!(tabs[1].slot, Some(PreviewSlot::Inbox));
+        assert_eq!(tabs[2].slot, Some(PreviewSlot::Recent));
+        open(&mut tabs, "i5", &inbox);
+        assert_eq!(tab_ids(&tabs), ["pinned", "i5", "r3"]);
+    }
+
+    /// EXP-1250 (web: "focuses an existing tab for the issue and keeps its
+    /// origin"): an Inbox pick for work a board tab already shows focuses
+    /// that tab WITHOUT making it the slot, so the next Inbox step opens its
+    /// own tab instead of closing the board one.
+    #[test]
+    fn an_inbox_pick_on_an_open_tab_keeps_its_origin_and_never_makes_it_the_slot() {
+        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
+        let board = TabOrigin {
+            tool: ToolWindow::BoardIssues,
+            board_id: Some("b".into()),
+            inbox_tab: None,
+        };
+        let mut tabs = vec![issue_tab("exp-1", Some(board.clone()))];
+        open(&mut tabs, "exp-1", &inbox);
+        assert_eq!(tabs[0].origin, Some(board));
+        assert_eq!(tabs[0].slot, None);
+        open(&mut tabs, "exp-2", &inbox);
+        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2"]);
+        // A derived Inbox origin is never the slot either: only a tab the
+        // list step itself opened is.
+        let mut derived = vec![issue_tab("d", Some(origin(ToolWindow::Inbox)))];
+        open(&mut derived, "exp-3", &inbox);
+        assert_eq!(tab_ids(&derived), ["d", "exp-3"]);
+        // An explicit non-list open of the slot's work promotes it to a kept
+        // tab: the next step pushes again.
+        open(&mut tabs, "exp-2", &PendingOrigin::Rail);
+        assert_eq!(tabs[1].slot, None);
+        open(&mut tabs, "exp-4", &inbox);
+        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2", "exp-4"]);
+    }
+
+    /// EXP-1248: stepping through a Stack card rebinds the ONE tab in place
+    /// (its list and slot survive), never a chip per member.
+    #[test]
+    fn a_stack_pick_keeps_one_tab() {
+        let inbox = origin(ToolWindow::Inbox);
+        let mut tabs = vec![issue_tab("other", None), issue_tab("exp-10", Some(inbox.clone()))];
+        tabs[1].run_id = Some("run-10".into());
+        tabs[1].slot = Some(PreviewSlot::Inbox);
+        for (from, to) in [("exp-10", "exp-11"), ("exp-11", "exp-12")] {
+            let pending = PendingOrigin::ReplaceTab(Screen::IssueDetail {
+                issue_id: from.to_string(),
+            });
+            let ix = replaced_tab(&tabs, Some(&pending)).expect("the tab on show");
+            let old = rebind_tab(
+                &mut tabs[ix],
+                Screen::IssueDetail {
+                    issue_id: to.to_string(),
+                },
+                Some(to.to_string()),
+            );
+            assert_eq!(old.issue_id.as_deref(), Some(from));
+        }
+        assert_eq!(tab_ids(&tabs), ["other", "exp-12"]);
+        assert_eq!(tabs[1].origin, Some(inbox));
+        assert_eq!(tabs[1].slot, Some(PreviewSlot::Inbox));
+        assert_eq!(tabs[1].run_id, None, "the old member's run binding goes");
+        assert_eq!(replaced_tab(&tabs, Some(&PendingOrigin::Derive)), None);
+    }
+
     /// EXP-851: which list a tab ends up with. A REAL navigation re-derives
     /// (latest wins), an explicit marker overrides, and a screen change that
     /// is not a navigation at all — a tab click, a go-back, the reactivation
@@ -4092,7 +4398,7 @@ mod tests {
     /// tab keeps its origin, and the card reads the sidebar off it.
     #[test]
     fn a_tab_keeps_its_list_unless_a_navigation_says_otherwise() {
-        let reviews = origin(ToolWindow::Reviews);
+        let reviews = origin(ToolWindow::RecentRuns);
         let inbox = origin(ToolWindow::Inbox);
         // Tab click / go-back: no marker, the tab keeps what it has.
         assert_eq!(
@@ -4315,7 +4621,7 @@ mod tests {
         assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, false));
         assert!(!opens_no_tab(Some(&PendingOrigin::Derive), None, false));
         assert!(!opens_no_tab(
-            Some(&PendingOrigin::Explicit(origin(ToolWindow::Reviews))),
+            Some(&PendingOrigin::Explicit(origin(ToolWindow::RecentRuns))),
             None,
             false
         ));

@@ -172,23 +172,23 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────
-        // EXP-1154: a Reviews row opens the issue's Work screen on its
-        // Changes face (the diff over `[files][Merge PR]`). The file list
-        // comes from GitHub via issues.prFiles — the seed points APP-14 at a
-        // real public PR so there is an actual diff to show.
+        // EXP-1251: a Reviews row opens the issue's Work screen on its Guide;
+        // its Changes row opens the diff as the section page (the cards over
+        // `[files][Merge PR]`). The file list comes from GitHub via
+        // issues.prFiles — the seed points APP-14 at a real public PR so
+        // there is an actual diff to show.
         let reviewsTab = app.buttons["tab-reviews"]
         XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
         reviewsTab.tap()
-        let reviewRow = app.staticTexts[Self.reviewTitle].firstMatch
+        let reviewPr = reviewRow(app, titled: Self.reviewTitle)
         XCTAssertTrue(
-            reviewRow.waitForExistence(timeout: 60),
+            reviewPr.waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded open PRs"
         )
-        reviewRow.tap()
-        let fileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
-        XCTAssertTrue(
-            fileRows.firstMatch.waitForExistence(timeout: 60),
-            "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
+        reviewPr.tap()
+        openGuideDiff(
+            app,
+            failure: "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
         )
         // EXP-916: every file card starts OPEN (only a huge one folds itself
         // away), so the shot already shows patches rather than a filename list.
@@ -237,5 +237,49 @@ final class StoreScreenshots: XCTestCase {
         snapshot("01_board", settle: 2, popRects: app)
 
         finished = true
+    }
+
+    /// A Reviews row by its title. EXP-1248: a row is a plain Button over
+    /// `PrRow`, which COMBINES its texts into one element, so the title is no
+    /// standalone staticText: match the button whose label contains it.
+    @MainActor
+    private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+    }
+
+    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
+    /// file cards: open the diff (the first Changes row, else Show complete
+    /// diff) as the section page and wait for its file cards.
+    /// The Guide body is a LazyVStack: a row below the fold is not in the
+    /// accessibility tree until it scrolls on screen. Swipe up until one of
+    /// `rows` exists or the deadline passes (a loading Guide just keeps
+    /// waiting; the swipes are harmless on a short page).
+    @MainActor
+    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
+        while Date() < deadline && !rows.contains(where: { $0.exists }) {
+            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
+            app.swipeUp()
+        }
+    }
+
+    @MainActor
+    private func openGuideDiff(_ app: XCUIApplication, failure: String) {
+        let changesRow = anyElement(app, identified: "guide-changes-row")
+        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
+        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
+        if changesRow.exists {
+            changesRow.tap()
+        } else {
+            XCTAssertTrue(completeDiff.exists, failure)
+            completeDiff.tap()
+        }
+        XCTAssertTrue(
+            anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
+            "The Guide section page did not open"
+        )
+        XCTAssertTrue(
+            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
+            failure
+        )
     }
 }

@@ -285,8 +285,8 @@ run `bun test`.\n"
             "exponential_sessions_message",
             "exponential_sessions_end",
             "exponential_sessions_ask_parent",
-            // EXP-879: the run publishes pictures of its own work.
-            "exponential_sessions_results",
+            // EXP-879/1251: the run publishes its Guide (pictures included).
+            "exponential_sessions_guide",
             // EXP-1172: and shows each visible change while it works.
             "exponential_sessions_show",
         ] {

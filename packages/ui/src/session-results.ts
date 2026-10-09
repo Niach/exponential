@@ -1,5 +1,6 @@
 // EXP-879: a coding run's published RESULTS — the screenshots the agent filed
-// with `exponential_sessions_results` while it worked, read off the synced
+// with `exponential_sessions_guide` (EXP-1251, alias
+// `exponential_sessions_results`) while it worked, read off the synced
 // `coding_sessions.results` jsonb.
 //
 // The blob is a FLAT, ORDERED list: `{ topic, label, attachmentId, width,
@@ -11,6 +12,8 @@
 // These are the PURE rules every client mirrors byte for byte: desktop
 // `crates/ui/src/session_results.rs`, iOS `ExpCore/Domain/SessionResults.swift`,
 // Android `domain/SessionResults.kt` — same names, same order, same test names.
+
+import { contract } from "@exp/domain-contract"
 
 /** The cap the server enforces on a single run's list. */
 export const MAX_SESSION_RESULTS = 60
@@ -128,6 +131,9 @@ export interface SessionResultGroup {
   /** EXP-1154: the repo paths the topic's report touched, off the SAME entry
    *  its text came from (trimmed, deduped first-seen, capped); empty without. */
   files: string[]
+  /** EXP-1251: the PR the topic belongs to (its text entry's `prUrl`); absent
+   *  or null = every PR of the run. */
+  prUrl?: string | null
 }
 
 /** EXP-1154: the most paths one topic lists (fixture `files.maxFiles`). */
@@ -158,25 +164,6 @@ function foldInline(groups: SessionResultGroup[]): SessionResultGroup[] {
   return groups
 }
 
-/** Groups by topic in FIRST-SEEN order, keeping each group's entries in the
- *  order the agent published them. Pictures only: `text` stays null. */
-export function groupSessionResults(
-  entries: readonly SessionResultEntry[]
-): SessionResultGroup[] {
-  const groups: SessionResultGroup[] = []
-  const byTopic = new Map<string, SessionResultGroup>()
-  for (const entry of entries) {
-    let group = byTopic.get(entry.topic)
-    if (!group) {
-      group = { topic: entry.topic, text: null, entries: [], earlier: [], files: [] }
-      byTopic.set(entry.topic, group)
-      groups.push(group)
-    }
-    group.entries.push(entry)
-  }
-  return foldInline(groups)
-}
-
 /**
  * EXP-933: the Results face as a REPORT — pictures AND each topic's text
  * (`{topic, label: null, attachmentId: null, text}`), grouped in FIRST-SEEN
@@ -190,7 +177,7 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
   const open = (topic: string) => {
     let group = byTopic.get(topic)
     if (!group) {
-      group = { topic, text: null, entries: [], earlier: [], files: [] }
+      group = { topic, text: null, entries: [], earlier: [], files: [], prUrl: null }
       byTopic.set(topic, group)
       groups.push(group)
     }
@@ -212,6 +199,7 @@ export function parseSessionResultGroups(raw: unknown): SessionResultGroup[] {
     if (group.text === null) {
       group.text = body
       group.files = resultFiles(record.files)
+      group.prUrl = text(record.prUrl)
     }
   }
   return foldInline(groups)
@@ -261,27 +249,170 @@ export function guideSectionCaption(index: number, total: number): string {
   return `${pad(index)} / ${pad(total)}`
 }
 
-export interface GuideFileRowModel {
+// EXP-1251: the Guide's COVERAGE. Each section's ONE `Changes` row counts the
+// diff files its topic names (a path matches a diff file's `path` OR its
+// rename source `previousPath`), every diff file no topic names lands in a
+// trailing automatic section (`Other changes`; with no report at all, ONE
+// `Changes` section holds the whole diff) and `complete` is the `Show
+// complete diff` row. Fixture `session-results.json` `coverage` (×4).
+
+/** The automatic section's title when a report exists. */
+export const GUIDE_OTHER_CHANGES_TOPIC = contract.diffUi.guideOtherChanges
+/** The automatic section's title with no report, and every section's row label. */
+export const GUIDE_CHANGES_TOPIC = contract.diffUi.guideChangesRow
+
+/** What coverage reads off a diff file (the `DiffFile` / `PullFile` subset). */
+export interface GuideCoverageFile {
   path: string
-  counts: { additions: number; deletions: number } | null
+  previousPath?: string | null
+  additions: number
+  deletions: number
 }
 
-/** One row per path in order; counts from the diff file whose path matches
- *  EXACTLY, else null (an unknown path, or no diff loaded). */
-export function guideFileRows(
+export interface GuideChangeSet<F extends GuideCoverageFile = GuideCoverageFile> {
+  files: F[]
+  additions: number
+  deletions: number
+  fileCount: number
+}
+
+export interface GuideCoveredGroup<G, F extends GuideCoverageFile = GuideCoverageFile> {
+  group: G
+  /** null while no diff is loaded: the row is not drawn. */
+  changes: GuideChangeSet<F> | null
+  /** Listed paths the loaded diff does not have (empty without a diff). */
+  missing: string[]
+}
+
+export interface GuideCoverageSection<G, F extends GuideCoverageFile = GuideCoverageFile>
+  extends GuideCoveredGroup<G, F> {
+  /** 1-based; the lead never counts, the automatic section neither. */
+  index: number
+  total: number
+}
+
+export interface GuideCoverage<G, F extends GuideCoverageFile = GuideCoverageFile> {
+  lead: GuideCoveredGroup<G, F> | null
+  sections: GuideCoverageSection<G, F>[]
+  /** The trailing automatic section, unnumbered: null when every file is
+   *  claimed, the diff is empty or not loaded. */
+  other: { topic: string; changes: GuideChangeSet<F> } | null
+  /** Every diff file (the `Show complete diff` row); null without a diff. */
+  complete: GuideChangeSet<F> | null
+}
+
+function changeSet<F extends GuideCoverageFile>(files: F[]): GuideChangeSet<F> {
+  let additions = 0
+  let deletions = 0
+  for (const file of files) {
+    additions += file.additions
+    deletions += file.deletions
+  }
+  return { files, additions, deletions, fileCount: files.length }
+}
+
+/** A Changes row's muted count: `1 file`, `N files`. */
+export function guideFileCountLabel(count: number): string {
+  return count === 1 ? `1 file` : `${count} files`
+}
+
+/** True when a listed path names this diff file (its path or rename source). */
+export function guidePathMatches(path: string, file: GuideCoverageFile): boolean {
+  return file.path === path || (!!file.previousPath && file.previousPath === path)
+}
+
+/** The diff files a topic's paths name, in LISTED order (a file once), plus
+ *  the listed paths no diff file matches. */
+export function guideFilesFor<F extends GuideCoverageFile>(
   paths: readonly string[],
-  diffFiles:
-    | readonly { path: string; additions: number; deletions: number }[]
-    | null
-    | undefined
-): GuideFileRowModel[] {
-  return paths.map((path) => {
-    const file = diffFiles?.find((candidate) => candidate.path === path)
-    return {
-      path,
-      counts: file ? { additions: file.additions, deletions: file.deletions } : null,
+  diffFiles: readonly F[]
+): { files: F[]; missing: string[] } {
+  const files: F[] = []
+  const missing: string[] = []
+  for (const path of paths) {
+    const hits = diffFiles.filter((file) => guidePathMatches(path, file))
+    if (hits.length === 0) {
+      missing.push(path)
+      continue
     }
+    for (const hit of hits) if (!files.includes(hit)) files.push(hit)
+  }
+  return { files, missing }
+}
+
+export function guideCoverage<
+  G extends { topic: string; files?: readonly string[] | null },
+  F extends GuideCoverageFile,
+>(groups: readonly G[], diffFiles: readonly F[] | null | undefined): GuideCoverage<G, F> {
+  const guide = guideSections(groups)
+  const claimed = new Set<F>()
+  const cover = (group: G): GuideCoveredGroup<G, F> => {
+    if (!diffFiles) return { group, changes: null, missing: [] }
+    const { files, missing } = guideFilesFor(group.files ?? [], diffFiles)
+    for (const file of files) claimed.add(file)
+    return { group, changes: changeSet(files), missing }
+  }
+  const lead = guide.lead ? cover(guide.lead) : null
+  const sections = guide.sections.map(({ group, index, total }) => ({
+    ...cover(group),
+    index,
+    total,
+  }))
+  if (!diffFiles) return { lead, sections, other: null, complete: null }
+  const rest = diffFiles.filter((file) => !claimed.has(file))
+  return {
+    lead,
+    sections,
+    other:
+      rest.length > 0
+        ? {
+            topic: groups.length > 0 ? GUIDE_OTHER_CHANGES_TOPIC : GUIDE_CHANGES_TOPIC,
+            changes: changeSet(rest),
+          }
+        : null,
+    complete: changeSet([...diffFiles]),
+  }
+}
+
+// EXP-1251: a run that stacks a second PR scopes its topics: a text entry may
+// carry `prUrl`, and a PR (or the issue that owns it) shows only the topics
+// tagged with it plus the untagged ones. Pictures follow their topic's text.
+// Fixture `session-results.json` `prScope` (×4).
+
+/** A topic's PR tag: its first non-blank text entry's `prUrl`, trimmed. */
+function topicPrUrls(list: readonly Record<string, unknown>[]): Map<string, string> {
+  const tags = new Map<string, string>()
+  const seen = new Set<string>()
+  for (const record of list) {
+    if (picture(record)) continue
+    const topic = text(record.topic)
+    if (!topic || !text(record.text) || seen.has(topic)) continue
+    seen.add(topic)
+    const prUrl = text(record.prUrl)
+    if (prUrl) tags.set(topic, prUrl)
+  }
+  return tags
+}
+
+/** The entries a PR shows: untagged topics and the ones tagged `prUrl`;
+ *  feed the answer to any reader (`parseSessionResultGroups`, …). */
+export function sessionResultsForPr(
+  raw: unknown,
+  prUrl: string | null | undefined
+): Record<string, unknown>[] {
+  const list = records(raw)
+  const tags = topicPrUrls(list)
+  const want = prUrl?.trim() || null
+  return list.filter((record) => {
+    const topic = text(record.topic)
+    const tag = topic ? tags.get(topic) : undefined
+    return !tag || tag === want
   })
+}
+
+/** Every PR url a run's topics are tagged with, first-seen order. */
+export function sessionResultPrUrls(raw: unknown): string[] {
+  return [...new Set(topicPrUrls(records(raw)).values())]
 }
 
 /** True when the blob has anything for the Results face to show. */
@@ -387,6 +518,45 @@ export interface SessionThread {
   reply: string | null
 }
 
+/** A run's thread in publish order, each piece with the server's write stamp
+ *  (`at`, ms; null on an entry filed before EXP-1251). */
+type ThreadPiece =
+  | { item: SessionThreadItem; reply?: undefined; at: number | null }
+  | { item?: undefined; reply: string; at: number | null }
+
+function stampMs(value: unknown): number | null {
+  return typeof value === `number` && Number.isFinite(value) && value > 0 ? value : null
+}
+
+function threadPieces(raw: unknown): ThreadPiece[] {
+  const pieces: ThreadPiece[] = []
+  const seenText = new Set<string>()
+  let replied = false
+  let pictures = 0
+  for (const record of records(raw)) {
+    const at = stampMs(record.at)
+    const entry = picture(record)
+    if (entry) {
+      if (pictures >= MAX_SESSION_RESULTS) continue
+      pictures += 1
+      pieces.push({ item: { kind: `picture`, entry }, at })
+      continue
+    }
+    const topic = text(record.topic)
+    const body = text(record.text)
+    if (!topic || !body) continue
+    if (isSummaryTopic(topic)) {
+      if (!replied) pieces.push({ reply: body, at })
+      replied = true
+      continue
+    }
+    if (seenText.has(topic)) continue
+    seenText.add(topic)
+    pieces.push({ item: { kind: `text`, topic, text: body }, at })
+  }
+  return pieces
+}
+
 /**
  * Array (publish) order, the group reader's tolerance and 60-picture cap: a
  * picture is an item where it sits; a topic's FIRST non-blank text is an item
@@ -396,27 +566,140 @@ export interface SessionThread {
  */
 export function sessionThread(raw: unknown): SessionThread {
   const items: SessionThreadItem[] = []
-  const seenText = new Set<string>()
   let reply: string | null = null
-  let pictures = 0
-  for (const record of records(raw)) {
-    const entry = picture(record)
-    if (entry) {
-      if (pictures >= MAX_SESSION_RESULTS) continue
-      pictures += 1
-      items.push({ kind: `picture`, entry })
-      continue
-    }
-    const topic = text(record.topic)
-    const body = text(record.text)
-    if (!topic || !body) continue
-    if (isSummaryTopic(topic)) {
-      if (reply === null) reply = body
-      continue
-    }
-    if (seenText.has(topic)) continue
-    seenText.add(topic)
-    items.push({ kind: `text`, topic, text: body })
+  for (const piece of threadPieces(raw)) {
+    if (piece.item) items.push(piece.item)
+    else reply = piece.reply
   }
   return { items, reply }
+}
+
+// EXP-1245: the thread as a CONVERSATION of turns, for the run's OWNER (the
+// relay feed is theirs alone): each turn = the person's message that opened
+// it (a bubble), its status row (`startedAt`/`endedAt` feed the per-turn
+// caption) and the results the server stamped (`at`) inside it, the Summary
+// as the reply of the turn that last wrote it. Teammates and an offline host
+// have no feed and keep today's single-row thread. Fixture
+// `session-results.json` `turns` (×4).
+
+/** One relay feed fact the turns read: a person's message or a turn edge. */
+export type SessionTurnEvent =
+  | {
+      kind: `user_message`
+      at: number
+      text: string
+      images?: readonly string[]
+      /** Wave D: the message's file links (name + url), in order. */
+      files?: readonly SessionTurnFile[]
+    }
+  | { kind: `turn`; state: `started` | `ended`; at: number }
+
+export interface SessionTurnFile {
+  name: string
+  url: string
+}
+
+export interface SessionTurnMessage {
+  text: string
+  at: number
+  /** The message's image urls, in order (the bubble shows a thumb). */
+  images: string[]
+  /** Wave D: the file links, present only when the message carried any. */
+  files?: SessionTurnFile[]
+}
+
+export interface SessionTurn {
+  /** The person's message that opened the turn; null for the first turn of
+   *  an issue run (its prompt is the issue) or a turn the agent began. */
+  message: SessionTurnMessage | null
+  /** The turn's `started` edge; null while a sent message waits. */
+  startedAt: number | null
+  /** The turn's `ended` edge (or the next message that cut in); null while live. */
+  endedAt: number | null
+  items: SessionThreadItem[]
+  reply: string | null
+}
+
+export interface SessionTurns {
+  /** False = no feed: ONE turn holding today's thread, drawn under the one
+   *  run-wide status row. */
+  perTurn: boolean
+  turns: SessionTurn[]
+}
+
+function turnBoundary(turn: SessionTurn): number {
+  return turn.message?.at ?? turn.startedAt ?? 0
+}
+
+/**
+ * Walks the feed in time order (ties keep feed order): a message opens a new
+ * turn (closing a still-open one at its time, the new turn starting there
+ * too: the agent never stopped); a `started` edge starts the newest turn when
+ * it has not started yet, else opens a turn with no message; an `ended` edge
+ * ends the open turn. Every result lands in the LAST turn whose boundary
+ * (message time, else start) is at or before its `at`; one without `at`, or
+ * older than the first turn, lands in the first. No usable feed event = one
+ * turn, `perTurn` false.
+ */
+export function sessionTurns(
+  raw: unknown,
+  feed?: readonly SessionTurnEvent[] | null
+): SessionTurns {
+  const events = (feed ?? [])
+    .map((event, order) => ({ event, order }))
+    .filter(({ event }) => Number.isFinite(event.at))
+    .sort((a, b) => a.event.at - b.event.at || a.order - b.order)
+    .map(({ event }) => event)
+  const turns: SessionTurn[] = []
+  const open = () => {
+    const last = turns[turns.length - 1]
+    return last && last.startedAt !== null && last.endedAt === null ? last : null
+  }
+  for (const event of events) {
+    if (event.kind === `user_message`) {
+      const running = open()
+      if (running) running.endedAt = event.at
+      turns.push({
+        message: {
+          text: event.text,
+          at: event.at,
+          images: (event.images ?? []).filter((src) => typeof src === `string` && src),
+          ...(event.files && event.files.length > 0
+            ? { files: [...event.files] }
+            : {}),
+        },
+        startedAt: running ? event.at : null,
+        endedAt: null,
+        items: [],
+        reply: null,
+      })
+      continue
+    }
+    if (event.state === `started`) {
+      const last = turns[turns.length - 1]
+      if (last && last.startedAt === null && last.endedAt === null) last.startedAt = event.at
+      else if (!open()) {
+        turns.push({ message: null, startedAt: event.at, endedAt: null, items: [], reply: null })
+      }
+      continue
+    }
+    const running = open()
+    if (running) running.endedAt = event.at
+  }
+  if (turns.length === 0) {
+    const thread = sessionThread(raw)
+    return {
+      perTurn: false,
+      turns: [{ message: null, startedAt: null, endedAt: null, ...thread }],
+    }
+  }
+  for (const piece of threadPieces(raw)) {
+    let target = turns[0]!
+    if (piece.at !== null) {
+      for (const turn of turns) if (turnBoundary(turn) <= piece.at) target = turn
+    }
+    if (piece.item) target.items.push(piece.item)
+    else target.reply = piece.reply
+  }
+  return { perTurn: true, turns }
 }

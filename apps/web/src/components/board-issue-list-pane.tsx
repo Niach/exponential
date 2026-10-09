@@ -13,10 +13,10 @@ import {
   useIsMobile,
 } from "@exp/ui"
 
-// EXP-818 (the navigation rule, web): an issue opened with no list context of
-// its own brings its BOARD along — so the issue page is a master-detail on md+,
-// the board's list on the left exactly like the Agent page's sessions list and
-// the inbox's stream. Compact by design: status glyph, identifier, title, one
+// EXP-1246: the compact issue list of the list-detail host's Inbox › My
+// Issues pane (`components/team/list-nav.tsx`) — the one sidebar list of
+// issues left (the board's beside-the-issue pane is gone). Compact by
+// design: status glyph, identifier, title, one
 // section per status ROW (EXP-314), the open issue highlighted. The big
 // `IssueList`'s context menus and row actions stay the board page's.
 //

@@ -425,7 +425,7 @@ fn branch_dropdown<V: gpui::Render>(
     on_pick: impl Fn(&mut V, Option<String>, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> gpui::AnyElement {
-    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+    use gpui_component::menu::DropdownMenu as _;
 
     if disabled {
         use gpui_component::Disableable as _;
@@ -478,7 +478,7 @@ fn branch_dropdown<V: gpui::Render>(
                         let on_pick = on_pick.clone();
                         let picked = name.clone();
                         menu = menu.item(
-                            PopupMenuItem::new(SharedString::from(label))
+                            crate::controls::pointer_label_item(SharedString::from(label), false)
                                 .checked(checked)
                                 .on_click(move |_, _, cx| {
                                     // Picking the repo's own default means

@@ -8,15 +8,11 @@ import {
   Pill,
   Button,
   Switch,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Prompt,
   UserAvatar,
 } from "@exp/ui"
 import {
+  AdminCard,
   EmailDeliveriesTable,
   PlanBadge,
   PlatformPills,
@@ -99,130 +95,127 @@ function AdminUserDetail() {
         </div>
       )}
 
-      <Card>
-        <CardContent className="flex flex-col gap-4 md:flex-row md:items-center">
-          <div className="flex items-center gap-4 min-w-0 flex-1">
-            <UserAvatar size={48} className="shrink-0" user={user} />
-            <div className="min-w-0">
-              <div className="text-lg font-semibold truncate">
-                {user.name || user.email}
-                {isSelf && (
-                  <span className="text-muted-foreground font-normal text-sm">
-                    {` (you)`}
-                  </span>
-                )}
-              </div>
-              {/* Name-less accounts show the email as the heading; don't
-                  repeat it below. */}
-              {user.name && user.name !== user.email && (
-                <div className="text-sm text-muted-foreground truncate">
-                  {user.email}
-                </div>
-              )}
-              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                {user.providers.length === 0 ? (
-                  <Pill>password</Pill>
-                ) : (
-                  user.providers.map((p) => (
-                    <Pill key={p}>{p}</Pill>
-                  ))
-                )}
-                <span>joined {formatDate(user.createdAt)}</span>
-                <span aria-hidden>·</span>
-                <span>
-                  {detail.createdIssuesCount}{` `}
-                  {detail.createdIssuesCount === 1 ? `issue` : `issues`} created
+      <AdminCard contentClassName="flex flex-col gap-4 md:flex-row md:items-center">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
+          <UserAvatar size={48} className="shrink-0" user={user} />
+          <div className="min-w-0">
+            <div className="text-lg font-semibold truncate">
+              {user.name || user.email}
+              {isSelf && (
+                <span className="text-muted-foreground font-normal text-sm">
+                  {` (you)`}
                 </span>
-                {detail.platforms.length > 0 && (
-                  <>
-                    <span aria-hidden>·</span>
-                    <PlatformPills
-                      platforms={detail.platforms.map((p) => p.platform)}
-                    />
-                  </>
-                )}
+              )}
+            </div>
+            {/* Name-less accounts show the email as the heading; don't
+                repeat it below. */}
+            {user.name && user.name !== user.email && (
+              <div className="text-sm text-muted-foreground truncate">
+                {user.email}
               </div>
+            )}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              {user.providers.length === 0 ? (
+                <Pill>password</Pill>
+              ) : (
+                user.providers.map((p) => (
+                  <Pill key={p}>{p}</Pill>
+                ))
+              )}
+              <span>joined {formatDate(user.createdAt)}</span>
+              <span aria-hidden>·</span>
+              <span>
+                {detail.createdIssuesCount}{` `}
+                {detail.createdIssuesCount === 1 ? `issue` : `issues`} created
+              </span>
+              {detail.platforms.length > 0 && (
+                <>
+                  <span aria-hidden>·</span>
+                  <PlatformPills
+                    platforms={detail.platforms.map((p) => p.platform)}
+                  />
+                </>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Admin</span>
-              <Switch
-                checked={user.isAdmin}
-                disabled={busy}
-                onCheckedChange={handleToggleAdmin}
-              />
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isSelf || busy}
-              onClick={() => setConfirmDelete(true)}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </Button>
+        </div>
+        <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Admin</span>
+            <Switch
+              checked={user.isAdmin}
+              disabled={busy}
+              onCheckedChange={handleToggleAdmin}
+            />
           </div>
-        </CardContent>
-      </Card>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={isSelf || busy}
+            onClick={() => setConfirmDelete(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </Button>
+        </div>
+      </AdminCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Teams</CardTitle>
-          <CardDescription className="text-xs">
+      <AdminCard
+        title="Teams"
+        description={
+          <>
             {detail.teams.length}{` `}
             {detail.teams.length === 1 ? `membership` : `memberships`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {detail.teams.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No memberships.</p>
-          ) : (
-            <div className="rounded-md border">
-              <div className="hidden md:grid grid-cols-[1fr_90px_110px_120px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                <div>Team</div>
-                <div>Role</div>
-                <div>Plan</div>
-                <div>Member since</div>
-              </div>
-              {detail.teams.map((ws) => (
-                <div
-                  key={ws.id}
-                  className="flex flex-col md:grid md:grid-cols-[1fr_90px_110px_120px] md:items-center gap-1 md:gap-3 border-b px-3 py-2 last:border-b-0"
-                >
-                  <Link
-                    to="/admin/teams/$teamId"
-                    params={{ teamId: ws.id }}
-                    className="min-w-0 hover:underline"
-                  >
-                    <span className="text-sm font-medium truncate block">
-                      {ws.name}
-                      <span className="text-xs text-muted-foreground font-normal">
-                        {` `}/{ws.slug}
-                      </span>
-                    </span>
-                  </Link>
-                  <div>
-                    <Pill className="capitalize">{ws.role}</Pill>
-                  </div>
-                  <div>
-                    <PlanBadge plan={ws.plan} compApplied={ws.compApplied} />
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatDate(ws.memberSince)}
-                  </div>
-                </div>
-              ))}
+          </>
+        }
+      >
+        {detail.teams.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No memberships.</p>
+        ) : (
+          <div className="rounded-md border">
+            <div className="hidden md:grid grid-cols-[1fr_90px_110px_120px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+              <div>Team</div>
+              <div>Role</div>
+              <div>Plan</div>
+              <div>Member since</div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            {detail.teams.map((ws) => (
+              <div
+                key={ws.id}
+                className="flex flex-col md:grid md:grid-cols-[1fr_90px_110px_120px] md:items-center gap-1 md:gap-3 border-b px-3 py-2 last:border-b-0"
+              >
+                <Link
+                  to="/admin/teams/$teamId"
+                  params={{ teamId: ws.id }}
+                  className="min-w-0 hover:underline"
+                >
+                  <span className="text-sm font-medium truncate block">
+                    {ws.name}
+                    <span className="text-xs text-muted-foreground font-normal">
+                      {` `}/{ws.slug}
+                    </span>
+                  </span>
+                </Link>
+                <div>
+                  <Pill className="capitalize">{ws.role}</Pill>
+                </div>
+                <div>
+                  <PlanBadge plan={ws.plan} compApplied={ws.compApplied} />
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {formatDate(ws.memberSince)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </AdminCard>
 
       {/* EXP-835: how far this user got through the GitHub connect flow. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">GitHub</CardTitle>
-          <CardDescription className="text-xs">
+      <AdminCard
+        title="GitHub"
+        description={
+          <>
             {detail.github.connected ? `Connected` : `Not connected`}
             {` · `}
             {detail.github.sharedRepos.length}{` `}
@@ -230,222 +223,203 @@ function AdminUserDetail() {
             {` · `}
             {detail.codingSessionCount}{` `}
             {detail.codingSessionCount === 1 ? `coding session` : `coding sessions`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-xs">
-          {!detail.github.connected ? (
+          </>
+        }
+        contentClassName="space-y-3 text-xs"
+      >
+        {!detail.github.connected ? (
+          <p className="text-sm text-muted-foreground">
+            Never connected a GitHub account.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            GitHub account linked
+            {detail.github.connectedAt
+              ? ` ${formatDate(detail.github.connectedAt)}`
+              : ``}
+            .
+          </p>
+        )}
+        {detail.github.sharedRepos.length > 0 && (
+          <div className="rounded-md border">
+            <div className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 font-medium text-muted-foreground">
+              <div>Repository</div>
+              <div>Team</div>
+              <div>Connected</div>
+            </div>
+            {detail.github.sharedRepos.map((repo) => (
+              <div
+                key={repo.id}
+                className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 last:border-b-0"
+              >
+                <div className="truncate font-medium">
+                  {repo.fullName}
+                  {repo.archivedAt ? (
+                    <span className="font-normal text-muted-foreground">
+                      {` `}archived
+                    </span>
+                  ) : repo.inaccessibleAt ? (
+                    <span className="font-normal text-destructive">
+                      {` `}inaccessible
+                    </span>
+                  ) : null}
+                </div>
+                <Link
+                  to="/admin/teams/$teamId"
+                  params={{ teamId: repo.teamId }}
+                  className="truncate hover:underline"
+                >
+                  {repo.teamName}
+                </Link>
+                <div
+                  className="text-muted-foreground"
+                  title={formatDateTime(repo.createdAt)}
+                >
+                  {formatDate(repo.createdAt)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </AdminCard>
+
+      {/* EXP-759: which clients this user runs, and their registered machines. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <AdminCard
+          title="Platforms"
+          description="Clients seen on authenticated requests, first use first."
+        >
+          {detail.platforms.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Never connected a GitHub account.
+              No client activity recorded yet.
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              GitHub account linked
-              {detail.github.connectedAt
-                ? ` ${formatDate(detail.github.connectedAt)}`
-                : ``}
-              .
-            </p>
-          )}
-          {detail.github.sharedRepos.length > 0 && (
             <div className="rounded-md border">
-              <div className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 font-medium text-muted-foreground">
-                <div>Repository</div>
-                <div>Team</div>
-                <div>Connected</div>
+              <div className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Client</div>
+                <div>First seen</div>
+                <div>Last seen</div>
+                <div>Version</div>
               </div>
-              {detail.github.sharedRepos.map((repo) => (
+              {detail.platforms.map((p) => (
                 <div
-                  key={repo.id}
-                  className="grid grid-cols-[1fr_1fr_100px] items-center gap-3 border-b px-3 py-2 last:border-b-0"
+                  key={p.platform}
+                  className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
                 >
-                  <div className="truncate font-medium">
-                    {repo.fullName}
-                    {repo.archivedAt ? (
-                      <span className="font-normal text-muted-foreground">
-                        {` `}archived
-                      </span>
-                    ) : repo.inaccessibleAt ? (
-                      <span className="font-normal text-destructive">
-                        {` `}inaccessible
-                      </span>
-                    ) : null}
-                  </div>
-                  <Link
-                    to="/admin/teams/$teamId"
-                    params={{ teamId: repo.teamId }}
-                    className="truncate hover:underline"
-                  >
-                    {repo.teamName}
-                  </Link>
+                  <div className="font-medium">{platformLabel(p.platform)}</div>
                   <div
                     className="text-muted-foreground"
-                    title={formatDateTime(repo.createdAt)}
+                    title={formatDateTime(p.firstSeenAt)}
                   >
-                    {formatDate(repo.createdAt)}
+                    {formatDate(p.firstSeenAt)}
+                  </div>
+                  <div title={formatDateTime(p.lastSeenAt)}>
+                    {formatRelative(p.lastSeenAt)}
+                  </div>
+                  <div className="text-muted-foreground tabular-nums">
+                    {p.lastVersion ?? `—`}
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* EXP-759: which clients this user runs, and their registered machines. */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Platforms</CardTitle>
-            <CardDescription className="text-xs">
-              Clients seen on authenticated requests, first use first.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {detail.platforms.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No client activity recorded yet.
-              </p>
-            ) : (
-              <div className="rounded-md border">
-                <div className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Client</div>
-                  <div>First seen</div>
-                  <div>Last seen</div>
-                  <div>Version</div>
-                </div>
-                {detail.platforms.map((p) => (
-                  <div
-                    key={p.platform}
-                    className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
-                  >
-                    <div className="font-medium">{platformLabel(p.platform)}</div>
-                    <div
-                      className="text-muted-foreground"
-                      title={formatDateTime(p.firstSeenAt)}
-                    >
-                      {formatDate(p.firstSeenAt)}
-                    </div>
-                    <div title={formatDateTime(p.lastSeenAt)}>
-                      {formatRelative(p.lastSeenAt)}
-                    </div>
-                    <div className="text-muted-foreground tabular-nums">
-                      {p.lastVersion ?? `—`}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Devices</CardTitle>
-            <CardDescription className="text-xs">
-              Registered desktops and CLI daemons.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {detail.devices.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No devices.</p>
-            ) : (
-              <div className="rounded-md border">
-                <div className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Device</div>
-                  <div>Kind</div>
-                  <div>OS</div>
-                  <div>Version</div>
-                  <div>Last seen</div>
-                </div>
-                {detail.devices.map((d) => (
-                  <div
-                    key={d.id}
-                    className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{d.label}</div>
-                      <div className="truncate text-muted-foreground">
-                        {d.agents.length > 0 ? d.agents.join(`, `) : `no agents`}
-                        {d.sharedTeamIds.length > 0 ? ` · shared` : ``}
-                      </div>
-                    </div>
-                    <div>{d.kind === `server` ? `CLI` : `Desktop`}</div>
-                    <div className="text-muted-foreground">{d.platform ?? `—`}</div>
-                    <div className="text-muted-foreground tabular-nums">
-                      {d.version ?? `—`}
-                    </div>
-                    <div title={formatDateTime(d.lastSeenAt)}>
-                      {formatRelative(d.lastSeenAt)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Sessions</CardTitle>
-          <CardDescription className="text-xs">
-            Latest {detail.sessions.length}{` `}
-            {detail.sessions.length === 1 ? `session` : `sessions`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {detail.sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No sessions.</p>
+        </AdminCard>
+        <AdminCard title="Devices" description="Registered desktops and CLI daemons.">
+          {detail.devices.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No devices.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <div className="min-w-[560px]">
-                <div className="grid grid-cols-[120px_140px_130px_1fr] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Last active</div>
-                  <div>Signed in</div>
-                  <div>IP</div>
-                  <div>User agent</div>
-                </div>
-                {detail.sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="grid grid-cols-[120px_140px_130px_1fr] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
-                  >
-                    <div title={formatDateTime(s.updatedAt)}>
-                      {formatRelative(s.updatedAt)}
-                    </div>
-                    <div className="text-muted-foreground">
-                      {formatDateTime(s.createdAt)}
-                    </div>
-                    <div className="text-muted-foreground truncate">
-                      {s.ipAddress || `—`}
-                    </div>
-                    <div
-                      className="text-muted-foreground truncate"
-                      title={s.userAgent ?? undefined}
-                    >
-                      {s.userAgent || `—`}
+            <div className="rounded-md border">
+              <div className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Device</div>
+                <div>Kind</div>
+                <div>OS</div>
+                <div>Version</div>
+                <div>Last seen</div>
+              </div>
+              {detail.devices.map((d) => (
+                <div
+                  key={d.id}
+                  className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{d.label}</div>
+                    <div className="truncate text-muted-foreground">
+                      {d.agents.length > 0 ? d.agents.join(`, `) : `no agents`}
+                      {d.sharedTeamIds.length > 0 ? ` · shared` : ``}
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div>{d.kind === `server` ? `CLI` : `Desktop`}</div>
+                  <div className="text-muted-foreground">{d.platform ?? `—`}</div>
+                  <div className="text-muted-foreground tabular-nums">
+                    {d.version ?? `—`}
+                  </div>
+                  <div title={formatDateTime(d.lastSeenAt)}>
+                    {formatRelative(d.lastSeenAt)}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </AdminCard>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Email deliveries</CardTitle>
-          <CardDescription className="text-xs">
-            Latest {detail.emailDeliveries.length} outbound emails to this user
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {detail.emailDeliveries.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No emails sent.</p>
-          ) : (
-            <EmailDeliveriesTable rows={detail.emailDeliveries} showSubject />
-          )}
-        </CardContent>
-      </Card>
+      <AdminCard
+        title="Sessions"
+        description={
+          <>
+            Latest {detail.sessions.length}{` `}
+            {detail.sessions.length === 1 ? `session` : `sessions`}
+          </>
+        }
+      >
+        {detail.sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No sessions.</p>
+        ) : (
+          <div className="rounded-md border overflow-x-auto">
+            <div className="min-w-[560px]">
+              <div className="grid grid-cols-[120px_140px_130px_1fr] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Last active</div>
+                <div>Signed in</div>
+                <div>IP</div>
+                <div>User agent</div>
+              </div>
+              {detail.sessions.map((s) => (
+                <div
+                  key={s.id}
+                  className="grid grid-cols-[120px_140px_130px_1fr] items-center gap-3 border-b px-3 py-2 last:border-b-0 text-xs"
+                >
+                  <div title={formatDateTime(s.updatedAt)}>
+                    {formatRelative(s.updatedAt)}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {formatDateTime(s.createdAt)}
+                  </div>
+                  <div className="text-muted-foreground truncate">
+                    {s.ipAddress || `—`}
+                  </div>
+                  <div
+                    className="text-muted-foreground truncate"
+                    title={s.userAgent ?? undefined}
+                  >
+                    {s.userAgent || `—`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </AdminCard>
+
+      <AdminCard
+        title="Email deliveries"
+        description={<>Latest {detail.emailDeliveries.length} outbound emails to this user</>}
+      >
+        {detail.emailDeliveries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No emails sent.</p>
+        ) : (
+          <EmailDeliveriesTable rows={detail.emailDeliveries} showSubject />
+        )}
+      </AdminCard>
 
       <Prompt
         open={confirmDelete}

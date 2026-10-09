@@ -27,7 +27,7 @@ export function DiffCounts({
   deletions: number
   className?: string
   /** EXP-1152: the counts as one string (`+12 −2`) when they ARE a control's
-   *  label — the Changes face segment (`ChangesFaceLabel`). */
+   *  label. */
   title?: string
   "aria-label"?: string
 }) {

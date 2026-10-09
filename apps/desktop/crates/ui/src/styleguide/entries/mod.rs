@@ -23,7 +23,8 @@ pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
 pub(crate) mod composer_fix_conflicts;
 pub(crate) mod issue_context_menu;
-pub(crate) mod session_tree;
+pub(crate) mod session_row;
+pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
 pub(crate) mod blocked_start_dialog;
@@ -35,6 +36,7 @@ pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
+pub(crate) mod composer_options;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
@@ -76,7 +78,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: composer_fix_conflicts::ID, owner: composer_fix_conflicts::OWNER, render: composer_fix_conflicts::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
-    Entry { id: session_tree::ID, owner: session_tree::OWNER, render: session_tree::render },
+    Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },
+    Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
     Entry { id: blocked_start_dialog::ID, owner: blocked_start_dialog::OWNER, render: blocked_start_dialog::render },
@@ -88,4 +91,5 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
+    Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
 ];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { LIVE_DOT_TONE, SESSION_DOT_CLASS } from "@exp/ui"
-import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/components/agent-session-row"
+import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/lib/session-row-caption"
 
 // EXP-862: the mapping is hand-mirrored on the desktop
 // (`queries::session_dot_tone`) and both natives, so it is locked here — a

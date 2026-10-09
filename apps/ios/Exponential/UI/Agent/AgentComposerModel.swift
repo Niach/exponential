@@ -50,6 +50,9 @@ final class AgentComposerModel {
     /// that was never touched resolves to its default (`value(for:)`).
     var inputValues: [String: String] = [:]
     var pendingImages: [PendingSteerImage] = []
+    /// Wave D: non-image files, uploaded beside the images and sent as
+    /// `[<filename>](/api/attachments/<id>)` lines after the embeds.
+    var pendingFiles: [PendingSteerFile] = []
     var imageError: String?
     /// EXP-615/739: the chat's OPTIONAL repository — `""` = none.
     var chatRepoId = ""
@@ -144,7 +147,7 @@ final class AgentComposerModel {
 
     /// Nothing picked, typed, attached or sent since the seed was applied.
     var isPristine: Bool {
-        !touched && pendingImages.isEmpty && draftText == seededDraft
+        !touched && pendingImages.isEmpty && pendingFiles.isEmpty && draftText == seededDraft
     }
 
     // MARK: - Load
@@ -653,7 +656,7 @@ final class AgentComposerModel {
     private var messageMissing: Bool {
         switch subject {
         case .none:
-            return trimmedDraft.isEmpty && pendingImages.isEmpty
+            return trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
         case .action, .fixConflicts:
             return actionId == DomainContract.builtinCreateActionId && trimmedDraft.isEmpty
         case .issues:
@@ -678,8 +681,47 @@ final class AgentComposerModel {
 
     // MARK: - Images (EXP-511/EXP-698, the steer composer's rules)
 
+    /// Both lists full: nothing more can be attached (the "+" row dims).
     var attachFull: Bool {
+        imagesFull && filesFull
+    }
+
+    var imagesFull: Bool {
         pendingImages.count >= AgentComposerPrompt.maxImages
+    }
+
+    var filesFull: Bool {
+        pendingFiles.count >= SteerImageMessage.maxFiles
+    }
+
+    /// Wave D: a picked file. An inline image joins the images (marker and
+    /// all); anything else queues as a file tile, capped at four
+    /// ("Up to 4 files per message").
+    func queuePicked(_ picked: PendingCommentAttachment) {
+        if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
+            guard !imagesFull else { return }
+            queueImage(picked)
+            return
+        }
+        guard !filesFull else {
+            imageError = SteerImageMessage.filesFullMessage
+            return
+        }
+        touched = true
+        pendingFiles.append(PendingSteerFile(
+            data: picked.data,
+            filename: picked.filename,
+            contentType: picked.contentType
+        ))
+    }
+
+    /// The strip's × — an image (renumbering the markers) or a file.
+    func removeAttachment(id: UUID) {
+        if pendingImages.contains(where: { $0.id == id }) {
+            removeImage(id: id)
+        } else {
+            pendingFiles.removeAll { $0.id == id }
+        }
     }
 
     /// Queue one normalized image and drop its positional `[Image #k]`
@@ -688,7 +730,7 @@ final class AgentComposerModel {
     /// the DECORATED text, where a resolved `#EXP-1` chip carries a title
     /// character the sent text does not.
     func queueImage(_ normalized: PendingCommentAttachment) {
-        guard !attachFull else { return }
+        guard !imagesFull else { return }
         touched = true
         pendingImages.append(PendingSteerImage(
             data: normalized.data,
@@ -842,6 +884,24 @@ final class AgentComposerModel {
                     return
                 }
             }
+            // Wave D: then the files, through the same route (any type),
+            // idempotent exactly like the images.
+            for index in pendingFiles.indices where pendingFiles[index].uploadedId == nil {
+                do {
+                    let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
+                        accountId: accountId,
+                        teamId: teamId,
+                        data: pendingFiles[index].data,
+                        filename: pendingFiles[index].filename,
+                        contentType: pendingFiles[index].contentType
+                    )
+                    pendingFiles[index].stamp(uploaded)
+                } catch {
+                    imageError = error.userFacingMessage
+                    startWatcher.failed(error.userFacingMessage)
+                    return
+                }
+            }
             // SLOP-3: a stacked start's text is the line's prompt around the
             // typed draft.
             let text = stacked.map {
@@ -849,7 +909,8 @@ final class AgentComposerModel {
             } ?? draftText
             let prompt = AgentComposerPrompt.build(
                 text: text,
-                attachmentIds: pendingImages.compactMap(\.uploadedId)
+                attachmentIds: pendingImages.compactMap(\.uploadedId),
+                files: pendingFiles.compactMap(\.wireFile)
             )
             do {
                 let key = try await dispatch(
@@ -865,6 +926,7 @@ final class AgentComposerModel {
                 )
                 draftText = ""
                 pendingImages = []
+                pendingFiles = []
                 checked = []
                 actionId = nil
                 inputValues = [:]

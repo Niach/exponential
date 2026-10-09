@@ -86,18 +86,14 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
-import com.exponential.app.domain.isInlineMedia
 import com.exponential.app.ui.markdown.LocalAttachmentDims
 import com.exponential.app.ui.markdown.LocalAttachmentLinkOpener
-import com.exponential.app.ui.markdown.insertPickedMedia
-import com.exponential.app.ui.markdown.rememberMediaPreparer
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMarkdownToolbarController
 import com.exponential.app.ui.markdown.LocalMentions
 import com.exponential.app.ui.markdown.MarkdownEditor
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.markdown.MentionResolver
-import com.exponential.app.ui.markdown.appendPickedImage
 import com.exponential.app.ui.markdown.extractDescriptionMarkdown
 import com.exponential.app.ui.markdown.stripDraftImages
 import com.exponential.app.ui.theme.Motion
@@ -301,32 +297,7 @@ fun IssueFace(
     // The docked comment composer (bottom bar) expansion.
     var composerExpanded by remember { mutableStateOf(false) }
 
-    // Hoisted so an image that arrived through the FILE path can still be
-    // appended to the description instead of erroring (EXP-327).
     val descriptionModel = remember(issue?.id) { EditorModel() }
-    val mediaPreparer = rememberMediaPreparer()
-    LaunchedEffect(descriptionModel, viewModel) {
-        viewModel.onInlineImagePicked = { uri, contentType ->
-            scope.launch {
-                if (isInlineMedia(contentType)) {
-                    // EXP-824: a video / audio file that reached the FILE path
-                    // becomes an inline media block at the end, like an image.
-                    insertPickedMedia(
-                        context, descriptionModel, uri, contentType, mediaPreparer,
-                        uploader = { prepared -> viewModel.uploadMedia(prepared) },
-                        atEnd = true,
-                    )
-                } else {
-                    appendPickedImage(context, descriptionModel, uri, contentType) { picked ->
-                        viewModel.uploadImage(picked)
-                    }
-                }
-            }
-        }
-    }
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.onInlineImagePicked = null }
-    }
 
     // The bar's comment half shares the thread's screen-scoped VM (hoisted
     // draft) — bind before either consumer renders.

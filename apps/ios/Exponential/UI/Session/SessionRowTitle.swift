@@ -2,32 +2,6 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-688: the first line of a coding-session row — mono issue identifier,
-/// issue title. EXP-1208: the run mark that leads a session row lives OUTSIDE
-/// this line (`RunningSessionRow`'s own lead), so the sub-lines align under
-/// the title (Android's `SessionRowTitle.kt` is the twin).
-struct SessionRowTitle: View {
-    /// Nil for an action run; a batch carries its `EXP-874 +2` (EXP-876).
-    let identifier: String?
-    let title: String
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let identifier, !identifier.isEmpty {
-                Text(identifier)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-            }
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-    }
-}
-
 /// EXP-804: the run's usage wall — `Rate limited · resets in 2h`.
 ///
 /// A quiet amber pill that renders BESIDE the state badge, never instead of

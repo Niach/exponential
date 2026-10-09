@@ -311,6 +311,10 @@ final class AgentSessionModel {
     /// EXP-511: images picked for the next steer message, shown as a strip
     /// above the input row until they are sent or removed.
     var pendingImages: [PendingSteerImage] = []
+    /// Wave D: non-image files picked for the next steer message — the same
+    /// strip, a file tile each, sent as `[<filename>](/api/attachments/<id>)`
+    /// lines after the image embeds.
+    var pendingFiles: [PendingSteerFile] = []
 
     /// EXP-724: the slash-command rows the composer's menu should show for the
     /// current draft — empty whenever the menu must not open (the pure rule
@@ -1192,18 +1196,25 @@ final class AgentSessionModel {
     /// or action run (no issue at all) can carry images too.
     ///
     /// Returns nil once the message is out; on failure it returns the images
-    /// with whatever ids were already stamped, so the caller can keep the strip
-    /// and a retry re-uploads only the rest.
-    func sendSteerImages(_ text: String, images: [PendingSteerImage]) async -> [PendingSteerImage]? {
+    /// and files with whatever ids were already stamped, so the caller can
+    /// keep the strip and a retry re-uploads only the rest.
+    ///
+    /// Wave D: files upload to the same session route (any content type) and
+    /// ride after the image embeds as `[<filename>](/api/attachments/<id>)`
+    /// lines, named by the server's sanitized filename.
+    func sendSteerAttachments(
+        _ text: String, images: [PendingSteerImage], files: [PendingSteerFile]
+    ) async -> (images: [PendingSteerImage], files: [PendingSteerFile])? {
         let sessionId = codingSessionId
         guard connected else {
             steerImageError = "Not connected. Wait for the run to reconnect."
-            return images
+            return (images, files)
         }
         steerSending = true
         steerImageError = nil
         defer { steerSending = false }
         var pending = images
+        var pendingFiles = files
         for index in pending.indices where pending[index].uploadedId == nil {
             do {
                 let uploaded = try await attachmentsApi.uploadSessionImage(
@@ -1216,20 +1227,37 @@ final class AgentSessionModel {
                 pending[index].uploadedId = uploaded.id
             } catch {
                 steerImageError = error.localizedDescription
-                return pending
+                return (pending, pendingFiles)
+            }
+        }
+        for index in pendingFiles.indices where pendingFiles[index].uploadedId == nil {
+            do {
+                let uploaded = try await attachmentsApi.uploadSessionImage(
+                    accountId: accountId,
+                    sessionId: sessionId,
+                    data: pendingFiles[index].data,
+                    filename: pendingFiles[index].filename,
+                    contentType: pendingFiles[index].contentType
+                )
+                pendingFiles[index].stamp(uploaded)
+            } catch {
+                steerImageError = error.localizedDescription
+                return (pending, pendingFiles)
             }
         }
         // The socket can drop across the uploads; sendMessage would silently
         // no-op and the composer would clear with nothing sent.
         guard connected else {
             steerImageError = "Not connected. Wait for the run to reconnect."
-            return pending
+            return (pending, pendingFiles)
         }
-        guard sendMessage(SteerImageMessage.build(
-            text: text, attachmentIds: pending.compactMap(\.uploadedId)
+        guard sendMessage(SteerImageMessage.buildMessage(
+            text: text,
+            imageIds: pending.compactMap(\.uploadedId),
+            files: pendingFiles.compactMap(\.wireFile)
         )) else {
             steerImageError = "Not connected. Wait for the run to reconnect."
-            return pending
+            return (pending, pendingFiles)
         }
         return nil
     }
@@ -2751,4 +2779,27 @@ struct PendingSteerImage: Identifiable, Equatable, Sendable {
     let filename: String
     let contentType: String
     var uploadedId: String?
+}
+
+/// Wave D: a non-image FILE picked for a steer or start message. Same
+/// idempotent upload as `PendingSteerImage` (`uploadedId` stamped once);
+/// `uploadedName` = the server's sanitized `filename`, the link text the
+/// message carries (`SteerImageMessage.buildMessage`).
+struct PendingSteerFile: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let data: Data
+    let filename: String
+    let contentType: String
+    var uploadedId: String?
+    var uploadedName: String?
+
+    mutating func stamp(_ uploaded: UploadedAttachment) {
+        uploadedId = uploaded.id
+        uploadedName = uploaded.filename
+    }
+
+    /// The message's file line, once uploaded.
+    var wireFile: SteerImageMessage.File? {
+        uploadedId.map { SteerImageMessage.File(id: $0, name: uploadedName ?? filename) }
+    }
 }

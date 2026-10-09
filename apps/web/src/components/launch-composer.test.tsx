@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
@@ -42,6 +42,11 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   useIsMobile: () => false,
 }))
+// The shared issue engine is fixture-tested on its own; the "+" menu's
+// Implement submenu only has to list the pool it is handed.
+vi.mock(`@/hooks/use-issue-search-results`, () => ({
+  useIssueSearchResults: ({ rows }: { rows: unknown[] }) => ({ results: rows }),
+}))
 
 import {
   LaunchComposer,
@@ -57,6 +62,28 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as never
 Element.prototype.scrollIntoView ??= function scrollIntoView() {}
+
+// Radix opens a dropdown on the trigger's pointer DOWN.
+function openPlus() {
+  act(() => {
+    fireEvent.pointerDown(screen.getByTestId(`agent-composer-plus-button`), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: `mouse`,
+    })
+  })
+}
+
+const menuRowIds = () =>
+  Array.from(
+    screen
+      .getByTestId(`agent-composer-menu`)
+      .querySelectorAll(`[data-testid^="agent-composer-menu-"], [role=separator]`)
+  ).map((node) =>
+    node.getAttribute(`role`) === `separator`
+      ? `-`
+      : node.getAttribute(`data-testid`)!.replace(`agent-composer-menu-`, ``)
+  )
 
 const device: SteerDevice = {
   deviceId: `dev-1`,
@@ -99,6 +126,9 @@ function fakeLaunch(): LaunchOptions {
     mcpServerIds: [],
     setMcpServerIds: vi.fn(),
     toggleMcpServer: vi.fn(),
+    computerUseAvailable: false,
+    computerUse: false,
+    setComputerUse: vi.fn(),
     accountOptions: [],
     accountKey: undefined,
     setAccountKey: vi.fn(),
@@ -173,12 +203,37 @@ describe(`LaunchComposer`, () => {
     expect(submit.getAttribute(`aria-label`)).toBe(`Start chat`)
     expect(submit.textContent).toBe(``)
     expect(submit.disabled).toBe(true)
-    // EXP-820: a few pool chips over the empty field (a random draw).
-    const pills = screen
-      .getAllByRole(`button`)
-      .filter((button) => CHAT_SUGGESTION_POOL.includes(button.textContent ?? ``))
-    expect(pills.length).toBe(CHAT_SUGGESTION_COUNT)
+    // EXP-820/EXP-1249: a few pool entries as QUIET rows (a random draw),
+    // under the options line — never pills over the card.
+    const rows = screen.getAllByTestId(`agent-composer-suggestion`)
+    expect(rows.length).toBe(CHAT_SUGGESTION_COUNT)
+    for (const row of rows) {
+      expect(CHAT_SUGGESTION_POOL).toContain(row.textContent)
+      expect(row.getAttribute(`data-slot`)).not.toBe(`pill`)
+    }
+    const options = screen.getByTestId(`agent-options-row`)
+    expect(
+      options.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(screen.queryByTestId(/agent-composer-chip-/)).toBeNull()
+  })
+
+  it(`inserts a suggestion into the field and hides the rows once there is a subject`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    expect(screen.getAllByTestId(`agent-composer-suggestion`).length).toBeGreaterThan(0)
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`] },
+          checkedIssues: [issue(`i1`, `APP-1`)],
+        })}
+        users={[]}
+      />
+    )
+    // Only the first render's rows remain.
+    expect(screen.getAllByTestId(`agent-composer-suggestion`).length).toBe(
+      CHAT_SUGGESTION_COUNT
+    )
   })
 
   it(`draws one chip per checked issue and lets a chip remove itself`, () => {
@@ -380,23 +435,25 @@ describe(`LaunchComposer`, () => {
     expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
   })
 
-  // EXP-1030: the ▶ tool opens THE action picker (@exp/ui `ActionPicker`) —
-  // one action row, curated glyph over the name, description underneath.
-  it(`picks an action through the shared action picker`, () => {
+  // EXP-1249: Run action › hosts THE action picker (@exp/ui `PickerList`)
+  // — one action row, curated glyph over the name, description underneath;
+  // a pick sets the subject and closes the menu.
+  it(`picks an action through the + menu's Run action submenu`, () => {
     const fix = builtinFixConflictsAction(`t1`)
     const model = fakeModel()
     render(<LaunchComposer model={model} users={[]} />)
-    const tool = screen.getByTestId(`agent-composer-actions-button`)
-    expect(
-      tool.closest(`[data-slot="picker"]`)?.getAttribute(`data-picker-mode`)
-    ).toBe(`single`)
-    fireEvent.click(tool)
-    const row = screen.getByText(fix.name).closest(`[data-slot=command-item]`)!
+    openPlus()
+    fireEvent.click(screen.getByTestId(`agent-composer-menu-run-action`))
+    const picker = screen.getByTestId(`agent-composer-actions-picker`)
+    const row = within(picker)
+      .getByText(fix.name)
+      .closest(`[data-slot=command-item]`)!
     expect(
       row.querySelector(`[data-slot=picker-description]`)?.textContent
     ).toBe(fix.description)
     fireEvent.click(row)
     expect(model.pickAction).toHaveBeenCalledWith(fix.id)
+    expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()
   })
 
   // EXP-1030: the machine is picked through THE device picker (@exp/ui
@@ -464,14 +521,11 @@ describe(`LaunchComposer`, () => {
     expect(screen.queryByText(`No repository`)).toBeNull()
   })
 
-  // EXP-994: the ⋯ overlay is the divided-rows shell without a second card.
-  it(`opens the options overlay as a bare divided group`, () => {
+  // EXP-1249: the `⋯` overflow is gone — its rows moved into the "+".
+  it(`draws no overflow on the options line`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
-    fireEvent.click(screen.getByLabelText(`More options`))
-    const sheet = screen.getByTestId(`agent-options-sheet`)
-    const group = sheet.querySelector(`[data-slot=glass-group]`)
-    expect(group?.getAttribute(`data-bare`)).toBe(`true`)
-    expect(group?.className).not.toContain(`rounded-lg`)
+    expect(screen.queryByLabelText(`More options`)).toBeNull()
+    expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
   })
 
   it(`says so when no desktop is online`, () => {
@@ -481,6 +535,186 @@ describe(`LaunchComposer`, () => {
     expect(screen.getByTestId(`agent-options-row`).textContent).toContain(
       `No desktop online`
     )
+  })
+})
+
+// EXP-1249: the composer's ONE tool — the "+" menu (composer-menu.json).
+describe(`LaunchComposer + menu`, () => {
+  it(`is the only tool: no Issue, Action or image buttons`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    expect(screen.getByTestId(`agent-composer-plus-button`)).toBeTruthy()
+    expect(screen.queryByTestId(`agent-composer-issues-button`)).toBeNull()
+    expect(screen.queryByTestId(`agent-composer-actions-button`)).toBeNull()
+    expect(screen.queryByTestId(`agent-composer-image-button`)).toBeNull()
+  })
+
+  it(`lists the fixture's rows for claude without MCP servers or computer use`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    openPlus()
+    expect(menuRowIds()).toEqual([
+      `implement-issue`,
+      `run-action`,
+      `add-file`,
+      `-`,
+      `effort`,
+      `subagents`,
+      `ultracode`,
+    ])
+    expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(
+      `CLI default`
+    )
+  })
+
+  it(`adds MCP servers and Computer use when the team and the device allow them`, () => {
+    const setComputerUse = vi.fn()
+    const toggleMcpServer = vi.fn()
+    const model = fakeModel({
+      mcpServers: [
+        {
+          id: `m1`,
+          name: `Linear`,
+          url: `https://mcp.linear.app/mcp`,
+          command: null,
+          enabledByDefault: false,
+          connection: { state: `connected` },
+        },
+      ] as never,
+      launch: {
+        ...fakeLaunch(),
+        computerUseAvailable: true,
+        computerUse: false,
+        setComputerUse,
+        mcpServerIds: [`m1`],
+        toggleMcpServer,
+      },
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    openPlus()
+    expect(menuRowIds().slice(-3)).toEqual([`-`, `mcp-servers`, `computer-use`])
+    // The picked count rides the row as its value.
+    expect(
+      screen.getByTestId(`agent-composer-menu-mcp-servers`).textContent
+    ).toContain(`1`)
+    const computerUse = screen.getByTestId(`agent-composer-menu-computer-use`)
+    expect(computerUse.getAttribute(`role`)).toBe(`menuitemcheckbox`)
+    expect(computerUse.getAttribute(`aria-checked`)).toBe(`false`)
+    fireEvent.click(computerUse)
+    expect(setComputerUse).toHaveBeenCalledWith(true)
+    // A toggle keeps the menu open.
+    expect(screen.getByTestId(`agent-composer-menu`)).toBeTruthy()
+  })
+
+  it(`hides the MCP row while a real action owns its MCP list`, () => {
+    const model = fakeModel({
+      subject: { kind: `action`, id: `a-real`, inputs: {} },
+      mcpServers: [{ id: `m1`, name: `Linear`, connection: { state: `connected` } }] as never,
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    openPlus()
+    expect(menuRowIds()).not.toContain(`mcp-servers`)
+  })
+
+  it(`says Reasoning and drops the claude-only rows for codex`, () => {
+    const model = fakeModel({ launch: { ...fakeLaunch(), agent: `codex` } })
+    render(<LaunchComposer model={model} users={[]} />)
+    openPlus()
+    expect(menuRowIds()).toEqual([`implement-issue`, `run-action`, `add-file`, `-`, `effort`])
+    expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(
+      `Reasoning`
+    )
+  })
+
+  it(`toggles ultracode and disables Effort while it is on`, () => {
+    const setUltracode = vi.fn()
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          launch: { ...fakeLaunch(), ultracode: true, setUltracode },
+        })}
+        users={[]}
+      />
+    )
+    openPlus()
+    expect(
+      screen.getByTestId(`agent-composer-menu-effort`).hasAttribute(`data-disabled`)
+    ).toBe(true)
+    fireEvent.click(screen.getByTestId(`agent-composer-menu-ultracode`))
+    expect(setUltracode).toHaveBeenCalledWith(false)
+  })
+
+  it(`picks issues in the Implement submenu and offers the implement button`, () => {
+    const picked = issue(`i1`, `APP-1`)
+    const model = fakeModel({
+      eligibleIssues: [picked, issue(`i2`, `APP-2`)],
+      checkedIssues: [picked],
+      subject: { kind: `issues`, ids: [`i1`] },
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    openPlus()
+    fireEvent.click(screen.getByTestId(`agent-composer-menu-implement-issue`))
+    const picker = screen.getByTestId(`agent-composer-issues-picker`)
+    fireEvent.click(within(picker).getByText(`Issue APP-2`))
+    expect(model.toggleIssue).toHaveBeenCalledWith(`i2`)
+    const implement = screen.getByTestId(`agent-composer-implement`)
+    expect(implement.textContent).toBe(`Implement 1 issue`)
+    fireEvent.click(implement)
+    expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()
+  })
+
+  it(`is the bottom sheet of the same rows on a phone`, () => {
+    const width = window.innerWidth
+    Object.defineProperty(window, `innerWidth`, { configurable: true, value: 390 })
+    try {
+      render(
+        <LaunchComposer
+          model={fakeModel({ eligibleIssues: [issue(`i1`, `APP-1`)] })}
+          users={[]}
+        />
+      )
+      fireEvent.click(screen.getByTestId(`agent-composer-plus-button`))
+      const sheet = document.querySelector<HTMLElement>(`[data-slot=menu-sheet]`)!
+      expect(sheet).toBeTruthy()
+      fireEvent.click(within(sheet).getByTestId(`agent-composer-menu-implement-issue`))
+      // The submenu is a pushed page: back row + the issue picker.
+      expect(within(sheet).getByTestId(`menu-sheet-back`).textContent).toContain(
+        `Implement issue`
+      )
+      expect(within(sheet).getByTestId(`agent-composer-issues-picker`)).toBeTruthy()
+    } finally {
+      Object.defineProperty(window, `innerWidth`, { configurable: true, value: width })
+    }
+  })
+
+  it(`takes any file and shows a pending file as a named tile`, () => {
+    const { container } = render(
+      <LaunchComposer
+        model={fakeModel({
+          images: [
+            {
+              kind: `file`,
+              file: new File([`x`], `notes.pdf`, { type: `application/pdf` }),
+              url: `blob:f`,
+            },
+          ],
+        })}
+        users={[]}
+      />
+    )
+    const input = container.querySelector(`input[type="file"]`)!
+    expect(input.hasAttribute(`accept`)).toBe(false)
+    expect(screen.getByRole(`button`, { name: `Remove notes.pdf` })).toBeTruthy()
+    expect(
+      container.querySelector(`[data-slot="attachment-file-tile"]`)!.textContent
+    ).toBe(`notes.pdf`)
+  })
+
+  it(`opens the file chooser from Add file or image`, () => {
+    const click = vi.spyOn(HTMLInputElement.prototype, `click`)
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    openPlus()
+    fireEvent.click(screen.getByTestId(`agent-composer-menu-add-file`))
+    expect(click).toHaveBeenCalled()
+    click.mockRestore()
   })
 })
 

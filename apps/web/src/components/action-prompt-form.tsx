@@ -7,7 +7,7 @@ import {
   BOARD_ICON_OPTIONS,
   IconPicker,
   Button,
-  Combobox,
+  RepositoryPicker,
   GlassGroup,
   Input,
   McpServerPicker,
@@ -50,7 +50,7 @@ const NO_REPO = `none`
 // and hairlines ARE the field). Mirrors the desktop `action_editor_dialog` and
 // the native action screens. Exported for the other grouped forms.
 export const GROUPED_FIELD = `rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
-// 16h/12v is the row padding of the whole ladder (the Combobox `row` trigger
+// 16h/12v is the row padding of the whole ladder (the Picker `row` trigger
 // and GlassToggleRow).
 export const GROUPED_FIELD_ROW = `${GROUPED_FIELD} px-4 py-3`
 
@@ -243,22 +243,19 @@ export function ActionPromptForm({
           )}
 
           <GlassGroup>
-            <Combobox
+            <RepositoryPicker
               triggerVariant="row"
-              searchable={false}
               mobileTitle="Repository"
-              value={repoValue}
-              onChange={(value) => {
-                if (value !== null) setRepoValue(value)
-              }}
+              value={repoValue === NO_REPO ? null : repoValue}
+              onChange={setRepoValue}
+              noneLabel="None"
+              onNone={() => setRepoValue(NO_REPO)}
+              triggerLabel="None"
               disabled={readOnly}
-              options={[
-                { value: NO_REPO, label: `None` },
-                ...repos.map((repo) => ({
-                  value: repo.id,
-                  label: repo.fullName,
-                })),
-              ]}
+              repositories={repos.map((repo) => ({
+                id: repo.id,
+                fullName: repo.fullName,
+              }))}
             />
           </GlassGroup>
           <p className="px-1 text-xs text-muted-foreground">

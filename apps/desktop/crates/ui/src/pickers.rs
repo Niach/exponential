@@ -149,7 +149,7 @@ pub(crate) fn option_item(
     checked: bool,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
-    PopupMenuItem::new(label)
+    crate::controls::pointer_label_item(label, false)
         .icon(icon)
         .checked(checked)
         .on_click(move |_, window, cx| on_select(window, cx))
@@ -287,7 +287,7 @@ pub(crate) fn estimate_menu(
     let mut menu = menu.check_side(Side::Right);
     let clear_id = issue_id.clone();
     menu = menu.item(
-        PopupMenuItem::new(SharedString::from(NO_ESTIMATE))
+        crate::controls::pointer_label_item(SharedString::from(NO_ESTIMATE), false)
             .checked(current.is_none())
             .on_click(move |_, _window, cx| {
                 let mut input = api::issues::IssuesUpdateInput::new(clear_id.clone());
@@ -298,7 +298,7 @@ pub(crate) fn estimate_menu(
     for value in estimate_picker_values(current, scale) {
         let issue_id = issue_id.clone();
         menu = menu.item(
-            PopupMenuItem::new(SharedString::from(estimate_label(Some(value), scale)))
+            crate::controls::pointer_label_item(estimate_label(Some(value), scale), false)
                 .checked(current == Some(value))
                 .on_click(move |_, _window, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -322,7 +322,11 @@ pub(crate) fn user_menu_item(
     on_select: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
-        crate::user_avatar::user_row(&user_id, &name, image_url.as_deref(), cx)
+        // EXP-1249: the whole row points (the crate sets no cursor).
+        crate::controls::pointer_row_fill(
+            crate::user_avatar::user_row(&user_id, &name, image_url.as_deref(), cx),
+            false,
+        )
     })
     .checked(checked)
     .on_click(move |_, window, cx| on_select(window, cx))

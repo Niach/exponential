@@ -153,7 +153,7 @@ pub trait AttachmentTransport: Send + Sync {
     /// and the same response shape as [`Self::upload`], only the path
     /// differs. Steered screenshots go here, an issue run's included, so
     /// they never land in the issue's Files section; the server gates on
-    /// session ownership and images only.
+    /// session ownership. Wave D: ANY file type (images 10 MB, files 50 MB).
     fn upload_session(
         &self,
         session_id: &str,
@@ -162,7 +162,7 @@ pub trait AttachmentTransport: Send + Sync {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
 
-    /// EXP-825: upload one image BEFORE a session exists —
+    /// EXP-825: upload one image (wave D: or any file) BEFORE a session exists —
     /// `POST /api/teams/{id}/session-files`, the same multipart part and
     /// response shape as [`Self::upload_session`]. The row is created with
     /// `session_id NULL`; the start that embeds it binds it through
@@ -189,6 +189,30 @@ pub trait AttachmentTransport: Send + Sync {
         content_type: &str,
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
+
+    /// EXP-1247: [`Self::upload`] from a FILE button (paperclip / Attach
+    /// file): the row is stamped `as_file` (`?asFile=1`), so an image stays a
+    /// Files row and never inlines. A test transport may keep the default.
+    fn upload_as_file(
+        &self,
+        issue_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        self.upload(issue_id, filename, content_type, bytes)
+    }
+
+    /// EXP-1247: [`Self::upload_draft`] from a FILE button (`?asFile=1`).
+    fn upload_draft_as_file(
+        &self,
+        draft_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        self.upload_draft(draft_id, filename, content_type, bytes)
+    }
 
     /// GET attachment bytes. `url` may be the canonical relative form or
     /// absolute; relative resolves against the instance base URL.
@@ -357,6 +381,28 @@ impl AttachmentTransport for HttpAttachmentTransport {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage> {
         let url = format!("{}/api/issue-drafts/{draft_id}/files", self.base_url);
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
+    fn upload_as_file(
+        &self,
+        issue_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}/api/issues/{issue_id}/files?asFile=1", self.base_url);
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
+    fn upload_draft_as_file(
+        &self,
+        draft_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}/api/issue-drafts/{draft_id}/files?asFile=1", self.base_url);
         self.post_multipart(&url, filename, content_type, bytes)
     }
 
@@ -966,6 +1012,32 @@ mod tests {
         );
         assert!(request.contains("multipart/form-data; boundary="));
         assert!(request.contains("name=\"file\"; filename=\"a.png\""));
+    }
+
+    /// EXP-1247: a file button's pick rides the same routes with `asFile=1`.
+    #[test]
+    fn an_as_file_upload_marks_the_route() {
+        for draft in [false, true] {
+            let (base, captured) = one_shot_server(
+                200,
+                r#"{"id":"att-1","url":"/api/attachments/att-1","filename":"a.png","contentType":"image/png","sizeBytes":4}"#,
+            );
+            let transport = HttpAttachmentTransport::new(&base, Arc::new(NullToken));
+            let uploaded = if draft {
+                transport.upload_draft_as_file("d-1", "a.png", "image/png", b"PNG!")
+            } else {
+                transport.upload_as_file("issue-1", "a.png", "image/png", b"PNG!")
+            }
+            .expect("upload");
+            assert_eq!(uploaded.id, "att-1");
+            let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+            let line = if draft {
+                "POST /api/issue-drafts/d-1/files?asFile=1 HTTP/1.1"
+            } else {
+                "POST /api/issues/issue-1/files?asFile=1 HTTP/1.1"
+            };
+            assert!(request.starts_with(line), "{request}");
+        }
     }
 
     // EXP-297: a non-image rides the very same `/files` route — same

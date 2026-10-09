@@ -506,7 +506,7 @@ public final class IssuesApi: Sendable {
     /// the `prState`/`status` flips arrive through Electric sync.
     /// Merge always ends the linked coding sessions (EXP-498).
     /// - Parameter mergeStack: EXP-1145, merge the open chain below this
-    ///   pull request bottom-up, then this one (`PrStack.stackMergeChoice`).
+    ///   pull request bottom-up, then this one (`PrStack.stackMergeConfirm`).
     public func mergePr(
         accountId: String, issueId: String, mergeStack: Bool? = nil
     ) async throws {

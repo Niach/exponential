@@ -45,11 +45,9 @@ struct MarkdownEditor: View {
     /// they leave this nil and stay hugging.
     var minHeight: CGFloat? = nil
     /// EXP-327: non-nil adds a "Files" entry to the toolbar's image button and
-    /// receives the NON-image picks. Images picked there are appended to the
-    /// description here instead, so the host never sees them — which is why
-    /// attaching a screenshot through the file picker no longer dead-ends in
-    /// "images go in the description". Nil keeps the plain image button, for
-    /// editors whose host has nowhere to put an attachment.
+    /// receives EVERY pick made there (EXP-1247: images and clips too — the
+    /// host uploads them `asFile`, never inlined). Nil keeps the plain image
+    /// button, for editors whose host has nowhere to put an attachment.
     var onAttachFile: ((URL) -> Void)?
     // The `@`/`#`/`:` candidate menu is NOT mounted here: every host mounts
     // `EditorAutocompleteMenu(model:)` itself, pinned above the keyboard (a
@@ -336,81 +334,13 @@ struct MarkdownEditor: View {
         }
     }
 
-    /// Sort a "Files" pick (EXP-327): an inline-image type is APPENDED to the
-    /// description — same draft/upload lifecycle as the photo picker, just at
-    /// the end rather than at the caret, because the user was attaching rather
-    /// than typing. EXP-824: a video/audio pick is normalised and appended as
-    /// a media block the same way (no pre-read size gate — the export is what
-    /// brings a recording under the cap). Everything else goes to the host as
-    /// a real attachment.
-    ///
-    /// The read runs off-main inside the security scope: a 50 MB pick from a
-    /// cloud-backed provider streams over the network and would freeze the UI.
+    /// A "Files" pick (EXP-327). EXP-1247: EVERY pick goes to the host as a
+    /// real attachment, images and clips included — the host uploads it
+    /// `asFile`, so it lists under Files and is never inlined (web
+    /// `routeFilePicks`). The image button, paste and drop keep inlining.
     private func ingestPickedFile(_ url: URL) {
-        let contentType = AttachmentFiles.canonicalContentType(
-            UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-        )
         mediaError = nil
-        if AttachmentFiles.isInlineMedia(contentType: contentType) {
-            let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
-            Task {
-                // Copy out inside the security scope, off-main, then release
-                // the scope before the (slow) export runs.
-                let copied: URL? = await Task.detached {
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    return try? MediaUploadPrep.copyToTemp(url)
-                }.value
-                guard let copied else {
-                    mediaError = MediaUploadPrep.PrepError.unreadable.localizedDescription
-                    return
-                }
-                await prepareAndInsertMedia(fileURL: copied, filename: filename, contentType: contentType, atEnd: true)
-            }
-            return
-        }
-        guard AttachmentFiles.isInlineImage(contentType: contentType) else {
-            onAttachFile?(url)
-            return
-        }
-        // Size check BEFORE buffering, like the sibling attachment path: the
-        // pick is classified from its extension alone, so a 300 MB `.png` would
-        // otherwise be read whole into memory only to be rejected on upload —
-        // leaving an uncommittable draft that blocks every later description
-        // save. Over the cap it goes to the host as an ordinary attachment
-        // pick, which re-checks the size and renders a real failure row; the
-        // editor has no error surface for a block it never inserted.
-        // Cheap metadata read, so it stays inline rather than off-main.
-        let scoped = url.startAccessingSecurityScopedResource()
-        let declaredSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-        if scoped { url.stopAccessingSecurityScopedResource() }
-        if let declaredSize, declaredSize > AttachmentFiles.maxFileUploadBytes {
-            onAttachFile?(url)
-            return
-        }
-
-        let filename = AttachmentFiles.sanitizedFilename(url.lastPathComponent)
-        let editorModel = model
-        Task.detached {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else { return }
-            // Backstop for a provider that reports no file size up front.
-            guard data.count <= AttachmentFiles.maxFileUploadBytes else {
-                log.error("Picked image exceeds the upload cap: \(data.count, privacy: .public) bytes")
-                return
-            }
-            let decoded = UIImage(data: data)
-            let width = decoded.map { Int($0.size.width * $0.scale) }
-            let height = decoded.map { Int($0.size.height * $0.scale) }
-            await editorModel.appendImage(
-                data: data,
-                filename: filename,
-                contentType: contentType,
-                width: (width ?? 0) > 0 ? width : nil,
-                height: (height ?? 0) > 0 ? height : nil
-            )
-        }
+        onAttachFile?(url)
     }
 
     private func insert(uiImage image: UIImage) {

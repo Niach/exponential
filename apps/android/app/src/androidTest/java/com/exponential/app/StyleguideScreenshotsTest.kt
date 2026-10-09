@@ -16,9 +16,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import org.junit.After
@@ -48,9 +50,10 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
- *   sg_chat · sg_chat-issues · sg_chat-action ·
+ *   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_action-triggers ·
  *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
+ *   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices
@@ -110,6 +113,8 @@ class StyleguideScreenshotsTest {
 
         // APP-15: an open PR in the Reviews queue.
         private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
+        // APP-14: the seed's realPr issue, so its Guide has files from GitHub.
+        private const val GUIDE_ISSUE_TITLE = "Group board issues by assignee"
 
         // EXP-1204: the seeded chat run with an open PR of its own — its
         // subject is the "Agent runs" row title and the RunChanges header.
@@ -385,21 +390,55 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_chat")
 
-        composeRule.onNode(hasTestTag("agent-composer-issues-button")).performClick()
+        // --- sg_session-row: THE session row, big (EXP-1248). The Recent
+        // sheet behind the page's history glyph draws every run as the big
+        // SessionRow (mark at 12 + 14·depth, caption, device glyph, children
+        // nested, no fold). A detour no later shot needs, so a scoped run that
+        // did not ask for it skips it whole (iOS parity).
+        if (ScreenshotFlow.isShotWanted("sg_session-row")) {
+            composeRule.onNode(hasTestTag("agent-history-button")).performClick()
+            flow.waitFor(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
+            if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
+                android.util.Log.w(
+                    "EXP-1248",
+                    "sg_session-row: no finished runs — reseed with `bun run seed:screenshots`",
+                )
+            }
+            flow.settle()
+            flow.screenshot("sg_session-row")
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
+            flow.settle()
+        }
+
+        // EXP-1249: the "+" is the composer's ONE tool — its sheet of the
+        // composer-menu.json rows is sg_composer-menu (iOS parity); Implement
+        // issue › opens the issue picker.
+        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-menu"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-composer-menu-implement-issue"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_composer-menu")
+        composeRule.onNode(hasTestTag("agent-composer-menu-implement-issue")).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
             flow.waitFor(hasText(title, substring = true), SYNC_TIMEOUT)
             composeRule.onAllNodes(hasText(title, substring = true)).onFirst().performClick()
         }
-        // Done closes the picker; the chips are on the composer already.
-        composeRule.onAllNodes(hasText("Done")).onFirst().performClick()
+        // The footer reads "Implement 2 issues" (composer-menu.json
+        // `implementButton`) and only closes: the chips are on the composer already.
+        flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
+        flow.waitFor(hasText(ComposerMenu.implementButtonLabel(2)), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)).performClick()
         flow.waitForGone(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Start batch · 2"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-issues")
 
-        composeRule.onNode(hasTestTag("agent-composer-actions-button")).performClick()
+        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-menu-run-action"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-menu-run-action")).performClick()
         flow.waitFor(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
         flow.waitFor(hasText(FIX_CONFLICTS_ACTION_NAME), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText(FIX_CONFLICTS_ACTION_NAME)).onFirst().performClick()
@@ -504,7 +543,7 @@ class StyleguideScreenshotsTest {
         // --- Runs tab: every run of this action; the seed's triggered run
         // reads "Scheduled run". Same optional gate as Triggers.
         composeRule.onNode(hasTestTag("action-tab-runs")).performClick()
-        if (!flow.waitForOptional(hasTestTag("ended-run-row"), SYNC_TIMEOUT)) {
+        if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
             android.util.Log.w(
                 "SLOP-2",
                 "sg_action-runs: no run rows — reseed with `bun run seed:screenshots`",
@@ -534,17 +573,66 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_reviews")
 
+        // --- sg_pr-row: THE pull-request row (EXP-1248). The same queue IS
+        // the PrRow surface: one line per PR, a tree nested with guides, a
+        // stack on its rail over the base-branch row.
+        flow.waitFor(hasTestTag("pr-list"), SYNC_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_pr-row")
+
+        // --- sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251).
+        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
+        // no report, so its whole diff is ONE Changes section; that row opens
+        // the section page. Both pop back to Reviews for sg_run-changes.
+        val wantsGuide = ScreenshotFlow.isShotWanted("sg_guide")
+        val wantsGuideSection = ScreenshotFlow.isShotWanted("sg_guide-section")
+        if (wantsGuide || wantsGuideSection) {
+            composeRule.onAllNodes(hasText(GUIDE_ISSUE_TITLE, substring = true)).onFirst().performClick()
+            if (flow.waitForOptional(hasTestTag("work-face-guide"), NAV_TIMEOUT)) {
+                composeRule.onNode(hasTestTag("work-face-guide")).performClick()
+            }
+            flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide")
+            // At rest the Changes row can sit under the floating Merge capsule
+            // (APP-14 is a stack member: `Merge stack`), and a centre click
+            // would land on the capsule. Scroll it clear of the bar first.
+            // performScrollToNode would not move it (the row is already
+            // inside the viewport, which reaches under the bar): swipe the
+            // Guide to its end, where the bottom inset lifts every row clear.
+            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+            flow.settle()
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide-section")
+            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+            flow.settle()
+        }
+
         // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
         // finished chat run whose own pull request is open; its row opens
         // RunChangesScreen, fed by codingSessions.prFiles — a real public PR
         // the seed points the run at (SCREENSHOT_RUN_PR_URL), so there are
-        // actual files to show. Same expanded-card wait as the store review.
+        // actual files to show. EXP-1251: the screen opens on the Guide (no
+        // report = ONE Changes row); that row opens the section page, where
+        // the file cards draw. Back twice: the section, then the screen.
         flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+        flow.settle()
+        composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_run-changes")
+        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+        flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()

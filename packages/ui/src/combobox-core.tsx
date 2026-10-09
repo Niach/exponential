@@ -2,26 +2,23 @@ import * as React from "react"
 
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
-import type { PickerOption } from "./picker-option"
+import type { PickerItem } from "./picker/picker-item"
 
 // EXP-957 — what every Combobox ARM shares: the selection model and the glyph
 // that draws it.
 //
-// `ComboboxList` (cmdk rows in a popover) and `ComboboxMenuItems` (rows inside
-// a Radix ContextMenu or DropdownMenu) are different shells over the SAME
-// vocabulary. Keeping the arithmetic and the glyph here, and NOT exporting
-// either from the barrel, is what stops a third shell — or an app row — from
-// inventing another "this is picked" language. Two arities, one glyph each:
+// `ComboboxList` (cmdk rows in a popover or sheet) and `PickerMenuRows` (rows
+// inside a `Menu` submenu) are different shells over the SAME vocabulary.
+// Keeping the arithmetic and the glyph here, and NOT exporting either from the
+// barrel, is what stops a third shell — or an app row — from inventing another
+// "this is picked" language. ONE language since the UI cleanup batch (the
+// circle pair EXP-957 drew on the multi arm is gone everywhere):
 //
 //   single  the picked row wears a trailing `ui-check`; nothing else moves
-//   multi   EVERY row leads with the circle pair (`ui-selected` /
-//           `ui-unselected`), and a row that is picked on only SOME of the
-//           things being edited wears `ui-indeterminate` (circle-minus)
+//   multi   the row's own highlight (`data-picked`), never a glyph; a row
+//           picked on only SOME of the things being edited reads `mixed`
 
 const CheckGlyph = conceptIcon(`ui-check`)
-const SelectedGlyph = conceptIcon(`ui-selected`)
-const UnselectedGlyph = conceptIcon(`ui-unselected`)
-const IndeterminateGlyph = conceptIcon(`ui-indeterminate`)
 
 interface ComboboxSingleSelection<TValue extends string> {
   multiple?: false
@@ -73,11 +70,11 @@ interface ResolvedSelection<TValue extends string> {
   noneLabel: string | undefined
   /** The `noneLabel` row wears the check. */
   noneMarked: boolean
-  stateOf: (option: PickerOption<TValue>) => SelectionState
-  isDisabled: (option: PickerOption<TValue>) => boolean
+  stateOf: (option: PickerItem<TValue>) => SelectionState
+  isDisabled: (option: PickerItem<TValue>) => boolean
   /** A pick. Single reports the value; multi reports the NEXT array — a
    *  `selected` row leaves it, any other row joins it. */
-  pick: (option: PickerOption<TValue>) => void
+  pick: (option: PickerItem<TValue>) => void
   pickNone: () => void
 }
 
@@ -97,7 +94,7 @@ function resolveSelection<TValue extends string>(
   const selected = selectedValuesOf(props)
   const selectedSet = new Set<string>(selected)
 
-  const stateOf = (option: PickerOption<TValue>): SelectionState => {
+  const stateOf = (option: PickerItem<TValue>): SelectionState => {
     if (multiple) {
       if (option.checked === `indeterminate`) {
         return `indeterminate`
@@ -112,10 +109,10 @@ function resolveSelection<TValue extends string>(
   const atCap =
     isMultiple(props) && props.max !== undefined && selected.length >= props.max
 
-  const isDisabled = (option: PickerOption<TValue>) =>
+  const isDisabled = (option: PickerItem<TValue>) =>
     option.disabled === true || (atCap && stateOf(option) !== `selected`)
 
-  const pick = (option: PickerOption<TValue>) => {
+  const pick = (option: PickerItem<TValue>) => {
     if (isMultiple(props)) {
       const rest = props.value.filter((entry) => entry !== option.value)
       props.onChange(
@@ -145,83 +142,57 @@ function resolveSelection<TValue extends string>(
 }
 
 /**
- * THE selection glyph. `data-selected-glyph` names what was drawn so a test
- * (and the styleguide gate) can count idioms instead of reading SVG paths.
- *
- * Single draws only when picked — a trailing check, muted like every other
- * secondary glyph in a row. Multi always draws: the circle pair reads as a
- * toggle only when every row has one.
+ * THE single-pick glyph: a trailing `ui-check` on the picked row, muted like
+ * every other secondary glyph in a row. `data-selected-glyph` names what was
+ * drawn so a test (and the styleguide gate) can count idioms instead of
+ * reading SVG paths. A multi pick draws NO glyph: the row's highlight is it.
  */
-function SelectionGlyph({
-  arity,
+function SelectionCheck({
   state,
   className,
 }: {
-  arity: `single` | `multi`
   state: SelectionState
   className?: string
 }) {
-  if (arity === `single`) {
-    if (state !== `selected`) {
-      return null
-    }
-    return (
-      <CheckGlyph
-        aria-hidden
-        data-selected-glyph="check"
-        className={cn(`ml-auto size-3.5 shrink-0 text-muted-foreground`, className)}
-      />
-    )
+  if (state !== `selected`) {
+    return null
   }
-  const Glyph =
-    state === `selected`
-      ? SelectedGlyph
-      : state === `indeterminate`
-        ? IndeterminateGlyph
-        : UnselectedGlyph
   return (
-    <Glyph
+    <CheckGlyph
       aria-hidden
-      data-selected-glyph={state}
-      className={cn(
-        `size-4 shrink-0`,
-        state === `unselected` ? `text-muted-foreground` : `text-foreground`,
-        className
-      )}
+      data-selected-glyph="check"
+      className={cn(`ml-auto size-3.5 shrink-0 text-muted-foreground`, className)}
     />
   )
 }
 
-/** The row body every option gets unless `renderOption` replaces it. */
-function ComboboxOptionBody<TValue extends string>({
-  option,
-}: {
-  option: PickerOption<TValue>
-}) {
-  const Glyph = option.icon
-  return (
-    <>
-      {option.dot !== undefined && (
-        <span
-          aria-hidden
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: option.dot }}
-        />
-      )}
-      {Glyph ? (
-        <Glyph
-          aria-hidden
-          className={cn(`size-4 shrink-0`, option.color)}
-          style={option.colorHex ? { color: option.colorHex } : undefined}
-        />
-      ) : null}
-      <span className="min-w-0 flex-1 truncate text-sm">{option.label}</span>
-      {option.hint !== undefined && (
-        <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-          {option.hint}
-        </span>
-      )}
-    </>
+/** The multi arm's highlight, shared by every shell. Every row carries a
+ *  transparent border so picking never shifts it; a picked row takes the
+ *  wash plus the active stroke — the stroke is what separates "picked" from
+ *  "the cursor is here" — and adjacent picks lose their shared edge, so three
+ *  picked rows read as ONE block, not three stacked pills. */
+const MULTI_ROW_CLASS = `border border-transparent`
+const MULTI_PICKED_CLASS = `bg-glass-active font-medium text-foreground border-glass-stroke-active [&:has(+[data-picked=true])]:rounded-b-none [&:has(+[data-picked=true])]:border-b-transparent [[data-picked=true]+&]:rounded-t-none [[data-picked=true]+&]:border-t-transparent`
+const MULTI_MIXED_CLASS = `bg-glass-active`
+
+/** The `data-picked` stamp: `true` on a picked row (both arms), `mixed` on a
+ *  partly-picked multi row, absent otherwise. */
+function pickedAttr(
+  multiple: boolean,
+  state: SelectionState
+): `true` | `mixed` | undefined {
+  if (state === `selected`) return `true`
+  if (multiple && state === `indeterminate`) return `mixed`
+  return undefined
+}
+
+/** The row classes the selection state adds (multi only). */
+function pickedRowClass(multiple: boolean, state: SelectionState) {
+  if (!multiple) return undefined
+  return cn(
+    MULTI_ROW_CLASS,
+    state === `selected` && MULTI_PICKED_CLASS,
+    state === `indeterminate` && MULTI_MIXED_CLASS
   )
 }
 
@@ -229,13 +200,14 @@ function ComboboxOptionBody<TValue extends string>({
  *  primitive's, so a custom row can never invent a seventh "this is picked"
  *  language. */
 type RenderComboboxOption<TValue extends string> = (
-  option: PickerOption<TValue>,
+  option: PickerItem<TValue>,
   state: { selected: boolean }
 ) => React.ReactNode
 
 export {
-  ComboboxOptionBody,
-  SelectionGlyph,
+  SelectionCheck,
+  pickedAttr,
+  pickedRowClass,
   isMultiple,
   resolveSelection,
   selectedValuesOf,

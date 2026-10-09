@@ -32,9 +32,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
-import com.exponential.app.ui.components.AccountPill
 import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.AccountPickerPillTrigger
 import com.exponential.app.ui.components.picker.BoardPickerBoard
 import com.exponential.app.ui.components.picker.LabelPickerLabel
 import com.exponential.app.ui.components.picker.StatusPickerStatus
@@ -468,9 +468,9 @@ internal fun TriggerBindingFields(
                             }
                         },
                         trigger = { open ->
-                            AccountPill(
-                                option = current,
-                                onClick = if (accountOptions.size > 1) open else null,
+                            AccountPickerPillTrigger(
+                                option = current.toPickerAccount(),
+                                onOpen = if (accountOptions.size > 1) open else null,
                                 modifier = Modifier.testTag("trigger-account-pill"),
                             )
                         },

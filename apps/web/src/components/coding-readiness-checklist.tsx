@@ -31,7 +31,7 @@ import {
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { cn } from "@/lib/utils"
 import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
-import { ReadinessRepoPicker } from "@/components/coding-readiness-repo-picker"
+import { GithubRepoPicker } from "@/components/github-repo-picker"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import type { CodingReadinessState } from "@/hooks/use-coding-readiness"
 
@@ -320,7 +320,8 @@ export function ReadinessSteps({
             >
               {showPicker && board ? (
                 <div className="mt-2">
-                  <ReadinessRepoPicker
+                  <GithubRepoPicker
+                    source="team"
                     teamId={state.teamId}
                     board={board}
                     repos={state.repos}

@@ -45,7 +45,24 @@ object ReviewsQueue {
         val representative: IssueEntity get() = issues.first()
     }
 
-    data class BoardGroup(val board: BoardEntity, val entries: List<Entry>)
+    /**
+     * EXP-1248: one display item of a board band (rule 9, `_groupDoc`).
+     * [Pr] = a lone PR (depth 0) or a member of a PR TREE, pre-order under
+     * its root; [Stack] = a linear stack, its entries TOP first, then the
+     * base-branch row.
+     */
+    sealed class Item {
+        data class Pr(val entry: Entry, val depth: Int) : Item()
+        data class Stack(val entries: List<Entry>, val baseBranch: String?) : Item()
+    }
+
+    data class BoardGroup(
+        val board: BoardEntity,
+        /** Every entry, flat, newest first (rule 3). */
+        val entries: List<Entry>,
+        /** The same entries as the band draws them (rule 9). */
+        val items: List<Item> = ReviewsQueue.items(entries),
+    )
 
     data class RunGroup(val teamId: String, val sessions: List<CodingSessionEntity>)
 
@@ -94,6 +111,65 @@ object ReviewsQueue {
     fun nav(yolo: List<Boolean>, count: Int): ReviewsNav {
         val dot = count > 0
         return ReviewsNav(dot = dot, shows = yolo.isEmpty() || yolo.any { !it } || dot)
+    }
+
+    private fun edge(branch: String?): String? = branch?.takeIf { it.isNotEmpty() }
+
+    /**
+     * (9) A band's entries as items, x4 (web `queueItems`, desktop
+     * `queue_items`, iOS `ReviewsQueue.items`). Edge: an entry sits on the
+     * entry (same band) whose representative's `branch` is its
+     * representative's `prBaseBranch`. A component lists where its NEWEST
+     * entry would, walked from its ROOT (a cycle breaks where the climb first
+     * repeats). Any entry with two children = a TREE: pre-order, children in
+     * band order, depth = distance from the root. Otherwise 2+ entries = a
+     * STACK item, top first, `baseBranch` = the root's `prBaseBranch`.
+     */
+    fun items(entries: List<Entry>): List<Item> {
+        val owner = HashMap<String, Entry>()
+        for (entry in entries) {
+            val branch = edge(entry.representative.branch) ?: continue
+            if (!owner.containsKey(branch)) owner[branch] = entry
+        }
+        val parentOf = HashMap<String, Entry>()
+        val children = HashMap<String, MutableList<Entry>>()
+        for (entry in entries) {
+            val parent = edge(entry.representative.prBaseBranch)?.let { owner[it] } ?: continue
+            if (parent.key == entry.key) continue
+            parentOf[entry.key] = parent
+            children.getOrPut(parent.key) { mutableListOf() }.add(entry)
+        }
+        val placed = HashSet<String>()
+        val items = ArrayList<Item>()
+        for (start in entries) {
+            if (start.key in placed) continue
+            // Climb to the root; a cycle stops where it first repeats.
+            var root = start
+            val climbed = hashSetOf(root.key)
+            while (true) {
+                val parent = parentOf[root.key] ?: break
+                if (parent.key in climbed || parent.key in placed) break
+                climbed.add(parent.key)
+                root = parent
+            }
+            // The component under the root, pre-order, children in band order.
+            val members = ArrayList<Pair<Entry, Int>>()
+            var fork = false
+            fun visit(entry: Entry, depth: Int) {
+                if (!placed.add(entry.key)) return
+                members.add(entry to depth)
+                val below = children[entry.key].orEmpty().filter { it.key !in placed }
+                if (below.size > 1) fork = true
+                for (child in below) visit(child, depth + 1)
+            }
+            visit(root, 0)
+            if (members.size > 1 && !fork) {
+                items.add(Item.Stack(members.map { it.first }.reversed(), edge(root.representative.prBaseBranch)))
+            } else {
+                members.forEach { (entry, depth) -> items.add(Item.Pr(entry, depth)) }
+            }
+        }
+        return items
     }
 
     fun build(

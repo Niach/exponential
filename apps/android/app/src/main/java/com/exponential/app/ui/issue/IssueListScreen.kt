@@ -79,6 +79,7 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.priorityIcon
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BlocksBadge
 import com.exponential.app.ui.components.picker.AssigneePicker
 import com.exponential.app.ui.components.picker.LabelPicker
@@ -106,6 +107,7 @@ import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.IssueGroupBand
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
@@ -810,11 +812,17 @@ private fun IssueListContent(
                                 .animateItem()
                                 .fillMaxWidth(),
                         ) {
-                            StatusHeader(
-                                status = group.status,
+                            // EXP-1248: the ONE issue group band (the only
+                            // list band that keeps its count).
+                            IssueGroupBand(
+                                glyph = { StatusIcon(group.status, size = 14.dp) },
+                                name = group.status.name,
                                 count = group.issues.size,
                                 collapsed = isCollapsed,
                                 onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
+                                // The list carries no horizontal contentPadding
+                                // (EXP-614): the band carries the gutter + 8dp.
+                                horizontalInset = ListGutter + 8.dp,
                             )
                         }
                     }
@@ -931,47 +939,6 @@ private fun BoardSwitcherControl(
     )
 }
 
-@Composable
-private fun StatusHeader(
-    status: ResolvedIssueStatus,
-    count: Int,
-    collapsed: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            // The list carries no horizontal contentPadding (EXP-614), so the
-            // content carries the gutter on top of the header's own 8dp inset
-            // — the glyphs stay lined up with the rows below, matching
-            // MyIssuesScreen's 16dp contentPadding + 8dp.
-            .padding(horizontal = ListGutter + 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
-            contentDescription = if (collapsed) "Expand" else "Collapse",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(6.dp))
-        StatusIcon(status, size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            status.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun IssueRow(
@@ -1035,100 +1002,103 @@ internal fun IssueRow(
             .heightIn(min = RowContentMinHeight),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (selected != null) {
-            Icon(
-                if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-                contentDescription = if (selected) "Selected" else "Not selected",
-                modifier = Modifier.size(20.dp),
-                tint = if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                },
-            )
-            Spacer(Modifier.width(10.dp))
-        }
-        IconColumn(onClick = onPriorityClick, onLongClick = onLongClick) {
-            PriorityIcon(priority, size = 16.dp)
-        }
-        Text(
-            issue.identifier,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        // Wave D (M31): THE issue row's slots — the leading selection check +
+        // priority column, the mono identifier column, the status column, the
+        // title, its badges and the chevron.
+        IssueRowContent(
+            title = issue.title,
+            leading = {
+                if (selected != null) {
+                    Icon(
+                        if (selected) ExpIcons.uiSelected else ExpIcons.uiUnselected,
+                        contentDescription = if (selected) "Selected" else "Not selected",
+                        modifier = Modifier.size(20.dp),
+                        tint = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                        },
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
+                IconColumn(onClick = onPriorityClick, onLongClick = onLongClick) {
+                    PriorityIcon(priority, size = 16.dp)
+                }
+            },
+            leadingGap = 0.dp,
+            identifier = issue.identifier,
             // Min-width identifier column (fits "EXP-9999" in the monospace
             // labelMedium style) so the priority icon, identifier, status icon
             // and title line up across rows for typical digit counts — but a
             // min (not fixed) width so longer identifiers (10-char prefixes,
             // big numbers, large font scale) still render in full instead of
             // clipping to a plausible-but-wrong identifier.
-            modifier = Modifier.widthIn(min = 60.dp),
-        )
-        IconColumn(onClick = onStatusClick, onLongClick = onLongClick) {
-            if (resolvedStatus != null) {
-                StatusIcon(resolvedStatus, size = 16.dp)
-            } else {
-                StatusIcon(status, size = 16.dp)
-            }
-        }
-        Text(
-            issue.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (blocks != null) {
-            Spacer(Modifier.width(6.dp))
-            BlocksBadge(blocks, onClick = onBlocksClick)
-        }
-        if (labels.isNotEmpty()) {
-            Spacer(Modifier.width(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                labels.take(3).forEach { label ->
-                    LabelDot(remember(label.color) { parseColor(label.color) })
+            identifierMinWidth = 60.dp,
+            identifierEllipsis = true,
+            identifierGap = 0.dp,
+            status = {
+                IconColumn(onClick = onStatusClick, onLongClick = onLongClick) {
+                    if (resolvedStatus != null) {
+                        StatusIcon(resolvedStatus, size = 16.dp)
+                    } else {
+                        StatusIcon(status, size = 16.dp)
+                    }
                 }
-            }
-        }
-        if (issue.dueDate != null) {
-            Spacer(Modifier.width(8.dp))
-            Icon(
-                ExpIcons.uiDueDate,
-                contentDescription = "Due date",
-                modifier = Modifier.size(13.dp),
-                tint = dueDateColor(issue.dueDate),
-            )
-            Spacer(Modifier.width(3.dp))
-            Text(
-                formatDueDate(issue.dueDate),
-                style = MaterialTheme.typography.labelSmall,
-                color = dueDateColor(issue.dueDate),
-                // The date pill must never wrap ("Tomorrow" used to break onto
-                // a second line when a long title squeezed the row, EXP-58):
-                // softWrap=false lays it out at its intrinsic single-line
-                // width — the weighted title, measured last, absorbs the
-                // squeeze instead.
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-        if (assignee != null) {
-            Spacer(Modifier.width(8.dp))
-            UserAvatar(
-                user = assignee,
-                nameOrEmail = assignee.name ?: assignee.email,
-                size = 22.dp,
-            )
-        }
-        Spacer(Modifier.width(6.dp))
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            },
+            statusGap = 0.dp,
+            titleAccessory = {
+                if (blocks != null) {
+                    Spacer(Modifier.width(6.dp))
+                    BlocksBadge(blocks, onClick = onBlocksClick)
+                }
+                if (labels.isNotEmpty()) {
+                    Spacer(Modifier.width(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        labels.take(3).forEach { label ->
+                            LabelDot(remember(label.color) { parseColor(label.color) })
+                        }
+                    }
+                }
+                if (issue.dueDate != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        ExpIcons.uiDueDate,
+                        contentDescription = "Due date",
+                        modifier = Modifier.size(13.dp),
+                        tint = dueDateColor(issue.dueDate),
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        formatDueDate(issue.dueDate),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = dueDateColor(issue.dueDate),
+                        // The date pill must never wrap ("Tomorrow" used to break onto
+                        // a second line when a long title squeezed the row, EXP-58):
+                        // softWrap=false lays it out at its intrinsic single-line
+                        // width — the weighted title, measured last, absorbs the
+                        // squeeze instead.
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+                if (assignee != null) {
+                    Spacer(Modifier.width(8.dp))
+                    UserAvatar(
+                        user = assignee,
+                        nameOrEmail = assignee.name ?: assignee.email,
+                        size = 22.dp,
+                    )
+                }
+            },
+            trailingGap = 6.dp,
+            trailing = {
+                Icon(
+                    ExpIcons.uiChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            },
         )
     }
 }

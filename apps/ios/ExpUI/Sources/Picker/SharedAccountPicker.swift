@@ -4,8 +4,8 @@ import SwiftUI
 // EXP-1029 contract, EXP-1021 implementation — the account picker under the
 // shared picker API.
 //
-// The EXP-991 picker (`AccountPicker.swift`: `AccountPickerMenu` +
-// `AccountPickerTriggerLabel`, brand mark + login email per row, the EXP-992
+// The EXP-991 picker (`AccountPicker.swift`: `AccountPickerTriggerLabel`,
+// brand mark + login email per row, the EXP-992
 // rate-limit preview `AccountLimitBars` under each login) rides `GlassPicker`
 // here, keeping its options AND its preview: the brand mark is the row's
 // MARK, and the email + badge + bars are the row's BODY (`renderItem`, the
@@ -13,8 +13,7 @@ import SwiftUI
 // same on the same seam). A row is keyed by `AccountOption.key`, never the
 // bare profile id: `system` repeats across agents.
 // (The file is not `AccountPicker.swift`: swiftc refuses two files of one
-// name in a module, and that one still holds the menu the other launch
-// surfaces open.)
+// name in a module, and that one holds the trigger label + the limit bars.)
 
 public struct AccountPicker<Trigger: View>: View {
     public let options: [AccountOption]

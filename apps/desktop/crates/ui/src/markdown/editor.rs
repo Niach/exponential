@@ -429,7 +429,7 @@ pub(crate) fn download_image(
     };
     let filename = attachment_download_filename(&url, cx);
     let directory = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let receiver = cx.prompt_for_new_path(&directory, Some(&filename));
+    let receiver = crate::file_picker::prompt_for_new_path(cx, &directory, Some(&filename));
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
         // Receiver error = dialog dismissed/unsupported; None = cancelled.
@@ -775,7 +775,7 @@ fn attach_image_context_menu(
         // EXP-421: parity with the WYSIWYG host menu and the web image menu —
         // icons per row, destructive "Remove from description", no Copy link.
         let mut menu = menu.item(
-            PopupMenuItem::new("View image")
+            crate::controls::pointer_label_item("View image", false)
                 .icon(Icon::from(crate::icons::registry::UI_WATCH))
                 .on_click({
                     let images = images.clone();
@@ -795,7 +795,7 @@ fn attach_image_context_menu(
         );
         if own_attachment {
             menu = menu.item(
-                PopupMenuItem::new("Download")
+                crate::controls::pointer_label_item("Download", false)
                     .icon(Icon::from(crate::icons::registry::UI_DOWNLOAD))
                     .on_click({
                         let images = images.clone();
@@ -811,7 +811,7 @@ fn attach_image_context_menu(
             // Copy image ships on macOS/Windows only.
             if cfg!(any(target_os = "macos", target_os = "windows")) {
                 menu = menu.item(
-                    PopupMenuItem::new("Copy image")
+                    crate::controls::pointer_label_item("Copy image", false)
                         .icon(Icon::from(crate::icons::registry::UI_COPY))
                         .on_click({
                             let images = images.clone();
@@ -1830,7 +1830,7 @@ impl MarkdownEditor {
     /// Toolbar image button — native file picker through the same path as
     /// paste (§4.5: one upload path for paste + drop + picker).
     pub(super) fn pick_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,

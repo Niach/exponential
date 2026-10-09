@@ -35,7 +35,7 @@ import {
   AccountPicker,
   agentLabel,
   BoardPicker,
-  Combobox,
+  Picker,
   DevicePicker,
   LabelPicker,
   PickerTrigger,
@@ -199,9 +199,9 @@ export function TriggerWhenFields({
 
       {draft.kind === `schedule` && (
         <>
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="row"
-            searchable={false}
             mobileTitle="Every"
             value={draft.interval}
             onChange={(value) => {
@@ -209,7 +209,7 @@ export function TriggerWhenFields({
                 set({ interval: value as ActionScheduleInterval })
               }
             }}
-            options={(
+            items={(
               Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]
             ).map((interval) => ({
               value: interval,
@@ -217,30 +217,30 @@ export function TriggerWhenFields({
             }))}
           />
           {draft.interval === `weekly` && (
-            <Combobox
+            <Picker
+              mode="single"
               triggerVariant="row"
-              searchable={false}
               mobileTitle="Weekday"
               value={String(draft.weekday)}
               onChange={(value) => {
                 if (value !== null) set({ weekday: Number(value) })
               }}
-              options={WEEKDAYS.map((weekday) => ({
+              items={WEEKDAYS.map((weekday) => ({
                 value: String(weekday),
                 label: weekdayName(weekday),
               }))}
             />
           )}
           {draft.interval === `monthly` && (
-            <Combobox
+            <Picker
+              mode="single"
               triggerVariant="row"
-              searchable={false}
               mobileTitle="Day of month"
               value={String(draft.dayOfMonth)}
               onChange={(value) => {
                 if (value !== null) set({ dayOfMonth: Number(value) })
               }}
-              options={MONTH_DAYS.map((day) => ({
+              items={MONTH_DAYS.map((day) => ({
                 value: String(day),
                 label: `Day ${day}`,
               }))}
@@ -259,15 +259,15 @@ export function TriggerWhenFields({
 
       {draft.kind === `event` && (
         <>
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="row"
-            searchable={false}
             mobileTitle="When"
             value={draft.event}
             onChange={(value) => {
               if (value !== null) set({ event: value as ActionTriggerEvent })
             }}
-            options={actionTriggerEventValues.map((event) => ({
+            items={actionTriggerEventValues.map((event) => ({
               value: event,
               label: TRIGGER_EVENT_LABELS[event],
             }))}
@@ -488,13 +488,13 @@ export function TriggerLaunchFields({
             data-testid={`${idPrefix}-account`}
           />
         ) : (
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="row"
-            searchable={false}
             mobileTitle="Agent"
             value={pin.agent === `` ? null : pin.agent}
             triggerLabel="Select an agent"
-            options={contract.codingAgent.values.map((value) => ({
+            items={contract.codingAgent.values.map((value) => ({
               value,
               label: agentLabel(value),
             }))}

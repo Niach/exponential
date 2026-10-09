@@ -527,6 +527,14 @@ export function EditorInsertControls({
     }
   }
 
+  // EXP-1247: "Attach file" never inlines — every pick, images and clips
+  // included, becomes a Files row (`asFile`). The image button, paste and
+  // drop keep inlining.
+  const routeFilePicks = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? [])
+    if (files.length > 0) void imageUpload?.onOtherFiles?.(files, { asFile: true })
+  }
+
   const hiddenInputs = imageUpload?.enabled ? (
     <>
       <input
@@ -553,7 +561,7 @@ export function EditorInsertControls({
           multiple
           hidden
           onChange={(event) => {
-            routeFiles(event.target.files)
+            routeFilePicks(event.target.files)
             event.target.value = ``
           }}
         />

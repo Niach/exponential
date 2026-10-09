@@ -34,42 +34,40 @@ struct IssueRelationListRow: View {
     let onRemove: (() -> Void)?
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 12) {
-                AppIcon(iconName, size: IssueRelationRowTokens.glyphSize)
-                    .foregroundStyle(iconColor)
-                    .frame(width: 20)
-                Text(row.identifier)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .fixedSize()
-                Text(row.title)
-                    .font(.subheadline)
-                    // A closed counterpart (done, cancelled, duplicate)
-                    // recedes (web `!row.open && text-foreground/60`).
-                    .foregroundStyle(.white.opacity(row.open ? 1 : 0.6))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                avatar
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: IssueRelationRowTokens.minHeight)
-            .contentShape(Rectangle())
+        HStack(spacing: 12) {
+            AppIcon(iconName, size: IssueRelationRowTokens.glyphSize)
+                .foregroundStyle(iconColor)
+                .frame(width: 20)
+            Text(row.identifier)
+                .font(.caption.monospaced())
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+                .fixedSize()
+            Text(row.title)
+                .font(.subheadline)
+                // A closed counterpart (done, cancelled, duplicate)
+                // recedes (web `!row.open && text-foreground/60`).
+                .foregroundStyle(.white.opacity(row.open ? 1 : 0.6))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            avatar
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .frame(minHeight: IssueRelationRowTokens.minHeight)
         .flatRow()
-        .contextMenu {
+        // THE glass menu on a hold (never the system `.contextMenu`); the
+        // tap opens the counterpart.
+        .glassLongPressMenu(enabled: onRemove != nil, onTap: onOpen) {
             if let onRemove {
-                Button(role: .destructive, action: onRemove) {
-                    Text(removeLabel)
-                }
+                GlassMenuItem(removeLabel, icon: AppIcons.uiDelete, destructive: true, action: onRemove)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.identifier) \(row.title)")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
+        .modifier(RemoveRelationAction(label: removeLabel, action: onRemove))
     }
 
     private var iconName: String {
@@ -91,6 +89,20 @@ struct IssueRelationListRow: View {
                     width: IssueRelationRowTokens.avatarSize,
                     height: IssueRelationRowTokens.avatarSize
                 )
+        }
+    }
+}
+
+/// VoiceOver has no hold: the hold menu's Remove is a named action too.
+private struct RemoveRelationAction: ViewModifier {
+    let label: String
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content.accessibilityAction(named: label, action)
+        } else {
+            content
         }
     }
 }

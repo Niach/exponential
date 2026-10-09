@@ -11,8 +11,7 @@ import {
   maxImageUploadBytes,
 } from "@/lib/storage/issue-attachments"
 import {
-  uploadIssueFile,
-  uploadIssueImageFile,
+  uploadIssueAttachment,
 } from "@/lib/storage/issue-image-upload"
 import {
   mediaPlayabilityHint,
@@ -257,8 +256,8 @@ export function CommentComposer({
             uploadedId = uploaded.id
           } else {
             const uploaded = isInlineImageAttachment(item.file.type)
-              ? await uploadIssueImageFile(issueId, item.file)
-              : await uploadIssueFile(issueId, item.file)
+              ? await uploadIssueAttachment(issueId, item.file)
+              : await uploadIssueAttachment(issueId, item.file, { asFile: true })
             uploadedId = uploaded.id
           }
           items[i] = { ...item, uploadedId }

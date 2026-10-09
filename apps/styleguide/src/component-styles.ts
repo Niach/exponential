@@ -607,27 +607,6 @@ export const componentStyles = `
 }
 .cmp-bulk-bar .glyph { width: 16px; height: 16px; }
 
-/* ------------------------------------------------------------- usage bar */
-.cmp-usage-bar { display: grid; gap: 6px; }
-.cmp-usage-bar .line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-.cmp-usage-bar .amount { margin-left: auto; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
-.cmp-usage-bar .track { height: 6px; border-radius: 9999px; background: var(--stroke-strong); overflow: hidden; }
-.cmp-usage-bar .fill { width: 62%; height: 100%; border-radius: 9999px; background: var(--fg-30); }
-.cmp-usage-bar.warn .fill { width: 88%; background: var(--warn); }
-
-/* EXP-909: the same report in ONE line — three wire labels, three 4px meters,
-   three percents. The fills are fixed here because a demo may carry no inline
-   style; the real component reads them off miniWindows. */
-.cmp-usage-mini { display: flex; align-items: center; gap: 12px; }
-.cmp-usage-mini .line { display: flex; flex: 1; align-items: center; gap: 6px; font-size: 11px; }
-.cmp-usage-mini .label { color: var(--muted-fg); }
-.cmp-usage-mini .amount { color: var(--muted-fg); font-variant-numeric: tabular-nums; }
-.cmp-usage-mini .track { flex: 1; height: 4px; border-radius: 9999px; background: var(--stroke-strong); overflow: hidden; }
-.cmp-usage-mini .fill { display: block; height: 100%; border-radius: 9999px; background: var(--fg-30); }
-.cmp-usage-mini .line:nth-child(1) .fill { width: 4%; }
-.cmp-usage-mini .line:nth-child(2) .fill { width: 73%; }
-.cmp-usage-mini .line:nth-child(3) .fill { width: 100%; background: var(--destructive); }
-
 /* -------------------------------------------------------------- divider */
 .cmp-divider { height: 1px; background: var(--stroke-soft); }
 
@@ -684,40 +663,6 @@ export const componentStyles = `
 .cmp-motion .box.ease-standard { transition-timing-function: var(--ease); }
 .cmp-motion .box.ease-decelerate { transition-timing-function: var(--ease-decelerate); }
 .cmp-motion .box.ease-accelerate { transition-timing-function: var(--ease-accelerate); }
-
-/* ------------------------------------------------------------ the launcher */
-/* EXP-1019 — the start-coding dialog. The frame is the "dialog" control and
-   the card is "composer"; what is SPECIAL here is the order, which is the
-   whole design: the SUBJECT leads as a headline (the contract's verb, then
-   the subject chips), and the field under it has dropped to the secondary
-   half — "Additional instructions (optional)…" — because the thing that will
-   run is already picked. The tool row and the round submit ride the card, the
-   muted options line hangs under it. Drawn by hand: no one component owns
-   this arrangement, and the two it is made of are documented on their own. */
-.cmp-launch { display: grid; gap: 8px; }
-.cmp-launch .caption { padding: 0 4px; font-size: 12px; color: var(--fg-50); }
-.cmp-launch .header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 4px; }
-.cmp-launch .title { font-size: 18px; line-height: 22px; font-weight: 600; }
-.cmp-launch .card {
-  border-radius: var(--r-xl);
-  border: 1px solid var(--stroke);
-  background: var(--card);
-}
-.cmp-launch .field { padding: 12px 12px 4px; font-size: 14px; line-height: 20px; color: var(--fg-50); }
-.cmp-launch .tool-row { display: flex; align-items: center; gap: 2px; padding: 4px 8px 8px; }
-/* The ONE circle on the card is the send, and it takes the accent glyph. */
-.cmp-launch .tool-row .cmp-icon-button { margin-left: auto; color: var(--primary); }
-.cmp-launch .footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 0 4px;
-  font-size: 12px;
-  color: var(--muted-fg);
-}
-.cmp-launch .footer .value { color: var(--fg-85); }
-.cmp-launch .footer .cmp-switch { flex: none; }
 
 /* ------------------------------------------------------------------ type */
 /* The type scale as SPECIMENS, set in the page's own font: Inter is not loaded

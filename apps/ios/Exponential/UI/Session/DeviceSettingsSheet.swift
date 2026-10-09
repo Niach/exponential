@@ -438,7 +438,7 @@ struct DeviceSettingsSheet: View {
     /// row rather than local state.
     private func defaultDeviceSection(_ device: SteerDevice) -> some View {
         Section {
-            Toggle(
+            GlassToggleRow(
                 "Default device",
                 isOn: Binding(
                     get: { device.isDefaultDevice },
@@ -470,7 +470,7 @@ struct DeviceSettingsSheet: View {
     private func sharingSection(_ device: SteerDevice) -> some View {
         Section {
             ForEach(teams) { team in
-                Toggle(
+                GlassToggleRow(
                     team.name,
                     isOn: Binding(
                         get: { device.sharedTeamIds.contains(team.id) },
@@ -547,7 +547,7 @@ struct DeviceSettingsSheet: View {
     /// EXP-1236: the model picker row under it while the switch is on.
     private var computerUseSection: some View {
         Section {
-            Toggle(
+            GlassToggleRow(
                 "Computer use",
                 isOn: Binding(
                     get: { computerUse },

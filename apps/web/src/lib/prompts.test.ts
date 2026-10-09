@@ -15,7 +15,6 @@ import {
   makeMemberPrompt,
   makeOwnerPrompt,
   mergeIssuePrPrompt,
-  mergeExternalPrPrompt,
   mergeRunPrPrompt,
   moveIssuePrompt,
   PROMPT_FIXTURE,
@@ -58,10 +57,6 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
     title: () =>
       mergeIssuePrPrompt({ number: `{number}` as unknown as number, count: 1 }),
     titleNoNumber: () => mergeIssuePrPrompt({ number: null, count: 1 }),
-  },
-  "merge-external-pr": {
-    title: () =>
-      mergeExternalPrPrompt(`{repository}`, `{number}` as unknown as number, `{base}`),
   },
   "merge-run-pr": {
     title: () => mergeRunPrPrompt(`{number}` as unknown as number),

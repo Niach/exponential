@@ -1,15 +1,15 @@
 import SwiftUI
 
 // The iOS twin of Android's ui/components/SheetOptionRows.kt `PickerRow`
-// (EXP-603/EXP-607): label left, selected value + chevron right; a tap opens a
-// `GlassPickerSheet` of the options. Both platforms retired their anchored
-// dropdown here for the same reason — a dropdown over a sheet lands wherever
+// (EXP-603/EXP-607): label left, selected value + chevron right; a tap opens
+// the shared picker's sheet (`GlassPicker`). Both platforms retired their
+// anchored dropdown here for the same reason — a dropdown over a sheet lands wherever
 // the system can fit it, while a sheet always presents the same way and reads
 // like every other picker in the app.
 //
 // Absent twins, deliberately: `SectionLabel`, `OptionGroup`, `GroupDivider`
 // and `SwitchRow` are Compose reconstructions of what `Form`/`Section`/
-// `Toggle` already give us here — Android had to hand-roll the inset-grouped
+// `GlassToggleRow` already give us here — Android had to hand-roll the inset-grouped
 // look these sheets copied FROM iOS.
 
 /// The fill a `Form` row wears once `.scrollContentBackground(.hidden)` has
@@ -34,8 +34,6 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
     var icon: ((SelectionValue) -> String?)? = nil
     var enabled: Bool = true
 
-    @State private var showsOptions = false
-
     public init(
         _ title: String,
         selection: Binding<SelectionValue>,
@@ -53,43 +51,36 @@ public struct GlassPickerRow<SelectionValue: Hashable>: View {
     }
 
     public var body: some View {
-        GlassPickerRowLabel(
-            title,
-            value: label(selection),
-            icon: icon?(selection),
-            enabled: enabled
-        )
-        .onTapGesture {
-            guard enabled else { return }
-            showsOptions = true
-        }
-        .sheet(isPresented: $showsOptions) {
-            GlassPickerSheet(
-                title: title,
-                items: options,
-                selectedID: selection,
-                idFor: { $0 },
-                onSelect: { selection = $0 }
-            ) { option in
-                HStack(spacing: 8) {
-                    if let glyph = icon?(option) {
-                        AppIcon(glyph, size: 14)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    Text(label(option))
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                }
-            }
+        // EXP-1021: the SHARED picker owns the sheet; the row is its trigger.
+        // Rows are keyed by their INDEX, so any `Hashable` vocabulary rides
+        // the picker without having to be `Sendable`.
+        GlassPicker(
+            items: options.enumerated().map { index, option in
+                PickerItem(value: index, label: label(option), icon: icon?(option))
+            },
+            mode: .single,
+            value: options.firstIndex(of: selection).map { [$0] } ?? [],
+            onChange: { picked in
+                guard let index = picked.first, options.indices.contains(index) else { return }
+                selection = options[index]
+            },
+            title: title,
+            disabled: !enabled
+        ) {
+            GlassPickerRowLabel(
+                title,
+                value: label(selection),
+                icon: icon?(selection),
+                enabled: enabled
+            )
         }
     }
 }
 
 /// The ROW ITSELF, without the tap or the sheet — what a form row that hands
 /// its presentation to the shared picker (`GlassPicker`, EXP-1021) renders as
-/// the picker's trigger. `GlassPickerRow` above is this label plus its own
-/// untyped sheet, for the picks the ten typed pickers do not model.
+/// the picker's trigger. `GlassPickerRow` above is this label over an untyped
+/// `GlassPicker`, for the picks the typed pickers do not model.
 public struct GlassPickerRowLabel: View {
     let title: String
     let value: String

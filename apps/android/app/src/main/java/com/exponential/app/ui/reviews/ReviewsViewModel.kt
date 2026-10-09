@@ -2,39 +2,24 @@ package com.exponential.app.ui.reviews
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.CodingSessionsApi
-import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.TeamEntity
-import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
-import com.exponential.app.data.db.scopedQuery
-import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.CHAT_RUN_NAME
-import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.PullRepo
 import com.exponential.app.domain.ReviewsQueue
-import com.exponential.app.data.api.OpenPull
-import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.OpenPullsStore
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -48,6 +33,8 @@ import kotlinx.coroutines.launch
 // (EXP-1186, like the Inbox), grouped by board. A batch coding run links N issues to ONE pr_url, so the list
 // collapses those rows into a single entry (never N). Pure client work over the
 // already-synced issues shape — no new shape, no server round-trip to list.
+// EXP-1248: the page only OPENS things (no merge, swipe or long-press ×4);
+// inside a board band a PR TREE nests and a linear STACK rails over its base.
 
 /**
  * One reviewable pull request. A single-issue PR carries one issue; a batch PR
@@ -66,6 +53,62 @@ data class ReviewEntry(
     val isBatch: Boolean get() = issues.size > 1
     val identifiers: List<String> get() = issues.map { it.identifier }
 }
+
+/**
+ * EXP-1248: a review row's label ×4 (web `reviewRowLabel`): the issue's
+ * identifier and title; a batch PR = `<first identifier> +<n-1>` beside the
+ * first issue's title.
+ */
+data class ReviewRowLabel(val identifier: String, val title: String)
+
+fun reviewRowLabel(entry: ReviewEntry): ReviewRowLabel {
+    val first = entry.representative
+    val more = entry.issues.size - 1
+    return ReviewRowLabel(
+        identifier = if (more > 0) "${first.identifier} +$more" else first.identifier,
+        title = first.title,
+    )
+}
+
+/** EXP-1248: one board-band item as drawn (`ReviewsQueue` rule 9). */
+sealed class ReviewItem {
+    /** A lone PR (depth 0) or a member of a PR TREE, pre-order. */
+    data class Pr(val entry: ReviewEntry, val depth: Int) : ReviewItem()
+
+    /** A linear STACK: TOP first, then the base-branch row. */
+    data class Stack(val entries: List<ReviewEntry>, val baseBranch: String?) : ReviewItem()
+}
+
+/** EXP-1248: a band's draw blocks ×4 (web `reviewBlocks`): consecutive [ReviewItem.Pr]
+ *  items share ONE PR list (a tree's guides span its rows), each stack is its own rail. */
+sealed class ReviewBlock {
+    data class Rows(val rows: List<ReviewItem.Pr>) : ReviewBlock()
+    data class Stack(val entries: List<ReviewEntry>, val baseBranch: String?) : ReviewBlock()
+}
+
+fun reviewBlocks(items: List<ReviewItem>): List<ReviewBlock> {
+    val blocks = ArrayList<ReviewBlock>()
+    for (item in items) {
+        when (item) {
+            is ReviewItem.Stack -> blocks.add(ReviewBlock.Stack(item.entries, item.baseBranch))
+            is ReviewItem.Pr -> {
+                val last = blocks.lastOrNull()
+                if (last is ReviewBlock.Rows) {
+                    blocks[blocks.size - 1] = ReviewBlock.Rows(last.rows + item)
+                } else {
+                    blocks.add(ReviewBlock.Rows(listOf(item)))
+                }
+            }
+        }
+    }
+    return blocks
+}
+
+/** The word on a stack's top row ×4. */
+const val STACK_WORD = "stack"
+
+/** The word on an unlinked draft PR ×4. */
+const val DRAFT_WORD = "draft"
 
 /**
  * EXP-734: one reviewable pull request that belongs to a RUN, not an issue —
@@ -104,9 +147,6 @@ private fun runEntry(session: CodingSessionEntity) = RunReviewEntry(
     title = chatRunSubject(session) ?: session.actionName ?: CHAT_RUN_NAME,
 )
 
-/** EXP-1244: the merge/error key of an unlinked pull request's row. */
-fun externalPullKey(repositoryId: String, number: Int): String = "pull:$repositoryId#$number"
-
 /**
  * The Reviews state: a thin adapter over [ReviewsQueue.build] (EXP-1244, the
  * ONE queue ×4, fixture-locked). [teams] in display order (name order, every
@@ -122,19 +162,27 @@ fun buildReviewsState(
     val queue = ReviewsQueue.build(teams, boards, issues, runs, pulls)
     val multiTeam = teams.size > 1
     val teamsById = teams.associateBy { it.id }
+    fun reviewEntry(entry: ReviewsQueue.Entry): ReviewEntry {
+        val representative = entry.representative
+        return ReviewEntry(
+            groupKey = entry.key,
+            prUrl = representative.prUrl,
+            prNumber = representative.prNumber,
+            branch = representative.branch,
+            boardId = representative.boardId,
+            issues = entry.issues,
+        )
+    }
     val groups = queue.boardGroups.map { group ->
         ReviewBoardGroup(
             board = group.board,
-            entries = group.entries.map { entry ->
-                val representative = entry.representative
-                ReviewEntry(
-                    groupKey = entry.key,
-                    prUrl = representative.prUrl,
-                    prNumber = representative.prNumber,
-                    branch = representative.branch,
-                    boardId = representative.boardId,
-                    issues = entry.issues,
-                )
+            entries = group.entries.map(::reviewEntry),
+            items = group.items.map { item ->
+                when (item) {
+                    is ReviewsQueue.Item.Pr -> ReviewItem.Pr(reviewEntry(item.entry), item.depth)
+                    is ReviewsQueue.Item.Stack ->
+                        ReviewItem.Stack(item.entries.map(::reviewEntry), item.baseBranch)
+                }
             },
             teamName = if (multiTeam) teamsById[group.board.teamId]?.name else null,
         )
@@ -165,6 +213,8 @@ data class ReviewBoardGroup(
     val board: BoardEntity,
     /** One entry per open pull request, newest first — a FLAT list. */
     val entries: List<ReviewEntry>,
+    /** EXP-1248: the same entries as drawn: trees nest, stacks rail. */
+    val items: List<ReviewItem> = entries.map { ReviewItem.Pr(it, 0) },
     /** EXP-1186: the board's team, named only when the user is in >1 team. */
     val teamName: String? = null,
 )
@@ -210,9 +260,6 @@ data class ReviewsState(
 class ReviewsViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
-    private val issuesApi: IssuesApi,
-    private val codingSessionsApi: CodingSessionsApi,
-    private val repositoriesApi: RepositoriesApi,
     private val openPulls: OpenPullsStore,
 ) : ViewModel() {
 
@@ -265,142 +312,4 @@ class ReviewsViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReviewsState())
-
-    /**
-     * Squash-merge a RUN's own pull request (EXP-734). No issue is linked, so
-     * nothing is completed: the server merges, flips the session row's
-     * `pr_state` and (unless the team keeps sessions on merge) ends the run —
-     * all of it arriving through Electric, which drops the entry off this
-     * list. Shares the merging / mergeErrors maps, keyed by [RunReviewEntry.groupKey].
-     */
-    fun mergeRun(entry: RunReviewEntry) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            val key = entry.groupKey
-            _mergeErrors.value = _mergeErrors.value - key
-            _merging.value = _merging.value + key
-            runCatching { codingSessionsApi.mergePr(accountId, entry.session.id) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeErrors.value = _mergeErrors.value +
-                        (key to MergeFailure.from(t, "The pull request could not be merged"))
-                }
-            _merging.value = _merging.value - key
-        }
-    }
-
-    /**
-     * EXP-1244: squash-merge an open pull request NO issue or run links
-     * (`repositories.mergePull`). Nothing syncs back, so a landed merge drops
-     * the row locally; a queued one (GitHub's merge queue) keeps it until the
-     * pull request actually closes. Shares the merging / mergeErrors maps,
-     * keyed by [externalPullKey].
-     */
-    fun mergeExternalPull(repositoryId: String, pull: OpenPull) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            val key = externalPullKey(repositoryId, pull.number)
-            _mergeErrors.value = _mergeErrors.value - key
-            _merging.value = _merging.value + key
-            runCatching { repositoriesApi.mergePull(accountId, repositoryId, pull.number) }
-                .onSuccess { result ->
-                    if (result.merged) openPulls.removePull(accountId, repositoryId, pull.number)
-                }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeErrors.value = _mergeErrors.value +
-                        (key to MergeFailure.from(t, "The pull request could not be merged"))
-                }
-            _merging.value = _merging.value - key
-        }
-    }
-
-    /**
-     * Squash-merge a review's PR via the GitHub App (EXP-131). Pass the
-     * entry's [groupKey] plus the representative issue id — for a batch PR the
-     * server resolves it to ALL linked issues and completes them together; the
-     * `done` flips arrive via Electric sync, dropping the entry off this list.
-     * EXP-1145: [mergeStack] merges the open stack bottom-up THROUGH [issueId];
-     * a failure captions the row with the server's message and never offers
-     * Fix conflicts: the conflicting pull request may be another member.
-     * EXP-1233: a plain merge refused by a REAL conflict on a PR with a
-     * recorded [branch] captions nothing — it emits [conflictRefusals] once
-     * and the screen opens the Fix merge conflicts composer.
-     */
-    fun mergePr(groupKey: String, issueId: String, branch: String?, mergeStack: Boolean = false) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeErrors.value = _mergeErrors.value - groupKey
-            _merging.value = _merging.value + groupKey
-            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = mergeStack) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    // Conflicts, branch protection and GitHub App errors are the
-                    // COMMON, persistent failures of a squash merge — a silent
-                    // drop left the row sitting there unexplained (REV2-50).
-                    // Same copy as the issue Changes tab's merge.
-                    val failure = if (mergeStack) {
-                        MergeFailure.fromStack(t)
-                    } else {
-                        MergeFailure.from(t, "The pull request could not be merged")
-                    }
-                    if (!mergeStack && canOfferFixConflicts(failure, branch)) {
-                        _conflictRefusals.send(issueId)
-                    } else {
-                        _mergeErrors.value = _mergeErrors.value + (groupKey to failure)
-                    }
-                }
-            _merging.value = _merging.value - groupKey
-        }
-    }
-
-    // Rendered INLINE on the failing row, keyed by its groupKey (EXP-323 — a
-    // Scaffold snackbar landed behind the floating bottom nav pill, which is
-    // drawn over the whole NavHost, so the reason a merge failed was
-    // unreadable). Cleared by the next attempt on that row.
-    /** SLOP-16 r3: every synced status, resolved — the batch sheet's relation
-     *  rows resolve their glyph by `status_id` against it. */
-    val issueStatuses: StateFlow<List<ResolvedIssueStatus>> =
-        dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
-            .map { IssueStatusResolver.teamStatuses(it) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * EXP-1145: open pull requests PER TEAM, so a row's Merge on a PR-stack
-     * member asks first ([com.exponential.app.domain.PrStack.stackMergeChoice])
-     * against ITS OWN team's PRs (EXP-1186: the row's team, not the
-     * selection). Never the whole account: branch names repeat across teams.
-     */
-    val openPrIssuesByTeam: StateFlow<Map<String, List<IssueEntity>>> =
-        dbFlow
-            .flatMapLatest { db ->
-                if (db == null) flowOf(emptyMap())
-                else combine(
-                    db.issueDao().observeOpenPrs(),
-                    db.boardDao().observeAll(),
-                ) { issues, boards ->
-                    val teamByBoard = boards.associate { it.id to it.teamId }
-                    issues.groupBy { teamByBoard[it.boardId].orEmpty() }
-                }
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    /** SLOP-16 r3: the batch sheet's assignee avatars. */
-    val users: StateFlow<List<UserEntity>> =
-        dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val _mergeErrors = MutableStateFlow<Map<String, MergeFailure>>(emptyMap())
-    val mergeErrors: StateFlow<Map<String, MergeFailure>> = _mergeErrors
-
-    private val _merging = MutableStateFlow<Set<String>>(emptySet())
-    val merging: StateFlow<Set<String>> = _merging
-
-    /**
-     * EXP-1233: ONE event per conflict-refused merge, carrying the PR's
-     * representative issue id — a one-shot, so the composer opens once per
-     * refusal and never again on recomposition.
-     */
-    private val _conflictRefusals = Channel<String>(Channel.BUFFERED)
-    val conflictRefusals: Flow<String> = _conflictRefusals.receiveAsFlow()
 }

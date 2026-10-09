@@ -122,7 +122,7 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 7 = 19.
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 8 = 20.
 pub const DEVICE_CAPS: [&str; 12] = [
     "resume",
     "worktrees",
@@ -166,8 +166,11 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// reads the `prompt` field of a `start_session` frame (the composer's free
 /// text): the server REFUSES a Chat or Create-action start to a device
 /// without it, since those two builtins carry their whole program there
-/// and an older build would spawn a promptless run.
-pub const ACTION_CAPS: [&str; 7] = [
+/// and an older build would spawn a promptless run. EXP-1249's
+/// `computer-use-run` says this build reads the frame's per-run
+/// `computerUse` (the composer "+" toggle): clients hide the toggle for a
+/// machine without it, which would silently fall back to its own switch.
+pub const ACTION_CAPS: [&str; 8] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -175,7 +178,12 @@ pub const ACTION_CAPS: [&str; 7] = [
     "chat",
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
+    COMPUTER_USE_RUN_CAP,
 ];
+
+/// EXP-1249's per-run computer-use cap, by name: the contract's
+/// `codingSession.computerUseCap`.
+pub const COMPUTER_USE_RUN_CAP: &str = domain::contract::CODING_SESSION_COMPUTER_USE_CAP;
 
 /// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
 pub const START_PROMPT_CAP: &str = "start-prompt";
@@ -1795,6 +1803,10 @@ mod tests {
         // EXP-615: the same for chat — remote Chat starts gate on this cap,
         // so an agent-less machine must never advertise it.
         assert!(ACTION_CAPS.contains(&"chat"));
+        // EXP-1249: the per-run computer-use flag rides the action caps.
+        assert_eq!(COMPUTER_USE_RUN_CAP, "computer-use-run");
+        assert!(ACTION_CAPS.contains(&COMPUTER_USE_RUN_CAP));
+        assert!(!DEVICE_CAPS.contains(&COMPUTER_USE_RUN_CAP));
         assert!(caps.contains(&"chat".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
     }

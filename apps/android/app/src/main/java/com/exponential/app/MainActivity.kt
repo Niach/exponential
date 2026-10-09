@@ -151,7 +151,8 @@ class MainActivity : ComponentActivity() {
         when (data.host) {
             "oauth-return" -> handleOauthReturn(data)
             "issue" -> data.pathSegments.firstOrNull()?.let {
-                // EXP-933: `?face=results` = an agent message's report.
+                // EXP-933: `?face=guide` = an agent message's report (old links
+                // say `results`; `navigateIssueDeepLink` normalises the face).
                 if (switchToPushAccount(linkUserId)) {
                     deepLinkBus.openIssue(it, face = data.getQueryParameter(PushDeepLinks.PARAM_FACE))
                 }
@@ -194,9 +195,9 @@ class MainActivity : ComponentActivity() {
                 intent.removeExtra("issueId")
                 deepLinkBus.openIssue(target.id)
             }
-            is PushDeepLinks.Target.IssueResults -> {
+            is PushDeepLinks.Target.IssueGuide -> {
                 intent.removeExtra("issueId")
-                deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_RESULTS)
+                deepLinkBus.openIssue(target.id, face = PushDeepLinks.FACE_GUIDE)
             }
             is PushDeepLinks.Target.Session -> {
                 intent.removeExtra("sessionId")

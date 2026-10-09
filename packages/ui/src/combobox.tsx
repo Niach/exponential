@@ -10,9 +10,10 @@ import {
   CommandList,
 } from "./command"
 import {
-  ComboboxOptionBody,
-  SelectionGlyph,
+  SelectionCheck,
   isMultiple,
+  pickedAttr,
+  pickedRowClass,
   resolveSelection,
   selectedValuesOf,
   type ComboboxSelection,
@@ -23,7 +24,7 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
 } from "./mobile-popover"
-import type { PickerOption } from "./picker-option"
+import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
 import {
   PICKER_INLINE_WORD,
   PickerTrigger,
@@ -31,47 +32,26 @@ import {
   type PickerTriggerVariant,
 } from "./picker/picker-trigger"
 
-// EXP-941 — the ONE searchable picker on the web.
+// EXP-941 — the picker SURFACE, internal to `Picker` since the UI cleanup
+// batch (not exported for app code; `@exp/ui` keeps a transitional export for
+// the styleguide's legacy specs only).
 //
-// The `MobilePopover` + `Command` shell was copy-pasted about twelve times
-// (assignee, board, branch, action, PR, MCP servers, automation filters, the
-// issue batch picker …), each copy re-deciding four things the user can see:
+// The `MobilePopover` + `Command` shell was copy-pasted about twelve times;
+// this is the one copy: a popover at the trigger md+, a bottom sheet below,
+// cmdk owning the filter and the keys. It fixes what a reader can see:
 //
-//  * how a picked row LOOKS — a leading `Checkbox`, a trailing `Check`, an
-//    invisible check reserving the gutter, or the `ui-selected`/`ui-unselected`
-//    concept pair. This primitive fixes it, and matches both natives: single
-//    select = a trailing `ui-check` on the picked row, multi select = the
-//    LEADING circle pair on every row (iOS `AgentIssuePickerSheet.swift:86`,
-//    Android `AgentIssuePickerSheet.kt:173`).
-//  * what `value=` carries — half the copies smuggled a searchable string into
-//    it (`` `${name} ${id}` ``) because two boards can share a name. Here the
-//    value is the IDENTITY and `keywords` carries the search terms, so a
-//    duplicate label is not a bug.
-//  * the popover width — seven literals scattered over the app, now the
-//    `width` enum.
-//  * "nothing picked" — six different sentinel values (`__none__`,
-//    `__unassign__`, `""`, `"none"` …). `noneLabel` renders a row that
-//    reports `null`; no sentinel ever reaches a caller.
+//  * how a picked row LOOKS — ONE language: a single pick wears a trailing
+//    `ui-check`, a multi pick the row's own highlight (`data-picked`; the
+//    circle pair EXP-957 drew is gone everywhere);
+//  * what `value=` carries — the IDENTITY; `keywords` carry the search terms,
+//    so a duplicate label is not a bug;
+//  * the popover width — the `width` enum;
+//  * "nothing picked" — `noneLabel` renders a row that reports `null`; no
+//    sentinel ever reaches a caller.
 //
-// Single select closes on pick, multi stays open (a batch is several picks).
-// `ComboboxList` is the same body without the popover, for an inline host (a
-// tab, a sheet that is already open) and for the styleguide island — a closed
-// Radix portal renders nothing, so the gallery shows the trigger beside the
-// bare list. `ComboboxMenuItems` (combobox-menu.tsx, EXP-957) is the third
-// arm: the same rows as items INSIDE a Radix menu, for the right-click
-// submenus and the bulk bar. The selection arithmetic and the glyph live in
-// combobox-core.tsx, shared by every arm and exported by none.
-//
-// EXP-958 retired the last two closed single-selects that drew their own
-// shells — `OptionDropdownMenu` (the status/priority menu: a Radix dropdown
-// on desktop that marked NO row, a hand-rolled sheet on the phone) and
-// `GlassPickerRow` (the settings row: a Radix Select on desktop, another
-// hand-rolled sheet on the phone). Both are `searchable={false}` Comboboxes
-// now, so a status pick wears the same trailing check as every other pick.
-// Two trigger variants came with them: `row` IS the picker row of the glass
-// form ladder (label leading, value trailing at 70%, chevron at 50% — the
-// iOS `GlassPickerRow` / desktop `surface::glass_picker_row` twin), `inline`
-// is a WORD inside a muted sentence (the composer's options line), which
+// Single select closes on pick, multi stays open. `ComboboxList` is the same
+// body without the popover (`PickerList` wraps it). The `row` trigger is the
+// glass form ladder's picker row, `inline` a WORD of a muted sentence that
 // collapses to plain text when there is only one thing it could say.
 
 // The four trigger shapes are `picker/picker-trigger.tsx`'s (EXP-1021), so
@@ -90,19 +70,12 @@ type ComboboxWidth = keyof typeof WIDTH_CLASS
 
 /** What both arms of the union share — everything that is not selection. */
 interface ComboboxListBaseProps<TValue extends string> {
-  options: readonly PickerOption<TValue>[]
+  options: readonly PickerItem<TValue>[]
   /** The row BODY only. The selection glyph stays the primitive's, so a
    *  custom row can never invent a seventh "this is picked" language. */
   renderOption?: RenderComboboxOption<TValue>
   /** The filter field. On by default; pass `false` for a short fixed list. */
   searchable?: boolean
-  /** How a picked row reads (EXP-1021). `glyph` is EXP-957's language: a
-   *  trailing check on a single pick, the LEADING circle pair on every row
-   *  of a multi. `highlight` drops the circles and marks a multi pick by
-   *  the row's own highlight — the shared `Picker` primitive
-   *  (`picker/picker.tsx`) is its only caller, so the two idioms never mix
-   *  inside one surface. */
-  selectionStyle?: `glyph` | `highlight`
   /** The filter field's placeholder. */
   placeholder?: string
   /** Rendered inside the filter field's row, before the search glyph (a back
@@ -152,7 +125,7 @@ interface ComboboxShellProps<TValue extends string> {
   triggerLabel?: string
   /** A bespoke trigger. Must be ONE element — it is wrapped `asChild`. */
   renderTrigger?: (state: {
-    selected: PickerOption<TValue>[]
+    selected: PickerItem<TValue>[]
     summary: string
     open: boolean
   }) => React.ReactNode
@@ -187,7 +160,6 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     options,
     renderOption,
     searchable = true,
-    selectionStyle = `glyph`,
     placeholder,
     leading,
     inputVariant,
@@ -269,8 +241,7 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                   <span className="min-w-0 flex-1 truncate text-sm">
                     {noneLabel}
                   </span>
-                  <SelectionGlyph
-                    arity="single"
+                  <SelectionCheck
                     state={noneMarked ? `selected` : `unselected`}
                   />
                 </CommandItem>
@@ -282,10 +253,7 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                   <CommandItem
                     key={option.value}
                     value={option.value}
-                    keywords={
-                      option.keywords ??
-                      (typeof option.label === `string` ? [option.label] : [])
-                    }
+                    keywords={pickerItemKeywords(option)}
                     disabled={selection.isDisabled(option)}
                     aria-pressed={
                       multiple
@@ -294,49 +262,19 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                           : isSelected
                         : undefined
                     }
-                    data-picked={
-                      multiple
-                        ? state === `indeterminate`
-                          ? `mixed`
-                          : isSelected
-                            ? `true`
-                            : undefined
-                        : isSelected
-                          ? `true`
-                          : undefined
-                    }
+                    data-picked={pickedAttr(multiple, state)}
                     className={cn(
                       `flex items-center gap-2.5`,
-                      multiple &&
-                        (isSelected || state === `indeterminate`) &&
-                        `bg-glass-active`,
-                      // The highlight IS the mark, so it has to outrank the
-                      // hover/keyboard highlight cmdk paints on the active
-                      // row: the stroke is what separates "picked" from "the
-                      // cursor is here". Every row carries the (transparent)
-                      // border so picking never shifts a row.
-                      multiple &&
-                        selectionStyle === `highlight` &&
-                        `border border-transparent`,
-                      // Adjacent picks read as ONE block: the shared edge
-                      // loses its stroke and its corners, so three picked
-                      // rows are one box, not three stacked pills.
-                      multiple &&
-                        selectionStyle === `highlight` &&
-                        isSelected &&
-                        `font-medium text-foreground border-glass-stroke-active [&:has(+[data-picked=true])]:rounded-b-none [&:has(+[data-picked=true])]:border-b-transparent [[data-picked=true]+&]:rounded-t-none [[data-picked=true]+&]:border-t-transparent`
+                      pickedRowClass(multiple, state)
                     )}
                     onSelect={() => selection.pick(option)}
                   >
-                    {multiple && selectionStyle === `glyph` && (
-                      <SelectionGlyph arity="multi" state={state} />
-                    )}
                     {renderOption ? (
                       renderOption(option, { selected: isSelected })
                     ) : (
-                      <ComboboxOptionBody option={option} />
+                      <PickerItemBody item={option} />
                     )}
-                    {!multiple && <SelectionGlyph arity="single" state={state} />}
+                    {!multiple && <SelectionCheck state={state} />}
                   </CommandItem>
                 )
               })}

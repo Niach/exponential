@@ -1142,6 +1142,13 @@
       "when": 1791339380220,
       "tag": "0162_mcp_shared_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1791519562423,
+      "tag": "0163_attachments_as_file",
+      "breakpoints": true
     }
   ]
 }

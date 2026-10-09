@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
@@ -65,6 +66,8 @@ class SheetPrimaryAction(
     val enabled: Boolean = true,
     val loading: Boolean = false,
     val icon: ImageVector? = null,
+    /** The button's test tag (a fixture-pinned id, e.g. `agent-composer-implement`). */
+    val testTag: String? = null,
 )
 
 /**
@@ -191,7 +194,7 @@ fun GlassSheet(
                         end = GlassSheetDefaults.HorizontalPadding,
                         top = 12.dp,
                         bottom = 16.dp,
-                    ),
+                    ).then(primaryAction.testTag?.let { Modifier.testTag(it) } ?: Modifier),
                     // EXP-694: both take the button's own content color — an
                     // enabled submit is now a solid near-white fill, so a white
                     // glyph would vanish on it.

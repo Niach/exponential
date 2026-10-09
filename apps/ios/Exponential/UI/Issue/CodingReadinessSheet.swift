@@ -425,10 +425,18 @@ struct CodingReadinessRepoPickerSheet: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 14)
                 } else {
-                    ForEach(rows, id: \.id) { row in
-                        repoRow(row)
-                        GlassDivider()
+                    // THE repository rows (`RepositoryPickerList`): a pick
+                    // points the board at the repo, the row spins meanwhile.
+                    RepositoryPickerList(
+                        rows: rows.map {
+                            RepositoryPickerRow(id: $0.id, fullName: $0.fullName, tag: $0.tag, emphasis: $0.matchesBoard)
+                        },
+                        busyId: busyId,
+                        rowIdentifier: { "readiness-repo-\($0.fullName)" }
+                    ) { row in
+                        Task { await pick(row.id) }
                     }
+                    .padding(.horizontal, GlassPickerTokens.listHPadding)
                 }
                 addFromGithubRow
             }
@@ -447,37 +455,6 @@ struct CodingReadinessRepoPickerSheet: View {
                 if pointed { dismiss() }
             }
         }
-    }
-
-    private func repoRow(_ row: CodingReadinessRepoPicker.Row) -> some View {
-        Button {
-            Task { await pick(row.id) }
-        } label: {
-            HStack(spacing: 10) {
-                AppIcon(AppIcons.uiRepository, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(row.fullName)
-                    .font(.subheadline.monospaced())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 8)
-                if busyId == row.id {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else if let tag = row.tag {
-                    Text(tag)
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(busyId != nil)
-        .accessibilityIdentifier("readiness-repo-\(row.fullName)")
     }
 
     private var addFromGithubRow: some View {

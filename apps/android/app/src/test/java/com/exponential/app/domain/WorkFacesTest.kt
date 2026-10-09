@@ -39,24 +39,24 @@ class WorkFacesTest {
     )
 
     @Test
-    fun `lists the available faces in issue, run, changes, results order`() {
+    fun `lists the available faces in issue, run, guide order`() {
         assertEquals(
-            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes, WorkFaceKind.Results),
-            availableFaces(hasIssue = true, hasRun = true, hasChanges = true, hasResults = true),
+            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Guide),
+            availableFaces(hasIssue = true, hasRun = true, hasResults = true, hasDiff = true),
         )
         assertEquals(
             listOf(WorkFaceKind.Run),
-            availableFaces(hasIssue = false, hasRun = true, hasChanges = false, hasResults = false),
+            availableFaces(hasIssue = false, hasRun = true, hasResults = false, hasDiff = false),
         )
-        // Changes is independent of Run: an open PR with no run of mine.
+        // The Guide is independent of Run: an open PR with no run of mine.
         assertEquals(
-            listOf(WorkFaceKind.Issue, WorkFaceKind.Changes),
-            availableFaces(hasIssue = true, hasRun = false, hasChanges = true, hasResults = false),
+            listOf(WorkFaceKind.Issue, WorkFaceKind.Guide),
+            availableFaces(hasIssue = true, hasRun = false, hasResults = false, hasDiff = true),
         )
-        // EXP-879: Results comes LAST, and only ever beside a Run of mine.
+        // Results alone are enough for a Guide.
         assertEquals(
-            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Results),
-            availableFaces(hasIssue = true, hasRun = true, hasChanges = false, hasResults = true),
+            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Guide),
+            availableFaces(hasIssue = true, hasRun = true, hasResults = true, hasDiff = false),
         )
     }
 
@@ -65,24 +65,81 @@ class WorkFacesTest {
         assertEquals("Issue", faceLabel(WorkFaceKind.Issue))
         assertEquals("Run", faceLabel(WorkFaceKind.Run))
         assertEquals("Runs", faceLabel(WorkFaceKind.Run, multipleRuns = true))
-        assertEquals("Changes", faceLabel(WorkFaceKind.Changes))
-        assertEquals("Results", faceLabel(WorkFaceKind.Results))
+        assertEquals(DomainContract.diffUiGuideFace, faceLabel(WorkFaceKind.Guide))
+        assertEquals("Guide", GUIDE_FACE_LABEL)
+        assertEquals("Open Guide", OPEN_RESULTS_LABEL)
         assertEquals("Type / for commands", STEER_COMPOSER_PLACEHOLDER)
         assertEquals("Plan mode", PLAN_MODE_LABEL)
     }
 
-    // EXP-1152: the Changes tab wears the desktop's `+N −M` once known.
+    // EXP-1251: a Stack card swap holds the Guide until the member's row loads.
     @Test
-    fun `labels Changes with its counts once the files are known`() {
-        assertNull(changesFaceCounts(null))
-        assertNull(changesFaceCounts(Diff.Totals(files = 0, additions = 0, deletions = 0)))
-        assertEquals(
-            ChangesFaceCounts(additions = 12, deletions = 2),
-            changesFaceCounts(Diff.Totals(files = 3, additions = 12, deletions = 2)),
+    fun `a swapped subject holds the Guide until its issue row loads`() {
+        assertTrue(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Guide, swappedRowLoaded = false))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Guide, swappedRowLoaded = true))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Guide, WorkFaceKind.Guide, swappedRowLoaded = false))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Run, swappedRowLoaded = false))
+    }
+
+    // EXP-1251: web "the Guide URL" (legacy results / diff land on the Guide).
+    @Test
+    fun `the Guide URL maps the legacy faces onto the Guide`() {
+        assertEquals(WorkFaceKind.Guide, workFaceFromParam("guide"))
+        assertEquals(WorkFaceKind.Guide, workFaceFromParam("results"))
+        assertEquals(WorkFaceKind.Guide, workFaceFromParam("Changes"))
+        assertEquals(WorkFaceKind.Run, workFaceFromParam("run"))
+        assertEquals(WorkFaceKind.Issue, workFaceFromParam("issue"))
+        assertNull(workFaceFromParam("nope"))
+        assertNull(workFaceFromParam(null))
+    }
+
+    // EXP-1251: web `lib/work-faces.test.ts` describe "guideSectionPage".
+    @Test
+    fun `guideSectionPage opens a numbered section, other changes, the complete diff and nothing stale`() {
+        val groups = parseSessionResultGroups(
+            """[{"topic":"Summary","text":"s","files":["a.ts"]},{"topic":"nav","text":"n","files":["b.ts"]},{"topic":"api","text":"x","files":["c.ts"]}]""",
         )
-        // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
-        assertEquals("+12 \u22122", changesFaceText(ChangesFaceCounts(additions = 12, deletions = 2)))
-        assertEquals("+0 \u22120", changesFaceText(ChangesFaceCounts(additions = 0, deletions = 0)))
+        val files = listOf(
+            Diff.File(path = "a.ts", additions = 1, deletions = 0),
+            Diff.File(path = "b.ts", additions = 5, deletions = 2),
+            Diff.File(path = "c.ts", additions = 3, deletions = 1),
+            Diff.File(path = "d.ts", additions = 2, deletions = 2),
+        )
+        val second = guideSectionPage(groups, files, GuideSectionKey.Numbered(2))!!
+        assertEquals("02 / 02", second.caption)
+        assertEquals("api", second.title)
+        assertEquals(listOf("c.ts"), second.files.map { it.path })
+        assertEquals("+3 \u22121 · 1 file", guideSectionSummary(second))
+        val other = guideSectionPage(groups, files, GuideSectionKey.Other)!!
+        assertEquals("Other changes", other.title)
+        assertEquals(listOf("d.ts"), other.files.map { it.path })
+        assertNull(other.caption)
+        val lead = guideSectionPage(groups, files, GuideSectionKey.Lead)!!
+        assertEquals("Summary", lead.title)
+        val all = guideSectionPage(groups, files, GuideSectionKey.All)!!
+        assertEquals("Changes", all.title)
+        assertEquals(4, all.files.size)
+        assertEquals(11, all.additions)
+        assertNull(guideSectionPage(groups, files, GuideSectionKey.Numbered(3)))
+        assertNull(guideSectionPage(groups, null, GuideSectionKey.All))
+    }
+
+    // ×4 rule (web `numbered = false`): the PR-body fallback's ONE section
+    // page carries no `01 / 01` caption; a run report's keeps its number.
+    @Test
+    fun `guideSectionPage drops the caption of an unnumbered PR-body section`() {
+        val files = listOf(
+            Diff.File(path = "a.ts", additions = 2, deletions = 1),
+            Diff.File(path = "b.ts", additions = 1, deletions = 0),
+        )
+        val fallback = listOf(prDescriptionGroup("Group board issues", "body", files))
+        val numbered = guideSectionPage(fallback, files, GuideSectionKey.Numbered(1))!!
+        assertEquals("01 / 01", numbered.caption)
+        val plain = guideSectionPage(fallback, files, GuideSectionKey.Numbered(1), numbered = false)!!
+        assertNull(plain.caption)
+        assertEquals("Group board issues", plain.title)
+        assertEquals(listOf("a.ts", "b.ts"), plain.files.map { it.path })
+        assertEquals(3, plain.additions)
     }
 
     @Test
@@ -145,31 +202,28 @@ class WorkFacesTest {
 
     @Test
     fun `swipes to the neighbouring face`() {
-        val all = listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes, WorkFaceKind.Results)
+        val all = listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Guide)
         assertEquals(WorkFaceKind.Run, swipeTarget(all, WorkFaceKind.Issue, SwipeDirection.Left))
-        assertEquals(WorkFaceKind.Changes, swipeTarget(all, WorkFaceKind.Run, SwipeDirection.Left))
-        assertEquals(WorkFaceKind.Run, swipeTarget(all, WorkFaceKind.Changes, SwipeDirection.Right))
+        assertEquals(WorkFaceKind.Guide, swipeTarget(all, WorkFaceKind.Run, SwipeDirection.Left))
+        assertEquals(WorkFaceKind.Run, swipeTarget(all, WorkFaceKind.Guide, SwipeDirection.Right))
         assertEquals(WorkFaceKind.Issue, swipeTarget(all, WorkFaceKind.Run, SwipeDirection.Right))
         assertNull(swipeTarget(all, WorkFaceKind.Issue, SwipeDirection.Right))
-        assertNull(swipeTarget(all, WorkFaceKind.Results, SwipeDirection.Left))
+        assertNull(swipeTarget(all, WorkFaceKind.Guide, SwipeDirection.Left))
         assertEquals(
-            WorkFaceKind.Results,
-            swipeTarget(listOf(WorkFaceKind.Issue, WorkFaceKind.Results), WorkFaceKind.Issue, SwipeDirection.Left),
+            WorkFaceKind.Guide,
+            swipeTarget(listOf(WorkFaceKind.Issue, WorkFaceKind.Guide), WorkFaceKind.Issue, SwipeDirection.Left),
         )
         assertNull(swipeTarget(listOf(WorkFaceKind.Issue), WorkFaceKind.Run, SwipeDirection.Left))
         assertNull(swipeTarget(emptyList(), WorkFaceKind.Issue, SwipeDirection.Left))
     }
 
     @Test
-    fun `falls back changes to run to issue`() {
-        assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Changes, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
-        assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Changes, listOf(WorkFaceKind.Issue)))
-        // EXP-879: results falls the same way — run first, then the issue.
-        assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
-        assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue)))
+    fun `falls back guide to run to issue`() {
+        assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Guide, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
+        assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Guide, listOf(WorkFaceKind.Issue)))
         assertEquals(
-            WorkFaceKind.Results,
-            fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue, WorkFaceKind.Results)),
+            WorkFaceKind.Guide,
+            fallbackFace(WorkFaceKind.Guide, listOf(WorkFaceKind.Issue, WorkFaceKind.Guide)),
         )
         assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Run, listOf(WorkFaceKind.Issue)))
         assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Run, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
@@ -240,8 +294,7 @@ class WorkFacesTest {
     fun `shows the context menu on the issue face alone`() {
         assertTrue(faceShowsContextMenu(WorkFaceKind.Issue))
         assertFalse(faceShowsContextMenu(WorkFaceKind.Run))
-        assertFalse(faceShowsContextMenu(WorkFaceKind.Changes))
-        assertFalse(faceShowsContextMenu(WorkFaceKind.Results))
+        assertFalse(faceShowsContextMenu(WorkFaceKind.Guide))
     }
 
     // EXP-933: `issueResultsRun` against the shared `session-results.json`.
@@ -272,7 +325,14 @@ class WorkFacesTest {
             assertEquals(
                 str(case, "name"),
                 str(case, "expected"),
-                issueResultsRun(rows, str(case, "issueId")!!, str(case, "boundId"), str(case, "me"), now)?.id,
+                issueResultsRun(
+                    rows,
+                    str(case, "issueId")!!,
+                    str(case, "boundId"),
+                    str(case, "me"),
+                    now,
+                    str(case, "prUrl"),
+                )?.id,
             )
         }
     }
@@ -311,6 +371,36 @@ class WorkFacesTest {
         }
     }
 
+    // EXP-1245: `run-row.json` `turnCaptions` (desktop
+    // `turn_row_caption_matches_the_shared_fixture`).
+    @Test
+    fun `every fixture turnCaptions case reads the expected caption`() {
+        val cases = runRowFixture["turnCaptions"]!!.jsonArray
+        assertTrue(cases.isNotEmpty())
+        fun str(obj: JsonObject, key: String): String? =
+            obj[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = str(case, "name")
+            val turn = case["turn"]!!.jsonObject
+            val caption = turnRowCaption(
+                startedAt = str(turn, "startedAt")?.let { WireTimestamps.parseEpochMs(it) },
+                endedAt = str(turn, "endedAt")?.let { WireTimestamps.parseEpochMs(it) },
+                state = RunRowState.entries.first { it.wire == str(case, "state") },
+                device = str(case, "device")!!,
+                runEndedAt = str(case, "runEndedAt"),
+                nowMs = WireTimestamps.parseEpochMs(str(case, "now")!!)!!,
+            )
+            val expected = case["expected"]
+            if (expected == null || expected is JsonNull) {
+                assertNull(name, caption)
+                continue
+            }
+            assertEquals(name, str(expected.jsonObject, "text"), caption?.text)
+            assertEquals(name, str(expected.jsonObject, "tone"), caption?.tone?.wire)
+        }
+    }
+
     @Test
     fun `every fixture states case resolves the row state`() {
         val cases = runRowFixture["states"]!!.jsonArray
@@ -334,5 +424,36 @@ class WorkFacesTest {
             )
             assertEquals(name, case["expected"]!!.jsonPrimitive.content, state.wire)
         }
+    }
+
+    // EXP-1154 / web M8 (`prDescriptionGroups`): the PR body as ONE group.
+    @Test
+    fun `the PR body is one group with the fallback title and body`() {
+        val blank = prDescriptionGroup(title = " ", body = "", files = null)
+        assertEquals(PR_FALLBACK_TITLE, blank.topic)
+        assertEquals(PR_FALLBACK_EMPTY_BODY, blank.text)
+        assertTrue(blank.files.isEmpty())
+    }
+
+    @Test
+    fun `the PR body group claims every diff path, so ONE Changes section and no Other changes`() {
+        val files = listOf(
+            Diff.File(path = "a.ts", additions = 1),
+            Diff.File(path = "b.ts", additions = 2, deletions = 1),
+        )
+        val group = prDescriptionGroup(title = "Fix it", body = "Body.", files = files)
+        assertEquals(listOf("a.ts", "b.ts"), group.files)
+        val coverage = guideCoverage(listOf(group), files)
+        assertNull(coverage.lead)
+        assertEquals(1, coverage.sections.size)
+        assertEquals(2, coverage.sections.single().changes?.fileCount)
+        assertNull(coverage.other)
+        assertEquals(2, coverage.complete?.fileCount)
+        // Its Changes row opens the section page titled with the PR title.
+        val page = guideSectionPage(listOf(group), files, GuideSectionKey.Numbered(1))!!
+        assertEquals("Fix it", page.title)
+        assertEquals(2, page.files.size)
+        assertNull(guideSectionPage(listOf(group), files, GuideSectionKey.Other))
+        assertEquals(2, guideSectionPage(listOf(group), files, GuideSectionKey.All)?.files?.size)
     }
 }

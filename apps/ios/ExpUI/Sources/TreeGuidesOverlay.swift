@@ -24,10 +24,11 @@ public struct TreeGuidesOverlay: View {
     private let gap: CGFloat
 
     /// The default `base`: every flat list row pads its content 12pt, and
-    /// (EXP-1208) its leading run mark is 14 wide, BEFORE any fold chevron —
-    /// so a parent's mark centre sits `12 + 7` in, exactly the first gutter's
-    /// centre, and a child's stub ends where the child's mark starts.
-    public static let rowContentInset: CGFloat = 12
+    /// its leading mark is 14 wide (EXP-1248 `list-item.json`: no fold
+    /// chevron anywhere) — so a parent's mark centre sits `12 + 7` in,
+    /// exactly the first gutter's centre, and a child's stub ends where the
+    /// child's mark starts.
+    public static let rowContentInset: CGFloat = ListItem.base
 
     public init(
         guide: TreeGuide,

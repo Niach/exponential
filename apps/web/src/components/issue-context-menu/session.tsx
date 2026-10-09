@@ -1,13 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import {
-  CheckCheck,
-  Copy,
-  ListTodo,
-  SquareCheckBig,
-  SquarePen,
-  Undo2,
-} from "lucide-react"
+import { ListTodo } from "lucide-react"
 import type { Board, Issue, IssueLabel, Team } from "@/db/schema"
 import { formatDateForMutation, type IssueEstimation } from "@/lib/domain"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
@@ -29,46 +22,27 @@ import {
   useAddRelation,
 } from "@/components/issue-relations-card"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-  MENU_HEADER_CLASS,
-  MENU_VALUE_CLASS,
-  MenuHeaderBody,
+  Menu,
   Prompt,
-  conceptIcon,
+  issueMenuEntries,
+  type IssueMenuCondition,
+  type MenuTarget,
 } from "@exp/ui"
-import type { IssueMenuTarget } from "./gestures"
 import type { IssueMenuSelection } from "./selection"
-import { DueDateSubmenu } from "./due-date-presets"
+import { dueDateSlot } from "./due-date-presets"
 import {
-  AssigneeSubmenu,
-  BoardSubmenu,
-  EstimateSubmenu,
-  LabelsSubmenu,
-  PrioritySubmenu,
-  StatusSubmenu,
+  assigneeSlot,
+  boardSlot,
+  estimateSlot,
+  labelsSlot,
+  prioritySlot,
+  statusSlot,
 } from "./submenus"
 
-const UiDeleteIcon = conceptIcon(`ui-delete`)
-const RelationSectionIcon = conceptIcon(`relation-section`)
-
-// The item ORDER is `@exp/ui` ISSUE_MENU_LAYOUT's (provider.test.tsx locks
-// it); the value beside a submenu label is the shared MENU_VALUE_CLASS.
-const TOP_LEVEL_VALUE_CLASS = MENU_VALUE_CLASS
-
-/** A right-click opens the menu on the mouse DOWN (macOS, and the keyboard
- *  key), beside the cursor; a Radix item selects on a pointer-UP it did not
- *  see the down of. So a release a few px into the menu used to fire the
- *  item under it — "opens and instantly closes again". A pointer-up this
- *  soon after opening is the opening gesture's own release, never a pick. */
-const POINTER_UP_GRACE_MS = 300
+// The rows, their order and their glyphs are `@exp/ui` ISSUE_MENU_LAYOUT's:
+// this session only fills each row's slot (the verb, the current value, the
+// picker body) from the live issue, and `Menu` draws them — at the pointer
+// on a pointer device, as a bottom sheet on a phone.
 
 const NO_ISSUE_LABELS: IssueLabel[] = []
 
@@ -79,14 +53,14 @@ export function IssueMenuSession({
   onOpenChange,
   selection,
 }: {
-  target: IssueMenuTarget
+  target: MenuTarget
   team: Team | null
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The list the row belongs to, when it takes a selection (phones). */
   selection?: IssueMenuSelection
 }) {
-  const issueId = target.issueId
+  const issueId = target.id
   const { data: issueRows, isReady: issueReady } = useLiveQuery(
     (query) =>
       query
@@ -113,7 +87,8 @@ export function IssueMenuSession({
   }, [issueLabelRows, labels])
   const boards = useTeamBoards(team?.id)
   const { users, userMap } = useTeamUsers(team?.id)
-  const { resolve: resolveStatus } = useTeamStatusesContext()
+  const { resolve: resolveStatus, options: statusOptions } =
+    useTeamStatusesContext()
   const issueRefs = useIssueRefs()
   const estimation = (team?.estimationType ?? `none`) as IssueEstimation
 
@@ -153,8 +128,6 @@ export function IssueMenuSession({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const deleteCopy = deleteIssuePrompt(issue?.identifier ?? ``)
 
-  const openedAt = useRef(performance.now())
-
   const toggleLabel = async (labelId: string) => {
     const has = issueLabels.some((label) => label.id === labelId)
     if (has) {
@@ -182,212 +155,127 @@ export function IssueMenuSession({
       }),
     [users, issue?.assigneeId]
   )
-  const { anchor } = target
+
+  const conditions = new Set<IssueMenuCondition>()
+  if (selection) conditions.add(`phone`)
+  if (issue?.duplicateOfId) conditions.add(`duplicate`)
+  if (estimation !== `none`) conditions.add(`estimation`)
+  if (boards.length > 1) conditions.add(`boards`)
+
+  const entries =
+    issue && statusOption
+      ? issueMenuEntries({
+          header: { identifier: issue.identifier, title: issue.title },
+          conditions,
+          slots: {
+            open: {
+              onSelect: () =>
+                issueRefs?.open(issue.identifier, { from: target.from }),
+            },
+            // Convenience toggle — deliberately an ENUM write (EXP-314): it
+            // lands on the team's builtin Done / Backlog rows via the anchor
+            // derivation, like the native swipe actions. The LABEL keys off
+            // the resolved category, so a custom completed status still reads
+            // "Move to backlog".
+            "toggle-done": {
+              ...(isCompleted
+                ? { label: `Move to backlog`, icon: ListTodo }
+                : {}),
+              onSelect: () => {
+                void updateIssue({ status: isCompleted ? `backlog` : `done` })
+              },
+            },
+            "copy-id": { onSelect: () => void copyText(issue.identifier) },
+            // Mobile multi-select entry (FEED-12): the long-press already
+            // opens this menu, so selection mode starts from a row; md+
+            // selects via the row checkboxes.
+            ...(selection
+              ? {
+                  select: {
+                    label: selection.isSelected(issue.id) ? `Deselect` : `Select`,
+                    phoneOnly: true,
+                    onSelect: () => selection.toggle(issue.id),
+                  },
+                }
+              : {}),
+            // Server restores 'backlog' and clears the link atomically.
+            "unmark-duplicate": {
+              onSelect: () => void updateIssue({ duplicateOfId: null }),
+            },
+            status: statusSlot({
+              status: statusOption,
+              options: statusOptions,
+              onSelect: handleStatusChange,
+            }),
+            assignee: assigneeSlot({
+              assigneeId: issue.assigneeId,
+              orderedUsers,
+              selectedAssignee,
+              onSelect: (userId) => void updateIssue({ assigneeId: userId }),
+            }),
+            priority: prioritySlot({
+              priority: issue.priority,
+              onSelect: (priority) => void updateIssue({ priority }),
+            }),
+            labels: labelsSlot({
+              labels,
+              selectedLabelIds: new Set(issueLabels.map((label) => label.id)),
+              onToggle: (labelId) => void toggleLabel(labelId),
+            }),
+            estimate: estimateSlot({
+              estimate: issue.estimate,
+              estimation,
+              onSelect: (estimate) => void updateIssue({ estimate }),
+            }),
+            "due-date": dueDateSlot({
+              dueDate: issue.dueDate,
+              onApplyDueDate: (date) =>
+                void updateIssue({ dueDate: formatDateForMutation(date) }),
+            }),
+            "move-board": boardSlot({
+              boardId: issue.boardId,
+              boards,
+              onSelect: (boardId) => {
+                const next = boards.find((board) => board.id === boardId)
+                // Defer past the menu close + focus restore so the dialog's
+                // focus trap doesn't fight Radix.
+                if (next) setTimeout(() => setPendingBoard(next), 0)
+              },
+            }),
+            // EXP-760: the same six sides the issue header's `…` offers.
+            "add-relation": {
+              contentClassName: `w-[12rem]`,
+              entries: RELATION_SIDES.filter((entry) => entry.pickable).map(
+                (entry) => ({
+                  kind: `item` as const,
+                  id: entry.side,
+                  label: pickLabel(entry.type, entry.direction),
+                  icon: entry.icon,
+                  onSelect: () => addRelation.pick(entry),
+                })
+              ),
+            },
+            // EXP-1215: confirms in the shared prompt, opened deferred past
+            // the menu close + focus restore, like the move confirm.
+            delete: { onSelect: () => setTimeout(() => setDeleteOpen(true), 0) },
+          },
+        })
+      : []
 
   return (
     <>
-      <DropdownMenu open={open && issue !== null} onOpenChange={onOpenChange}>
-        {/* The anchor: nothing to see, nothing to focus — a 0×0 point at the
-            pointer (the element's box for a keyboard-invoked menu), which is
-            what Radix's own ContextMenu anchors to. */}
-        <DropdownMenuTrigger asChild>
-          <span
-            aria-hidden
-            tabIndex={-1}
-            data-testid="issue-context-menu-anchor"
-            style={{
-              position: `fixed`,
-              left: anchor.x,
-              top: anchor.y,
-              width: anchor.width,
-              height: anchor.height,
-              pointerEvents: `none`,
-            }}
-          />
-        </DropdownMenuTrigger>
-        {issue && statusOption && (
-          <DropdownMenuContent
-            aria-label="Issue actions"
-            side={anchor.width > 0 ? `bottom` : `right`}
-            align="start"
-            sideOffset={2}
-            collisionPadding={12}
-            className="w-(--menu-max-width)"
-            onCloseAutoFocus={(event) => {
-              // Never the invisible anchor: keyboard users go back to the
-              // row (a sidebar link, a chip); a plain div takes no focus.
-              event.preventDefault()
-              target.origin?.focus?.({ preventScroll: true })
-            }}
-            onPointerUpCapture={(event) => {
-              if (performance.now() - openedAt.current < POINTER_UP_GRACE_MS) {
-                event.stopPropagation()
-              }
-            }}
-          >
-            <DropdownMenuLabel className={MENU_HEADER_CLASS}>
-              <MenuHeaderBody identifier={issue.identifier} title={issue.title} />
-            </DropdownMenuLabel>
-
-            <DropdownMenuSeparator />
-
-            <DropdownMenuItem
-              onSelect={() =>
-                issueRefs?.open(issue.identifier, { from: target.from })
-              }
-            >
-              <SquarePen />
-              Open issue
-            </DropdownMenuItem>
-
-            {/* Convenience toggle — deliberately an ENUM write (EXP-314): it
-                always lands on the team's builtin Done / Backlog rows via the
-                trigger's anchor derivation, exactly like the native swipe
-                actions and the coding launcher's parking write. The LABEL keys
-                off the resolved category so a custom completed status still
-                reads "Move to backlog" (Backlog since EXP-685 retired Todo). */}
-            <DropdownMenuItem
-              onSelect={() => {
-                void updateIssue({ status: isCompleted ? `backlog` : `done` })
-              }}
-            >
-              {isCompleted ? (
-                <ListTodo />
-              ) : (
-                <CheckCheck />
-              )}
-              {isCompleted ? `Move to backlog` : `Mark as done`}
-            </DropdownMenuItem>
-
-            <DropdownMenuItem
-              onSelect={() => {
-                void copyText(issue.identifier)
-              }}
-            >
-              <Copy />
-              Copy issue ID
-            </DropdownMenuItem>
-
-            {/* Mobile multi-select entry (FEED-12): the long-press already
-                opens this menu, so selection mode starts from an item; md+
-                selects via the row checkboxes. */}
-            {selection && (
-              <DropdownMenuItem
-                className="md:hidden"
-                onSelect={() => selection.toggle(issue.id)}
-              >
-                <SquareCheckBig />
-                {selection.isSelected(issue.id) ? `Deselect` : `Select`}
-              </DropdownMenuItem>
-            )}
-
-            {issue.duplicateOfId && (
-              <DropdownMenuItem
-                onSelect={() => {
-                  // Server restores 'backlog' and clears the link atomically.
-                  void updateIssue({ duplicateOfId: null })
-                }}
-              >
-                <Undo2 />
-                Unmark duplicate
-              </DropdownMenuItem>
-            )}
-
-            <DropdownMenuSeparator />
-
-            <StatusSubmenu
-              status={statusOption}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={handleStatusChange}
-            />
-
-            <AssigneeSubmenu
-              assigneeId={issue.assigneeId}
-              orderedUsers={orderedUsers}
-              selectedAssignee={selectedAssignee}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(userId) => void updateIssue({ assigneeId: userId })}
-            />
-
-            <PrioritySubmenu
-              priority={issue.priority}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(priority) => void updateIssue({ priority })}
-            />
-
-            <LabelsSubmenu
-              labels={labels}
-              selectedLabelIds={new Set(issueLabels.map((label) => label.id))}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onToggle={(labelId) => void toggleLabel(labelId)}
-            />
-
-            <EstimateSubmenu
-              estimate={issue.estimate}
-              estimation={estimation}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onSelect={(estimate) => void updateIssue({ estimate })}
-            />
-
-            <DueDateSubmenu
-              dueDate={issue.dueDate}
-              topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-              onApplyDueDate={(date) =>
-                void updateIssue({ dueDate: formatDateForMutation(date) })
-              }
-            />
-
-            {boards.length > 1 && (
-              <BoardSubmenu
-                boardId={issue.boardId}
-                boards={boards}
-                topLevelValueClass={TOP_LEVEL_VALUE_CLASS}
-                onSelect={(boardId) => {
-                  const next = boards.find((board) => board.id === boardId)
-                  if (!next) return
-                  // Defer past the menu close + focus restore so the dialog's
-                  // focus trap doesn't fight Radix.
-                  setTimeout(() => setPendingBoard(next), 0)
-                }}
-              />
-            )}
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <RelationSectionIcon />
-                Add relation
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[12rem]">
-                {RELATION_SIDES.filter((entry) => entry.pickable).map(
-                  (entry) => {
-                    const Icon = entry.icon
-                    return (
-                      <DropdownMenuItem
-                        key={entry.side}
-                        onSelect={() => addRelation.pick(entry)}
-                      >
-                        <Icon />
-                        {pickLabel(entry.type, entry.direction)}
-                      </DropdownMenuItem>
-                    )
-                  }
-                )}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            {/* No separator above a destructive item (EXP-687): the red is
-                the divider, on every client. The prompt opens deferred past
-                the menu close + focus restore, like the move confirm. */}
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => setTimeout(() => setDeleteOpen(true), 0)}
-            >
-              <UiDeleteIcon />
-              Delete issue
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        )}
-      </DropdownMenu>
+      <Menu
+        mode="pointer"
+        anchor={target.anchor}
+        open={open && issue !== null && statusOption !== null}
+        onOpenChange={onOpenChange}
+        entries={entries}
+        aria-label="Issue actions"
+        title={issue?.identifier}
+        contentClassName="w-(--menu-max-width)"
+        returnFocus={target.origin}
+        data-testid="issue-context-menu"
+      />
 
       {duplicatePicker}
       {addRelation.dialog}

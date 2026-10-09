@@ -1,3 +1,10 @@
+// EXP-1248: a PR in an open STACK (a linear base chain, GitHub stacks it
+// natively) with open PRs BENEATH it never merges plainly: `openStackMember`
+// refuses it, naming what a merge through it would land; `mergeStack` lands
+// it through ONE merge-async (lib/pr-stacks.ts). The bottom lands alone, so
+// it merges plainly. A FORK anywhere in the component is a tree: its
+// children wait for the root (the EXP-1145 rule below).
+//
 // EXP-1145 (kept by SLOP-3): a PR whose recorded base (`issues.pr_base_branch`,
 // or for an issue-less run PR `coding_sessions.pr_base_branch`, EXP-1165)
 // is the head branch of ANOTHER open PR in the same repository is a follow-up
@@ -21,6 +28,25 @@ import { getPullRequest } from "@/lib/integrations/github-pr"
  *  `exponential_pr_merge`. */
 export function stackedOnMessage(parent: string): string {
   return `This pull request is stacked on ${parent}; merge ${parent} first`
+}
+
+/** A landing PR as the refusal names it; an issue-less run PR has no
+ *  identifier. */
+export interface LandingPr {
+  identifier: string | null
+  prNumber: number
+}
+
+function stackPrName(member: LandingPr): string {
+  return member.identifier
+    ? `${member.identifier} (#${member.prNumber})`
+    : `#${member.prNumber}`
+}
+
+/** Byte-locked like `stackedOnMessage`: a plain merge on an open-stack
+ *  member, naming what a merge through it lands (bottom first). */
+export function openStackMessage(landing: ReadonlyArray<LandingPr>): string {
+  return `This pull request is part of an open stack. Merging through it lands ${landing.map(stackPrName).join(`, `)}; merge with mergeStack to land them.`
 }
 
 /** The squash commit's title for an issue's PR, on every merge path. */
@@ -390,4 +416,168 @@ export async function openStackThrough(
     base = lower.prBaseBranch
   }
   return chain
+}
+
+/** What a merge of this issue's PR is, stack-wise (EXP-1248). */
+export type StackMembership =
+  /** A linear stack member with open PRs beneath it: refused plainly,
+   *  `mergeStack` lands `landing` (bottom first, this PR last, always 2+)
+   *  in one merge-async. */
+  | { kind: `stack`; landing: StackMember[] }
+  /** A fork somewhere in its line: a tree. `parent` (the PR below) merges
+   *  first; null = the root, which merges plainly. */
+  | { kind: `tree`; parent: string | null; landing: StackMember[] }
+
+/** The OPEN PRs (issue or run rows, same team + repo) based on `branch`,
+ *  keyed by PR url, each with its head branch. */
+export async function openChildPrs(
+  db: Pick<Context[`db`], `select`>,
+  opts: { teamId: string; pattern: string; branch: string }
+): Promise<Map<string, string | null>> {
+  const issueRows = await db
+    .select({ prUrl: issues.prUrl, branch: issues.branch })
+    .from(issues)
+    .where(
+      and(
+        eq(issues.teamId, opts.teamId),
+        eq(issues.prBaseBranch, opts.branch),
+        eq(issues.prState, `open`),
+        like(issues.prUrl, opts.pattern)
+      )
+    )
+  const runRows = await db
+    .select({ prUrl: codingSessions.prUrl, branch: codingSessions.branch })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.teamId, opts.teamId),
+        eq(codingSessions.prBaseBranch, opts.branch),
+        eq(codingSessions.prState, `open`),
+        like(codingSessions.prUrl, opts.pattern)
+      )
+    )
+  const children = new Map<string, string | null>()
+  for (const row of [...issueRows, ...runRows]) {
+    if (row.prUrl && !children.get(row.prUrl)) {
+      children.set(row.prUrl, row.branch ?? null)
+    }
+  }
+  return children
+}
+
+/** Cycle-safe bound on the open PRs walked above a PR. */
+const MAX_COMPONENT_WALK = 30
+
+/**
+ * EXP-1248: is this issue's open PR a member of an open stack? Classified
+ * over the WHOLE open component (the line below from `openStackThrough` plus
+ * every open PR above it), like the clients' `prGraphShape`: a fork anywhere
+ * = a `tree` (the root merges plainly, every other member waits for its
+ * parent). A linear line returns `stack` only when PRs are open BENEATH this
+ * one: a bottom's landing is itself alone, so it merges plainly (`null`, as
+ * for a lone PR or no open PR).
+ */
+export async function openStackMember(
+  db: Pick<Context[`db`], `select`>,
+  opts: { issueId: string; teamId: string }
+): Promise<StackMembership | null> {
+  const chain = await openStackThrough(db, opts)
+  const self = chain[chain.length - 1]
+  if (!self) return null
+  const repoFullName = self.prUrl.match(
+    /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
+  )?.[1]
+  if (!repoFullName) return null
+  const pattern = repoPrUrlPattern(repoFullName)
+  let defaults: RepoDefaultBranches | null | undefined
+  const seen = new Set(chain.map((member) => member.prUrl))
+  const childrenOf = async (
+    branch: string | null
+  ): Promise<Map<string, string | null>> => {
+    if (!branch) return new Map()
+    if (defaults === undefined) {
+      defaults = await loadGuardDefaultBranches(db, {
+        teamId: opts.teamId,
+        repoFullName,
+      })
+    }
+    if (isRepoDefaultBranch(defaults, branch)) return new Map()
+    const children = await openChildPrs(db, {
+      teamId: opts.teamId,
+      pattern,
+      branch,
+    })
+    return children
+  }
+  let fork = false
+  // Below: each member's ONLY open child is the next one up the chain.
+  for (const [index, member] of chain.slice(0, -1).entries()) {
+    const children = await childrenOf(member.branch)
+    children.delete(member.prUrl)
+    children.delete(chain[index + 1]!.prUrl)
+    if (children.size > 0) {
+      fork = true
+      break
+    }
+  }
+  // Above: walk every open descendant; any PR with two open children forks.
+  const queue: Array<string | null> = [self.branch]
+  let walked = 0
+  while (!fork && queue.length > 0 && walked < MAX_COMPONENT_WALK) {
+    walked += 1
+    const children = await childrenOf(queue.shift() ?? null)
+    for (const url of [...children.keys()]) {
+      if (seen.has(url)) children.delete(url)
+    }
+    if (children.size > 1) fork = true
+    for (const [url, branch] of children) {
+      seen.add(url)
+      queue.push(branch)
+    }
+  }
+  if (fork) {
+    return {
+      kind: `tree`,
+      parent: chain.length > 1 ? chain[chain.length - 2]!.identifier : null,
+      landing: chain,
+    }
+  }
+  if (chain.length > 1) return { kind: `stack`, landing: chain }
+  return null
+}
+
+/**
+ * The merge rule every path applies to `openStackMember`'s answer, before
+ * any claim or GitHub call: a tree child waits for its parent; a member with
+ * PRs open beneath it needs `mergeStack` and lands `landing` (returned); a
+ * bottom, a tree root or a lone PR merges plainly (null).
+ */
+export function stackLanding(
+  membership: StackMembership | null,
+  mergeStack: boolean | undefined
+): StackMember[] | null {
+  if (membership?.kind === `tree` && membership.parent) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: stackedOnMessage(membership.parent),
+    })
+  }
+  if (membership?.kind !== `stack` || membership.landing.length < 2) return null
+  if (!mergeStack) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: openStackMessage(membership.landing),
+    })
+  }
+  return membership.landing
+}
+
+/** The branches `ensureGithubStack` must never walk below. */
+export function stackStopBranches(branches: RepoDefaultBranches | null): string[] {
+  if (!branches) return []
+  return [
+    branches.defaultBranch,
+    ...(branches.defaultBranchOverride ? [branches.defaultBranchOverride] : []),
+    ...branches.boardDefaultBranches,
+  ]
 }

@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
-import { Ellipsis, Trash2 } from "lucide-react"
 import {
   conceptIcon,
   getActionIcon,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   GlassSectionHeader,
+  Menu,
   Tabs,
   TabsContent,
   TabsList,
@@ -33,7 +29,7 @@ import { PinToggleButton } from "@/components/pin-toggle-button"
 import {
   primeTabEnter,
   useFaceSwipe,
-} from "@/components/mobile-face-tabs"
+} from "@/components/work-faces"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -46,6 +42,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 // catches up.
 
 const UiBackIcon = conceptIcon(`ui-back`)
+const UiMoreIcon = conceptIcon(`ui-more`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 const ActionRunIcon = conceptIcon(`action-run`)
 
 export const ACTION_PAGE_TABS = [`prompt`, `triggers`, `runs`] as const
@@ -172,26 +170,30 @@ export function ActionPage({
         </h1>
         <PinToggleButton teamId={action.teamId} kind="action" targetId={action.id} />
         {isOwner && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Menu
+            align="end"
+            aria-label={`${action.name} actions`}
+            title={action.name}
+            entries={[
+              {
+                kind: `item`,
+                id: `delete`,
+                label: `Delete`,
+                icon: UiDeleteIcon,
+                destructive: true,
+                onSelect: () => setDeleteOpen(true),
+              },
+            ]}
+            trigger={
               <Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label={`Action menu for ${action.name}`}
               >
-                <Ellipsis />
+                <UiMoreIcon />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          />
         )}
         {steerEnabled && (
           <Button

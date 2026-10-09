@@ -37,8 +37,10 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.ui.components.ComposerSubmitButton
@@ -64,10 +66,12 @@ import com.exponential.app.ui.theme.TextEmphasis
  *   candidate rows under the card and splices at this value's caret);
  * - strip: the pending images (the steer composer's tiles + `[Image #k]`
  *   markers, EXP-698);
- * - tools: `#` opens the issue picker, ▶ the action picker, the image glyph
- *   the photo picker; the submit is the round send glyph (EXP-827: icon-only
- *   ×4), NAMED by the contract's per-subject title ("Start chat" / "Start
- *   coding" / "Start batch · N" / "Run action").
+ * - tools: EXP-1249 — ONE "+" ([ComposerMenu.PLUS_TEST_ID]) opening the
+ *   composer menu ([ComposerPlusMenuSheet]: Implement issue, Run action, Add
+ *   file or image, Effort, Subagents, Ultracode, MCP servers, Computer use);
+ *   the submit is the round send glyph (EXP-827: icon-only ×4), NAMED by the
+ *   contract's per-subject title ("Start chat" / "Start coding" / "Start
+ *   batch · N" / "Run action").
  *
  * Test tags are byte-identical with the iOS identifiers (the styleguide and
  * store captures address both platforms by the same names).
@@ -99,11 +103,9 @@ internal fun AgentComposer(
     conflictRefused: Boolean,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
-    canAttach: Boolean,
     sending: Boolean,
-    onPickIssues: () -> Unit,
-    onPickActions: () -> Unit,
-    onPickImages: () -> Unit,
+    /** EXP-1249: the "+" — opens the composer menu. */
+    onOpenMenu: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     submitLabel: String,
     canSubmit: Boolean,
@@ -114,17 +116,19 @@ internal fun AgentComposer(
     // caret, so the writer can say "crop [Image #2]" without typing the
     // token. Removing one renumbers the draft (below), so the markers always
     // name images the composer still has (the steer composer's rule).
-    var markedImages by remember { mutableIntStateOf(pendingImages.size) }
-    LaunchedEffect(pendingImages.size) {
-        if (pendingImages.size > markedImages) {
+    // Wave D: only IMAGES are numbered — a file tile carries no marker.
+    val imageCount = pendingImages.count { it.isImage }
+    var markedImages by remember { mutableIntStateOf(imageCount) }
+    LaunchedEffect(imageCount) {
+        if (imageCount > markedImages) {
             var next = value
-            for (k in (markedImages + 1)..pendingImages.size) {
+            for (k in (markedImages + 1)..imageCount) {
                 val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
                 next = TextFieldValue(text, TextRange(caret))
             }
             onValueRewrite(next)
         }
-        markedImages = pendingImages.size
+        markedImages = imageCount
     }
     val inputDefs = actionChip?.inputs.orEmpty()
     GlassComposer(
@@ -166,8 +170,9 @@ internal fun AgentComposer(
                 enabled = !sending,
                 onRemove = { index ->
                     // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
-                    // every higher marker comes down one.
-                    val renumbered = renumberImageMarkers(value.text, index + 1)
+                    // every higher marker comes down one. A file has no marker.
+                    val number = pendingImages.imageNumberAt(index)
+                    val renumbered = if (number != null) renumberImageMarkers(value.text, number) else value.text
                     if (renumbered != value.text) {
                         onValueRewrite(
                             TextFieldValue(
@@ -189,30 +194,13 @@ internal fun AgentComposer(
             }
         },
         tools = {
-            // EXP-825 ×4: `#` for issues, the actions rocket for actions, the
-            // image glyph every other composer wears.
-            ComposerToolButton(
-                ExpIcons.editorIssueRef,
-                contentDescription = "Pick issues",
-                onClick = onPickIssues,
-                enabled = !sending,
-                modifier = Modifier.testTag("agent-composer-issues-button"),
-            )
-            ComposerToolButton(
-                ExpIcons.navActions,
-                contentDescription = "Pick an action",
-                onClick = onPickActions,
-                enabled = !sending,
-                modifier = Modifier.testTag("agent-composer-actions-button"),
-            )
-            // EXP-850 (S13): the Agent page composer attaches with the
-            // `ui-add` plus ×4, like the session composer.
+            // EXP-1249 ×4: the "+" is the composer's ONLY tool.
             ComposerToolButton(
                 ExpIcons.uiAdd,
-                contentDescription = "Attach image",
-                onClick = onPickImages,
-                enabled = canAttach && !sending,
-                modifier = Modifier.testTag("agent-composer-image-button"),
+                contentDescription = ComposerMenu.PLUS_LABEL,
+                onClick = onOpenMenu,
+                enabled = !sending,
+                modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
             )
         },
         submit = {

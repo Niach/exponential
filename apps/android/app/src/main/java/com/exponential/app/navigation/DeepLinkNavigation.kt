@@ -1,6 +1,7 @@
 package com.exponential.app.navigation
 
 import androidx.navigation.NavHostController
+import com.exponential.app.domain.workFaceFromParam
 
 /**
  * Route plumbing for the deep-link drain in [AppNavHost] (EXP-528).
@@ -92,7 +93,10 @@ const val ISSUE_ROUTE = "issue/{issueId}?face={face}"
  * incomplete fill (always push). So the re-tap check compares the ARGUMENTS
  * instead: the same issue on the same face is already on top.
  */
-fun NavHostController.navigateIssueDeepLink(issueId: String, face: String?) {
+fun NavHostController.navigateIssueDeepLink(issueId: String, rawFace: String?) {
+    // EXP-1251: every face word goes through ONE parser (`results` / `changes`
+    // / `diff` = the Guide), so the re-tap check compares canonical names.
+    val face = workFaceFromParam(rawFace)?.name?.lowercase()
     val top = currentBackStackEntry
     val alreadyOnTop = top?.destination?.route == ISSUE_ROUTE &&
         top.arguments?.getString("issueId") == issueId &&

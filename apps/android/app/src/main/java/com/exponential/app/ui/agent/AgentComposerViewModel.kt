@@ -9,6 +9,12 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.IssueImagesApi
+import com.exponential.app.data.api.McpServersApi
+import com.exponential.app.domain.McpServerOption
+import com.exponential.app.domain.mcpServerReady
+import com.exponential.app.domain.preselectMcpServerIds
+import com.exponential.app.domain.subjectOwnsMcpServers
+import kotlinx.coroutines.flow.collectLatest
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
@@ -30,6 +36,7 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.resolveFixConflictsPr
@@ -38,7 +45,9 @@ import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
-import com.exponential.app.domain.MAX_STEER_IMAGES
+import com.exponential.app.domain.steerAttachmentRefusal
+import com.exponential.app.domain.uploadedImageIds
+import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.batchRunIssueIds
@@ -171,6 +180,7 @@ class AgentComposerViewModel @Inject constructor(
     private val steerLaunch: SteerLaunchDelegate,
     private val imagesApi: IssueImagesApi,
     private val issuesApi: IssuesApi,
+    private val mcpServersApi: McpServersApi,
 ) : ViewModel() {
 
     /** The route's one-shot preselection — applied once in `init`. */
@@ -634,28 +644,38 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /**
-     * Queue a picked image (EXP-511 semantics): the composer drops its
-     * `[Image #k]` marker at the caret. Capped at [MAX_STEER_IMAGES]; anything
-     * the inline-image pipeline rejects reports back through [imageError].
+     * Queue a picked image or file (EXP-511 semantics, wave D: any type): an
+     * image drops its `[Image #k]` marker at the caret (the composer counts
+     * images only); a file is a tile with no marker. Images ≤ 10 MB × 4,
+     * files ≤ 50 MB × 4; a refusal reports back through [imageError].
      */
     fun addImage(uri: Uri, bytes: ByteArray, filename: String, contentType: String) {
         _imageError.value = null
-        if (_images.value.size >= MAX_STEER_IMAGES) {
-            _imageError.value = "Up to $MAX_STEER_IMAGES images per message"
-            return
-        }
         val canonical = canonicalContentType(contentType)
-        if (!isInlineImage(canonical)) {
-            _imageError.value = "Only images can be attached"
+        val isImage = isInlineImage(canonical)
+        val current = _images.value
+        val refusal = steerAttachmentRefusal(
+            imageCount = current.count { it.isImage },
+            fileCount = current.count { !it.isImage },
+            isImage = isImage,
+            sizeBytes = bytes.size.toLong(),
+        )
+        if (refusal != null) {
+            _imageError.value = refusal
             return
         }
-        _images.value = _images.value + PendingAttachment(
+        _images.value = current + PendingAttachment(
             uri = uri,
             bytes = bytes,
             filename = filename,
             contentType = canonical,
-            isImage = true,
+            isImage = isImage,
         )
+    }
+
+    /** A pick refused before it could be read (wave D: over the size cap). */
+    fun refuseAttachment(message: String) {
+        _imageError.value = message
     }
 
     fun removeImage(index: Int) {
@@ -706,6 +726,67 @@ class AgentComposerViewModel @Inject constructor(
 
     fun setPlanMode(value: Boolean) {
         _launch.value = _launch.value.copy(planMode = value)
+    }
+
+    // ── EXP-1249: the "+" menu's MCP servers + Computer use ─────────────────
+
+    private val _mcpServers = MutableStateFlow<List<McpServerOption>>(emptyList())
+
+    /** The team's MCP servers (`mcpServers.list`), the caller's readiness on each. */
+    val mcpServers: StateFlow<List<McpServerOption>> = _mcpServers
+
+    private val _mcpServerIds = MutableStateFlow<List<String>>(emptyList())
+
+    /** The servers this run gets — seeded with the ready enabled-by-default rows. */
+    val mcpServerIds: StateFlow<List<String>> = _mcpServerIds
+
+    /** Toggle a READY server in or out of the pick (a not-ready row is inert). */
+    fun toggleMcpServer(id: String) {
+        val server = _mcpServers.value.firstOrNull { it.id == id } ?: return
+        val current = _mcpServerIds.value
+        _mcpServerIds.value = when {
+            id in current -> current - id
+            mcpServerReady(server) -> current + id
+            else -> current
+        }
+    }
+
+    /** Web M12: the person's explicit flip; null = untouched (the device's
+     *  default shows and nothing rides the wire). Cleared per device. */
+    private val _computerUsePick = MutableStateFlow<Boolean?>(null)
+
+    /** The per-run computer use toggle: the flip, else the device's CURRENT
+     *  `launch_defaults.computerUse`. */
+    val computerUse: StateFlow<Boolean> = combine(_computerUsePick, device) { pick, d ->
+        ComposerMenu.computerUseShown(pick, d?.launchDefaults?.computerUse == true)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun setComputerUse(value: Boolean) {
+        _computerUsePick.value = value
+    }
+
+    init {
+        // The pick reseeds per team; a refetch keeps what is still ready.
+        viewModelScope.launch {
+            teamId.collectLatest { team ->
+                _mcpServers.value = emptyList()
+                _mcpServerIds.value = emptyList()
+                val accountId = auth.activeAccountId.value
+                if (team == null || accountId == null) return@collectLatest
+                val servers = runCatching { mcpServersApi.list(accountId, team) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull() ?: return@collectLatest
+                _mcpServers.value = servers
+                _mcpServerIds.value = preselectMcpServerIds(servers, saved = null)
+            }
+        }
+        // A per-DEVICE switch: changing the device clears the flip (an agent
+        // switch keeps whatever the person set).
+        viewModelScope.launch {
+            device.map { it?.deviceId }.distinctUntilChanged().collect {
+                _computerUsePick.value = null
+            }
+        }
     }
 
     private fun applyAgentSeed(agent: String, device: SteerDevice?) {
@@ -764,6 +845,15 @@ class AgentComposerViewModel @Inject constructor(
             agent = agent,
             resume = if (resume) true else null,
             account = draft.wireAccount,
+            // EXP-1249: a real action owns its MCP list; none picked = none sent.
+            mcpServerIds = _mcpServerIds.value
+                .takeIf { it.isNotEmpty() && !subjectOwnsMcpServers((_subject.value as? ComposerSubject.Action)?.id) },
+            // Only a device that reads the flag gets it (older builds ignore it).
+            // Web M12: only an explicit flip rides the wire.
+            computerUse = ComposerMenu.computerUseWire(
+                pick = _computerUsePick.value,
+                canToggle = device.value?.canToggleComputerUse == true,
+            ),
         )
     }
 
@@ -886,12 +976,10 @@ class AgentComposerViewModel @Inject constructor(
         viewModelScope.launch {
             _sending.value = true
             try {
-                val ids = ArrayList<String>()
                 try {
                     var current = _images.value
                     for ((index, image) in current.withIndex()) {
-                        var uploadedId = image.uploadedId
-                        if (uploadedId == null) {
+                        if (image.uploadedId == null) {
                             val uploaded = imagesApi.uploadTeamSessionImage(
                                 accountId,
                                 teamId,
@@ -899,22 +987,25 @@ class AgentComposerViewModel @Inject constructor(
                                 image.filename,
                                 image.contentType,
                             )
-                            uploadedId = uploaded.id
                             current = current.mapIndexed { i, entry ->
-                                if (i == index) entry.copy(uploadedId = uploaded.id) else entry
+                                if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
                             }
                             _images.value = current
                         }
-                        ids.add(uploadedId)
                     }
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
-                    _imageError.value = trpcErrorMessage(t, "Couldn't upload image")
+                    _imageError.value = trpcErrorMessage(t, "Couldn't upload attachment")
                     return@launch
                 }
                 val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }
                     ?: _draft.value
-                val prompt = AgentComposerPrompt.build(text, ids)
+                val uploadedSet = _images.value
+                val prompt = AgentComposerPrompt.build(
+                    text,
+                    uploadedSet.uploadedImageIds(),
+                    uploadedSet.uploadedSteerFiles(),
+                )
                 // A stacked start never resumes: its first issue may not be the picked one.
                 val resume = stacked == null && resumeOffered && _resume.value &&
                     (subject as? ComposerSubject.Issues)?.ids?.size == 1

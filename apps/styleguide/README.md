@@ -101,13 +101,14 @@ lookalike of it.
 What stays hand-written HTML/CSS driven by `@exp/design-tokens`
 (`src/components.tsx` + `src/component-styles.ts`) is what no single component
 owns: the **compositions** (app shell, settings page header, comment card,
-markdown blocks, tab bar, bulk bar, usage bar, session bar, relations card, the
-GitHub connect pair) and the **token** swatch tables. `PORTAL_ONLY_IDS` would
-name an entry whose `packages/ui` symbol is a closed Radix portal (renders
-nothing statically) and so keeps a demo; it is empty since its two members,
-sheet and dialog, moved to the site. The **issue context menu** draws the menu
-at rest through `MenuSpecimen`, on plain elements wearing the same row classes
-the Radix items wear.
+markdown blocks, tab bar, bulk bar, session bar, relations card, the GitHub
+connect pair) and the **token** swatch tables. `PORTAL_ONLY_IDS` would name an
+entry whose `packages/ui` symbol is a closed Radix portal (renders nothing
+statically) and so keeps a demo; it is empty since its two members, sheet and
+dialog, moved to the site. The **issue context menu** and the composer's "+"
+(in **composer-dialog**, rows off `composer-menu.json`) draw the menu at rest
+through `MenuPanel`: the same entries and row classes the live `Menu` renders,
+picker bodies as `PickerMenuRows`.
 
 Two rules the entries carry rather than restate (EXP-771, EXP-862): **shape
 says what a control does** — a circle marks the PRIMARY action only, every

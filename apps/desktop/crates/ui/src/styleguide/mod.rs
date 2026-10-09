@@ -120,7 +120,7 @@ mod tests {
     /// one that used to only describe its own — `device-settings` — now
     /// paints the product's own elements. EXP-1092
     /// did the same for `issue-context-menu` (a real `PopupMenu`),
-    /// `pr-graph-badge` (`pr_graph::badge`) and `session-tree` (the `run_rows`
+    /// `pr-graph-badge` (`pr_graph::badge`) and `session-row` (the `run_rows`
     /// renderers over `domain::session_tree`) — with NO `sync::Store`
     /// installed here, so every store read on those paths is `try_global`.
     #[gpui::test]

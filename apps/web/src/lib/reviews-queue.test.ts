@@ -39,3 +39,29 @@ describe(`reviewsQueue (contract fixture)`, () => {
     })
   }
 })
+
+// EXP-1248: rule 9, a band's entries as drawn (tree nesting, stack items),
+// replayed ×4 (desktop `queue_items_match_the_fixture`, iOS
+// `ReviewsQueueTests.testGrouping`, Android `ReviewsQueueTest.grouping`).
+describe(`reviewsQueue items (contract fixture)`, () => {
+  for (const testCase of fixture.groupingCases) {
+    it(testCase.name, () => {
+      // The fixture's mixed nulls widen past one inferred row type.
+      const queue = reviewsQueue(testCase.input as never)
+      expect({
+        boards: queue.boardGroups.map((group) => ({
+          boardId: group.board.id,
+          items: group.items.map((item) =>
+            item.kind === `pr`
+              ? { kind: item.kind, key: item.entry.key, depth: item.depth }
+              : {
+                  kind: item.kind,
+                  keys: item.entries.map((entry) => entry.key),
+                  baseBranch: item.baseBranch,
+                }
+          ),
+        })),
+      }).toEqual(testCase.expected)
+    })
+  }
+})

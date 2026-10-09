@@ -8,9 +8,9 @@
       "jump-to-bottom"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
-      "composer-dialog", "composer-fix-conflicts", "issue-context-menu", "session-tree", "pr-graph-badge", "device-settings",
+      "composer-dialog", "composer-fix-conflicts", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings",
       "blocked-start-dialog", "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
-      "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread"
+      "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -33,7 +33,8 @@
     "jump-to-bottom": "EXP-1191",
     "composer-dialog": "EXP-1019",
     "composer-fix-conflicts": "EXP-1233",
-    "session-tree": "EXP-996",
+    "session-row": "EXP-1248",
+    "pr-row": "EXP-1248",
     "pr-graph-badge": "EXP-1058",
     "device-settings": "EXP-1020",
     "blocked-start-dialog": "EXP-980",
@@ -44,6 +45,7 @@
     "results-guide": "EXP-1154",
     "mcp-app-views": "EXP-1183",
     "run-status-row": "EXP-1175",
-    "session-thread": "EXP-1175"
+    "session-thread": "EXP-1175",
+    "composer-options": "EXP-1249"
   }
 }

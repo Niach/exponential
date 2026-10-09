@@ -10,8 +10,14 @@ import {
   SheetGrabber,
   useSheetDragHandleProps,
 } from "./sheet-chrome"
+import { SheetContent } from "./sheet"
 import { isTypeaheadPortalInteraction } from "./typeahead"
+import { useMediaQuery } from "./use-media-query"
 import { useSheetDrag } from "./use-sheet-drag"
+
+/** Below `sm` a sheet-arm dialog IS the bottom sheet (EXP-687 → the UI
+ *  cleanup batch's "one phone sheet"). */
+const PHONE_QUERY = `(max-width: 639px)`
 
 function Dialog({
   ...props
@@ -98,6 +104,33 @@ function DialogContent({
     },
     [ref]
   )
+  const isPhone = useMediaQuery(PHONE_QUERY)
+
+  if (isSheet && isPhone) {
+    // ONE phone sheet: the dialog renders THROUGH `SheetContent` (the same
+    // Radix Dialog underneath, so this Root still owns it) — its grabber,
+    // drag-to-dismiss, overlay-tap close and opaque surface — instead of a
+    // second copy of that chrome painted onto the centred panel.
+    return (
+      <SheetContent
+        side="bottom"
+        data-slot="dialog-content"
+        data-mobile={mobile}
+        ref={ref}
+        className={cn(
+          `gap-4 overflow-hidden px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))] outline-none`,
+          mobile === `sheet-full` && `h-[94dvh] max-h-[94dvh]`,
+          className
+        )}
+        onInteractOutside={onInteractOutside}
+        {...props}
+      >
+        <DialogPresentationContext.Provider value={mobile}>
+          {children}
+        </DialogPresentationContext.Provider>
+      </SheetContent>
+    )
+  }
 
   return (
     <DialogPortal data-slot="dialog-portal">

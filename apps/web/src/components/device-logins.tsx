@@ -40,14 +40,13 @@ import {
 } from "@/lib/steer-devices"
 import { addableAgents } from "@/lib/agent-account-add"
 import { AddAccountDialog } from "@/components/add-account-dialog"
-import { UsageMini } from "@/components/agent-usage-mini"
+import { AgentUsageWindows } from "@/components/agent-usage-windows"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   AccountChipMenu,
   accountChipActionable,
 } from "@/components/device-agent-account"
 import { relativeTime } from "@/components/comment-rows/format"
-import { cn } from "@/lib/utils"
 
 const MoreIcon = conceptIcon(`ui-more`)
 const AddIcon = conceptIcon(`ui-add`)
@@ -198,10 +197,12 @@ export function DeviceLoginRowView({
           <>
             {/* EXP-944: the device list is where a limit is actually planned
                 around, so its bars say WHEN they reset. */}
-            <UsageMini
+            <AgentUsageWindows
               usage={row.usage}
               now={now}
-              className={cn(`min-w-0 flex-1`, age && `opacity-50`)}
+              density="mini"
+              stale={age !== null}
+              className="min-w-0 flex-1"
             />
             {age && (
               <span className="shrink-0 text-[10px] text-muted-foreground opacity-50">

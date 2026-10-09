@@ -6,6 +6,7 @@ import {
   type PickerItem,
   type PickerSurfaceProps,
 } from "./picker"
+import type { PickerTriggerVariant } from "./picker-trigger"
 
 // EXP-1029 contract — the device picker: the machines a run may start on,
 // each by its device glyph (contract `deviceIcon`) + name, offline ones
@@ -29,7 +30,11 @@ export interface DevicePickerProps extends PickerSurfaceProps {
   devices: readonly DevicePickerDevice[]
   value: string | null
   onChange: (deviceId: string) => void
-  trigger: ReactNode
+  /** A bespoke trigger; omitted = the primitive's own in `triggerVariant`
+   *  (the composer's `inline` word, which collapses to plain text with one
+   *  machine). */
+  trigger?: ReactNode
+  triggerVariant?: PickerTriggerVariant
   /** The sheet's title on a phone. */
   mobileTitle?: string
   search?: boolean

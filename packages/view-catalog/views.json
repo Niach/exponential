@@ -135,10 +135,6 @@
       "reason": "SLOP-3: Workflows are gone; old links and native deep links redirect to /t/$teamSlug/agent."
     },
     {
-      "route": "/t/$teamSlug/reviews/$issueIdentifier",
-      "reason": "EXP-1154: the review page is the issue's Changes face; old links redirect to boards/$boardSlug/issues/$issueIdentifier?view=diff."
-    },
-    {
       "route": "/admin",
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },
@@ -467,7 +463,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: the rail never folds to an icon column and no list rides beside a detail any more — an issue opened from a board list opens ALONE in the main content card, next to the full rail. Only an issue picked from the Inbox or Reviews keeps that list as a second sidebar inside the card."
+        "desktop": "EXP-1192: the rail never folds to an icon column and no list rides beside a detail any more — an issue opened from a board list opens ALONE in the main content card, next to the full rail. Only an issue picked from the Inbox keeps that list as a second sidebar inside the card (EXP-1248: a Reviews row opens a tab)."
       }
     },
     {
@@ -724,7 +720,7 @@
       "web": {
         "route": "/t/$teamSlug/inbox",
         "anchor": {
-          "text": "Mira Chen assigned you APP-6",
+          "text": "Push notification deep links",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -1120,7 +1116,7 @@
       "id": "reviews",
       "group": "reviews",
       "title": "Reviews",
-      "blurb": "Every open PR across the team, issue-linked ones grouped by board, each with a one-click squash merge.",
+      "blurb": "Every open PR across the team as ONE PrRow each (EXP-1248), issue-linked ones grouped by board, trees nested with guides and stacks on their rail; a row opens the issue's Guide (no inline Merge).",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/reviews",
@@ -1146,17 +1142,17 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: a full-width list in the main content card beside the full rail. A row opens its issue's Changes face with the Reviews rows as a second sidebar inside the card (see review-diff)."
+        "desktop": "EXP-1192: a full-width list in the main content card beside the full rail. A row opens its issue's Guide in a tab (no second sidebar since EXP-1248; see guide)."
       }
     },
     {
       "id": "review-diff",
       "group": "reviews",
-      "title": "Review diff",
-      "blurb": "A PR's real diff on the issue's Changes face (EXP-1154: the review IS the issue's Work screen): the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
+      "title": "Complete diff",
+      "blurb": "A PR's whole diff as the Guide's Show complete diff page (`?view=guide&section=all`; the legacy `?view=diff` lands here): the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=diff",
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=all",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1173,28 +1169,21 @@
         "shot": "5_review",
         "lane": "store"
       },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "issue:$APP-14?face=changes"
-        },
-        "env": {
-          "EXP_DEV_TOOL": "reviews"
-        }
-      },
       "notes": {
-        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the diff's context, beside the compact rail, back row = the identifier), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar, beside the white Merge capsule). EXP-1154: the standalone review page is gone; this is the issue's Changes face (the toggle's +N −M segment, GitHub in the header, Merge PR in the tray, Close PR in the issue's actions menu).",
-        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. The Changes face draws its own file tree beside the diff. EXP-1154: the drive opens the issue on its Changes face (`issue:<id>?face=changes`); `Screen::PrDiff` is gone. EXP-1192: `EXP_DEV_TOOL=reviews` beside it pins the Reviews origin, so the Reviews rows sit as a second sidebar inside the content card (a \"Reviews\" back row on top), the way a row clicked on the Reviews page opens it."
+        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
+        "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
+        "ios": "EXP-1251: 05_review opens the issue from Reviews on its Guide, then taps the Changes row (else Show complete diff) and waits for guide-section-page + changes-file-row before the shot.",
+        "android": "EXP-1251: 5_review shoots the GUIDE face (work-guide + guide-changes-row; the pop-out stays on the bare work-merge-pr capsule), not a section page."
       }
     },
     {
       "id": "run-changes",
       "group": "reviews",
       "title": "Run changes",
-      "blurb": "The PR diff of an ISSUE-LESS run (a chat or action run's own pull request, EXP-1194): the same file cards as the issue's Changes face, fed by codingSessions.prFiles, opened from the Reviews \"Agent runs\" row. A teammate's run, so it reads read-only.",
+      "blurb": "The PR diff of an ISSUE-LESS run (a chat or action run's own pull request, EXP-1194) on the run's Guide: the same file cards as the issue's Guide pages, fed by codingSessions.prFiles, opened from the Reviews \"Agent runs\" row. A teammate's run, so it reads read-only.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=diff",
+        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=guide&section=all",
         "anchor": {
           "text": "processing.impl.ResolverImpl",
           "timeoutMs": 60000
@@ -1217,15 +1206,81 @@
           "value": "session:$runChangesSession"
         },
         "env": {
-          "EXP_DEV_RUN_FACE": "changes",
+          "EXP_DEV_RUN_FACE": "guide-all",
           "EXP_DEV_TOOL": "reviews"
         }
       },
       "notes": {
-        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunChanges`: the stub header with the GitHub button over the issue Changes body, the file tree in the sidebar on md+, no steer ticket. The owner's own run draws the same files on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
-        "desktop": "`session:<id>` with `EXP_DEV_RUN_FACE=changes` opens the run on its Diff face (the steer viewer's `load_pr_changes` reads an issue-less run's PR files by the RUN id, a teammate's included — no relay ticket is minted); `EXP_DEV_TOOL=reviews` pins the Reviews origin so the queue sits as the second sidebar, the way the Reviews run row opens it.",
-        "ios": "Styleguide lane: Reviews → the \"Agent runs\" row (matched by the run's subject) pushes `RunChangesView` (`AppRoute.runChanges`); the shot waits for the first `changes-file-row`.",
-        "android": "Styleguide lane: Reviews → the first `review-run-row` opens `RunChangesScreen` (`runChanges/{sessionId}`); the shot waits for the first expanded card's unchanged-lines divider, like the store review."
+        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the run's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own run draws the same Guide on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
+        "desktop": "EXP_DEV_RUN_FACE=guide-all lands the run tab on the Guide's Show complete diff page (the same page the web route opens).",
+        "ios": "EXP-1251: the Reviews 'Agent runs' row opens the run on its Guide; the flow taps the Guide's Changes row (else Show complete diff), waits for guide-section-page, then changes-file-row, and shoots the section page.",
+        "android": "EXP-1251: the review-run-row opens RunChangesScreen on the Guide; the flow taps guide-changes-row, waits for guide-section + changes-file-row, shoots, then backs out twice."
+      }
+    },
+    {
+      "id": "guide",
+      "group": "reviews",
+      "title": "Guide",
+      "blurb": "An issue's Guide face (EXP-1251: Changes + Results merged into one face): the Stack card while its PR sits in an open stack, the Summary lead, numbered sections with ONE Changes row each, the automatic Other changes section and Show complete diff. APP-14 has a PR and no report, so its whole diff is one Changes section.",
+      "order": 4,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide",
+        "anchor": {
+          "text": "Show complete diff",
+          "timeoutMs": 60000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_guide",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_guide",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "EXP-1251: the coverage counts the PR files fetched live from GitHub (like review-diff), so the anchor waits for the Show complete diff row the loaded diff draws.",
+        "desktop": "EXP-1251: the issue tab's Guide face (`issue:<id>?face=guide`; the legacy results/diff/changes words land here too); `EXP_DEV_TOOL=reviews` pins the Reviews origin the way a Reviews row opens it."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "issue:$APP-14?face=guide"
+        },
+        "env": {
+          "EXP_DEV_TOOL": "reviews"
+        }
+      }
+    },
+    {
+      "id": "guide-section",
+      "group": "reviews",
+      "title": "Guide section",
+      "blurb": "A Guide section's diff as a page under the Guide (`?view=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree in the column beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
+      "order": 5,
+      "web": {
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=1",
+        "anchor": {
+          "text": "Unable to load topic",
+          "timeoutMs": 60000
+        },
+        "recipe": "expandFirstDiffFile",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_guide-section",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_guide-section",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "EXP-1251: APP-14 has no report, so the PR body is its one unnumbered section claiming the whole diff (`section=1`; there is no `other` page); the anchor is a line of the first card's own patch, as on review-diff.",
+        "desktop": "EXP-1251: a section page is state inside the Guide (`SteerSessionView::open_guide_page`) with no dev deep link yet, so the desktop half is not driven."
       }
     },
     {
@@ -4841,6 +4896,66 @@
       },
       "notes": {
         "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "session-row",
+      "group": "coding",
+      "title": "Session rows",
+      "blurb": "ONE SessionRow in two sizes (EXP-1248): the sidebar's small one-line row and the big two-line row the Recent list and the phone Running list draw, the run mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes.",
+      "order": 11,
+      "ios": {
+        "shot": "sg_session-row",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session-row",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
+        "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
+        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent."
+      }
+    },
+    {
+      "id": "pr-row",
+      "group": "reviews",
+      "title": "PR rows",
+      "blurb": "ONE PrRow (EXP-1248): a one-line PR row with the ring lead, nested with tree guides for a PR tree and railed top-first down to the base branch for a stack (the Guide's stack card and the Reviews list share it).",
+      "order": 6,
+      "ios": {
+        "shot": "sg_pr-row",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_pr-row",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide island `pr-row` (apps/styleguide/src/entries/pr-row.tsx); the app views are `reviews` and `guide`.",
+        "web-mobile": "See web: `reviews` and `guide` inherit their phone captures.",
+        "desktop": "The desktop styleguide entry `pr_row.rs`; the app views are Reviews and the Guide."
+      }
+    },
+    {
+      "id": "composer-menu",
+      "group": "coding",
+      "title": "Composer + menu",
+      "blurb": "The composer's ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue, Run action, Add file or image, Effort, Subagents, Ultracode, MCP servers, Computer use; a dropdown at desktop widths and a bottom sheet on phones.",
+      "order": 12,
+      "ios": {
+        "shot": "sg_composer-menu",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_composer-menu",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide `menu` and `composer-dialog` entries show the open menu; the app view is `chat`.",
+        "web-mobile": "See web: on phones the same entries open as a bottom sheet.",
+        "desktop": "The desktop styleguide `menu` entry draws the real \"+\" menu (`chat_screen::plus_menu`)."
       }
     }
   ]

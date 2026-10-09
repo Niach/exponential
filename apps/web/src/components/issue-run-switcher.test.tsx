@@ -8,7 +8,7 @@ import {
   ISSUE_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
-} from "@/components/team/work-face-toggle"
+} from "@/components/work-faces"
 import { LIVE_RUN_LABEL } from "@/lib/past-runs"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"
@@ -101,18 +101,19 @@ describe(`the Runs segment's run menu`, () => {
     const ended = row({ id: `ended` })
     render(toggle([live, ended], vi.fn(), `live`))
     openMenu()
-    // EXP-958: the rows are the Combobox's menu arm — a single select, so
-    // the run on show wears the picker's trailing check and nothing else.
+    // Choice rows of the shared Menu: the run on show wears the trailing
+    // check, and every run leads with its mark, never a dot.
     const options = document.querySelectorAll(
       `[data-testid="issue-run-switcher-menu"] [role="menuitemradio"]`
     )
     expect(options).toHaveLength(2)
     expect(options[0]?.textContent).toBe(`macbook · Live`)
     expect(options[1]?.textContent).toMatch(/^macbook · .+ago$/)
-    expect(options[0]?.getAttribute(`data-selected-state`)).toBe(`selected`)
-    expect(options[1]?.getAttribute(`data-selected-state`)).toBe(`unselected`)
+    expect(options[0]?.getAttribute(`aria-checked`)).toBe(`true`)
+    expect(options[1]?.getAttribute(`aria-checked`)).toBe(`false`)
     expect(options[0]?.querySelector(`[data-selected-glyph="check"]`)).toBeTruthy()
     expect(options[1]?.querySelector(`[data-selected-glyph]`)).toBeNull()
+    expect(options[1]?.querySelector(`[data-slot="run-mark"]`)).toBeTruthy()
   })
 
   it(`opens the picked run without selecting a face`, () => {
@@ -135,7 +136,7 @@ describe(`the Runs segment's run menu`, () => {
     act(() => {
       fireEvent.click(
         document.querySelector(
-          `[data-testid="issue-run-switcher-menu"] [data-value="b"]`
+          `[data-testid="issue-run-switcher-menu"] [data-testid="issue-run-b"]`
         )!
       )
     })

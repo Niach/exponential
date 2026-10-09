@@ -2031,7 +2031,7 @@ fn handle_command(
         // the same manifest the publisher builds for a steered one.
         EngineCommand::Prompt(blocks) => {
             let text = blocks_text(&blocks);
-            let prompt = if ctx.attachments.is_some() && steer::has_image_embed(&text) {
+            let prompt = if ctx.attachments.is_some() && steer::has_attachment_embed(&text) {
                 TurnPrompt::Localize(text.clone())
             } else {
                 TurnPrompt::Ready(LocalizedPrompt {
@@ -2439,7 +2439,7 @@ pub(crate) async fn localize_for_agent(
     embeds: &steer::ImageEmbeds,
 ) -> LocalizedPrompt {
     let agent_text = match attachments {
-        Some(hook) if steer::has_image_embed(&text) => {
+        Some(hook) if steer::has_attachment_embed(&text) => {
             steer::localize_message(text.clone(), hook, embeds).await
         }
         _ => text.clone(),
@@ -3674,7 +3674,7 @@ mod tests {
     #[test]
     fn localize_for_agent_splits_announce_from_the_agent_manifest() {
         let embed = "![image](/api/attachments/11111111-2222-3333-4444-555555555555)";
-        let hook: steer::AttachmentHook = Arc::new(|id| {
+        let hook: steer::AttachmentHook = Arc::new(|id, _name| {
             assert_eq!(id, "11111111-2222-3333-4444-555555555555");
             Ok(PathBuf::from("/wt/.exp-steer-images/a.png"))
         });

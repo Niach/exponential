@@ -143,6 +143,12 @@ vi.mock(`@/lib/integrations/subscriptions`, () => ({
 vi.mock(`@/lib/integrations/activity`, () => ({
   recordIssueEvent: vi.fn(),
 }))
+// EXP-1248: stack membership is its own suite (issues-merge-stack); here
+// every PR is a lone one, so the select queue below stays the EXP-1145 one.
+vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  openStackMember: async () => null,
+}))
 
 import { issuesRouter } from "@/lib/trpc/issues"
 import {
@@ -650,7 +656,7 @@ describe(`issues.mergePr merge-async outcomes`, () => {
 
     await expect(caller.mergePr({ issueId: ISSUE_ID })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `GitHub is still merging PR #241. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
+      message: `GitHub is still merging PR #241. It did not finish in time — check the PR on GitHub; the issue completes when the merge lands.`,
     })
   })
 

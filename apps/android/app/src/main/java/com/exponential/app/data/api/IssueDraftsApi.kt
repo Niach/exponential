@@ -51,6 +51,8 @@ data class IssueDraftAttachment(
     @SerialName("sizeBytes") val sizeBytes: Long = 0,
     val url: String = "",
     @SerialName("createdAt") val createdAt: String = "",
+    // EXP-1247: uploaded through a FILE/paperclip path, never inlined.
+    @SerialName("asFile") val asFile: Boolean = false,
 )
 
 @Singleton

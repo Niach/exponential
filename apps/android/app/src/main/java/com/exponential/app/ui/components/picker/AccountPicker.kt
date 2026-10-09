@@ -21,8 +21,10 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.AccountLimits
 import com.exponential.app.ui.components.AccountLimitBars
 import com.exponential.app.ui.components.AccountLimitBarsWidth
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
@@ -92,6 +94,57 @@ fun AccountPicker(
         onOpenChange = onOpenChange,
         renderItem = { item -> AccountRowBody(item, byKey[item.value]) },
         trigger = trigger,
+    )
+}
+
+/**
+ * The picker's PILL trigger (the launch options line, the trigger form): the
+ * brand mark, the login's email, its health badge when the credential is dead,
+ * and a chevron only while [onOpen] opens something. A lone login is a
+ * statement, not a choice: pass null and it opens nothing. [enabled] false =
+ * a locked surface, dimmed and chevron-less, still readable.
+ */
+@Composable
+fun AccountPickerPillTrigger(
+    option: AccountPickerOption,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = "Account",
+) {
+    val pickable = enabled && onOpen != null
+    GlassPill(
+        option.email,
+        onClick = if (pickable) onOpen else null,
+        enabled = enabled,
+        modifier = modifier,
+        leading = {
+            Icon(
+                agentIconPainter(option.agent),
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = agentIconTint(option.agent),
+            )
+        },
+        trailing = if (option.healthNote != null || pickable) {
+            {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                    if (option.healthNote != null) {
+                        Text(option.healthNote, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)
+                    }
+                    if (pickable) {
+                        Icon(ExpIcons.uiChevronDown, contentDescription = null, modifier = Modifier.size(10.dp), tint = muted)
+                    }
+                }
+            }
+        } else {
+            null
+        },
+        contentDescription = contentDescription,
     )
 }
 

@@ -221,6 +221,9 @@ export interface SteerStartOptions {
    * against the subject's team in steer.startSession) the run connects to
    * beside `exponential`. The device resolves ids to its held secrets. */
   mcpServerIds?: string[]
+  /** EXP-1249: computer use for this run; absent = the device's
+   * `launch_defaults.computerUse`. */
+  computerUse?: boolean
   /** EXP-792 (EXP-747 B7): the agent account profile to run on; absent or
    * `system` = the ambient login. */
   account?: string

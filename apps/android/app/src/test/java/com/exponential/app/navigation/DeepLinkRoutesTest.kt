@@ -52,10 +52,10 @@ class DeepLinkRoutesTest {
 
     @Test
     fun `fills a placeholder that is not the last segment`() {
-        // EXP-1154: the review is the issue's Changes FACE, a query arg.
+        // EXP-1251: the review is the issue's Guide FACE, a query arg.
         assertEquals(
-            "issue/abc?face=changes",
-            DeepLinkRoutes.concreteRoute("issue/{issueId}?face={face}", args("issueId" to "abc", "face" to "changes")),
+            "issue/abc?face=guide",
+            DeepLinkRoutes.concreteRoute("issue/{issueId}?face={face}", args("issueId" to "abc", "face" to "guide")),
         )
     }
 
@@ -159,7 +159,7 @@ class DeepLinkRoutesTest {
         assertFalse(
             DeepLinkRoutes.isOnTop(
                 "issue/{issueId}?face={face}",
-                args("issueId" to "A", "face" to "changes"),
+                args("issueId" to "A", "face" to "guide"),
                 "issue/A",
             )
         )

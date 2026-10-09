@@ -3,8 +3,9 @@
 // instructions for an issue / batch / action run. It rides
 // `steer.startSession` as `prompt` in the steer-image-message shape
 // (`lib/steer-image-message.ts`: prose, then trailing
-// `![image](/api/attachments/<id>)` embed lines), so the device localizes
-// the images with the machinery it already has for steered messages.
+// `![image](/api/attachments/<id>)` embed lines, then any
+// `[<name>](/api/attachments/<id>)` file lines), so the device localizes
+// them with the machinery it already has for steered messages.
 //
 // The images were uploaded BEFORE any session existed
 // (`POST /api/teams/$teamId/session-files` — `session_attachments` rows with
@@ -13,7 +14,11 @@
 // the attachment lookup is injected, like `action-inputs.ts`.
 
 import { MAX_START_PROMPT, MAX_START_PROMPT_IMAGES } from "@exp/db-schema/domain"
-import { parseSteerMessage } from "@/lib/steer-image-message"
+import { MAX_STEER_FILES, parseSteerMessage } from "@/lib/steer-image-message"
+
+/** The id column is uuid: anything else must not reach the lookup. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface StartPromptAttachment {
   id: string
@@ -59,20 +64,38 @@ export async function resolveStartPrompt(
       message: `The prompt is too long (max ${MAX_START_PROMPT} chars)`,
     }
   }
-  const { attachmentIds } = parseSteerMessage(normalized)
+  const parsed = parseSteerMessage(normalized)
+  const attachmentIds = [
+    ...parsed.attachmentIds,
+    ...parsed.files.map((file) => file.id),
+  ]
   if (attachmentIds.length === 0) return { ok: true, prompt: normalized }
-  if (attachmentIds.length > MAX_START_PROMPT_IMAGES) {
+  if (attachmentIds.some((id) => !UUID_RE.test(id))) {
+    return {
+      ok: false,
+      code: `BAD_REQUEST`,
+      message: `One of the attached files is not yours or has expired`,
+    }
+  }
+  if (parsed.attachmentIds.length > MAX_START_PROMPT_IMAGES) {
     return {
       ok: false,
       code: `BAD_REQUEST`,
       message: `Up to ${MAX_START_PROMPT_IMAGES} images per start`,
     }
   }
+  if (parsed.files.length > MAX_STEER_FILES) {
+    return {
+      ok: false,
+      code: `BAD_REQUEST`,
+      message: `Up to ${MAX_STEER_FILES} files per start`,
+    }
+  }
   if (new Set(attachmentIds).size !== attachmentIds.length) {
     return {
       ok: false,
       code: `BAD_REQUEST`,
-      message: `An image is attached twice`,
+      message: `A file is attached twice`,
     }
   }
   const rows = await lookups.attachments(attachmentIds)
@@ -88,7 +111,7 @@ export async function resolveStartPrompt(
       return {
         ok: false,
         code: `PRECONDITION_FAILED`,
-        message: `One of the attached images is not yours or has expired`,
+        message: `One of the attached files is not yours or has expired`,
       }
     }
   }

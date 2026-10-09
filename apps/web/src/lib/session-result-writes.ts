@@ -7,8 +7,8 @@ import {
 } from "@exp/db-schema/domain"
 
 // EXP-879: the SERVER's half of `coding_sessions.results` — the pure list
-// algebra the token-gated upload route and MCP `exponential_sessions_results`
-// run inside their `FOR UPDATE` transaction. Kept out of both so the ordering
+// algebra the token-gated upload route and MCP `exponential_sessions_guide`
+// (alias `exponential_sessions_results`, EXP-1251) run inside their `FOR UPDATE` transaction. Kept out of both so the ordering
 // rules (replace in place, append at the end, delete a label or a whole topic)
 // are testable without a database.
 //
@@ -102,12 +102,17 @@ export function cleanSessionResultFiles(files: readonly unknown[]): string[] {
  * them, anything else is cleaned (`cleanSessionResultFiles`). The total caps
  * refuse only a write that GROWS past them, so a run filed under the older,
  * larger caps can still shorten its report.
+ *
+ * EXP-1245/1251 `meta`: `at` = the server's write stamp; `prUrl` scopes the
+ * topic to one PR (`undefined` keeps the replaced entry's tag, null or blank
+ * clears it).
  */
 export function upsertSessionResultText(
   current: CodingSessionResult[] | null,
   topic: string,
   text: string,
-  files?: readonly string[]
+  files?: readonly string[],
+  meta: { at?: number; prUrl?: string | null } = {}
 ): CodingSessionResult[] | null {
   const before = current ?? []
   const results = [...before]
@@ -118,6 +123,12 @@ export function upsertSessionResultText(
         ? []
         : cleanSessionResultFiles(results[index]!.files!)
       : cleanSessionResultFiles(files)
+  const prUrl =
+    meta.prUrl === undefined
+      ? index === -1
+        ? null
+        : (results[index]?.prUrl ?? null)
+      : meta.prUrl?.trim() || null
   const entry: CodingSessionResult = {
     topic,
     label: null,
@@ -126,6 +137,8 @@ export function upsertSessionResultText(
     height: null,
     text,
     ...(kept.length ? { files: kept } : {}),
+    ...(prUrl ? { prUrl } : {}),
+    ...(meta.at !== undefined ? { at: meta.at } : {}),
   }
   if (index === -1) {
     // A topic that already has pictures gets its text at the topic's FIRST
@@ -215,4 +228,35 @@ export function nextShowLabel(
   let n = taken.size + 1
   while (taken.has(`Shot ${n}`)) n += 1
   return `Shot ${n}`
+}
+
+/** EXP-1251: the listed paths a branch/PR diff does not have: a path matches
+ *  a diff file's `path` or its rename source (`previousPath`), the Guide's
+ *  coverage rule (`guidePathMatches`, @exp/ui). */
+export function missingGuideFiles(
+  listed: readonly string[],
+  diffFiles: readonly { path: string; previousPath?: string | null }[]
+): string[] {
+  return listed.filter(
+    (path) =>
+      !diffFiles.some(
+        (file) => file.path === path || (!!file.previousPath && file.previousPath === path)
+      )
+  )
+}
+
+/** EXP-1251: when a run opens a NEW PR, the text topics filed so far without
+ *  a `prUrl` belong to it: they are tagged, so a later stacked PR's body and
+ *  issue page never claim them. Tagged topics keep their tag. */
+export function stampUntaggedResults(
+  results: readonly CodingSessionResult[] | null,
+  prUrl: string
+): { results: CodingSessionResult[]; changed: boolean } {
+  let changed = false
+  const next = (results ?? []).map((row) => {
+    if (!isTextEntry(row) || (typeof row.prUrl === `string` && row.prUrl.trim())) return row
+    changed = true
+    return { ...row, prUrl }
+  })
+  return { results: next, changed }
 }

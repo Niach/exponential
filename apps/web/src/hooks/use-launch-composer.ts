@@ -45,12 +45,16 @@ import {
 import { agentSeed } from "@/lib/coding-launch-prefs"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import {
+  ATTACHMENT_REJECTED_TOAST,
   dropPendingImage,
+  FILE_CAP_TOAST,
+  IMAGE_CAP_TOAST,
   markPendingImageUploaded,
   stagePendingImages,
-  type PendingImage,
+  uploadedWireParts,
+  type PendingAttachment,
 } from "@/lib/pending-images"
-import { buildSteerImageMessage, MAX_STEER_IMAGES } from "@/lib/steer-image-message"
+import { buildSteerMessage } from "@/lib/steer-image-message"
 import {
   deviceAgentLaunchDefaults,
   deviceHasRunnableAgent,
@@ -209,7 +213,7 @@ export interface LaunchComposerModel {
 
   text: string
   setText: (text: string) => void
-  images: PendingImage[]
+  images: PendingAttachment[]
   /** Stages files and drops their markers at `caret`; returns the caret
    * behind the last marker (the field puts its cursor there). */
   addFiles: (files: File[], caret: number) => number
@@ -289,7 +293,7 @@ export function useLaunchComposer({
 }): LaunchComposerModel {
   const [subject, setSubject] = useState<LaunchSubject>(null)
   const [text, setText] = useState(``)
-  const [images, setImages] = useState<PendingImage[]>([])
+  const [images, setImages] = useState<PendingAttachment[]>([])
   const [repoId, setRepoId] = useState(``)
   // EXP-481: "Resume previous session" — default ON whenever it first becomes
   // eligible (reset when the sole issue changes); a manual toggle sticks.
@@ -614,7 +618,7 @@ export function useLaunchComposer({
     )
   }, [])
 
-  // ── Images ────────────────────────────────────────────────────────────────
+  // ── Images and files ──────────────────────────────────────────────────────
 
   const addFiles = useCallback(
     (files: File[], caret: number) => {
@@ -623,12 +627,9 @@ export function useLaunchComposer({
         setImages(staged.images)
         setText(staged.text)
       }
-      if (staged.rejected > 0) {
-        toast.error(`Only images up to 10 MB can be attached`)
-      }
-      if (staged.overflow > 0) {
-        toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
-      }
+      if (staged.rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
+      if (staged.overflow > 0) toast.error(IMAGE_CAP_TOAST)
+      if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
       return staged.caret
     },
     [text]
@@ -851,28 +852,30 @@ export function useLaunchComposer({
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
-      const ids: string[] = []
       let current = imagesRef.current
       try {
         for (const image of current) {
-          let uploadedId = image.uploadedId
-          if (!uploadedId) {
-            const uploaded = await uploadTeamSessionImageFile(teamId, image.file)
-            uploadedId = uploaded.id
-            current = markPendingImageUploaded(current, image.url, uploadedId)
-            setImages(current)
-          }
-          ids.push(uploadedId)
+          if (image.uploadedId) continue
+          const uploaded = await uploadTeamSessionImageFile(teamId, image.file)
+          current = markPendingImageUploaded(
+            current,
+            image.url,
+            uploaded.id,
+            uploaded.filename
+          )
+          setImages(current)
         }
       } catch (error) {
-        toast.error(`Couldn't upload image`, {
+        toast.error(`Couldn't upload attachment`, {
           description: error instanceof Error ? error.message : undefined,
         })
         return
       }
-      const prompt = buildSteerImageMessage(
+      const { imageIds, files } = uploadedWireParts(current)
+      const prompt = buildSteerMessage(
         stacked ? stackedStartPrompt(stacked.plan, text) : text,
-        ids
+        imageIds,
+        files
       )
       // A stacked start may launch an issue other than the picked one, whose
       // worktree the resume offer never looked at: it always starts fresh.

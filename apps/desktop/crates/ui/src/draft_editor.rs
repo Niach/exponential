@@ -178,6 +178,8 @@ struct DraftUpload {
     content_type: String,
     bytes: Arc<Vec<u8>>,
     kind: DraftUploadKind,
+    /// EXP-1247: a file button's pick: uploaded `as_file`, never embedded.
+    as_file: bool,
 }
 
 enum DraftUploadKind {
@@ -640,17 +642,20 @@ impl DraftEditor {
             content_type: staged.content_type.clone(),
             bytes: staged.bytes.clone(),
             kind: DraftUploadKind::Image(staged),
+            as_file: false,
         });
         self.pump_uploads(cx);
     }
 
     /// A picked file (already read off disk) goes up NOW, onto the draft; it
-    /// shows as a pending row while it runs.
+    /// shows as a pending row while it runs. EXP-1247: `as_file` = a file
+    /// button's pick (a Files row whatever its type); `false` = a drop.
     pub(crate) fn queue_file(
         &mut self,
         filename: String,
         content_type: String,
         bytes: Vec<u8>,
+        as_file: bool,
         snapshot: DraftSave,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -674,6 +679,7 @@ impl DraftEditor {
             content_type,
             bytes: Arc::new(bytes),
             kind: DraftUploadKind::File(key),
+            as_file,
         });
         cx.notify();
         self.pump_uploads(cx);
@@ -716,15 +722,19 @@ impl DraftEditor {
         let filename = job.filename.clone();
         let content_type = job.content_type.clone();
         let bytes = job.bytes.clone();
+        let as_file = job.as_file;
         // STRONG: an upload outlives a re-point like a write does.
         let this = cx.entity();
         cx.spawn(async move |_, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    transport
-                        .upload_draft(&draft_id, &filename, &content_type, &bytes)
-                        .map_err(|err| err.to_string())
+                    let uploaded = if as_file {
+                        transport.upload_draft_as_file(&draft_id, &filename, &content_type, &bytes)
+                    } else {
+                        transport.upload_draft(&draft_id, &filename, &content_type, &bytes)
+                    };
+                    uploaded.map_err(|err| err.to_string())
                 })
                 .await;
             this.update(cx, |this, cx| this.finish_upload(job, result, cx));
@@ -756,7 +766,7 @@ impl DraftEditor {
             }
             (DraftUploadKind::File(key), Ok(uploaded)) => {
                 self.pending.retain(|file| file.key != key);
-                match crate::issue_files::description_embed(&job.content_type) {
+                match crate::issue_files::description_embed_for(&job.content_type, job.as_file) {
                     Some(embed) => {
                         let fragment = crate::issue_files::description_fragment(
                             embed,
@@ -838,9 +848,11 @@ impl DraftEditor {
                 let listed: Vec<DraftFile> = rows
                     .into_iter()
                     // Inline images and media live IN the description, not in
-                    // the Files list — the same split the issue detail makes.
+                    // the Files list — the issue detail's row-aware split
+                    // (EXP-1247: an `as_file` upload is a file whatever its
+                    // type). The server filters too; an older one does not.
                     .filter(|row| {
-                        !crate::issue_files::is_inline_media(row.content_type.as_deref())
+                        crate::issue_files::is_file_row(row.content_type.as_deref(), row.as_file)
                     })
                     .map(|row| DraftFile {
                         id: row.id,

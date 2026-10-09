@@ -204,3 +204,141 @@ final class SteerImageMarkerTests: XCTestCase {
         XCTAssertEqual(SteerImageMessage.parse(SteerImageMessage.imageMarker(3)).markers, [3])
     }
 }
+
+// Wave D: "Add file or image" takes ANY file ×4. Byte-identical cases in
+// steer-image-message.test.ts (web), image_message.rs (desktop) and
+// SteerImageMessageTest.kt (Android): change all four together.
+final class SteerFileMessageTests: XCTestCase {
+    private let idA = "11111111-1111-4111-8111-111111111111"
+    private let idB = "22222222-2222-4222-8222-222222222222"
+    private let idC = "33333333-3333-4333-8333-333333333333"
+
+    // MARK: - buildMessage
+
+    func testPutsOneFileLinkPerLineAfterTheImageEmbeds() {
+        XCTAssertEqual(
+            SteerImageMessage.buildMessage(
+                text: "fix the header", imageIds: [idA], files: [.init(id: idB, name: "notes.pdf")]
+            ),
+            "fix the header\n\n![image](/api/attachments/\(idA))\n[notes.pdf](/api/attachments/\(idB))"
+        )
+    }
+
+    func testSeparatesFilesFromTheProseByABlankLineWithoutImages() {
+        XCTAssertEqual(
+            SteerImageMessage.buildMessage(
+                text: "see the log",
+                imageIds: [],
+                files: [.init(id: idB, name: "build.log"), .init(id: idC, name: "trace.zip")]
+            ),
+            "see the log\n\n[build.log](/api/attachments/\(idB))\n[trace.zip](/api/attachments/\(idC))"
+        )
+    }
+
+    func testSendsFilesAloneWhenTheTextIsWhitespace() {
+        XCTAssertEqual(
+            SteerImageMessage.buildMessage(text: "  ", imageIds: [], files: [.init(id: idB, name: "notes.pdf")]),
+            "[notes.pdf](/api/attachments/\(idB))"
+        )
+    }
+
+    func testEscapesAClosingBracketAndABackslashInTheName() {
+        XCTAssertEqual(SteerImageMessage.escapeFileName("a]b\\c.txt"), "a\\]b\\\\c.txt")
+        XCTAssertEqual(
+            SteerImageMessage.buildMessage(text: "", imageIds: [], files: [.init(id: idC, name: "a]b\\c.txt")]),
+            "[a\\]b\\\\c.txt](/api/attachments/\(idC))"
+        )
+    }
+
+    func testEqualsTheImageBuilderWithoutFiles() {
+        XCTAssertEqual(
+            SteerImageMessage.buildMessage(text: "fix", imageIds: [idA, idB], files: []),
+            SteerImageMessage.build(text: "fix", attachmentIds: [idA, idB])
+        )
+        XCTAssertEqual(SteerImageMessage.buildMessage(text: "", imageIds: [], files: []), "")
+    }
+
+    func testCapsAtFourFiles() {
+        XCTAssertEqual(SteerImageMessage.maxFiles, 4)
+    }
+
+    func testTheCopyIsTheContracts() {
+        XCTAssertEqual(
+            SteerImageMessage.attachmentRejectedMessage,
+            "Images up to 10 MB and files up to 50 MB can be attached"
+        )
+        XCTAssertEqual(SteerImageMessage.filesFullMessage, "Up to 4 files per message")
+    }
+
+    // MARK: - parse
+
+    func testPeelsTheFileLinesBeforeTheImageEmbeds() {
+        XCTAssertEqual(
+            SteerImageMessage.parse(
+                "fix [Image #1]\n\n![image](/api/attachments/\(idA))\n[notes.pdf](/api/attachments/\(idB))"
+            ),
+            SteerImageMessage.Parsed(
+                text: "fix [Image #1]",
+                attachmentIds: [idA],
+                markers: [1],
+                files: [.init(id: idB, name: "notes.pdf")]
+            )
+        )
+    }
+
+    func testReadsFilesWithNoImagesAndNoText() {
+        XCTAssertEqual(
+            SteerImageMessage.parse(
+                "[build.log](/api/attachments/\(idB))\n[trace.zip](/api/attachments/\(idC))"
+            ),
+            SteerImageMessage.Parsed(
+                text: "",
+                attachmentIds: [],
+                markers: [],
+                files: [.init(id: idB, name: "build.log"), .init(id: idC, name: "trace.zip")]
+            )
+        )
+    }
+
+    func testUnescapesTheName() {
+        XCTAssertEqual(
+            SteerImageMessage.parse("[a\\]b\\\\c.txt](/api/attachments/\(idC))").files,
+            [.init(id: idC, name: "a]b\\c.txt")]
+        )
+    }
+
+    func testNeverReadsAnImageEmbedAsAFile() {
+        XCTAssertEqual(SteerImageMessage.parse("![image](/api/attachments/\(idA))").files, [])
+    }
+
+    func testRoundTripsTheBuilder() {
+        let files: [SteerImageMessage.File] = [
+            .init(id: idB, name: "a]b\\c.txt"),
+            .init(id: idC, name: "report (final).pdf"),
+        ]
+        XCTAssertEqual(
+            SteerImageMessage.parse(
+                SteerImageMessage.buildMessage(text: "look [Image #1]", imageIds: [idA], files: files)
+            ),
+            SteerImageMessage.Parsed(text: "look [Image #1]", attachmentIds: [idA], markers: [1], files: files)
+        )
+    }
+
+    // iOS extras.
+
+    func testAnImagesOnlyMessageParsesExactlyAsBefore() {
+        XCTAssertEqual(
+            SteerImageMessage.parse(SteerImageMessage.build(text: "crop it", attachmentIds: [idA, idB])),
+            SteerImageMessage.Parsed(text: "crop it", attachmentIds: [idA, idB], markers: [], files: [])
+        )
+    }
+
+    func testAFileLineAboveTheImagesIsProse() {
+        let parsed = SteerImageMessage.parse(
+            "see\n[notes.txt](/api/attachments/\(idB))\n![image](/api/attachments/\(idA))"
+        )
+        XCTAssertEqual(parsed.text, "see\n[notes.txt](/api/attachments/\(idB))")
+        XCTAssertEqual(parsed.attachmentIds, [idA])
+        XCTAssertEqual(parsed.files, [])
+    }
+}

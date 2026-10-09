@@ -40,10 +40,15 @@ import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
 import {
   awaitRebaseOffMergedBranch,
   basedOnMergedPr,
+  loadGuardDefaultBranches,
+  openStackMember,
+  stackLanding,
   squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
+  stackStopBranches,
 } from "@/lib/pr-merge-guard"
+import { ensureGithubStack, mergeThrough } from "@/lib/pr-stacks"
 import {
   assertPrUpdateHasFields,
   patchPullDescription,
@@ -514,6 +519,8 @@ export async function mergeRepositoryPull(opts: {
   // The stored PR url when the caller has one (the session path); otherwise
   // derived from the repo's current full name.
   prUrl?: string
+  // EXP-1248: merge THROUGH an open-stack member (see issues.mergePr).
+  mergeStack?: boolean
 }): Promise<MergePullResult> {
   const { repo, prNumber } = opts
   const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
@@ -545,14 +552,28 @@ export async function mergeRepositoryPull(opts: {
       .where(
         and(
           eq(codingSessions.prUrl, prUrl),
-          eq(codingSessions.teamId, repo.teamId),
-          isNotNull(codingSessions.prBaseBranch)
+          eq(codingSessions.teamId, repo.teamId)
         )
       )
       .limit(1)
     if (run?.prBaseBranch) based = { id: null, prBaseBranch: run.prBaseBranch }
   }
-  if (based) {
+  // EXP-1248: an open-stack member with PRs open beneath it never merges
+  // plainly (issues.mergePr's rule). An issue-less run PR is at most a stack
+  // BOTTOM or a tree root (nothing issue-backed walks below it): it lands
+  // alone, so it merges plainly.
+  let landing: Array<{
+    identifier: string | null
+    prNumber: number
+    prUrl: string
+  }> | null = null
+  if (onPr[0]) {
+    landing = stackLanding(
+      await openStackMember(db, { issueId: onPr[0].id, teamId: repo.teamId }),
+      opts.mergeStack
+    )
+  }
+  if (based && !landing) {
     const parent = await stackedOnOpenPr(db, {
       issueId: based.id,
       teamId: repo.teamId,
@@ -584,7 +605,8 @@ export async function mergeRepositoryPull(opts: {
   // merge call would beat it, squashing INTO the parent's kept branch. Await
   // the heal, then refuse while GitHub still reports the merged branch as
   // the base (same as `issues.mergePr`). Before any claim.
-  if (based) {
+  // A merge through a stack sits on an OPEN PR: no merged parent to heal.
+  if (based && !(landing && landing.length > 1)) {
     const mergedParent = await basedOnMergedPr(db, {
       teamId: repo.teamId,
       repoFullName: repo.fullName,
@@ -619,16 +641,43 @@ export async function mergeRepositoryPull(opts: {
   // issue via the branch parse — claim the initiator so that fan-out is
   // attributed to (and excludes) the merging member instead of going out
   // anonymously.
-  claimPrMerge(repo.fullName, prNumber, {
-    userId: opts.userId,
-    viaAgent: opts.viaAgent,
-    endSessions: opts.endSessions,
-  })
+  // A merge through a stack member needs the line to BE a GitHub stack, or
+  // merge-async would squash it INTO the branch below. No fallback.
+  if (landing && landing.length > 1) {
+    try {
+      await ensureGithubStack({
+        repo: repo.fullName,
+        token,
+        lowerPrNumber: landing[landing.length - 2]!.prNumber,
+        newPrNumber: prNumber,
+        stopBranches: stackStopBranches(
+          await loadGuardDefaultBranches(db, {
+            teamId: repo.teamId,
+            repoFullName: repo.fullName,
+          })
+        ),
+      })
+    } catch (err) {
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  const landingPrs = landing ?? [{ identifier: null, prNumber, prUrl }]
+  for (const pr of landingPrs) {
+    claimPrMerge(repo.fullName, pr.prNumber, {
+      userId: opts.userId,
+      viaAgent: opts.viaAgent,
+      endSessions: opts.endSessions,
+    })
+  }
+  const releaseClaims = () => {
+    for (const pr of landingPrs) releasePrMergeClaim(repo.fullName, pr.prNumber)
+  }
   let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
   try {
-    // FEED-43: a PR GitHub holds in a stack is refused by the legacy
-    // endpoint — the smart merge finishes it through merge-async.
-    smart = await mergePullRequestSmart({
+    const mergeOpts = {
       repo: repo.fullName,
       prNumber,
       token,
@@ -643,17 +692,20 @@ export async function mergeRepositoryPull(opts: {
             ),
           }
         : {}),
-    })
+    }
+    smart = landing
+      ? await mergeThrough(mergeOpts)
+      : await mergePullRequestSmart(mergeOpts)
   } catch (err) {
     if (err instanceof GitHubAsyncMergePending) {
       // The merge is still running on GitHub — keep the claim so the webhook
       // echo of the landing merge stays attributed.
       throw new TRPCError({
         code: `PRECONDITION_FAILED`,
-        message: `GitHub is still merging PR #${err.prNumber}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
+        message: `GitHub is still merging PR #${err.prNumber}. It did not finish in time — check the PR on GitHub; the issue completes when the merge lands.`,
       })
     }
-    releasePrMergeClaim(repo.fullName, prNumber)
+    releaseClaims()
     if (err instanceof GitHubMergeError) {
       // "Not mergeable" is misleading on a stacked PR whose base is stale
       // (EXP-324) — diagnose the base's real state; degrade to GitHub's
@@ -693,7 +745,7 @@ export async function mergeRepositoryPull(opts: {
   // Theirs to attribute: the claim goes and the webhook (or poller) writes
   // the state off its own `merged_by`; the PR is in, so `merged: true`.
   if (mergedByPerson(smart.mergedBy)) {
-    releasePrMergeClaim(repo.fullName, prNumber)
+    releaseClaims()
     openPullsCache.delete(repo.teamId)
     return { merged: true }
   }
@@ -703,24 +755,27 @@ export async function mergeRepositoryPull(opts: {
   const { applyPrMergeState, applySessionPrState } = await import(
     `@/lib/integrations/pr-sync`
   )
-  await applySessionPrState({
-    prUrl,
-    state: `merged`,
-    endSessions: opts.endSessions,
-  })
-  const linked = await db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
-  for (const issue of linked) {
-    await applyPrMergeState({
-      issueId: issue.id,
-      prUrl,
-      prNumber,
-      actorUserId: opts.userId,
-      actorViaAgent: opts.viaAgent,
-      ...(opts.endSessions !== undefined ? { endSessions: opts.endSessions } : {}),
+  // Every landed PR: this one, plus the stack beneath a merge-through.
+  for (const pr of landingPrs) {
+    await applySessionPrState({
+      prUrl: pr.prUrl,
+      state: `merged`,
+      endSessions: opts.endSessions,
     })
+    const linked = await db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(and(eq(issues.prUrl, pr.prUrl), eq(issues.teamId, repo.teamId)))
+    for (const issue of linked) {
+      await applyPrMergeState({
+        issueId: issue.id,
+        prUrl: pr.prUrl,
+        prNumber: pr.prNumber,
+        actorUserId: opts.userId,
+        actorViaAgent: opts.viaAgent,
+        ...(opts.endSessions !== undefined ? { endSessions: opts.endSessions } : {}),
+      })
+    }
   }
   openPullsCache.delete(repo.teamId)
   return { merged: true }
@@ -905,6 +960,8 @@ export const repositoriesRouter = router({
         // EXP-711: see issues.mergePr — rides the merge claim to the webhook's
         // branch-keyed sweep, the only merge-driven end a chore PR has.
         endSessions: z.boolean().optional(),
+        // EXP-1248: merge through an open-stack member (issues.mergePr).
+        mergeStack: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
@@ -919,6 +976,7 @@ export const repositoriesRouter = router({
         // the same way issues.mergePr does.
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
+        mergeStack: input.mergeStack,
       })
     }),
 

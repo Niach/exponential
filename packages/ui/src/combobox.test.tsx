@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { Combobox, ComboboxList } from "./combobox"
-import type { PickerOption } from "./picker-option"
+import type { PickerItem as PickerOption } from "./picker/picker-item"
 
 // Radix positions its content with ResizeObserver and cmdk scrolls the active
 // row into view; jsdom has neither.
@@ -127,7 +127,7 @@ describe(`Combobox — single`, () => {
 })
 
 describe(`Combobox — multiple`, () => {
-  it(`draws the circle pair on EVERY row and stays open`, () => {
+  it(`marks a pick by the row's highlight, no glyph, and stays open`, () => {
     const onChange = vi.fn()
     render(
       <Combobox
@@ -139,9 +139,10 @@ describe(`Combobox — multiple`, () => {
       />
     )
     open()
-    expect(glyphs(`selected`)).toHaveLength(1)
-    expect(glyphs(`unselected`)).toHaveLength(2)
-    expect(glyphs(`check`)).toHaveLength(0)
+    // ONE selection language since the UI cleanup batch: no circle pair.
+    expect(document.querySelectorAll(`[data-selected-glyph]`)).toHaveLength(0)
+    expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
+    expect(rows()[1]!.getAttribute(`data-picked`)).toBeNull()
     expect(rows()[0]!.getAttribute(`aria-pressed`)).toBe(`true`)
     expect(rows()[1]!.getAttribute(`aria-pressed`)).toBe(`false`)
 
@@ -183,9 +184,9 @@ describe(`Combobox — multiple`, () => {
       />
     )
     open()
-    expect(glyphs(`selected`)).toHaveLength(1)
-    expect(glyphs(`indeterminate`)).toHaveLength(1)
-    expect(glyphs(`unselected`)).toHaveLength(1)
+    expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
+    expect(rows()[1]!.getAttribute(`data-picked`)).toBe(`mixed`)
+    expect(rows()[2]!.getAttribute(`data-picked`)).toBeNull()
     expect(rows()[1]!.getAttribute(`aria-pressed`)).toBe(`mixed`)
     // "On some" reads as not-yet-picked: a pick puts it on ALL.
     fireEvent.click(rows()[1]!)
@@ -620,11 +621,11 @@ describe(`ComboboxList`, () => {
     expect(onChange).toHaveBeenCalledWith(`b`)
   })
 
-  it(`renders the option's icon, dot and hint`, () => {
+  it(`renders the item's dot (a colour with no icon) and hint`, () => {
     render(
       <ComboboxList
         options={[
-          { value: `main`, label: `main`, hint: `default`, dot: `#ef4444` },
+          { value: `main`, label: `main`, hint: `default`, color: `#ef4444` },
         ]}
         value={null}
         onChange={vi.fn()}
@@ -635,7 +636,7 @@ describe(`ComboboxList`, () => {
     expect(row.querySelector(`span[style*="background-color"]`)).toBeTruthy()
   })
 
-  it(`lets renderOption replace the body but not the glyph`, () => {
+  it(`lets renderOption replace the body but not the selection mark`, () => {
     render(
       <ComboboxList
         multiple
@@ -648,7 +649,6 @@ describe(`ComboboxList`, () => {
       />
     )
     expect(rows()[0]!.textContent).toBe(`a:true`)
-    expect(glyphs(`selected`)).toHaveLength(1)
-    expect(glyphs(`unselected`)).toHaveLength(2)
+    expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
   })
 })

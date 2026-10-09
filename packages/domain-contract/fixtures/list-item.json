@@ -1,0 +1,100 @@
+{
+  "_doc": "EXP-1248: THE list item, x4 (web @exp/ui SessionRow + PrRow over ListRow, desktop run_rows/flat_row, iOS SessionRow + PrRow over .flatRow, Android SessionRow + PrRow over Modifier.flatRow). Anatomy: [tree guides overlay][lead glyph at base + indent*depth][mono identifier][title][caption, big only][trailing meta]. NO fold chevron (children always show; trees cap at 10 runs), NO trailing chevron, NO buttons. The lead box is `mark` wide at x = base + indent*depth on EVERY row, so marks and titles at one depth align exactly and a child's connector elbow ends at its own lead (tree-guides). SessionRow: small = one line (title line + trailing device icon, height small); big = two lines (title line, caption line under the title, trailing device icon, height big). PrRow: one line, lead = prNode, height prRow (prRowPhone below md); a stack renders top-first with a 1px rail through the node centres down to a trailing base-branch row (mono, muted); the current member wears the active row wash. sessionRowCaption({ended, paused, state, device, startedAt, updatedAt, endedAt, blockedLabel, now}) = the big row's caption + tone, first match wins: ended -> 'Done · <device> · <when>' muted (when = now - (endedAt else updatedAt)); paused -> 'Paused · <device>' muted; blockedLabel (the usage wall's badge label) -> that label, amber; else by the live display state (session-display.json, its statusTone): working -> 'Building · <device> · <elapsed>' (elapsed = now - startedAt), needs_input -> 'Needs input · <device> · <elapsed>', review -> 'Ready for review · <device> · <when>' (when = now - updatedAt), done -> 'Done · <device> · <when>'. A missing device or an unparsable/missing timestamp drops that segment. listElapsed(ms) = the list's coarse age ladder: under a minute 'now', then '<m> min', '<h> h', '<d> d' (floored; a negative span reads 'now').",
+  "geometry": {
+    "base": 12,
+    "indent": 14,
+    "mark": 14,
+    "gap": 8,
+    "small": 32,
+    "big": 52,
+    "prRow": 36,
+    "prRowPhone": 40,
+    "prNode": 12,
+    "rail": 1
+  },
+  "elapsed": [
+    { "name": "a negative span reads now", "ms": -5000, "expected": "now" },
+    { "name": "under a minute reads now", "ms": 59000, "expected": "now" },
+    { "name": "minutes", "ms": 300000, "expected": "5 min" },
+    { "name": "minutes floor", "ms": 3599000, "expected": "59 min" },
+    { "name": "hours", "ms": 75600000, "expected": "21 h" },
+    { "name": "days", "ms": 172800000, "expected": "2 d" }
+  ],
+  "captions": [
+    {
+      "name": "a working run builds on its device",
+      "ended": false, "paused": false, "state": "working", "device": "macbook",
+      "startedAt": "2026-10-08T13:00:00Z", "updatedAt": "2026-10-09T09:59:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Building · macbook · 21 h", "tone": "muted" }
+    },
+    {
+      "name": "a run that waits on you is amber",
+      "ended": false, "paused": false, "state": "needs_input", "device": "mint",
+      "startedAt": "2026-10-09T09:55:00Z", "updatedAt": "2026-10-09T09:58:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Needs input · mint · 5 min", "tone": "amber" }
+    },
+    {
+      "name": "an open PR is ready for review since its last activity",
+      "ended": false, "paused": false, "state": "review", "device": "mint",
+      "startedAt": "2026-10-09T06:00:00Z", "updatedAt": "2026-10-09T08:00:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Ready for review · mint · 2 h", "tone": "emerald" }
+    },
+    {
+      "name": "a live idle run with no PR is done, sky",
+      "ended": false, "paused": false, "state": "done", "device": "mint",
+      "startedAt": "2026-10-09T06:00:00Z", "updatedAt": "2026-10-09T09:00:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Done · mint · 1 h", "tone": "sky" }
+    },
+    {
+      "name": "an ended run is done, muted, since it ended",
+      "ended": true, "paused": false, "state": "done", "device": "macbook",
+      "startedAt": "2026-10-09T00:00:00Z", "updatedAt": "2026-10-09T05:00:00Z", "endedAt": "2026-10-09T00:00:00Z", "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Done · macbook · 10 h", "tone": "muted" }
+    },
+    {
+      "name": "an ended run without an end stamp falls back to its heartbeat",
+      "ended": true, "paused": false, "state": "working", "device": "mint",
+      "startedAt": "2026-10-07T00:00:00Z", "updatedAt": "2026-10-08T10:00:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Done · mint · 1 d", "tone": "muted" }
+    },
+    {
+      "name": "an offline host pauses the run",
+      "ended": false, "paused": true, "state": "working", "device": "mint",
+      "startedAt": "2026-10-09T09:00:00Z", "updatedAt": "2026-10-09T09:30:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Paused · mint", "tone": "muted" }
+    },
+    {
+      "name": "a walled run reads its usage wall",
+      "ended": false, "paused": false, "state": "working", "device": "mint",
+      "startedAt": "2026-10-09T09:00:00Z", "updatedAt": "2026-10-09T09:30:00Z", "endedAt": null, "blockedLabel": "Usage limit · resets 14:00",
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Usage limit · resets 14:00", "tone": "amber" }
+    },
+    {
+      "name": "no device drops the segment",
+      "ended": false, "paused": false, "state": "working", "device": null,
+      "startedAt": "2026-10-09T09:57:00Z", "updatedAt": "2026-10-09T09:59:00Z", "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Building · 3 min", "tone": "muted" }
+    },
+    {
+      "name": "an unparsable start drops the time",
+      "ended": false, "paused": false, "state": "working", "device": "mint",
+      "startedAt": "yesterday", "updatedAt": null, "endedAt": null, "blockedLabel": null,
+      "now": "2026-10-09T10:00:00Z",
+      "expected": { "text": "Building · mint", "tone": "muted" }
+    }
+  ],
+  "prNodes": [
+    { "name": "an open PR is an emerald ring", "state": "open", "ring": "emerald", "filled": false },
+    { "name": "the current member fills the centre", "state": "current", "ring": "emerald", "filled": true },
+    { "name": "the base branch is a muted ring", "state": "base", "ring": "muted", "filled": false }
+  ]
+}

@@ -27,7 +27,7 @@ use theme::tokens as t;
 
 #[allow(unused_imports)] // the shared API; not every recipe has an IDE caller today
 pub(crate) use exponential_ui_gpui::controls::{
-    bare_code_markdown_style, bare_row_shell, count_badge, custom_variant_fill, glass_bar,
+    bare_code_markdown_style, count_badge, custom_variant_fill, glass_bar,
     glass_input_row, glass_picker_row, glass_picker_select, glass_pill, glass_pill_button,
     glass_pill_button_primary, glass_row_input, glass_row_shell, glass_section_band,
     glass_section_band_fold, glass_section_header, glass_tab_item, glass_tabs_row,
@@ -67,12 +67,6 @@ pub(crate) fn glass_group() -> Div {
 /// `controls::glass_group_rows`).
 pub(crate) fn glass_group_rows(rows: Vec<Div>) -> Div {
     sdk::glass_group_rows(ide_chrome(), rows)
-}
-
-/// EXP-994 — the hairline-divided ladder with NO group of its own (SDK
-/// `controls::glass_group_rows_bare`).
-pub(crate) fn glass_group_rows_bare(rows: Vec<Div>) -> Div {
-    sdk::glass_group_rows_bare(ide_chrome(), rows)
 }
 
 /// The hairline a [`glass_group`] row draws above itself (SDK

@@ -476,15 +476,13 @@ impl SessionScreenView {
         self.inner.read(cx).run_face()
     }
 
-    /// EXP-879/EXP-933: how many result TOPICS (pictures or report text) the
-    /// run has published — 0 hides the Results item (the face is not offered
-    /// on a run with nothing to show).
-    pub(crate) fn results_count(&self, cx: &App) -> usize {
-        self.inner.read(cx).results_groups().len()
+    /// EXP-1251: one of the Guide's diff pages is up (not the Guide itself).
+    fn guide_page_open(&self, cx: &App) -> bool {
+        self.inner.read(cx).guide_page_open()
     }
 
-    /// Put the run on one of its sub-faces — the toggle's Run / Changes /
-    /// Results picks, and the detail's pick after it flips the tab to this
+    /// Put the run on one of its sub-faces — the toggle's Run / Guide
+    /// picks, and the detail's pick after it flips the tab to this
     /// face.
     pub(crate) fn set_run_face(
         &mut self,
@@ -492,6 +490,17 @@ impl SessionScreenView {
         cx: &mut gpui::Context<Self>,
     ) {
         self.inner.update(cx, |view, cx| view.set_run_face(face, cx));
+        cx.notify();
+    }
+
+    /// Wave D (dev): open one of the Guide's diff pages
+    /// (`EXP_DEV_RUN_FACE=guide-all`).
+    pub(crate) fn open_guide_page(
+        &mut self,
+        page: crate::session_results::GuidePage,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.inner.update(cx, |view, cx| view.open_guide_page(page, cx));
         cx.notify();
     }
 
@@ -548,10 +557,9 @@ impl SessionScreenView {
         };
         let viewed = self.session_id.clone();
         let menu_issue_id = issue_id.clone();
-        // EXP-879: a Results face whose pictures went away is not a face —
-        // the run reads as its transcript again, exactly like the viewer's
-        // own fallback.
-        let has_results = self.results_count(cx) > 0;
+        // EXP-1251: the Guide face = a report OR a diff (the run's worktree
+        // diff, its PR files); one with neither is not a face.
+        let has_guide = self.inner.read(cx).has_guide();
         let pr_open = {
             let row = self.inner.read(cx).session_row().cloned();
             let issue_pr = issue_id.as_deref().and_then(|issue_id| {
@@ -568,25 +576,17 @@ impl SessionScreenView {
             };
             state.as_deref() == Some("open")
         };
-        // EXP-1154: an issue-bound run with an open PR always lists Results —
-        // with no report of its own, the pick opens the ISSUE's Results face
-        // (the GitHub PR body).
-        let results = has_results || (issue_id.is_some() && pr_open);
-        let results_issue = (!has_results).then(|| issue_id.clone()).flatten();
+        // EXP-1154: an issue-bound run with an open PR always lists the Guide
+        // — with nothing of its own to show, the pick opens the ISSUE's Guide
+        // (its PR files and GitHub body).
+        let guide = has_guide || (issue_id.is_some() && pr_open);
+        let guide_issue = (!has_guide).then(|| issue_id.clone()).flatten();
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
-            diff: self.diff_totals(cx),
-            // EXP-889: the RUN's Changes face already falls back to the
-            // issue's PR files when the run published no worktree diff
-            // (EXP-895 `load_pr_changes`), so its counts are the item here.
-            // The issue's own PR face is the ISSUE face's
-            // (`issue_detail::set_changes_open`).
-            pr_changes: false,
-            results,
+            guide,
             active: match self.run_face(cx) {
-                RunFace::Diff => Face::Diff,
-                RunFace::Results if has_results => Face::Results,
+                RunFace::Guide if has_guide => Face::Guide,
                 _ => Face::Run,
             },
             runs,
@@ -610,8 +610,7 @@ impl SessionScreenView {
                     }
                 }
                 Face::Run => inner.update(cx, |view, cx| view.set_run_face(RunFace::Run, cx)),
-                Face::Diff => inner.update(cx, |view, cx| view.set_run_face(RunFace::Diff, cx)),
-                Face::Results => match &results_issue {
+                Face::Guide => match &guide_issue {
                     Some(issue_id) => {
                         crate::screens::request_issue_results(issue_id, window, cx);
                         crate::screens::set_tab_face(
@@ -622,7 +621,7 @@ impl SessionScreenView {
                             cx,
                         );
                     }
-                    None => inner.update(cx, |view, cx| view.set_run_face(RunFace::Results, cx)),
+                    None => inner.update(cx, |view, cx| view.set_run_face(RunFace::Guide, cx)),
                 },
             }),
             // EXP-950: picking a run flips this tab's Run face to it — the
@@ -692,7 +691,7 @@ impl SessionScreenView {
             let header = self.ensure_header(&issue.id, window, cx);
             // EXP-895: while the Changes face is up its BAR owns the merge
             // control — the tray must not offer a second one.
-            let diff_open = self.run_face(cx) == crate::screens::RunFace::Diff;
+            let diff_open = self.guide_page_open(cx);
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
@@ -757,7 +756,7 @@ impl SessionScreenView {
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
         // header, exactly as an issue's does — EXP-949: on the Changes face
         // alone, where the diff it opens is on show.
-        if self.run_face(cx) == crate::screens::RunFace::Diff {
+        if self.guide_page_open(cx) {
             right.extend(crate::work_header::github_button(
                 "work-github",
                 row.as_ref().and_then(|row| row.pr_url.as_deref()),

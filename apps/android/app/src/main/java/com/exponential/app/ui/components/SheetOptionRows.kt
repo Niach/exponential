@@ -1,6 +1,9 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -317,12 +320,53 @@ internal fun SwitchRow(
             ),
             modifier = Modifier.weight(1f),
         )
+        GlassSwitch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+/** The slot a [GlassSwitch] fills: a settings row's full size, a menu row's,
+ *  or a 28dp pill's (the M3 switch scaled into it). */
+enum class GlassSwitchSize(internal val scale: Float, internal val width: Int, internal val height: Int) {
+    Row(1f, 52, 32),
+    Menu(0.8f, 44, 26),
+    Pill(0.7f, 36, 22),
+}
+
+/**
+ * THE switch: every toggle in the app draws this, never a raw M3 `Switch`
+ * ([glassSwitchColors] + [SwitchThumb]). [onCheckedChange] null = a pure
+ * indicator inside a row or pill that is itself the toggleable target.
+ */
+@Composable
+fun GlassSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    size: GlassSwitchSize = GlassSwitchSize.Row,
+) {
+    if (size == GlassSwitchSize.Row) {
         Switch(
             checked = checked,
-            onCheckedChange = null,
+            onCheckedChange = onCheckedChange,
             enabled = enabled,
             colors = glassSwitchColors(),
             thumbContent = SwitchThumb,
+            modifier = modifier,
+        )
+        return
+    }
+    Box(
+        modifier = modifier.size(width = size.width.dp, height = size.height.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = glassSwitchColors(),
+            thumbContent = SwitchThumb,
+            modifier = Modifier.requiredSize(width = 52.dp, height = 32.dp).scale(size.scale),
         )
     }
 }

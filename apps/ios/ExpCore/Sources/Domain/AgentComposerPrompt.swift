@@ -19,10 +19,14 @@ public enum AgentComposerPrompt {
     /// The `prompt` to send: nil when there is nothing to say (blank text and
     /// no images), so the wire omits the key and the server sees NO prompt
     /// rather than an empty one.
-    public static func build(text: String, attachmentIds: [String]) -> String? {
+    /// Wave D: non-image files ride after the image embeds as
+    /// `[<filename>](/api/attachments/<id>)` lines (`SteerImageMessage.buildMessage`).
+    public static func build(
+        text: String, attachmentIds: [String], files: [SteerImageMessage.File] = []
+    ) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty, attachmentIds.isEmpty { return nil }
-        return SteerImageMessage.build(text: trimmed, attachmentIds: attachmentIds)
+        if trimmed.isEmpty, attachmentIds.isEmpty, files.isEmpty { return nil }
+        return SteerImageMessage.buildMessage(text: trimmed, imageIds: attachmentIds, files: files)
     }
 
     /// Whether the draft (before its embeds) fits the contract cap.

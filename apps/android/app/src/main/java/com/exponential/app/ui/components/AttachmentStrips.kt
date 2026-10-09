@@ -311,9 +311,10 @@ private fun MediaThumbTile(attachment: AttachmentEntity) {
     }
 }
 
-/** A non-image tile: type icon over a truncated name (and size, when known). */
+/** A non-image tile: type icon over a truncated name (and size, when known).
+ *  Wave D: also a steer message's file line in the run thread. */
 @Composable
-private fun FileTile(
+internal fun FileTile(
     filename: String,
     subtitle: String?,
     modifier: Modifier = Modifier,

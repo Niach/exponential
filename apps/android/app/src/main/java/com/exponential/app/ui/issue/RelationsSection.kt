@@ -1,5 +1,8 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.components.IssueRowContent
+import com.exponential.app.ui.components.SectionBand
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -61,7 +64,6 @@ import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
-import com.exponential.app.ui.theme.glassSectionBand
 import com.exponential.app.ui.theme.resolvedStatusColor
 import com.exponential.app.ui.theme.statusColor
 
@@ -156,15 +158,10 @@ fun SubIssuesSection(
 ) {
     if (subIssues.rows.isEmpty()) {
         if (onAdd == null) return
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .glassSectionBand()
-                .clickable(onClick = onAdd)
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 12.dp)
-                .testTag("add-sub-issues"),
-            verticalAlignment = Alignment.CenterVertically,
+        SectionBand(
+            modifier = modifier.heightIn(min = 44.dp).testTag("add-sub-issues"),
+            onClick = onAdd,
+            contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
             Icon(ExpIcons.uiAdd, contentDescription = null, modifier = Modifier.size(16.dp), tint = muted)
@@ -477,43 +474,32 @@ private fun RelationIssueRow(
             .testTag("relation-row-${row.identifier}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusIcon(status, size = 16.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            row.identifier,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            row.title,
-            style = MaterialTheme.typography.bodyMedium,
+        IssueRowContent(
+            title = row.title,
+            leading = { StatusIcon(status, size = 16.dp) },
+            identifier = row.identifier,
             // A closed row reads a step back (web `text-foreground/60`).
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (row.open) 1f else 0.6f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            titleColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (row.open) 1f else 0.6f),
+            trailing = {
+                if (assigneeId != null) {
+                    UserAvatar(
+                        user = assignee,
+                        nameOrEmail = assignee?.let { it.name ?: it.email },
+                        size = 24.dp,
+                        userId = assigneeId,
+                    )
+                } else {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            ExpIcons.uiAssignee,
+                            contentDescription = "Unassigned",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                        )
+                    }
+                }
+            },
         )
-        Spacer(Modifier.width(12.dp))
-        if (assigneeId != null) {
-            UserAvatar(
-                user = assignee,
-                nameOrEmail = assignee?.let { it.name ?: it.email },
-                size = 24.dp,
-                userId = assigneeId,
-            )
-        } else {
-            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                Icon(
-                    ExpIcons.uiAssignee,
-                    contentDescription = "Unassigned",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
-                )
-            }
-        }
     }
     if (menuOpen && onRemove != null) {
         RemoveRelationSheet(row.identifier, onRemove) { menuOpen = false }

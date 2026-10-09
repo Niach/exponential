@@ -3,10 +3,13 @@ package com.exponential.app.ui.agent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,11 +60,29 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
+import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.ComposerMenuConditions
+import com.exponential.app.domain.ComposerMenuRowId
+import com.exponential.app.domain.mcpPickValue
+import com.exponential.app.domain.subjectOwnsMcpServers
+import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
+import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
+import com.exponential.app.ui.components.effortLabel
+import com.exponential.app.ui.components.effortValuesFor
+import com.exponential.app.ui.components.subagentModelLabel
+import com.exponential.app.ui.components.subagentModelOptions
+import com.exponential.app.ui.components.supportsSubagentModel
+import com.exponential.app.ui.components.picker.McpServerPicker
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.StaticDot
+import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.DeviceNotReadyRow
@@ -79,7 +101,6 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
-import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
@@ -94,9 +115,7 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
@@ -154,6 +173,10 @@ fun AgentScreen(
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
+    // EXP-1249: the "+" menu's MCP servers pick and per-run computer use.
+    val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
+    val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
+    val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
 
     // ── Lookup data ─────────────────────────────────────────────────────────
     val actionsState by dataViewModel.actionsState.collectAsStateWithLifecycle()
@@ -251,7 +274,11 @@ fun AgentScreen(
     }
     val busy = sending || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
-        AgentComposerPrompt.withinLimit(draft, images.size)
+        AgentComposerPrompt.withinLimit(
+            draft,
+            images.count { it.isImage },
+            images.filter { !it.isImage }.map { it.filename },
+        )
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
     // EXP-1233: the Fix merge conflicts builtin with a picked PR is its own
@@ -286,7 +313,11 @@ fun AgentScreen(
         overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
-        !AgentComposerPrompt.withinLimit(draft, images.size) ->
+        !AgentComposerPrompt.withinLimit(
+            draft,
+            images.count { it.isImage },
+            images.filter { !it.isImage }.map { it.filename },
+        ) ->
             "The message is too long (${AgentComposerPrompt.MAX_LENGTH} characters at most)."
         else -> null
     }
@@ -300,7 +331,7 @@ fun AgentScreen(
     var composerArmed by remember { mutableStateOf(false) }
     // EXP-820: ONE draw per mount (web `useState(() => pickChatSuggestions())`)
     // — chips that reshuffled on every recomposition would be unreadable.
-    val suggestions = remember { ChatSuggestions.pick() }
+    val suggestions = remember { ChatSuggestions.pick(ComposerMenu.SUGGESTION_COUNT) }
     LaunchedEffect(draft) {
         if (composerField.text != draft) {
             val start = composerField.selection.start.coerceIn(0, draft.length)
@@ -374,22 +405,21 @@ fun AgentScreen(
     // Back dismisses the menu, and only the menu.
     BackHandler(enabled = menuOpen) { composerArmed = false }
 
-    // ── Images (EXP-511): the system photo picker feeds the pending list ────
+    // ── Attachments (EXP-511, wave D): the system document picker, ANY type
+    // (images included), feeds the pending list ─────────────────────────────
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(MAX_STEER_IMAGES),
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris: List<Uri> ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            uris.forEach { uri ->
-                // ContentResolver reads can stream from a cloud-backed
-                // provider — never on the main thread.
-                val picked = withContext(Dispatchers.IO) {
-                    val bytes = MarkdownMediaUtils.readBytes(context, uri) ?: return@withContext null
-                    Triple(bytes, MarkdownMediaUtils.guessFilename(context, uri), MarkdownMediaUtils.guessMimeType(context, uri))
-                } ?: return@forEach
-                viewModel.addImage(uri, picked.first, picked.second, picked.third)
+            // ContentResolver reads can stream from a cloud-backed provider —
+            // [readComposerPick] stays off the main thread. One pick at a time
+            // through the VM, so its caps (4 images, 4 files) + toasts apply.
+            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
+                is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
             }
         }
     }
@@ -397,14 +427,15 @@ fun AgentScreen(
     // ── Sheets + dialogs ────────────────────────────────────────────────────
     var issuePickerOpen by remember { mutableStateOf(false) }
     var actionPickerOpen by remember { mutableStateOf(false) }
-    var optionsOpen by remember { mutableStateOf(false) }
+    // EXP-1249: the "+" menu and the pickers its submenu rows open (a picker
+    // sheet IS the pushed page: two stacked sheets are a dead end here).
+    var plusMenuOpen by remember { mutableStateOf(false) }
+    var effortPickerOpen by remember { mutableStateOf(false) }
+    var subagentPickerOpen by remember { mutableStateOf(false) }
+    var mcpPickerOpen by remember { mutableStateOf(false) }
     // EXP-923: the finished runs live behind the top bar's history button,
     // with no folded state anywhere — a plain list in a sheet.
     var recentOpen by remember { mutableStateOf(false) }
-    // EXP-897: which parents have their CHILD runs folded away — hoisted
-    // because the list is a LazyListScope extension, not a composable.
-    // Keyed by the TREE node key (`sessionTreeNodeKey`).
-    var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
     // `min_h_full`, iOS the same rule).
@@ -434,9 +465,9 @@ fun AgentScreen(
             )
         },
     ) { padding ->
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
-                .padding(padding)
                 .fillMaxSize()
                 .testTag("agent-page"),
             // As a tab the floating bar overlays the page: the last row (and a
@@ -511,31 +542,6 @@ fun AgentScreen(
                             }
                         }
                     }
-                    // EXP-820: a few suggestion chips over an EMPTY new chat —
-                    // drawn once per mount from the pool shared ×4, and gone the
-                    // moment there is a subject or a word typed, where they
-                    // would only be in the way. Tapping one puts it in the field
-                    // and, for a `#` suggestion, leaves the caret behind the
-                    // `#` so the issue picker opens at once.
-                    if (subject == null && draft.isEmpty()) {
-                        item(key = "__suggestions__") {
-                            ChatSuggestionChips(
-                                suggestions = suggestions,
-                                onPick = { suggestion ->
-                                    val caret = ChatSuggestions.caretOffset(suggestion)
-                                    composerField = TextFieldValue(
-                                        suggestion,
-                                        TextRange(caret),
-                                    )
-                                    viewModel.setDraft(suggestion)
-                                    // A `#` suggestion is exactly the case the
-                                    // armed latch exists for: this IS a text
-                                    // change, so the menu may open.
-                                    composerArmed = suggestion.contains('#')
-                                },
-                            )
-                        }
-                    }
                     item(key = "__composer__") {
                         AgentComposer(
                             value = composerField,
@@ -599,15 +605,8 @@ fun AgentScreen(
                             conflictRefused = conflictRefused,
                             pendingImages = images,
                             imageError = imageError,
-                            canAttach = images.size < MAX_STEER_IMAGES,
                             sending = sending,
-                            onPickIssues = { issuePickerOpen = true },
-                            onPickActions = { actionPickerOpen = true },
-                            onPickImages = {
-                                imagePicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                )
-                            },
+                            onOpenMenu = { plusMenuOpen = true },
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
@@ -649,8 +648,25 @@ fun AgentScreen(
                             resumeCandidate = resumeCandidate,
                             resume = resume,
                             onResumeChange = viewModel::setResume,
-                            onMore = { optionsOpen = true },
                         )
+                    }
+                    // EXP-1249: a few suggestions BELOW the options line as
+                    // quiet text rows, over an EMPTY new chat only — drawn
+                    // once per mount from the pool shared x4. Tapping one puts
+                    // it in the field and, for a `#` suggestion, leaves the
+                    // caret behind the `#` so the issue picker opens at once.
+                    if (subject == null && draft.isEmpty()) {
+                        item(key = "__suggestions__") {
+                            ChatSuggestionRows(
+                                suggestions = suggestions,
+                                onPick = { suggestion ->
+                                    val caret = ChatSuggestions.caretOffset(suggestion)
+                                    composerField = TextFieldValue(suggestion, TextRange(caret))
+                                    viewModel.setDraft(suggestion)
+                                    composerArmed = suggestion.contains('#')
+                                },
+                            )
+                        }
                     }
                     item(key = "__captions__") {
                         Column(modifier = Modifier.padding(horizontal = 4.dp)) {
@@ -702,16 +718,12 @@ fun AgentScreen(
             item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
             agentSessionsList(
                 rows = sessionsState.rows,
-                collapsedRunning = collapsedRunning,
-                onToggleRunning = { id ->
-                    collapsedRunning =
-                        if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
-                },
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,
                 teams = memberTeams,
             )
+        }
         }
     }
 
@@ -740,13 +752,72 @@ fun AgentScreen(
             onDismiss = { actionPickerOpen = false },
         )
     }
-    if (optionsOpen) {
-        AgentOptionsSheet(
-            launch = launch,
-            onEffortChange = viewModel::setEffort,
-            onSubagentModelChange = viewModel::setSubagentModel,
+    if (plusMenuOpen) {
+        val claude = launch.agent == DEFAULT_AGENT
+        ComposerPlusMenuSheet(
+            layout = ComposerMenu.composerMenuLayout(
+                ComposerMenuConditions(
+                    subagentModel = supportsSubagentModel(launch.agent),
+                    ultracode = claude,
+                    mcp = mcpServers.isNotEmpty() && !subjectOwnsMcpServers(actionSubject?.id),
+                    computerUse = device?.canToggleComputerUse == true,
+                ),
+            ),
+            codex = launch.agent == "codex",
+            effortValue = effortLabel(launch.effort),
+            effortEnabled = !(claude && launch.ultracode),
+            subagentsValue = subagentModelLabel(launch.subagentModel),
+            ultracode = launch.ultracode,
+            mcpValue = mcpPickValue(mcpServerIds.size),
+            computerUse = computerUse,
+            canAttach = images.count { it.isImage } < MAX_STEER_IMAGES ||
+                images.count { !it.isImage } < MAX_STEER_FILES,
+            onRow = { row ->
+                plusMenuOpen = false
+                when (row) {
+                    ComposerMenuRowId.ImplementIssue -> issuePickerOpen = true
+                    ComposerMenuRowId.RunAction -> actionPickerOpen = true
+                    ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
+                    ComposerMenuRowId.Effort -> effortPickerOpen = true
+                    ComposerMenuRowId.Subagents -> subagentPickerOpen = true
+                    ComposerMenuRowId.McpServers -> mcpPickerOpen = true
+                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
+                }
+            },
             onUltracodeChange = viewModel::setUltracode,
-            onDismiss = { optionsOpen = false },
+            onComputerUseChange = viewModel::setComputerUse,
+            onDismiss = { plusMenuOpen = false },
+        )
+    }
+    if (effortPickerOpen) {
+        Picker(
+            items = (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(launch.agent)).map { PickerItem(it, effortLabel(it)) },
+            mode = PickerMode.Single,
+            value = setOf(launch.effort),
+            onChange = { picked -> picked.firstOrNull()?.let(viewModel::setEffort) },
+            title = if (launch.agent == "codex") "Reasoning" else "Effort",
+            open = true,
+            onOpenChange = { open -> if (!open) effortPickerOpen = false },
+        )
+    }
+    if (subagentPickerOpen) {
+        Picker(
+            items = subagentModelOptions().map { PickerItem(it, subagentModelLabel(it)) },
+            mode = PickerMode.Single,
+            value = setOf(launch.subagentModel),
+            onChange = { picked -> picked.firstOrNull()?.let(viewModel::setSubagentModel) },
+            title = SUBAGENT_MODEL_LABEL,
+            open = true,
+            onOpenChange = { open -> if (!open) subagentPickerOpen = false },
+        )
+    }
+    if (mcpPickerOpen) {
+        McpServerPicker(
+            servers = mcpServers,
+            value = mcpServerIds,
+            onToggle = viewModel::toggleMcpServer,
+            open = true,
+            onOpenChange = { open -> if (!open) mcpPickerOpen = false },
         )
     }
 
@@ -767,28 +838,38 @@ fun AgentScreen(
 }
 
 /**
- * EXP-820: the suggestion chips over an empty new chat. A wrapping row of
- * ordinary action pills — the chip IS the prompt, so nothing truncates it: a
- * long suggestion wraps onto the next line rather than becoming "Do a code
- * review of the op…".
+ * EXP-1249: the suggestions under the options line as QUIET rows (web
+ * `ChatSuggestionRows`): muted 13sp text behind a faint `action-default`
+ * glyph, no pill, no border. The row IS the prompt, so a long one wraps.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> Unit) {
-    FlowRow(
+private fun ChatSuggestionRows(suggestions: List<String>, onPick: (String) -> Unit) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp)
             .testTag("chat-suggestions"),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         suggestions.forEach { suggestion ->
-            GlassPill(
-                suggestion,
-                size = PillSize.Sm,
-                onClick = { onPick(suggestion) },
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onPick(suggestion) }
+                    .padding(horizontal = 6.dp, vertical = 7.dp)
+                    .testTag(ComposerMenu.SUGGESTION_TEST_ID),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    ExpIcons.actionDefault,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                )
+                Text(suggestion, fontSize = 13.sp, color = muted)
+            }
         }
     }
 }

@@ -93,7 +93,8 @@ struct MyIssuesListContent: View {
                     }
                 } header: {
                     statusHeader(status: group.status, count: group.rows.count)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                        // The band's own trailing 4pt is the gap to its rows.
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
                 }
             }
@@ -115,25 +116,18 @@ struct MyIssuesListContent: View {
         .tabBarBottomInset()
     }
 
-    @ViewBuilder
+    /// EXP-1248: the status group = the shared `GlassSectionBand` with its
+    /// count slot — the ONE list band that keeps a count, the same band the
+    /// board list draws (web `IssueGroupBand`). No fold here: My Issues
+    /// never collapses a group.
     private func statusHeader(status: IssueStatus, count: Int) -> some View {
-        HStack(spacing: 8) {
+        GlassSectionBand(status.label, count: count) {
             AppIcon(status.iconName, size: AppIcon.Size.small)
                 .foregroundStyle(status.color)
-
-            Text(status.label)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-            Text("\(count)")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-            Spacer()
+        } trailing: {
+            EmptyView()
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .textCase(nil)
+        .accessibilityIdentifier("issue-status-band")
     }
 
     @ViewBuilder

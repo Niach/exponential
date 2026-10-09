@@ -3,13 +3,9 @@ import { useBlocker, useNavigate } from "@tanstack/react-router"
 import {
   Button,
   CollapsedTitle,
-  conceptIcon,
   Pill,
   Prompt,
   toast,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   useIsMobile,
   WORK_BAR_HEIGHT,
   WORK_COLUMN_CLASS,
@@ -24,15 +20,7 @@ import {
 } from "@/hooks/use-issue-draft-editor"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { draftExitPrompt, ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
-import {
-  isFileAttachment,
-  isInlineImageAttachment,
-  isInlineMediaAttachment,
-} from "@/lib/attachment-files"
-import {
-  uploadDraftFile,
-  uploadDraftImageFile,
-} from "@/lib/storage/issue-image-upload"
+import { uploadDraftAttachment } from "@/lib/storage/issue-image-upload"
 import {
   mediaPlayabilityHint,
   prepareMediaUpload,
@@ -48,28 +36,25 @@ import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { PropertiesTrayCard } from "@/components/issue-properties-tray"
 import { IssueTitleInput } from "@/components/issue-title-field"
 import {
-  HEADER_BUTTON_CLASS,
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
-
-const UiCloseIcon = conceptIcon(`ui-close`)
 
 // EXP-1170: the New issue PAGE — the issue detail (`issue-detail-view.tsx`)
 // in DRAFT mode, ×4. Same chrome, same title row, same properties tray, same
 // editor and Files section; what differs is only what a not-yet-filed issue
 // cannot have: no identifier (the header says "New issue"), no pin, PR,
 // faces, coding, timeline, relations or bottom bar, and the trailing cluster
-// is Create plus an `×` whose tooltip says "Discard draft" (EXP-1191).
-// Everything typed autosaves to the draft row (`use-issue-draft-editor.ts`).
+// is Create alone (EXP-1247: Back + Create ×4, the `×` is gone; discarding
+// is the leave dialog's answer). Everything typed autosaves to the draft row
+// (`use-issue-draft-editor.ts`).
 //
-// EXP-1212: a draft WITH content never goes silently (`draftExitPrompt`). The
-// `×` first asks the destructive discard confirm; every other in-app
-// navigation (Back, a sidebar or tab bar entry, another screen) is HELD by
-// the router blocker and asks Discard · Create issue · Save draft, then
-// continues to where the person was going. The page's own exits (a filed
-// Create, a confirmed Discard) bypass it; closing the browser tab does not
-// ask (the autosave keeps the draft).
+// EXP-1212: a draft WITH content never goes silently (`draftExitPrompt`).
+// Every in-app navigation (Back, a sidebar or tab bar entry, another screen)
+// is HELD by the router blocker and asks Discard · Create issue · Save
+// draft, then continues to where the person was going. The page's own exits
+// (a filed Create) bypass it; closing the browser tab does not ask (the
+// autosave keeps the draft).
 //
 // EXP-1231: the draft may be consumed ELSEWHERE (another tab or device
 // created the issue from it, or discarded it). The controller notices
@@ -155,7 +140,6 @@ export function IssueDraftPage({
 
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
-  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
 
   // EXP-1162: the detail chrome — the title row scrolls away under the
   // header, which then breaks into the collapsed title.
@@ -169,8 +153,8 @@ export function IssueDraftPage({
   } = useTitleCollapsed(isMobile ? mobileHeaderSize.height : WORK_BAR_HEIGHT)
 
   // Back = the list this draft was opened from, else its board.
-  // `ignoreBlocker`: only the page's OWN exits (a confirmed Discard) pass
-  // the leave blocker unasked; Back goes through it.
+  // `ignoreBlocker`: only the page's OWN exits (a discarded-elsewhere toast)
+  // pass the leave blocker unasked; Back goes through it.
   const goBack = useCallback(
     (ignoreBlocker = false) => {
       void navigate({
@@ -191,22 +175,6 @@ export function IssueDraftPage({
   const handleBack = () => {
     void editor.leave()
     goBack()
-  }
-
-  const handleDiscard = async () => {
-    setDiscardConfirmOpen(false)
-    // A Create in flight wins (R2): nothing is thrown away, nothing leaves.
-    if (!(await editor.discard())) return
-    goBack(true)
-  }
-
-  // The `×`: a draft with content asks first.
-  const requestDiscard = () => {
-    if (draftExitPrompt(`discard`, editor.hasContent) === `discardConfirm`) {
-      setDiscardConfirmOpen(true)
-    } else {
-      void handleDiscard()
-    }
   }
 
   const handleCreate = async () => {
@@ -351,19 +319,17 @@ export function IssueDraftPage({
     if (markdown != null) editor.setDescription(markdown)
   }
 
-  const handleImageFiles = (files: File[], placement: `insert` | `append`) =>
+  const handleImageFiles = (files: File[]) =>
     trackUpload(async () => {
       const id = await editor.ensureDraft()
       for (const file of files) {
-        const uploaded = await uploadDraftImageFile(id, file)
-        const image = { alt: file.name, src: uploaded.url }
-        if (placement === `append`) editorRef.current?.appendImage(image)
-        else editorRef.current?.insertImage(image)
+        const uploaded = await uploadDraftAttachment(id, file)
+        editorRef.current?.insertImage({ alt: file.name, src: uploaded.url })
         syncDescription()
       }
     }, `Failed to upload image`)
 
-  const handleMediaFiles = (files: File[], placement: `insert` | `append`) =>
+  const handleMediaFiles = (files: File[]) =>
     trackUpload(async () => {
       const id = await editor.ensureDraft()
       for (const file of files) {
@@ -383,9 +349,10 @@ export function IssueDraftPage({
                 `Uploading ${prepared.file.name}… ${percent}%`
               ),
           })
-          const block = { label: uploaded.filename, src: uploaded.url }
-          if (placement === `append`) editorRef.current?.appendMedia(block)
-          else editorRef.current?.insertMedia(block)
+          editorRef.current?.insertMedia({
+            label: uploaded.filename,
+            src: uploaded.url,
+          })
           syncDescription()
           const hint = mediaPlayabilityHint(uploaded)
           if (hint) toast.message(hint)
@@ -395,31 +362,27 @@ export function IssueDraftPage({
       }
     }, `Failed to upload media`)
 
-  const handlePlainFiles = (files: File[]) =>
+  // Non-inline pastes/drops, and EVERY pick of a FILE path (the rail's
+  // "Attach file", the Files paperclip: EXP-1247 `asFile`, images too)
+  // become Files rows; nothing here enters the description.
+  const handlePlainFiles = (files: File[], options?: { asFile?: boolean }) =>
     trackUpload(async () => {
       const id = await editor.ensureDraft()
       for (const file of files) {
-        const uploaded = await uploadDraftFile(id, file)
+        const uploaded = await uploadDraftAttachment(id, file, options)
         editor.addFile({
           id: uploaded.id,
           filename: uploaded.filename,
           contentType: uploaded.contentType,
           sizeBytes: uploaded.sizeBytes,
           url: uploaded.url,
+          asFile: uploaded.asFile ?? options?.asFile ?? false,
         })
       }
     }, `Failed to upload file`)
 
-  // The Files section's attach button: inline picks (images, clips) append to
-  // the description, the rest become Files rows.
-  const handleAttachFiles = async (files: File[]) => {
-    const images = files.filter((file) => isInlineImageAttachment(file.type))
-    const media = files.filter((file) => isInlineMediaAttachment(file.type))
-    const others = files.filter((file) => isFileAttachment(file.type))
-    if (images.length > 0) await handleImageFiles(images, `append`)
-    if (media.length > 0) await handleMediaFiles(media, `append`)
-    if (others.length > 0) await handlePlainFiles(others)
-  }
+  const handleAttachFiles = (files: File[]) =>
+    handlePlainFiles(files, { asFile: true })
 
   const disabled = editor.creating
 
@@ -432,27 +395,6 @@ export function IssueDraftPage({
     >
       {ISSUE_DRAFT_COPY.create}
     </Button>
-  )
-
-  // EXP-1191: Discard is the draft's only action, so it is a bare `×` with
-  // the copy as its tooltip, not a one-item `…` menu.
-  const discardButton = (phone: boolean) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size={phone ? `icon` : `icon-sm`}
-          className={phone ? HEADER_BUTTON_CLASS : undefined}
-          aria-label={ISSUE_DRAFT_COPY.discard}
-          disabled={disabled}
-          onClick={requestDiscard}
-          data-testid="issue-draft-discard"
-        >
-          <UiCloseIcon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{ISSUE_DRAFT_COPY.discard}</TooltipContent>
-    </Tooltip>
   )
 
   const collapsedTitle = (align: `start` | `center`) => (
@@ -524,8 +466,8 @@ export function IssueDraftPage({
           enabled: !disabled,
           uploading: editor.uploading,
           statusText: uploadStatusText,
-          onFiles: (files) => handleImageFiles(files, `insert`),
-          onMediaFiles: (files) => handleMediaFiles(files, `insert`),
+          onFiles: handleImageFiles,
+          onMediaFiles: handleMediaFiles,
           onOtherFiles: handlePlainFiles,
         }}
       />
@@ -543,27 +485,6 @@ export function IssueDraftPage({
       onAttach={handleAttachFiles}
       onDelete={editor.removeFile}
       uploading={editor.uploading}
-    />
-  )
-
-  // EXP-1212: the destructive confirm the `×` raises on a draft with content.
-  // ONE line (the question) over ONE trailing row: Cancel (initial focus, so
-  // Discard is never the default) and Discard, the plain pill in the
-  // destructive colour, no solid red block.
-  const discardConfirm = (
-    <Prompt
-      open={discardConfirmOpen}
-      onOpenChange={setDiscardConfirmOpen}
-      data-testid="issue-draft-discard-confirm"
-      title={ISSUE_DRAFT_COPY.discardConfirm.title}
-      actions={[
-        { label: `Cancel`, role: `cancel` },
-        {
-          label: ISSUE_DRAFT_COPY.discardConfirm.confirm,
-          role: `destructive`,
-          onSelect: () => void handleDiscard(),
-        },
-      ]}
     />
   )
 
@@ -622,19 +543,16 @@ export function IssueDraftPage({
           backLabel="Back"
           onBack={handleBack}
           menu={
-            <div className="flex shrink-0 items-center gap-1">
-              <Pill
-                size="md"
-                mode="action"
-                primary
-                onClick={() => void handleCreate()}
-                disabled={!editor.canCreate}
-                data-testid="issue-draft-create"
-              >
-                {ISSUE_DRAFT_COPY.create}
-              </Pill>
-              {discardButton(true)}
-            </div>
+            <Pill
+              size="md"
+              mode="action"
+              primary
+              onClick={() => void handleCreate()}
+              disabled={!editor.canCreate}
+              data-testid="issue-draft-create"
+            >
+              {ISSUE_DRAFT_COPY.create}
+            </Pill>
           }
         />
         <div
@@ -648,7 +566,6 @@ export function IssueDraftPage({
           {attachmentError}
           {filesSection}
         </div>
-        {discardConfirm}
         {leaveDialog}
       </div>
     )
@@ -673,12 +590,7 @@ export function IssueDraftPage({
               collapsed={titleCollapsed}
               title={collapsedTitle(`start`)}
               trailingRef={clusterRef}
-              trailing={
-                <>
-                  {createButton}
-                  {discardButton(false)}
-                </>
-              }
+              trailing={createButton}
             />
             <div className={WORK_COLUMN_CLASS}>
               {/* EXP-1191: a little air above the title — with no parent
@@ -703,7 +615,6 @@ export function IssueDraftPage({
           </div>
         </div>
       </div>
-      {discardConfirm}
       {leaveDialog}
     </div>
   )

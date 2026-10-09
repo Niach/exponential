@@ -293,13 +293,34 @@ vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
 }))
 // EXP-1154: the PR body follows the run's report; all of its I/O lives in
 // one module. Default = no report (pr_open keeps the agent's body).
+vi.mock(`@/lib/pr-stacks`, () => ({
+  inferBaseBranch: vi.fn(async (opts: { defaultBranch: string }) => ({
+    base: opts.defaultBranch,
+    prNumber: null,
+  })),
+  ensureGithubStack: vi.fn(async () => ({ number: 1, baseRef: `master`, open: true, pulls: [] })),
+  mergeThrough: vi.fn(),
+  GitHubStackForkError: class GitHubStackForkError extends Error {
+    constructor(
+      public status: number,
+      message: string
+    ) {
+      super(message)
+    }
+  },
+}))
 vi.mock(`@/lib/run-pr-body`, () => ({
   runPrBody: vi.fn(async (_id: string | null, fallback: string | undefined) => ({
     body: fallback,
     fromResults: false,
   })),
   runHasReportBody: vi.fn(async () => false),
+  stampRunResultsPrUrl: vi.fn(async () => false),
   syncRunPrBody: vi.fn(async () => `skipped`),
+}))
+// EXP-1251: the Guide's diff check reads GitHub; default = no diff readable.
+vi.mock(`@/lib/session-guide-diff`, () => ({
+  loadGuideDiff: vi.fn(async () => null),
 }))
 
 import {
@@ -323,7 +344,14 @@ import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { readRunTranscript, TranscriptReadError } from "@/lib/steer-transcript"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { openStackThrough } from "@/lib/pr-merge-guard"
+import {
+  ensureGithubStack,
+  GitHubStackForkError,
+  inferBaseBranch,
+} from "@/lib/pr-stacks"
+import { claimPrOpen } from "@/lib/integrations/pr-actor-claims"
 import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
+import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { retiredIdentifiers } from "@/lib/issue-resolver"
 import {
   branchExists,
@@ -944,7 +972,7 @@ describe(`exponential_pr_update`, () => {
     )!({ body: `Hand-written body` })
     expect(parseOk(result)).toMatchObject({
       results: [],
-      note: expect.stringContaining(`exponential_sessions_results`),
+      note: expect.stringContaining(`exponential_sessions_guide`),
     })
     expect(caller.issues.updatePr).not.toHaveBeenCalled()
   })
@@ -3014,7 +3042,7 @@ describe(`exponential_sessions_ask_parent — to: 'user' (EXP-1089)`, () => {
 })
 
 // ── EXP-879: the run publishes pictures of its own work ──────────────────────
-// EXP-1172: the early form of sessions_results — one inline picture, the
+// EXP-1172: the early form of sessions_guide — one inline picture, the
 // same grant + write, the attachment id in the answer's `id`.
 describe(`exponential_sessions_show`, () => {
   const OWN_RUN = {
@@ -3038,7 +3066,7 @@ describe(`exponential_sessions_show`, () => {
     vi.stubEnv(`BETTER_AUTH_URL`, ``)
   })
 
-  it(`rides the sessions_results gate`, () => {
+  it(`rides the sessions_guide gate`, () => {
     const closed = collectTools(USER, SESSION, { ...OWN_RUN, sessionResults: false })
     expect(closed.has(`exponential_sessions_show`)).toBe(false)
     expect(collectTools(USER, SESSION, OWN_RUN).has(`exponential_sessions_show`)).toBe(
@@ -3106,7 +3134,7 @@ describe(`exponential_sessions_show`, () => {
   })
 })
 
-describe(`exponential_sessions_results`, () => {
+describe(`exponential_sessions_guide`, () => {
   // Any run of the caller's gets the tool — attended included, unlike the
   // close-out.
   const OWN_RUN = {
@@ -3168,13 +3196,13 @@ describe(`exponential_sessions_results`, () => {
         unattended: true,
         askParent: true,
         sessionResults: false,
-      }).has(`exponential_sessions_results`)
+      }).has(`exponential_sessions_guide`)
     ).toBe(false)
   })
 
   it(`refuses outside a launched session, naming the missing header`, async () => {
     const result = await collectTools(USER, null, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
@@ -3183,7 +3211,7 @@ describe(`exponential_sessions_results`, () => {
   it(`refuses a run that is neither owned nor hosted by the caller`, async () => {
     dbRows.current = [runRow({ userId: `user-2`, hostUserId: `user-3` })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`not your run`)
@@ -3192,7 +3220,7 @@ describe(`exponential_sessions_results`, () => {
   it(`requires a label to publish a picture`, async () => {
     dbRows.current = [runRow()]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`label is required`)
@@ -3203,7 +3231,7 @@ describe(`exponential_sessions_results`, () => {
   it(`refuses to mint a link for an ended run`, async () => {
     dbRows.current = [runRow({ status: `ended` })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`ended`)
@@ -3214,7 +3242,7 @@ describe(`exponential_sessions_results`, () => {
       runRow({ results: [picture(`nav`, `web`, `att-1`)] }),
     ]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `ios` })
     const payload = parseOk(result) as {
       uploadUrl: string
@@ -3249,7 +3277,7 @@ describe(`exponential_sessions_results`, () => {
   it(`files a topic's report text under the row lock, without a link`, async () => {
     dbRows.current = [runRow({ results: [picture(`nav`, `web`, `att-1`)] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `Summary`, text: `  ## Done\n- shipped #EXP-1  ` })
     expect(parseOk(result)).toEqual({
       topic: `Summary`,
@@ -3274,7 +3302,7 @@ describe(`exponential_sessions_results`, () => {
     dbRows.current = [runRow({ results: [] })]
     vi.mocked(syncRunPrBody).mockResolvedValueOnce(`synced`)
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `Summary`, text: `Did it`, files: [`apps/web/a.ts`, ` apps/web/a.ts `] })
     expect(parseOk(result)).toMatchObject({ topic: `Summary`, pr: `synced` })
     expect(syncRunPrBody).toHaveBeenCalledWith(SESSION)
@@ -3287,7 +3315,7 @@ describe(`exponential_sessions_results`, () => {
 
   it(`never syncs the PR for a picture`, async () => {
     dbRows.current = [runRow({ results: [] })]
-    await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_results`)!({
+    await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_guide`)!({
       topic: `nav`,
       label: `web`,
     })
@@ -3297,7 +3325,7 @@ describe(`exponential_sessions_results`, () => {
   it(`refuses files without text`, async () => {
     dbRows.current = [runRow({ results: [] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `nav`, label: `web`, files: [`a.ts`] })
     expect(result.isError).toBe(true)
     expect(result.content[0].text).toContain(`files rides a topic's text`)
@@ -3307,7 +3335,7 @@ describe(`exponential_sessions_results`, () => {
   it(`files text and mints a picture link in one call`, async () => {
     dbRows.current = [runRow({ results: [] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `nav`, text: `The nav`, label: `web` })
     const payload = parseOk(result) as { uploadUrl: string; results: unknown }
     expect(payload.uploadUrl).toContain(`/api/session-results/`)
@@ -3324,7 +3352,7 @@ describe(`exponential_sessions_results`, () => {
       }),
     ]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `nav`, text: ``, remove: true })
     expect(parseOk(result)).toMatchObject({ removed: 1, results: [{ topic: `nav`, label: `web` }] })
     expect(h.deleteObject).not.toHaveBeenCalled()
@@ -3345,7 +3373,7 @@ describe(`exponential_sessions_results`, () => {
     deleteReturning.current = [{ storageKey: `sessions/att-2.png` }]
 
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `ios`, remove: true })
 
     expect(parseOk(result)).toEqual({
@@ -3380,7 +3408,7 @@ describe(`exponential_sessions_results`, () => {
     ]
 
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, remove: true })
 
     expect(parseOk(result)).toMatchObject({
@@ -3393,7 +3421,7 @@ describe(`exponential_sessions_results`, () => {
   it(`removes nothing for an unknown topic, and touches no storage`, async () => {
     dbRows.current = [runRow({ results: [picture(`nav`, `web`, `att-1`)] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, remove: true })
     expect(parseOk(result)).toMatchObject({ removed: 0 })
     expect(h.db.update).not.toHaveBeenCalled()
@@ -3408,15 +3436,92 @@ describe(`exponential_sessions_results`, () => {
     )
     dbRows.current = [runRow({ results: full })]
     const refused = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(refused.isError).toBe(true)
     expect(refused.content[0].text).toContain(`60`)
     // Replacing one of the 60 is still allowed — the list does not grow.
     const replaced = await collectTools(USER, SESSION, OWN_RUN).get(
-      `exponential_sessions_results`
+      `exponential_sessions_guide`
     )!({ topic: `t`, label: `l7` })
     expect(replaced.isError).toBeFalsy()
+  })
+  // EXP-1251: the old name stays registered (deferred) on the same handler.
+  it(`keeps exponential_sessions_results as an alias of the same handler`, async () => {
+    const tools = collectTools(USER, SESSION, OWN_RUN)
+    expect(tools.has(`exponential_sessions_results`)).toBe(true)
+    dbRows.current = [runRow({ results: [] })]
+    const result = await tools.get(`exponential_sessions_results`)!({
+      topic: `Summary`,
+      text: `Did it`,
+    })
+    expect(parseOk(result)).toMatchObject({ topic: `Summary`, text: 6 })
+  })
+
+  it(`stamps every text write and scopes a topic to its PR`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    const before = Date.now()
+    await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_guide`)!({
+      topic: `Reviews`,
+      text: `Linked by pr_url.`,
+      prUrl: `https://github.com/o/r/pull/12`,
+    })
+    const written = (updateSet.mock.calls[0]![0] as { results: Array<Record<string, unknown>> })
+      .results[0]!
+    expect(written.prUrl).toBe(`https://github.com/o/r/pull/12`)
+    expect(written.at as number).toBeGreaterThanOrEqual(before)
+  })
+
+  it(`refuses a prUrl without text`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_guide`
+    )!({ topic: `nav`, label: `web`, prUrl: `https://github.com/o/r/pull/1` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`prUrl rides a topic's text`)
+  })
+
+  it(`reports listed files the branch diff does not have`, async () => {
+    dbRows.current = [
+      runRow({ results: [], prUrl: `https://github.com/o/r/pull/7`, branch: `exp/EXP-1`, boardId: `b1` }),
+    ]
+    vi.mocked(loadGuideDiff).mockResolvedValueOnce([
+      { path: `a.ts` },
+      { path: `new.ts`, previousPath: `old.ts` },
+    ])
+    const result = await collectTools(USER, SESSION, OWN_RUN).get(
+      `exponential_sessions_guide`
+    )!({ topic: `nav`, text: `The nav`, files: [`a.ts`, `old.ts`, `typo.ts`] })
+    expect(parseOk(result)).toMatchObject({
+      missingFromDiff: [`typo.ts`],
+      note: expect.stringContaining(`not in the branch diff`),
+    })
+    expect(loadGuideDiff).toHaveBeenCalledWith(
+      { prUrl: `https://github.com/o/r/pull/7`, branch: `exp/EXP-1`, boardId: `b1` },
+      null
+    )
+  })
+
+  it(`stays quiet when every listed file is in the diff or none is readable`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    vi.mocked(loadGuideDiff).mockResolvedValueOnce([{ path: `a.ts` }])
+    const covered = parseOk(
+      await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_guide`)!({
+        topic: `nav`,
+        text: `The nav`,
+        files: [`a.ts`],
+      })
+    )
+    expect(covered).not.toHaveProperty(`missingFromDiff`)
+    dbRows.current = [runRow({ results: [] })]
+    const unreadable = parseOk(
+      await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_guide`)!({
+        topic: `nav`,
+        text: `The nav`,
+        files: [`a.ts`],
+      })
+    )
+    expect(unreadable).not.toHaveProperty(`missingFromDiff`)
   })
 })
 
@@ -3670,6 +3775,50 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     // And without a session header there is no row to park either — the
     // batch heuristic must NOT run here (it would hit an unrelated run).
     expect(db.transaction).not.toHaveBeenCalled()
+  })
+
+  // EXP-1248 (M17): the chore form infers its base and joins the stack too.
+  it(`no base: opens on the inferred open PR's branch and joins its stack`, async () => {
+    armRepoPr()
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/chat-1a2b3c4d`, prNumber: 8 })
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce({
+      number: 3,
+      baseRef: `main`,
+      open: true,
+      pulls: [{ number: 8 }, { number: 9 }],
+    } as never)
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 9, stack: { number: 3, position: 2, size: 2 } })
+    expect(inferBaseBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: `acme/app`, head: `exp/refresh-screenshots-1a2b3c4d`, defaultBranch: `main` })
+    )
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ base: `exp/chat-1a2b3c4d` })
+    )
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 8, newPrNumber: 9 })
+    )
+  })
+
+  it(`no base: a failed inference errors before the claim`, async () => {
+    armRepoPr()
+    vi.mocked(inferBaseBranch).mockRejectedValueOnce(new Error(`boom`))
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(claimPrOpen).not.toHaveBeenCalled()
+    expect(createPullRequest).not.toHaveBeenCalled()
   })
 
   // EXP-1105: yolo mode merges what pr_open just opened, through pr_merge.
@@ -4702,15 +4851,20 @@ describe(`exponential_pr_merge mergeStack`, () => {
     expect(caller.issues.mergePr).not.toHaveBeenCalled()
   })
 
-  it(`refuses mergeStack on a chore PR`, async () => {
+  // EXP-1248: a chore PR can sit in a GitHub stack too (a chat run based on
+  // another open PR): mergeStack passes through to repositories.mergePull.
+  it(`passes mergeStack through for a chore PR`, async () => {
+    caller.repositories.mergePull.mockResolvedValueOnce({ merged: true })
     const result = await collectTools(USER, null).get(`exponential_pr_merge`)!({
       repositoryId: REPO,
       prNumber: 9,
       mergeStack: true,
     })
 
-    expect(result.isError).toBe(true)
-    expect(caller.repositories.mergePull).not.toHaveBeenCalled()
+    expect(result.isError).toBeFalsy()
+    expect(caller.repositories.mergePull).toHaveBeenCalledWith(
+      expect.objectContaining({ repositoryId: REPO, prNumber: 9, mergeStack: true })
+    )
   })
 })
 
@@ -6266,6 +6420,183 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
       `'exp/EXP-11' is the branch of merged PR #241 (EXP-11). Rebase onto main and pass no base.`
     )
     expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  // EXP-1248 (M17): base inference + the GitHub stack join.
+  const lowerRow = (over: Record<string, unknown> = {}) => ({
+    id: LOWER_ISSUE,
+    identifier: `EXP-11`,
+    teamId: `ws-1`,
+    prNumber: 241,
+    prState: `open`,
+    prUrl: LOWER_PR_URL,
+    branch: `exp/EXP-11`,
+    ...over,
+  })
+  const stacked = { number: 7, baseRef: `main`, open: true, pulls: [{ number: 241 }, { number: 242 }] }
+
+  it(`no base: opens on the inferred open PR's branch over the team's own PR branches and joins its stack`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/EXP-11`, prNumber: 241 })
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce(stacked as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(parseOk(result)).toMatchObject({
+      number: 242,
+      base: `exp/EXP-11`,
+      stack: { number: 7, position: 2, size: 2 },
+    })
+    expect(inferBaseBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo: `acme/app`,
+        head: `exp/EXP-12`,
+        defaultBranch: `main`,
+        candidates: [{ number: 241, branch: `exp/EXP-11` }],
+      })
+    )
+    expect(vi.mocked(createPullRequest).mock.calls.at(-1)![0]).toMatchObject({ base: `exp/EXP-11` })
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: `acme/app`, lowerPrNumber: 241, newPrNumber: 242 })
+    )
+    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
+  })
+
+  it(`no base: an inferred branch whose issue row already merged is never refused`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow({ prState: `merged` })]
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/EXP-11`, prNumber: 241 })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 242, base: `exp/EXP-11` })
+    expect(insertRelationInTx).not.toHaveBeenCalled()
+    // The run PR GitHub inferred is the lower PR.
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 241, newPrNumber: 242 })
+    )
+  })
+
+  it(`no base: a failed inference errors before any claim or PR`, async () => {
+    armPrOpen()
+    vi.mocked(inferBaseBranch).mockRejectedValueOnce(new Error(`GitHub returned 403 comparing`))
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(claimPrOpen).not.toHaveBeenCalled()
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`an explicit base on a teammate's open PR joins that PR's stack`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce(stacked as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ stack: { number: 7, position: 2, size: 2 } })
+    expect(inferBaseBranch).not.toHaveBeenCalled()
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 241, newPrNumber: 242 })
+    )
+  })
+
+  it.each([
+    [`the default branch`, `main`, [] as unknown[]],
+    [`a board's pinned branch`, `release/1.x`, [{ id: `repo-1`, defaultBranch: `release/1.x`, defaultBranchOverride: null }]],
+  ])(`a base on %s is no stack`, async (_label, base, rows) => {
+    armPrOpen()
+    dbRows.current = rows
+    vi.mocked(findOpenPullByHead).mockResolvedValue({ number: 5 } as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base,
+    })
+
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
+    expect(ensureGithubStack).not.toHaveBeenCalled()
+  })
+
+  it(`a failed stack join is the tool's error, with the PR still linked`, async () => {
+    const updates = armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockRejectedValueOnce(
+      new Error(`GitHub could not stack PRs #241, #242 (422): nope`)
+    )
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      `PR #242 is open and linked, but joining the GitHub stack of #241 failed: GitHub could not stack PRs #241, #242 (422): nope`
+    )
+    expect(
+      updates.find((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)
+    ).toBeDefined()
+  })
+
+  // C7: a second follow-up on the same parent forks the line: a tree.
+  it(`a sibling already on the parent's branch makes a tree: no stack call, no error`, async () => {
+    armPrOpen()
+    dbRows.current = [
+      lowerRow(),
+      { prUrl: `https://github.com/acme/app/pull/250`, branch: `exp/EXP-15` },
+    ]
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
+    expect(ensureGithubStack).not.toHaveBeenCalled()
+  })
+
+  it(`GitHub's fork refusal (a sibling opened elsewhere) is skipped too`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockRejectedValueOnce(
+      new GitHubStackForkError(409, `PR #241 already has PR #250 stacked on it`)
+    )
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
   })
 })
 

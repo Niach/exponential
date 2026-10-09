@@ -44,7 +44,7 @@ use gpui::{
     Window,
 };
 use gpui_component::{
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -410,7 +410,7 @@ impl ActionsView {
                             if let Some(team_id) = pin_team_id.clone() {
                                 let pin_id = edit_id.clone();
                                 menu = menu.item(
-                                    PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
+                                    crate::controls::pointer_label_item(if pinned { "Unpin" } else { "Pin" }, false)
                                         .icon(Icon::from(if pinned {
                                             registry::UI_UNPIN
                                         } else {
@@ -430,7 +430,7 @@ impl ActionsView {
                                 return menu;
                             }
                             menu.item(
-                                PopupMenuItem::new("Edit")
+                                crate::controls::pointer_label_item("Edit", false)
                                     .icon(Icon::from(registry::UI_EDIT))
                                     .on_click(move |_, window, cx| {
                                         open_action_page(window, cx, edit_id.clone());

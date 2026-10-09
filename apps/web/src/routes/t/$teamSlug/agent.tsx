@@ -3,6 +3,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   Button,
   conceptIcon,
+  ExponentialLogo,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -10,6 +11,7 @@ import {
 import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { LaunchComposer } from "@/components/launch-composer"
+import { COMPOSER_MENU_TEST_IDS } from "@/components/launch-dialog/composer-menu"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
@@ -223,10 +225,10 @@ function AgentPage() {
   const scope = useCrossTeamScope(team)
   const { running } = useAgentsData(scope.teamIds, currentUserId)
   const listEmpty = running.length === 0
-  // EXP-923: the Recent panel is a disclosure on THIS page — leaving it (or
-  // switching team) always shuts it again.
+  // EXP-923: the Recent panel is a disclosure on THIS page. EXP-1246: it
+  // survives the runs it opens (`?from=agent:recent`) and shuts anywhere else
+  // (`useRecentRunsPanelRouteGuard`, mounted by the sidebar).
   const recentOpen = useRecentRunsPanelOpen()
-  useEffect(() => () => setRecentRunsPanelOpen(false), [])
 
   if (!team || !currentUserId) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
@@ -271,12 +273,26 @@ function AgentPage() {
           <TooltipContent side="right">Recent runs</TooltipContent>
         </Tooltip>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 md:min-h-full md:justify-center ${
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
+          {/* EXP-1249: the faint brand mark's TOP HALF above the composer —
+              THIS page only (the composer dialog has none) and md+ only
+              (phones draw none): the column's first row, a clip of half the
+              mark's height with the logo at its top, so the column gap
+              keeps it 24px off the card; the half FADES out toward the box
+              (solid for its top third, transparent at the clip's bottom
+              edge). */}
+          <div
+            aria-hidden
+            data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
+            className="pointer-events-none mx-auto hidden h-[220px] w-[440px] overflow-hidden text-foreground opacity-[0.025] select-none [mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] md:block"
+          >
+            <ExponentialLogo variant="light" size={440} className="size-[440px]" />
+          </div>
           {steerEnabled ? (
             // Keyed by team: the composer's repo pick and seed latches are
             // one-shot per mount, so a /t/a/agent → /t/b/agent navigation

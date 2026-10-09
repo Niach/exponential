@@ -837,5 +837,465 @@
         "count": 3
       }
     }
+  ],
+  "_groupDoc": "EXP-1248 rule (9): each board band also carries `items` = its entries as drawn. Edge: entry A sits on entry B (SAME band) when A's representative prBaseBranch == B's representative branch (non-empty; issues may omit both = no edge; the first entry in band order owns a branch). A component lists where its NEWEST entry would (its first entry in band order) and is walked from its ROOT (no parent; a cycle breaks where the climb first repeats). Any entry with 2+ children = a TREE: kind 'pr' items in pre-order, children in band order, depth = distance from the root (tree guides). Otherwise 2+ entries = ONE kind 'stack' item: keys TOP first, baseBranch = the root's prBaseBranch (the trailing muted base row; null when unknown). One entry = kind 'pr' depth 0. Bands draw NO count; `count` (rule 8) only lights the nav dot. x4: web queueItems, desktop domain::reviews_queue::queue_items, iOS ReviewsQueue.items, Android ReviewsQueue.items.",
+  "groupingCases": [
+    {
+      "name": "a tree nests under its root, a stack is ONE item top first over its base, a lone PR stays flat",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "e1300",
+            "boardId": "b1",
+            "createdAt": "2026-10-09T12:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1300",
+            "prState": "open",
+            "branch": "exp/EXP-1300",
+            "prBaseBranch": "master"
+          },
+          {
+            "id": "e1253",
+            "boardId": "b1",
+            "createdAt": "2026-10-09T11:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1253",
+            "prState": "open",
+            "branch": "exp/EXP-1253",
+            "prBaseBranch": "exp/EXP-1250"
+          },
+          {
+            "id": "e1252",
+            "boardId": "b1",
+            "createdAt": "2026-10-09T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1252",
+            "prState": "open",
+            "branch": "exp/EXP-1252",
+            "prBaseBranch": "exp/EXP-1250"
+          },
+          {
+            "id": "e1250",
+            "boardId": "b1",
+            "createdAt": "2026-10-09T09:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1250",
+            "prState": "open",
+            "branch": "exp/EXP-1250",
+            "prBaseBranch": "master"
+          },
+          {
+            "id": "e1244",
+            "boardId": "b1",
+            "createdAt": "2026-10-08T12:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1244",
+            "prState": "open",
+            "branch": "exp/EXP-1244",
+            "prBaseBranch": "exp/EXP-1239"
+          },
+          {
+            "id": "e1239",
+            "boardId": "b1",
+            "createdAt": "2026-10-08T10:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/e1239",
+            "prState": "open",
+            "branch": "exp/EXP-1239",
+            "prBaseBranch": "master"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b1",
+            "items": [
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/e1300",
+                "depth": 0
+              },
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/e1250",
+                "depth": 0
+              },
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/e1253",
+                "depth": 1
+              },
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/e1252",
+                "depth": 1
+              },
+              {
+                "kind": "stack",
+                "keys": [
+                  "https://github.com/acme/web/pull/e1244",
+                  "https://github.com/acme/web/pull/e1239"
+                ],
+                "baseBranch": "master"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "the six-deep VAPP chain is one stack, a merged PR is no member",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b2",
+            "teamId": "t1",
+            "name": "vApps",
+            "sortOrder": 2
+          }
+        ],
+        "issues": [
+          {
+            "id": "v100",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T06:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v100",
+            "prState": "open",
+            "branch": "exp/VAPP-100",
+            "prBaseBranch": "exp/chat-76b77687"
+          },
+          {
+            "id": "v98",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T05:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v98",
+            "prState": "open",
+            "branch": "exp/chat-76b77687",
+            "prBaseBranch": "exp/VAPP-93"
+          },
+          {
+            "id": "v93",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T04:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v93",
+            "prState": "open",
+            "branch": "exp/VAPP-93",
+            "prBaseBranch": "exp/VAPP-91"
+          },
+          {
+            "id": "v91",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T03:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v91",
+            "prState": "open",
+            "branch": "exp/VAPP-91",
+            "prBaseBranch": "exp/VAPP-89"
+          },
+          {
+            "id": "v89",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T02:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v89",
+            "prState": "open",
+            "branch": "exp/VAPP-89",
+            "prBaseBranch": "exp/VAPP-88"
+          },
+          {
+            "id": "v88",
+            "boardId": "b2",
+            "createdAt": "2026-10-07T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v88",
+            "prState": "open",
+            "branch": "exp/VAPP-88",
+            "prBaseBranch": "master"
+          },
+          {
+            "id": "v90",
+            "boardId": "b2",
+            "createdAt": "2026-10-06T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/v90",
+            "prState": "merged",
+            "branch": "exp/VAPP-90",
+            "prBaseBranch": "master"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b2",
+            "items": [
+              {
+                "kind": "stack",
+                "keys": [
+                  "https://github.com/acme/web/pull/v100",
+                  "https://github.com/acme/web/pull/v98",
+                  "https://github.com/acme/web/pull/v93",
+                  "https://github.com/acme/web/pull/v91",
+                  "https://github.com/acme/web/pull/v89",
+                  "https://github.com/acme/web/pull/v88"
+                ],
+                "baseBranch": "master"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an edge across boards is ignored: each band lists its own entry flat",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          },
+          {
+            "id": "b2",
+            "teamId": "t1",
+            "name": "vApps",
+            "sortOrder": 2
+          }
+        ],
+        "issues": [
+          {
+            "id": "x2",
+            "boardId": "b2",
+            "createdAt": "2026-10-05T02:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/x2",
+            "prState": "open",
+            "branch": "exp/X-2",
+            "prBaseBranch": "exp/X-1"
+          },
+          {
+            "id": "x1",
+            "boardId": "b1",
+            "createdAt": "2026-10-05T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/x1",
+            "prState": "open",
+            "branch": "exp/X-1",
+            "prBaseBranch": "master"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b1",
+            "items": [
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/x1",
+                "depth": 0
+              }
+            ]
+          },
+          {
+            "boardId": "b2",
+            "items": [
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/x2",
+                "depth": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a batch PR is one stack member keyed by its pr_url",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "t4",
+            "boardId": "b1",
+            "createdAt": "2026-10-04T03:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/t4",
+            "prState": "open",
+            "branch": "exp/EXP-4",
+            "prBaseBranch": "exp/batch-1"
+          },
+          {
+            "id": "q3",
+            "boardId": "b1",
+            "createdAt": "2026-10-04T02:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/batch",
+            "prState": "open",
+            "branch": "exp/batch-1",
+            "prBaseBranch": "master"
+          },
+          {
+            "id": "q2",
+            "boardId": "b1",
+            "createdAt": "2026-10-04T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/batch",
+            "prState": "open",
+            "branch": "exp/batch-1",
+            "prBaseBranch": "master"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b1",
+            "items": [
+              {
+                "kind": "stack",
+                "keys": [
+                  "https://github.com/acme/web/pull/t4",
+                  "https://github.com/acme/web/pull/batch"
+                ],
+                "baseBranch": "master"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a cycle breaks where it first repeats",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "c2",
+            "boardId": "b1",
+            "createdAt": "2026-10-03T02:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/c2",
+            "prState": "open",
+            "branch": "exp/C-2",
+            "prBaseBranch": "exp/C-1"
+          },
+          {
+            "id": "c1",
+            "boardId": "b1",
+            "createdAt": "2026-10-03T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/c1",
+            "prState": "open",
+            "branch": "exp/C-1",
+            "prBaseBranch": "exp/C-2"
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b1",
+            "items": [
+              {
+                "kind": "stack",
+                "keys": [
+                  "https://github.com/acme/web/pull/c2",
+                  "https://github.com/acme/web/pull/c1"
+                ],
+                "baseBranch": "exp/C-2"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "rows without a branch are lone entries",
+      "input": {
+        "teams": [
+          {
+            "id": "t1"
+          }
+        ],
+        "boards": [
+          {
+            "id": "b1",
+            "teamId": "t1",
+            "name": "Exponential",
+            "sortOrder": 1
+          }
+        ],
+        "issues": [
+          {
+            "id": "n1",
+            "boardId": "b1",
+            "createdAt": "2026-10-02T01:00:00Z",
+            "prUrl": "https://github.com/acme/web/pull/n1",
+            "prState": "open",
+            "branch": null,
+            "prBaseBranch": null
+          }
+        ],
+        "sessions": [],
+        "pulls": []
+      },
+      "expected": {
+        "boards": [
+          {
+            "boardId": "b1",
+            "items": [
+              {
+                "kind": "pr",
+                "key": "https://github.com/acme/web/pull/n1",
+                "depth": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
   ]
 }

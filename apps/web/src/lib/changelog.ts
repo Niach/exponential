@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-09-guide`,
+    date: `2026-10-09`,
+    title: `The Guide, runs as a conversation, and one Merge stack button`,
+    summary: `Changes and Results become one Guide with a diff per section, a run reads turn by turn with your messages, a stacked pull request merges with one Merge stack control, and the composer, lists and menus get quieter.`,
+    body: `- **Guide**: an issue's Changes and Results faces are now one Guide face on every client. Each section of the agent's report ends in a Changes row (files and line counts) that opens just that section's diff with a back button, files no section names land in Other changes, and Show complete diff sits at the bottom.
+- **Runs as a conversation**: the run thread reads turn by turn, with a status row per turn and your own messages in between. Teammates still see the single status row.
+- **Merge stack**: a pull request in an open stack has one Merge stack control that lands the whole chain, and hovering a member offers Merge through here. Merging a stack member on its own is refused with the list of what would land.
+- **GitHub stacks**: an agent's pull request opened on another open pull request's branch joins its native GitHub stack, and the base is picked for it when the agent leaves it out.
+- **Composer**: the + button opens one menu (implement an issue, run an action, add a file, effort, subagents, ultracode, MCP servers) with computer use switchable per run. Add file or image takes any file up to 50 MB beside up to four images, in a start and while steering, and the message shows it as a file link. Suggestions are quiet text rows under the box, and the Agent page shows a faint brand mark.
+- **Lists**: run rows drop their chevrons and keep the run mark aligned at every depth, Reviews rows are one line without merge buttons (stacks draw as a rail), and list headers no longer carry counts.
+- **Navigation**: a second sidebar shows only for the Inbox and the Agent page's recent runs, stepping through them reuses one tab, and the desktop keeps each team's tabs when you switch teams.
+- **Drafts**: a draft's Files list no longer repeats its inline images, a picture attached with the paperclip stays a file, and the × on the New issue page is gone (leaving still asks what to do).
+- **MCP**: \`exponential_sessions_results\` is now \`exponential_sessions_guide\`; the old name keeps working.`,
+  },
+  {
     id: `2026-10-08-code-mode`,
     date: `2026-10-08`,
     title: `Code mode: scripts that drive many tools at once, and a model for the screen`,

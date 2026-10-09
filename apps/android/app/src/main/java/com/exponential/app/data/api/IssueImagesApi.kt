@@ -182,6 +182,9 @@ class IssueImagesApi @Inject constructor(
      * issue: a batch, action or chat run has no issue to hang an attachment
      * on, and gating the attach button on `issueId` meant most runs simply
      * could not be shown a screenshot. Same multipart shape, same response.
+     * Wave D: ANY content type (images ≤ 10 MB, other files ≤ 50 MB, the
+     * server's `getMaxUploadBytesForContentType`); the response `filename`
+     * is the steer file line's link text.
      */
     suspend fun uploadSessionImage(
         accountId: String,
@@ -197,8 +200,8 @@ class IssueImagesApi @Inject constructor(
      * composer uploads against the TEAM (`session_attachments` row with a NULL
      * session id) and the start binds it to the run the desktop creates
      * (`codingSessions.start` `attachmentIds`). Same multipart part, same
-     * response, same size/type rules as the session route; unbound rows are
-     * swept after seven days.
+     * response, same size/type rules as the session route (wave D: any
+     * type); unbound rows are swept after seven days.
      */
     suspend fun uploadTeamSessionImage(
         accountId: String,

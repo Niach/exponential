@@ -71,32 +71,6 @@ public enum SessionTree {
         nest(sessions, id: { $0.id }, parent: { $0.parentSessionId }, startedAt: { $0.startedAt })
     }
 
-    /// EXP-897: the rows a FOLDED list draws — every row whose parent (at any
-    /// depth) is collapsed drops out. The ×4 rule (web `visibleTreeRows`,
-    /// desktop `sessions_section::drop_collapsed`, Android
-    /// `SessionTree.visibleRows`): only a row with children can collapse, and
-    /// collapsing hides its whole subtree, however deep.
-    public static func visibleRows<T>(
-        _ rows: [Row<T>], collapsed: Set<String>, rowId: (T) -> String
-    ) -> [Row<T>] {
-        var out: [Row<T>] = []
-        var hideBelow: Int?
-        for row in rows {
-            if let depth = hideBelow, row.depth > depth { continue }
-            hideBelow = nil
-            out.append(row)
-            if row.hasChildren, collapsed.contains(rowId(row.session)) { hideBelow = row.depth }
-        }
-        return out
-    }
-
-    /// The synced-row convenience.
-    public static func visibleRows(
-        _ rows: [Row<CodingSessionEntity>], collapsed: Set<String>
-    ) -> [Row<CodingSessionEntity>] {
-        visibleRows(rows, collapsed: collapsed, rowId: { $0.id })
-    }
-
     /// The ids of every row nested (at any depth) under `id`.
     public static func descendantIds<T>(_ rows: [Row<T>], of id: String, rowId: (T) -> String) -> [String] {
         guard let start = rows.firstIndex(where: { rowId($0.session) == id }) else { return [] }
@@ -269,11 +243,9 @@ extension SessionTree {
         return rootIds.compactMap { build($0) }.sorted(by: byActivity)
     }
 
-    /// The tree flattened top to bottom, skipping everything under a COLLAPSED
-    /// node (keyed by `nodeKey`).
-    public static func visibleRows(
-        _ nodes: [SessionNode], collapsed: Set<String> = []
-    ) -> [FlatRow] {
+    /// The tree flattened top to bottom, every node at its depth (lists draw
+    /// the whole tree: nothing folds since EXP-1248).
+    public static func visibleRows(_ nodes: [SessionNode]) -> [FlatRow] {
         var out: [FlatRow] = []
         func walk(_ list: [SessionNode], _ depth: Int) {
             for node in list {
@@ -283,7 +255,7 @@ extension SessionTree {
                         node: node, key: key, depth: depth, hasChildren: !node.children.isEmpty
                     )
                 )
-                if !collapsed.contains(key) { walk(node.children, depth + 1) }
+                walk(node.children, depth + 1)
             }
         }
         walk(nodes, 0)

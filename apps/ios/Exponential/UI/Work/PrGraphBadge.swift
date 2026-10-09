@@ -88,7 +88,7 @@ struct PrGraphSheet: View {
     var users: [UserEntity] = []
     var teamStatuses: [ResolvedIssueStatus] = []
     let onOpenIssue: (String) -> Void
-    /// A PR row: that pull request's Changes face.
+    /// A PR row: that pull request's Guide (its review, EXP-1251).
     let onOpenPullRequest: (PrGraph.Entry) -> Void
 
     /// Bands the reader folded (every band opens by default here).
@@ -200,50 +200,44 @@ struct PrGraphSheet: View {
         }
     }
 
+    /// The stack's OTHER pull requests as THE pull-request row (ExpUI
+    /// `PrRow`, desktop `pr_rows::pr_list`): flat, gapless, no dividers.
     @ViewBuilder
     private func pullRequestRows(_ rows: [PrGraph.Entry]) -> some View {
-        ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
-            if index > 0 { GlassDivider() }
+        ForEach(rows) { entry in
             RelatedPullRequestRow(entry: entry) { onOpenPullRequest(entry) }
         }
     }
 }
 
-/// A pull request in the relations row shape: PR glyph · mono `#n` (the
-/// identifier when there is no number) · the representative issue's title ·
-/// the PR state pill. Tap opens its Changes face.
+/// One OTHER pull request of the stack as THE pull-request row (ExpUI
+/// `PrRow`; desktop `pr_graph::stack_list_row`): the ring node (emerald while
+/// open, muted once merged or closed) · mono `#n` (the identifier when there
+/// is no number) · the representative issue's title · the PR state pill. Tap
+/// opens that pull request's Guide.
 struct RelatedPullRequestRow: View {
     let entry: PrGraph.Entry
     let onOpen: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: 12) {
-                AppIcon(Self.glyph(entry.prState), size: IssueRelationRowTokens.glyphSize)
-                    .foregroundStyle(IssueStatus.inReview.color)
-                    .frame(width: 20)
-                Text(number)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .fixedSize()
-                Text(entry.representative.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            PrRow(node: Self.node(entry.prState), identifier: number, title: entry.representative.title) {
                 GlassPill(Self.stateLabel(entry.prState), icon: Self.glyph(entry.prState))
             }
-            .padding(.horizontal, 12)
-            .frame(minHeight: IssueRelationRowTokens.minHeight)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .flatRow()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(number) \(entry.representative.title), \(Self.stateLabel(entry.prState))")
         .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("related-work-pr")
+    }
+
+    /// Open (or draft) = the emerald ring; merged / closed = the muted one.
+    static func node(_ state: String?) -> PrNodeState {
+        switch state {
+        case DomainContract.prStateMerged, DomainContract.prStateClosed: .base
+        default: .open
+        }
     }
 
     private var number: String {

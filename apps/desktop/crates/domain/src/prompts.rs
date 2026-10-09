@@ -230,17 +230,6 @@ pub const MERGE_RUN_PR: Spec = Spec {
     focus: "merge",
 };
 
-pub const MERGE_EXTERNAL_PR: Spec = Spec {
-    id: "merge-external-pr",
-    copy: &[
-        ("title", "Merge {repository}#{number}?"),
-        ("body", "It is squash-merged into {base}. No issue is linked to it."),
-    ],
-    params: &["repository", "number", "base"],
-    actions: confirm!(primary "merge", "Merge"),
-    focus: "merge",
-};
-
 pub const STOP_RUN: Spec = Spec {
     id: "stop-run",
     copy: &[("title", "Stop this run?")],
@@ -463,7 +452,6 @@ pub const ALL: &[Spec] = &[
     MOVE_ISSUE,
     MERGE_ISSUE_PR,
     MERGE_RUN_PR,
-    MERGE_EXTERNAL_PR,
     STOP_RUN,
     RESUME_RUN,
     DELETE_TRIGGER,
@@ -529,20 +517,6 @@ pub fn merge_run_pr(number: Option<u64>) -> Prompt {
         if number.is_some() { "title" } else { "titleNoNumber" },
         Some("body"),
         &[("number", number.as_deref().unwrap_or(""))],
-    )
-}
-
-/// EXP-1244: an open pull request no issue or run links (the Reviews
-/// repository bands); `repository` = `owner/name`, `base` = its base branch.
-pub fn merge_external_pr(repository: &str, number: u64, base: &str) -> Prompt {
-    MERGE_EXTERNAL_PR.render(
-        "title",
-        Some("body"),
-        &[
-            ("repository", repository),
-            ("number", &number.to_string()),
-            ("base", base),
-        ],
     )
 }
 
@@ -753,7 +727,6 @@ mod tests {
             merge_issue_pr(None, 3),
             merge_run_pr(Some(7)),
             merge_run_pr(None),
-            merge_external_pr("acme/web", 7, "main"),
             stop_run(),
             resume_run(Some("Mac")),
             resume_run(None),
@@ -801,11 +774,6 @@ mod tests {
             Some("It is squash-merged. It covers 3 issues.")
         );
         assert_eq!(merge_run_pr(None).title, "Merge this pull request?");
-        assert_eq!(merge_external_pr("acme/web", 7, "main").title, "Merge acme/web#7?");
-        assert_eq!(
-            merge_external_pr("acme/web", 7, "main").body.as_deref(),
-            Some("It is squash-merged into main. No issue is linked to it.")
-        );
         assert_eq!(resume_run(Some(" ")).title, "Resume this run?");
         assert_eq!(resume_run(Some("Mac")).title, "Resume this run on Mac?");
         assert_eq!(stop_run().body, None);

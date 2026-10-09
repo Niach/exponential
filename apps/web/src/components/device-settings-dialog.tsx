@@ -27,7 +27,7 @@ import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
-  Combobox,
+  Picker,
   DeviceReadiness,
   Dialog,
   DialogContent,
@@ -891,15 +891,15 @@ export function DeviceSettingsDialog({
                 is on (off = the setting has nothing to drive). */}
             {computerUse && (
               <GlassGroup>
-                <Combobox
+                <Picker
+                  mode="single"
                   triggerVariant="row"
-                  searchable={false}
                   mobileTitle="Computer use model"
                   value={computerUseModel}
                   onChange={(value) => {
                     if (value !== null) pickComputerUseModel(value)
                   }}
-                  options={contract.computerUseModel.values.map((value) => ({
+                  items={contract.computerUseModel.values.map((value) => ({
                     value,
                     label: modelLabel(value),
                   }))}

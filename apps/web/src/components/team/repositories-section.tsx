@@ -72,13 +72,16 @@ import {
   TooltipTrigger,
   LiveDot,
   BoardGlyph,
+  BranchPicker,
+  conceptIcon,
 } from "@exp/ui"
-import { BranchCombobox } from "@/components/branch-combobox"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import {
   GithubRepoPicker,
   type PickerRepo,
 } from "@/components/github-repo-picker"
+
+const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
@@ -821,16 +824,30 @@ function DefaultBranchMenu({
   onPick: (branch: string | null) => void
 }) {
   return (
-    <BranchCombobox
-      repositoryId={repo.id}
+    <BranchPicker
       value={repo.defaultBranch}
-      repoDefault={repo.githubDefaultBranch}
+      defaultBranch={repo.githubDefaultBranch}
+      loadBranches={() =>
+        trpc.repositories.listBranches
+          .query({ repositoryId: repo.id })
+          .then((result) => result.branches)
+      }
       onPick={onPick}
       disabled={busy}
-      size="sm"
       align="end"
-      className="h-5 shrink-0 gap-1 rounded-md px-1.5 font-mono text-xs font-normal"
-      ariaLabel={`Default branch for ${repo.fullName}`}
+      trigger={
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy}
+          className="h-5 shrink-0 gap-1 rounded-md px-1.5 font-mono text-xs font-normal"
+          aria-label={`Default branch for ${repo.fullName}`}
+        >
+          <span className="min-w-0 truncate">{repo.defaultBranch}</span>
+          <UiChevronDownIcon className="size-3 shrink-0 text-muted-foreground" />
+        </Button>
+      }
     />
   )
 }

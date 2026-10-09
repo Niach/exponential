@@ -38,7 +38,10 @@ vi.mock(`@/lib/storage`, () => ({
   deleteObject: h.deleteObject,
 }))
 
-import { handleIssueAttachmentUpload } from "@/lib/storage/issue-attachment-upload"
+import {
+  handleIssueAttachmentUpload,
+  readAsFileFlag,
+} from "@/lib/storage/issue-attachment-upload"
 import { db } from "@/db/connection"
 import {
   maxFileUploadBytes,
@@ -244,5 +247,61 @@ describe(`handleIssueAttachmentUpload (media, EXP-824)`, () => {
         posterSizeBytes: null,
       })
     )
+  })
+})
+
+// EXP-1247: the FILE/paperclip marker rides the multipart body (or the query)
+// and lands on the row, so a paperclip image lists in Files.
+describe(`handleIssueAttachmentUpload (asFile, EXP-1247)`, () => {
+  function pngFile() {
+    const file = new File([`png`], `mock.png`, { type: `image/png` })
+    const bytes = new TextEncoder().encode(`png`)
+    Object.defineProperty(file, `arrayBuffer`, {
+      value: async () => bytes.buffer,
+    })
+    return file
+  }
+
+  function insertSpy() {
+    const values = vi.fn().mockResolvedValue(undefined)
+    ;(db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values })
+    return values
+  }
+
+  it(`stores asFile from the multipart part and echoes it`, async () => {
+    const values = insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, pngFile())
+    formData.append(`asFile`, `1`)
+
+    const response = await upload(formData)
+    const body = (await response.json()) as Record<string, unknown>
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ contentType: `image/png`, asFile: true })
+    )
+    expect(body.asFile).toBe(true)
+  })
+
+  it(`defaults to false without the marker`, async () => {
+    const values = insertSpy()
+    const formData = new FormData()
+    formData.append(`file`, pngFile())
+
+    await upload(formData)
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({ asFile: false })
+    )
+  })
+
+  it(`reads the query form`, () => {
+    expect(
+      readAsFileFlag(new FormData(), `https://x.test/api/issues/1/files?asFile=true`)
+    ).toBe(true)
+    expect(readAsFileFlag(new FormData(), `https://x.test/files?asFile=0`)).toBe(
+      false
+    )
+    expect(readAsFileFlag(new FormData(), undefined)).toBe(false)
   })
 })

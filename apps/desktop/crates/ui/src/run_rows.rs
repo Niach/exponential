@@ -1,32 +1,26 @@
-//! EXP-746 — the agent-run rows, EXP-874 — ONE layout per kind.
+//! EXP-746 — the agent-run rows; EXP-1248 — ONE row, two sizes.
 //!
-//! Every runs list (the Agent page's Running/Recent bands, an issue's Runs
-//! band, the Sessions list nav, an action page's Runs)
-//! draws a `coding_sessions` row through one of two renderers:
+//! Every runs list (the rail's Running, the Agent page's Recent, an action
+//! page's Runs, the styleguide) draws a `coding_sessions` row through
+//! [`run_row`] (web `@exp/ui` SessionRow, fixture `list-item.json`): the run
+//! mark at `12 + 14·depth`, mono identifier · title, the caption under it on
+//! a BIG row, the host device's glyph trailing. No fold chevron (children
+//! always show), no trailing chevron, no buttons; "Stop session" rides the
+//! right-click menu. The data half ([`running_run_facts`],
+//! [`past_run_facts`]) is shared, so the lists cannot disagree about what a
+//! run says; the caption is [`domain::session_row::session_row_caption`].
 //!
-//! - [`render_running_run_row`]: run mark · identifier · title, the agent
-//!   caption, a toned status line and the usage-wall badge. The whole row
-//!   opens the run (EXP-893: no trailing Merge / open-the-subject buttons);
-//!   "Stop session" is on the row's right-click menu, never a button.
-//! - [`render_past_run_row`]: the dimmed run mark, identifier · title over
-//!   the byline, a trailing chevron. The whole row opens the session.
-//!
-//! EXP-1208: both LEAD with the shared run mark
-//! ([`crate::coding_selects::run_lead`], never a dot) at the row's base inset
-//! `12 + 14·depth`, and a parent's fold chevron FOLLOWS it — so a parent's
-//! mark lines up exactly with a standalone row's and a child's connector
-//! elbow ends at its mark (×4). The data half ([`running_run_facts`],
-//! [`past_run_facts`]) is shared too, so the lists cannot disagree about what
-//! a run says.
+//! [`run_status_row`] is the Run face's status row, not a list row.
 
+use crate::controls::PointerContextMenuExt as _;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, ClickEvent, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    div, App, ClickEvent, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{menu::ContextMenuExt as _, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 
 use crate::icons::registry;
 use crate::queries::{self, CodingSessionDisplay};
@@ -40,12 +34,6 @@ pub(crate) struct RunRowKill {
     /// "Stop session" (EXP-849: one verb wherever the run is hosted).
     pub(crate) label: SharedString,
     pub(crate) on_kill: RunRowAction,
-}
-
-/// EXP-827: the fold chevron a row with NESTED sub-sessions carries.
-pub(crate) struct RunRowFold {
-    pub(crate) collapsed: bool,
-    pub(crate) on_toggle: RunRowAction,
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +69,12 @@ pub(crate) struct RunningRunFacts {
     pub(crate) agent_caption: Option<SharedString>,
     pub(crate) status: SharedString,
     pub(crate) status_tone: StatusTone,
+    /// EXP-1248: the big row's caption + tone (`list-item.json`).
+    pub(crate) caption: SharedString,
+    pub(crate) caption_tone: StatusTone,
+    /// EXP-1248: the host machine's glyph name (trailing, both sizes;
+    /// [`crate::icons::device_icon_name`]).
+    pub(crate) device_icon: &'static str,
     /// The state's dot tone — the entity preview card's dot; the list rows
     /// wear [`Self::mark`] instead (EXP-1208).
     pub(crate) dot: Hsla,
@@ -109,6 +103,10 @@ pub(crate) struct PastRunFacts {
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
     pub(crate) byline: SharedString,
+    /// EXP-1248: the big row's caption (`Done · <device> · <when>`).
+    pub(crate) caption: SharedString,
+    pub(crate) device_icon: &'static str,
+    pub(crate) device_label: Option<String>,
     /// The run's agent — whose (dimmed) mark leads the row.
     pub(crate) agent: Option<coding::CodingAgent>,
 }
@@ -193,6 +191,20 @@ pub(crate) fn running_run_facts(
     // EXP-848/EXP-1184: the turn flag, the ONE input the working mark keys
     // on — never on a paused row.
     let working = !paused && queries::session_row_is_working(session, display);
+    let blocked_label = crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch);
+    // EXP-1248: the big row's caption, `list-item.json` ×4.
+    let (caption, caption_tone) =
+        domain::session_row::session_row_caption(domain::session_row::SessionRowCaptionInput {
+            ended: false,
+            paused,
+            state: row_state(display),
+            device: presentation.label.as_deref(),
+            started_ms: stamp_ms(session.started_at.as_deref()),
+            updated_ms: stamp_ms(session.updated_at.as_deref()),
+            ended_ms: stamp_ms(session.ended_at.as_deref()),
+            blocked_label: blocked_label.as_deref(),
+            now_ms: now_epoch * 1_000,
+        });
     RunningRunFacts {
         session_id: session.id.clone(),
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
@@ -201,6 +213,9 @@ pub(crate) fn running_run_facts(
             .map(SharedString::from),
         status: SharedString::from(status),
         status_tone,
+        caption: SharedString::from(caption),
+        caption_tone: row_tone(caption_tone),
+        device_icon: session_device_glyph(session, cx),
         // EXP-862: the ONE dot mapping, shared with the rail and the header.
         dot: queries::session_dot_tone(
             queries::SessionDotFacts::from_display(display, false, paused),
@@ -209,8 +224,7 @@ pub(crate) fn running_run_facts(
         // EXP-1208: the list rows' mark.
         mark: running_row_mark(display, paused, working),
         display,
-        blocked: crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch)
-            .map(SharedString::from),
+        blocked: blocked_label.map(SharedString::from),
         device_label: presentation.label,
         paused,
         working,
@@ -241,13 +255,64 @@ pub(crate) fn past_run_facts(
         None => session.device_label.clone(),
     };
     let batch_issues = batch_run_issues(session, cx);
+    // EXP-1248: `Done · <device> · <when>`, `list-item.json` ×4.
+    let (caption, _) =
+        domain::session_row::session_row_caption(domain::session_row::SessionRowCaptionInput {
+            ended: true,
+            paused: false,
+            state: domain::session_row::SessionRowState::Done,
+            device: device_label.as_deref(),
+            started_ms: stamp_ms(session.started_at.as_deref()),
+            updated_ms: stamp_ms(session.updated_at.as_deref()),
+            ended_ms: stamp_ms(session.ended_at.as_deref()),
+            blocked_label: None,
+            now_ms: now_epoch * 1_000,
+        });
     PastRunFacts {
         session_id: session.id.clone(),
         identifier: run_identifier(session, issue.as_ref(), &batch_issues),
         title: run_title(session, issue.as_ref(), &batch_issues),
         byline: SharedString::from(past_run_byline(session, device_label.as_deref(), now_epoch)),
+        caption: SharedString::from(caption),
+        device_icon: session_device_glyph(session, cx),
+        device_label,
         agent: run_agent(session),
     }
+}
+
+/// EXP-1248 — the display state as the caption rule's state.
+pub(crate) fn row_state(display: CodingSessionDisplay) -> domain::session_row::SessionRowState {
+    use domain::session_row::SessionRowState;
+    match display {
+        CodingSessionDisplay::Working => SessionRowState::Working,
+        CodingSessionDisplay::NeedsInput => SessionRowState::NeedsInput,
+        CodingSessionDisplay::Review => SessionRowState::Review,
+        CodingSessionDisplay::Done => SessionRowState::Done,
+    }
+}
+
+/// EXP-1248 — the caption rule's tone as the row's colour role.
+pub(crate) fn row_tone(tone: domain::session_row::SessionRowTone) -> StatusTone {
+    use domain::session_row::SessionRowTone;
+    match tone {
+        SessionRowTone::Muted => StatusTone::Muted,
+        SessionRowTone::Amber => StatusTone::Amber,
+        SessionRowTone::Emerald => StatusTone::Green,
+        SessionRowTone::Sky => StatusTone::Blue,
+    }
+}
+
+/// The host machine's glyph NAME (`icons::device_icon_name`, the Devices
+/// list's own resolver); an unknown machine reads as a monitor.
+pub(crate) fn session_device_glyph(session: &domain::rows::CodingSession, cx: &App) -> &'static str {
+    let device = sync::Store::try_global(cx).and_then(|store| {
+        let devices = store.collections().devices.read(cx);
+        queries::session_device_row(session, devices.iter()).cloned()
+    });
+    crate::icons::device_icon_name(
+        device.as_ref().and_then(|row| row.icon.as_deref()),
+        device.as_ref().is_some_and(|row| row.is_server()),
+    )
 }
 
 /// EXP-874 — a running row's status line and its tone. Parts the row cannot
@@ -382,28 +447,54 @@ pub(crate) fn run_row_caption(
 // Rendering
 // ---------------------------------------------------------------------------
 
-pub(crate) struct RunningRunSpec {
+/// EXP-1248 — the run row's two sizes (fixture `list-item.json`): SMALL =
+/// one line (the rail's Running), BIG = the title line over the caption
+/// (Recent, an action's Runs, the styleguide). Same anatomy, same lead
+/// inset, same trailing device glyph.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunRowSize {
+    Small,
+    Big,
+}
+
+impl RunRowSize {
+    /// The row's height (`list-item.json` geometry small 32 / big 52).
+    pub(crate) fn height(self) -> f32 {
+        match self {
+            RunRowSize::Small => domain::list_item::SMALL,
+            RunRowSize::Big => domain::list_item::BIG,
+        }
+    }
+}
+
+/// EXP-1248 — everything ONE run row draws ([`run_row`]).
+pub(crate) struct RunRowSpec {
     /// Element-id namespace: two run lists can share one parent.
     pub(crate) id_prefix: &'static str,
     pub(crate) index: usize,
-    /// EXP-827/EXP-965: where the row sits in the tree — the 14px-per-level
-    /// indent AND the connector it draws ([`domain::tree_guides`]).
+    pub(crate) size: RunRowSize,
+    /// EXP-965: where the row sits in the tree — the 14px-per-level indent
+    /// AND the connector it draws ([`domain::tree_guides`]).
     pub(crate) guides: domain::tree_guides::Guides,
-    pub(crate) fold: Option<RunRowFold>,
-    pub(crate) facts: RunningRunFacts,
+    pub(crate) agent: Option<coding::CodingAgent>,
+    /// The live mark's state, or the ended run's dimmed mark.
+    pub(crate) mark: RunStatusMark,
+    /// The issue's identifier, a batch's `EXP-874 +2`, else none.
+    pub(crate) identifier: Option<SharedString>,
+    pub(crate) title: SharedString,
+    /// The big row's caption ([`domain::session_row::session_row_caption`]);
+    /// ignored when small.
+    pub(crate) caption: Option<SharedString>,
+    pub(crate) caption_tone: StatusTone,
+    /// The host machine's glyph and its name (the glyph's tooltip).
+    pub(crate) device_icon: Option<crate::icons::ExpIcon>,
+    pub(crate) device_label: Option<SharedString>,
+    pub(crate) active: bool,
     pub(crate) on_open: RunRowAction,
     /// `Some` = the row's right-click menu offers "Stop session".
     pub(crate) kill: Option<RunRowKill>,
 }
 
-pub(crate) struct PastRunSpec {
-    pub(crate) id_prefix: &'static str,
-    pub(crate) index: usize,
-    pub(crate) guides: domain::tree_guides::Guides,
-    pub(crate) fold: Option<RunRowFold>,
-    pub(crate) facts: PastRunFacts,
-    pub(crate) on_open: RunRowAction,
-}
 
 /// SLOP-2: a run's TITLE in its OWN action's Runs list (web `actionRunTitle`,
 /// ×4): every row there ran the same action, so the row says what started it
@@ -418,92 +509,154 @@ pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
     }
 }
 
-/// EXP-965: the session lists' base left padding — the connector's gutters
-/// are measured off it.
-const ROW_PAD: f32 = 12.;
 
-/// EXP-965: the vertical space between two of these rows — ZERO. Every list
-/// that draws them stacks them flush under a section band and reads as a
-/// table (EXP-818's `flat_row` rule: the Recent panel, an action's Runs,
-/// the list nav), so there is no gap for the connector to bridge. A list
-/// that ever spaces them has to move this number with its own `gap_*`, or
-/// the connector goes back to dashes.
+/// EXP-965: the vertical space between two run rows — ZERO. Every list stacks
+/// them flush (EXP-818's `flat_row` rule; EXP-1248: the rail too), so there
+/// is no gap for the connector to bridge.
 const ROW_GAP: f32 = 0.;
 
-/// EXP-1208: the run mark's square (= one indent level, so its centre IS the
-/// gutter centre the child's connector hangs off) and its badge, ×4.
-const RUN_MARK_PX: f32 = 14.;
+/// EXP-1208/EXP-1248: the run mark's square (= one indent level, so its
+/// centre IS the gutter centre the child's connector hangs off) and its
+/// badge, ×4 — 14 everywhere, the rail included.
+const RUN_MARK_PX: f32 = domain::list_item::MARK;
 const RUN_BADGE_PX: f32 = 6.;
 
-/// The flat list row both kinds sit in: `list_hover` under the pointer,
-/// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
-/// NESTED row paints its tree connector in the gutter its indent reserves.
-fn row_shell(
-    id_prefix: &'static str,
-    index: usize,
-    guides: &domain::tree_guides::Guides,
-    active: bool,
-    cx: &App,
-) -> gpui::Stateful<gpui::Div> {
+/// EXP-1248 — THE run row, ×4 (web `@exp/ui` SessionRow): [tree guides][run
+/// mark at `12 + 14·depth`][mono identifier · title][caption, big only]
+/// [device glyph]. NO fold chevron (children always show), NO trailing
+/// chevron, NO buttons: anything inline before the text pushes a parent's
+/// mark or title off its child's. The whole row opens the run; "Stop
+/// session" rides the right-click menu. Small rows sit on the rail's glass
+/// ground, big ones on a list's.
+pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
+    let RunRowSpec {
+        id_prefix,
+        index,
+        size,
+        guides,
+        agent,
+        mark,
+        identifier,
+        title,
+        caption,
+        caption_tone,
+        device_icon,
+        device_label,
+        active,
+        on_open,
+        kill,
+    } = spec;
     let theme = cx.theme();
-    let row_hover = theme.list_hover;
-    let row_active = theme.list_active;
-    crate::surface::flat_row()
-        .id((SharedString::from(format!("{id_prefix}-card")), index))
+    let muted = theme.muted_foreground;
+    let (row_hover, row_active) = match size {
+        RunRowSize::Small => (
+            theme::tokens::glass::FILL_ROW.to_hsla(),
+            theme::tokens::glass::FILL_ACTIVE.to_hsla(),
+        ),
+        RunRowSize::Big => (theme.list_hover, theme.list_active),
+    };
+    let lead = match mark {
+        RunStatusMark::Live(state) => {
+            crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
+        }
+        RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
+    };
+    let title_line = div()
         .flex()
         .w_full()
         .min_w_0()
+        .items_center()
+        .gap(gpui::px(6.))
+        .text_sm()
+        .children(identifier.map(|identifier| {
+            div()
+                .flex_shrink_0()
+                .text_xs()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .text_color(muted)
+                .child(identifier)
+        }))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(theme.foreground)
+                .child(title),
+        );
+    let caption = caption
+        .filter(|caption| size == RunRowSize::Big && !caption.is_empty())
+        .map(|caption| {
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(caption_tone.color(muted))
+                .child(caption)
+        });
+    let body = gpui_component::v_flex()
+        .flex_1()
+        .min_w_0()
+        .child(title_line)
+        .children(caption);
+    // Fixed, never truncated: WHERE the run is, its name on hover.
+    let device = device_icon.map(|icon| {
+        div()
+            .id((SharedString::from(format!("{id_prefix}-device")), index))
+            .flex_shrink_0()
+            .child(Icon::from(icon).xsmall().text_color(muted))
+            .when_some(device_label, |this, label| {
+                this.tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+                })
+            })
+    });
+    let row = crate::surface::flat_row()
+        .id((SharedString::from(format!("{id_prefix}-row")), index))
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .flex_shrink_0()
         .relative()
         .items_center()
-        .gap_2()
-        .px_3()
-        .py_2p5()
-        .pl(gpui::px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+        .gap(gpui::px(domain::list_item::GAP))
+        .h(gpui::px(size.height()))
+        .pr_3()
+        .pl(gpui::px(domain::list_item::lead_x(guides.depth())))
         .when(active, |this| this.bg(row_active))
         .cursor_pointer()
         .hover(move |style| style.bg(if active { row_active } else { row_hover }))
-        .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
+        .children(crate::tree_guides::guide_layer(
+            &guides,
+            domain::list_item::BASE,
+            ROW_GAP,
+        ))
+        .child(lead)
+        .child(body)
+        .children(device)
+        .on_click(move |event, window, cx| on_open(event, window, cx));
+    match kill {
+        Some(RunRowKill { label, on_kill }) => {
+            let on_kill = Rc::new(on_kill);
+            row.pointer_context_menu(move |menu, _window, cx| {
+                let on_kill = on_kill.clone();
+                menu.item(
+                    crate::controls::danger_menu_item(
+                        label.clone(),
+                        Icon::from(registry::CODING_STOP),
+                        cx,
+                    )
+                    .on_click(move |event, window, cx| on_kill(event, window, cx)),
+                )
+            })
+            .into_any_element()
+        }
+        None => row.into_any_element(),
+    }
 }
 
-/// The fold chevron's accessible labels, byte-identical ×4.
-pub(crate) const EXPAND_CHILD_RUNS: &str = "Expand child runs";
-pub(crate) const COLLAPSE_CHILD_RUNS: &str = "Collapse child runs";
-
-fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
-    let RunRowFold { collapsed, on_toggle } = fold;
-    div()
-        .id((SharedString::from(format!("{id_prefix}-fold")), index))
-        .flex_shrink_0()
-        // EXP-1208: 14 wide ×4, AFTER the run mark.
-        .w(gpui::px(RUN_MARK_PX))
-        .flex()
-        .items_center()
-        .justify_center()
-        .cursor_pointer()
-        // EXP-897: the fold's accessible label, byte-identical ×4.
-        .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(if collapsed {
-                EXPAND_CHILD_RUNS
-            } else {
-                COLLAPSE_CHILD_RUNS
-            })
-                .build(window, cx)
-        })
-        .child(
-            Icon::from(if collapsed {
-                registry::UI_CHEVRON_RIGHT
-            } else {
-                registry::UI_CHEVRON_DOWN
-            })
-            .xsmall()
-            .text_color(muted),
-        )
-        .on_click(move |event, window, cx| {
-            // The row itself opens the run — folding must not.
-            cx.stop_propagation();
-            on_toggle(event, window, cx);
-        })
-}
 
 /// EXP-1175 — the status row's lead: a live run's mark state (`None` = the
 /// bare mark) or the ended run's dimmed mark.
@@ -586,172 +739,6 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
         .into_any_element()
 }
 
-/// One LIVE run row (EXP-874). The whole row opens the run.
-pub(crate) fn render_running_run_row(
-    spec: RunningRunSpec,
-    active: bool,
-    cx: &App,
-) -> gpui::AnyElement {
-    let RunningRunSpec {
-        id_prefix,
-        index,
-        guides,
-        fold,
-        facts,
-        on_open,
-        kill,
-    } = spec;
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let foreground = theme.foreground;
-
-    let line1 = div()
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_2()
-        .children(facts.identifier.clone().map(|identifier| {
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .child(identifier)
-        }))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .truncate()
-                .text_color(foreground)
-                .child(facts.title.clone()),
-        );
-    let small_line = |text: SharedString, color: Hsla| {
-        div()
-            .w_full()
-            .min_w_0()
-            .truncate()
-            .text_xs()
-            .text_color(color)
-            .child(text)
-    };
-    let body = gpui_component::v_flex()
-        .flex_1()
-        .min_w_0()
-        .gap_0p5()
-        .child(line1)
-        .children(facts.agent_caption.clone().map(|caption| small_line(caption, muted)))
-        .when(!facts.status.is_empty(), |this| {
-            this.child(small_line(facts.status.clone(), facts.status_tone.color(muted)))
-        })
-        .children(
-            facts
-                .blocked
-                .clone()
-                .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
-        );
-
-    // EXP-1208: [run mark][fold, parents only][body] — the mark at the base
-    // inset on every row, the chevron after it.
-    let row = row_shell(id_prefix, index, &guides, active, cx)
-        .on_click(move |event, window, cx| on_open(event, window, cx))
-        .child(crate::coding_selects::run_lead(
-            facts.agent,
-            RUN_MARK_PX,
-            RUN_BADGE_PX,
-            facts.mark,
-        ))
-        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        .child(body);
-    match kill {
-        Some(RunRowKill { label, on_kill }) => {
-            let on_kill = Rc::new(on_kill);
-            row.context_menu(move |menu, _window, cx| {
-                let on_kill = on_kill.clone();
-                menu.item(
-                    crate::controls::danger_menu_item(
-                        label.clone(),
-                        Icon::from(registry::CODING_STOP),
-                        cx,
-                    )
-                    .on_click(move |event, window, cx| on_kill(event, window, cx)),
-                )
-            })
-            .into_any_element()
-        }
-        None => row.into_any_element(),
-    }
-}
-
-/// One FINISHED run row (EXP-874): a plain link to the session.
-pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> gpui::AnyElement {
-    let PastRunSpec {
-        id_prefix,
-        index,
-        guides,
-        fold,
-        facts,
-        on_open,
-    } = spec;
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let title = facts.title;
-    let byline = facts.byline;
-    let line1 = div()
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_2()
-        .children(facts.identifier.map(|identifier| {
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .child(identifier)
-        }))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .truncate()
-                .text_color(theme.foreground)
-                .child(title),
-        );
-    let body = gpui_component::v_flex()
-        .flex_1()
-        .min_w_0()
-        .gap_0p5()
-        .child(line1)
-        .when(!byline.is_empty(), |this| {
-            this.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(byline),
-            )
-        });
-    row_shell(id_prefix, index, &guides, active, cx)
-        .on_click(move |event, window, cx| on_open(event, window, cx))
-        // EXP-1208: the ENDED run mark (dimmed, no badge) leads, the fold
-        // follows it.
-        .child(crate::coding_selects::ended_run_lead(facts.agent, RUN_MARK_PX))
-        .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        .child(body)
-        .child(
-            div()
-                .flex_shrink_0()
-                .child(Icon::from(registry::UI_CHEVRON_RIGHT).xsmall().text_color(muted)),
-        )
-        .into_any_element()
-}
-
 /// A row of a mixed list (an action's Runs): live runs
 /// draw as running rows, ended ones as past rows.
 #[derive(Clone, Debug, PartialEq)]
@@ -785,47 +772,83 @@ impl RunListFacts {
             RunListFacts::Past(facts) => &facts.session_id,
         }
     }
+
+    /// EXP-1248 — the [`run_row`] these facts draw (never killable).
+    pub(crate) fn row_spec(
+        self,
+        id_prefix: &'static str,
+        index: usize,
+        size: RunRowSize,
+        guides: domain::tree_guides::Guides,
+        active: bool,
+        on_open: RunRowAction,
+    ) -> RunRowSpec {
+        match self {
+            RunListFacts::Running(facts) => facts.row_spec(id_prefix, index, size, guides, active, on_open),
+            RunListFacts::Past(facts) => facts.row_spec(id_prefix, index, size, guides, active, on_open),
+        }
+    }
 }
 
-/// A row of a mixed list (never killable). EXP-897: it carries the tree's
-/// place and fold like every other session row — an action's Runs nests its
-/// child runs too.
-pub(crate) fn render_run_list_row(
-    id_prefix: &'static str,
-    index: usize,
-    guides: domain::tree_guides::Guides,
-    fold: Option<RunRowFold>,
-    facts: RunListFacts,
-    active: bool,
-    on_open: RunRowAction,
-    cx: &App,
-) -> gpui::AnyElement {
-    match facts {
-        RunListFacts::Running(facts) => render_running_run_row(
-            RunningRunSpec {
-                id_prefix,
-                index,
-                guides,
-                fold,
-                facts,
-                on_open,
-                kill: None,
-            },
+impl RunningRunFacts {
+    /// EXP-1248 — the [`run_row`] a live run draws (no kill; callers add it).
+    pub(crate) fn row_spec(
+        self,
+        id_prefix: &'static str,
+        index: usize,
+        size: RunRowSize,
+        guides: domain::tree_guides::Guides,
+        active: bool,
+        on_open: RunRowAction,
+    ) -> RunRowSpec {
+        RunRowSpec {
+            id_prefix,
+            index,
+            size,
+            guides,
+            agent: self.agent,
+            mark: RunStatusMark::Live(self.mark),
+            identifier: self.identifier,
+            title: self.title,
+            caption: Some(self.caption),
+            caption_tone: self.caption_tone,
+            device_icon: Some(crate::icons::device_icon(Some(self.device_icon), false)),
+            device_label: self.device_label.map(SharedString::from),
             active,
-            cx,
-        ),
-        RunListFacts::Past(facts) => render_past_run_row(
-            PastRunSpec {
-                id_prefix,
-                index,
-                guides,
-                fold,
-                facts,
-                on_open,
-            },
+            on_open,
+            kill: None,
+        }
+    }
+}
+
+impl PastRunFacts {
+    /// EXP-1248 — the [`run_row`] an ended run draws: the dimmed mark.
+    pub(crate) fn row_spec(
+        self,
+        id_prefix: &'static str,
+        index: usize,
+        size: RunRowSize,
+        guides: domain::tree_guides::Guides,
+        active: bool,
+        on_open: RunRowAction,
+    ) -> RunRowSpec {
+        RunRowSpec {
+            id_prefix,
+            index,
+            size,
+            guides,
+            agent: self.agent,
+            mark: RunStatusMark::Ended,
+            identifier: self.identifier,
+            title: self.title,
+            caption: Some(self.caption),
+            caption_tone: StatusTone::Muted,
+            device_icon: Some(crate::icons::device_icon(Some(self.device_icon), false)),
+            device_label: self.device_label.map(SharedString::from),
             active,
-            cx,
-        ),
+            on_open,
+            kill: None,
+        }
     }
 }
 
@@ -1047,6 +1070,47 @@ fn run_entry<'a>(
         label: issue_run_label(session, label.as_deref(), now),
         live: crate::queries::is_live_run_status(session),
     }
+}
+
+/// EXP-1248 — a run menu entry's lead (web `issue-run-switcher.tsx`: the
+/// entries lead with `AgentRunMark`): the live run's mark state, or the
+/// ended run's dimmed mark. A row not synced yet reads as an ended claude run.
+pub(crate) fn run_entry_mark(
+    session_id: &str,
+    cx: &App,
+) -> (Option<coding::CodingAgent>, RunStatusMark) {
+    let Some(session) = sync::Store::try_global(cx)
+        .and_then(|store| store.collections().coding_sessions.read(cx).get(session_id).cloned())
+    else {
+        return (Some(coding::CodingAgent::default()), RunStatusMark::Ended);
+    };
+    let now = chrono::Utc::now().timestamp();
+    match RunListFacts::derive(&session, now, cx) {
+        RunListFacts::Running(facts) => (facts.agent, RunStatusMark::Live(facts.mark)),
+        RunListFacts::Past(facts) => (facts.agent, RunStatusMark::Ended),
+    }
+}
+
+/// EXP-1248 — a run menu entry's body: the run mark, then its label.
+pub(crate) fn run_entry_row(
+    agent: Option<coding::CodingAgent>,
+    mark: RunStatusMark,
+    label: SharedString,
+) -> gpui::Div {
+    let lead = match mark {
+        RunStatusMark::Live(state) => {
+            crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
+        }
+        RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
+    };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(gpui::px(domain::list_item::GAP))
+        .min_w_0()
+        .child(lead)
+        .child(div().min_w_0().truncate().child(label))
 }
 
 /// When a past run finished: its `ended_at`, else the last `updated_at` (a

@@ -13,6 +13,8 @@ import {
   canonicalizeMarkdownImageUrls,
   collectAttachmentStorageKeys,
   extractAttachmentIdsFromDescription,
+  isAcceptedImageContentType,
+  isInlineMediaContentType,
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
 
@@ -56,6 +58,18 @@ const consumedConflict = (identifier: string) =>
     code: `CONFLICT`,
     message: `This draft was already created as ${identifier}`,
   })
+
+/** EXP-1247: a draft row the Files section lists — a FILE-path upload, or a
+ *  type the description never inlines (`isFileAttachment` ×4). */
+export function isDraftFilesRow(row: { contentType: string; asFile?: boolean | null }) {
+  return (
+    row.asFile === true ||
+    !(
+      isAcceptedImageContentType(row.contentType) ||
+      isInlineMediaContentType(row.contentType)
+    )
+  )
+}
 
 export const issueDraftsRouter = router({
   /**
@@ -272,10 +286,14 @@ export const issueDraftsRouter = router({
     }),
 
   /**
-   * The draft's attachment rows — the create dialog's Files rail when a draft
+   * The draft's FILES rows — the New issue page's Files section when a draft
    * is reopened. Draft attachments are deliberately NOT synced (the
    * attachments shape filters `issue_id IS NOT NULL`), so this is the only
-   * way to see them. Owner-only.
+   * way to see them. Owner-only. EXP-1247: inline rows (images, clips the
+   * description embeds) stay out unless uploaded `asFile`, the same rule as
+   * the issue's Files section, so no client lists them. Still a bare array:
+   * released natives parse one. Draft emptiness is unchanged in practice: an
+   * inline row is content only through the description that embeds it.
    */
   listAttachments: authedProcedure
     .input(z.object({ id: draftIdSchema }))
@@ -295,7 +313,7 @@ export const issueDraftsRouter = router({
         })
       }
 
-      return await ctx.db
+      const rows = await ctx.db
         .select({
           id: attachments.id,
           filename: attachments.filename,
@@ -305,9 +323,11 @@ export const issueDraftsRouter = router({
           width: attachments.width,
           height: attachments.height,
           durationMs: attachments.durationMs,
+          asFile: attachments.asFile,
           createdAt: attachments.createdAt,
         })
         .from(attachments)
         .where(eq(attachments.draftId, input.id))
+      return rows.filter(isDraftFilesRow)
     }),
 })

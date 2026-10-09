@@ -28,7 +28,7 @@ vi.mock(`@/components/issue-coding-action`, () => ({
 vi.mock(`@/components/issue-properties-panel`, () => ({
   IssuePropertiesPanel: () => <div data-testid="properties-panel" />,
 }))
-vi.mock(`@/components/run-action-pills`, () => ({
+vi.mock(`@/components/session-merge-button`, () => ({
   MergePrPill: () => <button type="button">Merge PR</button>,
 }))
 const issue = {

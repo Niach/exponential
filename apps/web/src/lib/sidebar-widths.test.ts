@@ -22,9 +22,7 @@ describe(`sidebar width tokens`, () => {
   it(`gives every panel its default`, () => {
     expect(sidebarDefaultWidth(`main`)).toBe(272)
     expect(sidebarDefaultWidth(`list`)).toBe(352)
-    expect(sidebarDefaultWidth(`review`)).toBe(272)
     expect(sidebarDefaultWidth(`settings`)).toBe(272)
-    expect(sidebarDefaultWidth(`recent`)).toBe(272)
   })
 
   it(`renders design units as rem, so the default stays 17rem`, () => {

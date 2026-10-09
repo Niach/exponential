@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
-import { AVATAR_HUE_COUNT, avatarHueIndex } from "./avatar-color"
+import { AVATAR_HUE_COUNT, avatarHueIndex } from "@exponential-at/ui-react/primitives"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, `..`, `..`, `..`)

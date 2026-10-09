@@ -123,6 +123,10 @@ pub struct DraftAttachment {
     pub duration_ms: Option<i64>,
     #[serde(default)]
     pub poster_storage_key: Option<String>,
+    /// EXP-1247: uploaded through a file button (listed under Files even
+    /// when it is an image).
+    #[serde(default)]
+    pub as_file: bool,
     #[serde(default)]
     pub created_at: Option<String>,
 }

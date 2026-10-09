@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
+  guideSearch,
+  guideSectionPage,
+  parseGuideSearch,
+  parseGuideSection,
   availableFaces,
-  changesFaceCounts,
-  changesFaceText,
   codingTarget,
+  GUIDE_FACE_LABEL,
+  OPEN_RESULTS_LABEL,
   faceLabel,
   faceShowsContextMenu,
   fallbackFace,
@@ -42,64 +46,32 @@ function run(
 }
 
 describe(`work faces`, () => {
-  it(`lists the available faces in issue, run, changes, results order`, () => {
+  it(`lists the available faces in issue, run, guide order`, () => {
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: true,
-        hasChanges: true,
-        hasResults: true,
-      })
-    ).toEqual([`issue`, `run`, `changes`, `results`])
+      availableFaces({ hasIssue: true, hasRun: true, hasResults: true, hasDiff: true })
+    ).toEqual([`issue`, `run`, `guide`])
     expect(
-      availableFaces({
-        hasIssue: false,
-        hasRun: true,
-        hasChanges: false,
-        hasResults: false,
-      })
+      availableFaces({ hasIssue: false, hasRun: true, hasResults: false, hasDiff: false })
     ).toEqual([`run`])
-    // Changes is independent of Run: an open PR with no run of mine.
+    // EXP-1251: a diff alone (an open PR, no run of mine) is a Guide.
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: false,
-        hasChanges: true,
-        hasResults: false,
-      })
-    ).toEqual([`issue`, `changes`])
-    // EXP-879: results come LAST, after the changes face.
+      availableFaces({ hasIssue: true, hasRun: false, hasResults: false, hasDiff: true })
+    ).toEqual([`issue`, `guide`])
+    // So are results alone.
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: true,
-        hasChanges: false,
-        hasResults: true,
-      })
-    ).toEqual([`issue`, `run`, `results`])
+      availableFaces({ hasIssue: true, hasRun: true, hasResults: true, hasDiff: false })
+    ).toEqual([`issue`, `run`, `guide`])
   })
 
   it(`labels the faces, Runs once there are several`, () => {
     expect(faceLabel(`issue`)).toBe(`Issue`)
     expect(faceLabel(`run`)).toBe(`Run`)
     expect(faceLabel(`run`, true)).toBe(`Runs`)
-    expect(faceLabel(`changes`)).toBe(`Changes`)
-    expect(faceLabel(`results`)).toBe(`Results`)
+    expect(faceLabel(`guide`)).toBe(`Guide`)
+    expect(GUIDE_FACE_LABEL).toBe(`Guide`)
+    expect(OPEN_RESULTS_LABEL).toBe(`Open Guide`)
     expect(STEER_COMPOSER_PLACEHOLDER).toBe(`Type / for commands`)
     expect(PLAN_MODE_LABEL).toBe(`Plan mode`)
-  })
-
-  it(`labels Changes with its counts once the files are known`, () => {
-    expect(changesFaceCounts(null)).toBeNull()
-    expect(changesFaceCounts(undefined)).toBeNull()
-    expect(changesFaceCounts({ files: 0, additions: 0, deletions: 0 })).toBeNull()
-    expect(changesFaceCounts({ files: 3, additions: 12, deletions: 2 })).toEqual({
-      additions: 12,
-      deletions: 2,
-    })
-    // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
-    expect(changesFaceText({ additions: 12, deletions: 2 })).toBe(`+12 \u22122`)
-    expect(changesFaceText({ additions: 0, deletions: 0 })).toBe(`+0 \u22120`)
   })
 
   it(`targets the bound run when it is mine and live`, () => {
@@ -186,18 +158,15 @@ describe(`work faces`, () => {
     expect(swipeTarget(tabs, `drafts`, `left`)).toBeNull()
   })
 
-  it(`falls back changes to run to issue`, () => {
-    expect(fallbackFace(`changes`, [`issue`, `run`])).toBe(`run`)
-    expect(fallbackFace(`changes`, [`issue`])).toBe(`issue`)
+  it(`falls back guide to run to issue`, () => {
+    expect(fallbackFace(`guide`, [`issue`, `run`])).toBe(`run`)
+    expect(fallbackFace(`guide`, [`issue`])).toBe(`issue`)
+    expect(fallbackFace(`guide`, [`issue`, `run`, `guide`])).toBe(`guide`)
+    expect(fallbackFace(`guide`, [])).toBeNull()
     expect(fallbackFace(`run`, [`issue`])).toBe(`issue`)
     expect(fallbackFace(`run`, [`issue`, `run`])).toBe(`run`)
     expect(fallbackFace(`issue`, [`run`])).toBe(`run`)
     expect(fallbackFace(`run`, [])).toBeNull()
-    // EXP-879: the results face walks the same ladder.
-    expect(fallbackFace(`results`, [`issue`, `run`])).toBe(`run`)
-    expect(fallbackFace(`results`, [`issue`])).toBe(`issue`)
-    expect(fallbackFace(`results`, [`issue`, `run`, `results`])).toBe(`results`)
-    expect(fallbackFace(`results`, [])).toBeNull()
   })
 
   it(`reads the session model off the config option`, () => {
@@ -237,8 +206,7 @@ describe(`work faces`, () => {
   it(`shows the context menu on the issue face alone`, () => {
     expect(faceShowsContextMenu(`issue`)).toBe(true)
     expect(faceShowsContextMenu(`run`)).toBe(false)
-    expect(faceShowsContextMenu(`changes`)).toBe(false)
-    expect(faceShowsContextMenu(`results`)).toBe(false)
+    expect(faceShowsContextMenu(`guide`)).toBe(false)
   })
 })
 
@@ -259,10 +227,54 @@ describe(`issueResultsRun`, () => {
         updatedAt: string
         results: unknown
       }>
-      const picked = issueResultsRun(rows, c.issueId, c.boundId, c.me ?? undefined, now)
+      const prUrl = (c as { prUrl?: string | null }).prUrl ?? null
+      const picked = issueResultsRun(rows, c.issueId, c.boundId, c.me ?? undefined, now, prUrl)
       expect(picked?.id ?? null).toBe(c.expected)
     })
   }
+})
+
+// EXP-1251 (C1): the issue page feeds the issue's runs PLUS the team's runs
+// with results, so a run on ANOTHER issue that stacked this issue's PR wins.
+import { resultsCandidateRows } from "./work-faces"
+
+describe(`resultsCandidateRows`, () => {
+  const now = new Date(`2026-09-29T12:00:00Z`)
+  const prUrl = `https://github.com/o/r/pull/1012`
+  const row = (id: string, issueId: string | null, results: unknown) => ({
+    id,
+    issueId,
+    userId: `u1`,
+    status: `in_review`,
+    startedAt: `2026-09-29T08:00:00Z`,
+    updatedAt: `2026-09-29T11:00:00Z`,
+    results,
+  })
+  const stacker = row(`r1`, `i1`, [
+    { topic: `Summary`, text: `a` },
+    { topic: `Stacked`, text: `b`, prUrl },
+  ])
+
+  it(`reaches a run on another issue that tagged this issue's PR`, () => {
+    // The issue's own live query holds no run: the team rows carry it.
+    expect(issueResultsRun([], `i2`, null, `u1`, now, prUrl)).toBeNull()
+    const rows = resultsCandidateRows([], [stacker, row(`r2`, `i3`, null)])
+    expect(rows.map((r) => r.id)).toEqual([`r1`])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`r1`)
+  })
+
+  it(`reaches a batch run that tagged this issue's PR`, () => {
+    const batch = row(`b1`, null, [{ topic: `Summary`, text: `x`, prUrl }])
+    const rows = resultsCandidateRows([], [batch])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`b1`)
+  })
+
+  it(`keeps the issue's own rows first and never duplicates them`, () => {
+    const own = row(`r3`, `i2`, [{ topic: `Summary`, text: `own` }])
+    const rows = resultsCandidateRows([own], [own, stacker])
+    expect(rows.map((r) => r.id)).toEqual([`r3`, `r1`])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`r3`)
+  })
 })
 
 // EXP-1175: the Run face status row, fixture-locked ×4.
@@ -274,8 +286,26 @@ import {
   runRowCaption,
   runRowState,
   showWorkLabel,
+  turnRowCaption,
   type RunRowState,
 } from "./work-faces"
+
+describe(`turn row without a known end`, () => {
+  it(`drops the duration of a first turn closed only by the next message`, () => {
+    const input = {
+      turn: { startedAt: 1_000, endedAt: 600_000 },
+      state: `done` as RunRowState,
+      device: `MacBook`,
+      runEndedAt: null,
+      now: 700_000,
+    }
+    expect(turnRowCaption({ ...input, endKnown: false })).toEqual({
+      text: `Done on MacBook`,
+      tone: `muted`,
+    })
+    expect(turnRowCaption(input)?.text).toMatch(/^Done on MacBook · /)
+  })
+})
 
 describe(`run row`, () => {
   it(`labels the Show work switch off the fixture`, () => {
@@ -315,4 +345,114 @@ describe(`runRowState`, () => {
       ).toBe(c.expected)
     })
   }
+})
+
+// EXP-1245: one status row per turn, fixture-locked ×4.
+describe(`turnRowCaption`, () => {
+  for (const c of runRowFixture.turnCaptions) {
+    it(c.name, () => {
+      expect(
+        turnRowCaption({
+          turn: c.turn,
+          state: c.state as RunRowState,
+          device: c.device,
+          runEndedAt: c.runEndedAt,
+          now: c.now,
+        })
+      ).toEqual(c.expected)
+    })
+  }
+})
+
+// EXP-1251: the Guide's URL (`?view=guide&section=&file=`, the legacy views
+// normalised into it) and the section page a Changes row opens.
+describe(`the Guide URL`, () => {
+  it(`parses a section: a 1-based number, lead, other, all; garbage = none`, () => {
+    expect(parseGuideSection(`3`)).toBe(3)
+    expect(parseGuideSection(2)).toBe(2)
+    expect(parseGuideSection(`lead`)).toBe(`lead`)
+    expect(parseGuideSection(`other`)).toBe(`other`)
+    expect(parseGuideSection(`all`)).toBe(`all`)
+    expect(parseGuideSection(`0`)).toBeUndefined()
+    expect(parseGuideSection(`1.5`)).toBeUndefined()
+    expect(parseGuideSection(`x`)).toBeUndefined()
+    expect(parseGuideSection(undefined)).toBeUndefined()
+  })
+
+  it(`normalises the legacy views into the Guide`, () => {
+    expect(parseGuideSearch({ view: `results` })).toEqual({ view: `guide` })
+    expect(parseGuideSearch({ view: `diff`, file: `a.ts` })).toEqual({
+      view: `guide`,
+      section: `all`,
+      file: `a.ts`,
+    })
+    expect(parseGuideSearch({ view: `guide`, section: `2`, file: `a.ts` })).toEqual({
+      view: `guide`,
+      section: 2,
+      file: `a.ts`,
+    })
+  })
+
+  it(`drops a file without a section and every key without the Guide`, () => {
+    expect(parseGuideSearch({ view: `guide`, file: `a.ts` })).toEqual({ view: `guide` })
+    expect(parseGuideSearch({ section: `2`, file: `a.ts` })).toEqual({})
+    expect(parseGuideSearch({ view: `changes` })).toEqual({})
+  })
+
+  it(`writes the Guide's search`, () => {
+    expect(guideSearch({ from: `inbox` })).toEqual({ from: `inbox`, view: `guide` })
+    expect(guideSearch({ section: `other`, file: `b.ts` })).toEqual({
+      view: `guide`,
+      section: `other`,
+      file: `b.ts`,
+    })
+    expect(guideSearch({ file: `b.ts` })).toEqual({ view: `guide` })
+  })
+})
+
+describe(`guideSectionPage`, () => {
+  const file = (path: string, additions: number, deletions: number, previousPath?: string) => ({
+    path,
+    previousPath,
+    additions,
+    deletions,
+  })
+  const files = [file(`a.ts`, 3, 1), file(`b.ts`, 5, 0, `old-b.ts`), file(`c.ts`, 1, 1)]
+  const groups = [
+    { topic: `Summary`, files: [] },
+    { topic: `Model`, files: [`a.ts`] },
+    { topic: `Paint`, files: [`old-b.ts`] },
+  ]
+
+  it(`opens a numbered section with its caption and covered files`, () => {
+    expect(guideSectionPage(groups, files, 2)).toEqual({
+      section: 2,
+      caption: `02 / 02`,
+      title: `Paint`,
+      files: [files[1]],
+      additions: 5,
+      deletions: 0,
+    })
+  })
+
+  it(`opens Other changes and the complete diff`, () => {
+    expect(guideSectionPage(groups, files, `other`)?.files).toEqual([files[2]])
+    expect(guideSectionPage(groups, files, `other`)?.title).toBe(`Other changes`)
+    const all = guideSectionPage(groups, files, `all`)
+    expect(all?.files).toHaveLength(3)
+    expect(all?.caption).toBeNull()
+    expect([all?.additions, all?.deletions]).toEqual([9, 2])
+  })
+
+  it(`is null for a stale section or while the diff loads`, () => {
+    // The PR-body fallback is an unnumbered Guide: its page has no caption.
+    expect(guideSectionPage(groups, files, 2, false)?.caption).toBeNull()
+    expect(guideSectionPage(groups, files, 7)).toBeNull()
+    expect(guideSectionPage(groups, null, 1)).toBeNull()
+    expect(guideSectionPage([{ topic: `Model`, files: [`a.ts`, `b.ts`, `c.ts`] }], files, `other`)).toBeNull()
+  })
+
+  it(`with no report the whole diff is one Changes section`, () => {
+    expect(guideSectionPage([], files, `other`)?.title).toBe(`Changes`)
+  })
 })

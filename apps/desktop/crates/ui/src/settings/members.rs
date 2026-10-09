@@ -37,7 +37,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -400,7 +400,7 @@ fn member_actions_menu(
                 // unfinished about this row.
                 if let Some(resend) = resend.clone().filter(|_| i_am_owner && !is_self) {
                     menu = menu.item(
-                        PopupMenuItem::new(resend.status.invite_verb())
+                        crate::controls::pointer_label_item(resend.status.invite_verb(), false)
                             .icon(Icon::new(registry::UI_MAIL))
                             .on_click(move |_, window, cx| {
                                 let resend = resend.clone();
@@ -428,7 +428,7 @@ fn member_actions_menu(
                     let member_id = member_id.clone();
                     let name = name.clone();
                     menu = menu.item(
-                        PopupMenuItem::new(label)
+                        crate::controls::pointer_label_item(label, false)
                             .icon(Icon::new(icon))
                             // EXP-1230: a role change confirms with the
                             // prompts fixture's make-owner / make-member.
@@ -449,7 +449,7 @@ fn member_actions_menu(
                         ("Remove member", registry::UI_REMOVE_MEMBER)
                     };
                     menu = menu.item(
-                        PopupMenuItem::new(label)
+                        crate::controls::pointer_label_item(label, false)
                             .icon(Icon::new(icon))
                             // EXP-771: losing team access is instant and has
                             // no undo — it confirms first, in the web's words.

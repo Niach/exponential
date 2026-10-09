@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { Button, GlassGroup, Progress, conceptIcon, toast } from "@exp/ui"
+import { Button, GlassGroup, Meter, conceptIcon, toast } from "@exp/ui"
 import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
 import {
   DESKTOP_RELEASES_URL,
@@ -327,7 +327,7 @@ export function GettingStartedCards({
             <span className="text-sm whitespace-nowrap text-muted-foreground">
               {done}/{total} done
             </span>
-            <Progress
+            <Meter
               value={total > 0 ? (done / total) * 100 : 0}
               className="max-w-48"
             />

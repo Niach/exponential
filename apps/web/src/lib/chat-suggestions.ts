@@ -1,4 +1,7 @@
-// EXP-820: the chips over the agent page's empty prompt box. A POOL rather
+import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
+
+// EXP-820: the suggestions for the agent page's empty prompt box (EXP-1249:
+// quiet rows under the composer, no longer chips over it). A POOL rather
 // than three fixed chips — the chat is a conversation with an agent that holds
 // the whole product's MCP surface (issues, boards, labels, actions,
 // sessions on other devices, reviews), so the chips are there to SHOW that
@@ -27,9 +30,10 @@ export const CHAT_SUGGESTION_POOL: readonly string[] = [
   `Which issues are blocked, and by what?`,
 ]
 
-/** How many chips a mount shows — enough to read as a range, few enough
- *  to stay one row on a laptop. */
-export const CHAT_SUGGESTION_COUNT = 4
+/** How many a mount shows — EXP-1249: the quiet rows under the composer,
+ *  enough to read as a range, few enough not to push the page around
+ *  (`composer-menu.json` `suggestions.count`, ×4). */
+export const CHAT_SUGGESTION_COUNT: number = composerMenu.suggestions.count
 
 /** `count` distinct suggestions drawn from the pool, in pool order, using
  *  `random` (`Math.random` by default; a seeded function in tests). */

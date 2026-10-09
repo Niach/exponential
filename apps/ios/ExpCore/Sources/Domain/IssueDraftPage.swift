@@ -10,10 +10,9 @@ public enum IssueDraftPage {
     public static let header = "New issue"
     public static let titlePlaceholder = "Issue title"
     public static let descriptionPlaceholder = "Add description..."
-    /// The trailing primary button.
+    /// The trailing primary button — alone: EXP-1247 dropped the close
+    /// button and its confirm ×4 (discarding is the leave prompt's answer).
     public static let create = "Create"
-    /// The close button's accessibility label (EXP-1191).
-    public static let discard = "Discard draft"
     /// A draft with no title, in the Drafts list (and the collapsed header).
     public static let untitled = "Untitled draft"
     /// One coalesced `issueDrafts.upsert` this long after the last
@@ -25,15 +24,7 @@ public enum IssueDraftPage {
     /// discarded elsewhere (a row back within it = a resync; editing resumes).
     public static let discardedGraceMs: Double = 3000
 
-    /// EXP-1212: the close button on a draft WITH content asks first.
-    public enum DiscardConfirm {
-        /// The prompt's ONE line: the question, no body.
-        public static let title = "Discard this draft and its files?"
-        /// The destructive answer; the other is the platform's Cancel.
-        public static let confirm = "Discard"
-    }
-
-    /// EXP-1212: leaving a draft WITH content any other way is HELD and asks.
+    /// EXP-1212: leaving a draft WITH content is HELD and asks.
     public enum Leave {
         /// The prompt's ONE line: the question, no body.
         public static let title = "Save this issue as a draft?"
@@ -49,18 +40,15 @@ public enum IssueDraftPage {
 
     /// How the page is being left.
     public enum Exit: Equatable, Sendable {
-        /// The close (`×`) button.
-        case discard
-        /// Any other way out: Back, a tab, a pushed screen, a link.
+        /// Any way out: Back, a tab, a pushed screen, a link.
         case leave
-        /// The page's own exits: a successful Create, a confirmed Discard.
+        /// The page's own exits: a successful Create, a leave-prompt Discard.
         case own
     }
 
     /// What the page asks before an exit goes through.
     public enum Prompt: Equatable, Sendable {
         case none
-        case discardConfirm
         case leave
     }
 
@@ -104,12 +92,11 @@ public enum IssueDraftPage {
     }
 
     /// EXP-1212: a draft with no content never asks (it goes and is deleted
-    /// as before); one with content asks on Discard and on leaving; the
-    /// page's own exits never ask.
+    /// as before); one with content asks on leaving; the page's own exits
+    /// never ask.
     public static func prompt(for exit: Exit, hasContent: Bool) -> Prompt {
         guard hasContent else { return .none }
         switch exit {
-        case .discard: return .discardConfirm
         case .leave: return .leave
         case .own: return .none
         }

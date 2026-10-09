@@ -679,14 +679,6 @@ pub(crate) fn plan_branch_takeover<H>(
     BranchTakeover::Close(claims.into_iter().map(|claim| claim.handle).collect())
 }
 
-/// The local session for `issue_id`, if this process is coding it right now.
-pub fn local_session_for<'a>(
-    sessions: &'a LocalSessions,
-    issue_id: &str,
-) -> Option<&'a LocalCodingSession> {
-    sessions.get(issue_id)
-}
-
 /// In-flight best-effort `codingSessions.end` calls (count + wakeup). The
 /// watcher threads are fire-and-forget in steady state, but on a non-macOS
 /// last-window-close quit the release CASCADE runs before the quit

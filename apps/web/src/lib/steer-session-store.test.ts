@@ -919,21 +919,40 @@ describe(`draft`, () => {
     store.dispose()
   })
 
-  it(`rejects oversized/non-image files and over-cap extras with counts`, () => {
+  it(`stages any file beside images, rejects oversize and over-cap extras with counts`, () => {
     const { store } = makeStore()
     const notImage = new File([`x`], `a.txt`, { type: `text/plain` })
     expect(store.addDraftImages([notImage])).toEqual({
-      rejected: 1,
+      rejected: 0,
       overflow: 0,
-      added: 0,
+      fileOverflow: 0,
+      added: 1,
+      addedImages: 0,
     })
+    expect(store.getDraftSnapshot().images[0]!.kind).toBe(`file`)
+    const huge = new File([`x`], `huge.zip`, { type: `application/zip` })
+    Object.defineProperty(huge, `size`, { value: 51 * 1024 * 1024 })
+    expect(store.addDraftImages([huge]).rejected).toBe(1)
     const many = [1, 2, 3, 4, 5].map((n) => image(`${n}.png`))
     const result = store.addDraftImages(many)
     expect(result.rejected).toBe(0)
     expect(result.overflow).toBeGreaterThan(0)
-    // `added` is what the composer numbers its `[Image #N]` markers from
-    // (EXP-698) — the over-cap extras never joined the strip.
+    // `addedImages` is what the composer numbers its `[Image #N]` markers
+    // from (EXP-698) — the over-cap extras never joined the strip.
+    expect(result.addedImages).toBe(MAX_STEER_IMAGES)
     expect(result.added).toBe(MAX_STEER_IMAGES)
+    store.dispose()
+  })
+
+  it(`stamps the server filename on an uploaded file`, () => {
+    const { store } = makeStore()
+    store.addDraftImages([new File([`x`], `a b.pdf`, { type: `application/pdf` })])
+    const url = store.getDraftSnapshot().images[0]!.url
+    store.setDraftImageUploaded(url, `f1`, `a b.pdf`)
+    expect(store.getDraftSnapshot().images[0]).toMatchObject({
+      uploadedId: `f1`,
+      uploadedName: `a b.pdf`,
+    })
     store.dispose()
   })
 

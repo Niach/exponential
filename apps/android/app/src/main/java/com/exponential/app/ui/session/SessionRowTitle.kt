@@ -1,58 +1,13 @@
 package com.exponential.app.ui.session
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.ISSUE_SYNCING_TITLE
 import com.exponential.app.domain.batchRunName
 import com.exponential.app.domain.pastRunTitle
-import com.exponential.app.ui.theme.TextEmphasis
 
-// EXP-688: a coding session's IDENTITY line — mono identifier, what the run
-// is about. EXP-1208: the run mark that leads a session row lives OUTSIDE
-// this line (the row's own lead), so the sub-lines align under the title.
-
-/** One session's identity line. */
-@Composable
-internal fun SessionRowTitle(
-    /** The issue's shortcode — null for a non-issue run, which prints none. */
-    identifier: String?,
-    title: String,
-    modifier: Modifier = Modifier,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-        if (identifier != null) {
-            Text(
-                identifier,
-                style = MaterialTheme.typography.labelMedium,
-                fontFamily = FontFamily.Monospace,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-            )
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-    }
-}
+// EXP-688: a coding session's IDENTITY: the identifier and title helpers
+// every session row (SessionRow, WorkScreen) reads.
 
 /** EXP-874: the issue shortcode for an issue run; EXP-876: a batch's
  *  `EXP-874 +2`, off the issues it covers ([batchIssues]; empty on a surface

@@ -22,8 +22,24 @@ export function SidebarBackRow({
   /** Where back goes — "Settings", the board's name, "Inbox", "Support",
    *  "Agent", "Reviews". */
   label: string
-  onBack: () => void
+  /** EXP-1246: absent on a list SCREEN (the md+ Inbox page) — the row is the
+   *  list's plain title there, the compact rail beside it is the way out. */
+  onBack?: () => void
 }) {
+  if (!onBack) {
+    return (
+      <>
+        <SidebarHeader className="p-2">
+          <div className="flex h-10 items-center px-2">
+            <span className="min-w-0 truncate text-sm font-semibold">
+              {label}
+            </span>
+          </div>
+        </SidebarHeader>
+        <Separator />
+      </>
+    )
+  }
   return (
     <>
       <SidebarHeader className="p-2">

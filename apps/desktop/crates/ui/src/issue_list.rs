@@ -21,6 +21,7 @@
 //! dropdown cells `stop_propagation` so opening them never triggers the
 //! row's click→detail navigation (§4.6's #1 bug source).
 
+use crate::controls::PointerContextMenuExt as _;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -33,7 +34,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
     v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Side, Sizable as _,
     VirtualListScrollHandle,
@@ -578,60 +579,20 @@ impl IssueListView {
         collapsed: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let chevron = if collapsed {
-            registry::UI_CHEVRON_RIGHT
-        } else {
-            registry::UI_CHEVRON_DOWN
-        };
         let group_key = status.group_key.clone();
-
-        h_flex()
-            .h(px(HEADER_HEIGHT))
-            .w_full()
-            .px_3()
-            .gap_1p5()
-            .items_center()
-            // EXP-293: a wash in the status' hue so the header reads as a group
-            // divider and not as one more issue row (the hairline alone was too
-            // little). Web parity — `statusHeaderBg` in issue-list.tsx.
-            .bg(status_header_tint(&status.tint))
-            .border_b_1()
-            .border_color(cx.theme().border.opacity(0.5))
-            .child(
-                // EXP-698 round 5: a BARE chevron — a group header is
-                // structure, not an action, so the disclosure carries no
-                // glass circle on any client (web renders a ghost button,
-                // the steer viewer's section headers the same bare glyph).
-                // The 24px box is the hit target.
-                div()
-                    .id(header_id("collapse", &status.group_key))
-                    .cursor_pointer()
-                    .size(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        Icon::new(chevron)
-                            .xsmall()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.toggle_group(group_key.clone(), cx);
-                    })),
-            )
-            .child(resolved_status_icon(status, cx).xsmall())
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(status.name.clone())),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(count.to_string())),
-            )
+        // Wave D: THE group band (web `IssueGroupBand`); the whole band is
+        // the fold target, like the web's fold button.
+        issue_group_band(
+            header_id("collapse", &status.group_key),
+            status,
+            count,
+            collapsed,
+            BandDensity::List,
+            cx,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.toggle_group(group_key.clone(), cx);
+        }))
     }
 
     /// The web row grid at compact density: priority · identifier · status ·
@@ -823,7 +784,7 @@ impl IssueListView {
                 cx,
             ))
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
-            .context_menu(move |menu, window, cx| {
+            .pointer_context_menu(move |menu, window, cx| {
                 build_row_context_menu(
                     menu,
                     &menu_issue,
@@ -1922,7 +1883,7 @@ fn assignee_menu(
     if current.is_some() {
         let issue_id = issue_id.to_string();
         menu = menu.item(
-            PopupMenuItem::new("Unassign")
+            crate::controls::pointer_label_item("Unassign", false)
                 .icon(Icon::new(registry::UI_CLOSE))
                 .on_click(move |_, _, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -2014,7 +1975,7 @@ pub(crate) fn build_row_context_menu(
     {
         let issue_id = issue.id.clone();
         menu = menu.item(
-            PopupMenuItem::new("Open issue")
+            crate::controls::pointer_label_item("Open issue", false)
                 .icon(Icon::from(ExpIcon::Pencil))
                 .on_click(move |_, window, cx| {
                     open_issue_from_list(window, cx, issue_id.clone(), origin.clone());
@@ -2035,7 +1996,7 @@ pub(crate) fn build_row_context_menu(
             ("Mark as done", ExpIcon::CircleCheck)
         };
         let issue_id = issue.id.clone();
-        menu = menu.item(PopupMenuItem::new(label).icon(Icon::from(icon)).on_click(
+        menu = menu.item(crate::controls::pointer_label_item(label, false).icon(Icon::from(icon)).on_click(
             move |_, _, cx| {
                 let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                 input.status = Some(if is_done {
@@ -2052,7 +2013,7 @@ pub(crate) fn build_row_context_menu(
     {
         let identifier = issue.identifier.clone();
         menu = menu.item(
-            PopupMenuItem::new("Copy issue ID")
+            crate::controls::pointer_label_item("Copy issue ID", false)
                 .icon(Icon::from(ExpIcon::Copy))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(identifier.clone()));
@@ -2067,7 +2028,7 @@ pub(crate) fn build_row_context_menu(
     if issue.duplicate_of_id.is_some() {
         let issue_id = issue.id.clone();
         menu = menu.item(
-            PopupMenuItem::new("Unmark duplicate")
+            crate::controls::pointer_label_item("Unmark duplicate", false)
                 .icon(Icon::new(registry::UI_UNDO))
                 .on_click(move |_, _, cx| {
                     // Server restores the prior status and clears the link.
@@ -2195,15 +2156,18 @@ pub(crate) fn build_row_context_menu(
                 let label_id = label.id.clone();
                 menu = menu.item(
                     PopupMenuItem::element(move |_, cx| {
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
-                            .child(
-                                div()
-                                    .text_color(cx.theme().popover_foreground)
-                                    .child(name.clone()),
-                            )
+                        crate::controls::pointer_fill(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().popover_foreground)
+                                        .child(name.clone()),
+                                ),
+                            false,
+                        )
                     })
                     .checked(checked)
                     .on_click(move |_, _, cx| {
@@ -2241,7 +2205,7 @@ pub(crate) fn build_row_context_menu(
                 let checked = due.as_deref() == Some(formatted.as_str());
                 let issue_id = issue_id.clone();
                 menu = menu.item(
-                    PopupMenuItem::new(label)
+                    crate::controls::pointer_label_item(label, false)
                         .icon(Icon::from(ExpIcon::CalendarDays))
                         .checked(checked)
                         .on_click(move |_, _, cx| {
@@ -2256,7 +2220,7 @@ pub(crate) fn build_row_context_menu(
                 let issue_id = issue_id.clone();
                 // EXP-697: no dividers in menus.
                 menu = menu.item(
-                    PopupMenuItem::new("Clear due date")
+                    crate::controls::pointer_label_item("Clear due date", false)
                         .icon(Icon::new(registry::UI_CLOSE))
                         .on_click(move |_, _, cx| {
                             let mut input =
@@ -2414,15 +2378,18 @@ pub(crate) fn move_to_board_menu(
         let target_name = board.name.clone();
         menu = menu.item(
             PopupMenuItem::element(move |_, cx| {
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(icon.clone().xsmall())
-                    .child(
-                        div()
-                            .text_color(cx.theme().popover_foreground)
-                            .child(name.clone()),
-                    )
+                crate::controls::pointer_fill(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(icon.clone().xsmall())
+                        .child(
+                            div()
+                                .text_color(cx.theme().popover_foreground)
+                                .child(name.clone()),
+                        ),
+                    is_current,
+                )
             })
             .checked(is_current)
             .disabled(is_current)
@@ -2722,6 +2689,100 @@ pub(crate) fn row_id(kind: &str, issue_id: &str) -> ElementId {
 
 /// Stable per-group element id: `{kind}-{group_key}` (EXP-314 — a status ROW
 /// id, or `builtin:<key>` before the statuses shape syncs).
+/// The two densities of [`issue_group_band`] (web `IssueGroupBand`
+/// `density`): the full list's 28px band and the narrow side list's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BandDensity {
+    List,
+    Compact,
+}
+
+/// Wave D — THE issue status group band (the web `IssueGroupBand` twin):
+/// a bare disclosure chevron, the status glyph, its name and the group's
+/// count over a wash in the status' own hue (EXP-293). The WHOLE band is the
+/// fold target (EXP-862 ×4: the chevron is a marker, not a separate button);
+/// the caller hangs its toggle off the returned element. The full board list
+/// and the side list both draw it, at their own density.
+pub(crate) fn issue_group_band(
+    id: impl Into<ElementId>,
+    status: &ResolvedStatus,
+    count: usize,
+    collapsed: bool,
+    density: BandDensity,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let chevron = if collapsed {
+        registry::UI_CHEVRON_RIGHT
+    } else {
+        registry::UI_CHEVRON_DOWN
+    };
+    let muted = cx.theme().muted_foreground;
+    let band = h_flex()
+        .id(id)
+        .w_full()
+        .gap_1p5()
+        .items_center()
+        .cursor_pointer();
+    match density {
+        BandDensity::List => band
+            .h(px(HEADER_HEIGHT))
+            .px_3()
+            .bg(status_header_tint(&status.tint))
+            .border_b_1()
+            .border_color(cx.theme().border.opacity(0.5))
+            .child(
+                // EXP-698 round 5: a BARE chevron in its 24px box.
+                div()
+                    .size(px(24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(Icon::new(chevron).xsmall().text_color(muted)),
+            )
+            .child(resolved_status_icon(status, cx).xsmall())
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(SharedString::from(status.name.clone())),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(count.to_string())),
+            ),
+        BandDensity::Compact => band
+            .h(px(24.))
+            .px_1p5()
+            .rounded(cx.theme().radius)
+            .bg(crate::icons::status_tint_color(&status.tint, cx).opacity(0.07))
+            .child(
+                Icon::new(chevron)
+                    .with_size(px(12.))
+                    .flex_shrink_0()
+                    .text_color(muted),
+            )
+            .child(resolved_status_icon(status, cx).xsmall())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(SharedString::from(status.name.clone())),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(count.to_string())),
+            ),
+    }
+}
+
 fn header_id(kind: &str, group_key: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{group_key}")))
 }

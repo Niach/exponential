@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,7 +38,6 @@ import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassSectionBand
 
 // EXP-916 — the phone's file COLUMN, as the TREE every other client lists
 // beside its cards (web `FileDiffTree`, desktop `domain::diff_tree`, iOS
@@ -91,12 +92,9 @@ fun DiffFileTree(
         out
     }
     Column(modifier = modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .glassSectionBand()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+        SectionBand(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
                 summary,

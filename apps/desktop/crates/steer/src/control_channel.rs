@@ -178,12 +178,25 @@ pub struct RemoteStart {
     /// own launch default; a BLANK string is the deliberate "the CLI's own
     /// default" pick. Dropped on a resume, like the other launch options.
     pub subagent_model: Option<String>,
+    /// EXP-1249: computer use for THIS run; `None` = the machine's own
+    /// switch. Dropped on a resume (the run keeps what the device says).
+    pub computer_use: Option<bool>,
     /// FEED-63: the frame's `startId`, the server's id for this start
     /// attempt. When set, a machine that refuses or fails the start reports
     /// the reason with `steer.reportStartFailure`. Set after
     /// [`remote_start_from_frame`]; `None` on pre-FEED-63
     /// frames.
     pub start_id: Option<String>,
+}
+
+/// EXP-1249: the frame's per-run `computerUse`, kept for a fresh start and
+/// dropped on a resume (like every other launch option there: the resumed
+/// run takes what the machine says).
+pub(crate) fn start_computer_use(start: &RemoteStart, computer_use: Option<bool>) -> Option<bool> {
+    match start.subject {
+        RemoteStartSubject::Resume { .. } => None,
+        _ => computer_use,
+    }
 }
 
 /// FEED-63: the reason a duplicate `start_session` frame is dropped with.
@@ -289,6 +302,7 @@ pub(crate) fn remote_start_from_frame(
             resume: false,
             prompt: None,
             subagent_model: None,
+            computer_use: None,
             start_id: None,
         });
     }
@@ -324,6 +338,7 @@ pub(crate) fn remote_start_from_frame(
         resume,
         prompt,
         subagent_model,
+        computer_use: None,
         start_id: None,
     })
 }
@@ -698,6 +713,7 @@ async fn connect_and_listen(
                             account,
                             prompt,
                             subagent_model,
+                            computer_use,
                             start_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
@@ -707,6 +723,7 @@ async fn connect_and_listen(
                         ) {
                             Some(mut start) => {
                                 start.start_id = start_id;
+                                start.computer_use = start_computer_use(&start, computer_use);
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -796,6 +813,43 @@ mod tests {
             full_name: "acme/api".into(),
             default_branch: "main".into(),
         }
+    }
+
+    /// EXP-1249: a fresh start keeps the frame's per-run computer-use flag;
+    /// a resume drops it like every other launch option.
+    #[test]
+    fn a_resume_drops_the_computer_use_flag() {
+        let frame = |resume: Option<&str>| {
+            remote_start_from_frame(
+                resume.is_none().then(|| "issue-9".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                resume.map(str::to_string),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("a conforming frame")
+        };
+        let fresh = frame(None);
+        assert_eq!(start_computer_use(&fresh, Some(true)), Some(true));
+        assert_eq!(start_computer_use(&fresh, Some(false)), Some(false));
+        assert_eq!(start_computer_use(&fresh, None), None);
+        let resumed = frame(Some("sess-old"));
+        assert_eq!(start_computer_use(&resumed, Some(true)), None);
     }
 
     /// EXP-637: a resume is its OWN subject. It excludes every other one,
@@ -974,6 +1028,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );
@@ -1019,6 +1074,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );
@@ -1074,6 +1130,7 @@ mod tests {
                 resume: false,
                 prompt: Some("what does trunk_sync do?".into()),
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );
@@ -1118,6 +1175,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );
@@ -1336,6 +1394,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );
@@ -1435,6 +1494,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 subagent_model: None,
+                computer_use: None,
                 start_id: None,
             })
         );

@@ -1,10 +1,11 @@
 import {
   AgentPickerTabs,
-  Combobox,
+  EffortPicker,
+  ModelPicker,
   conceptIcon,
   GlassGroup,
   GlassToggleRow,
-  type PickerOption,
+  type ValueChoice,
 } from "@exp/ui"
 import {
   agentAllowsBlankModel,
@@ -145,7 +146,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const modelSentinel = CLI_DEFAULT_MODEL
   const effortSentinel = CLI_DEFAULT_EFFORT
   const sentinelLabel = `CLI default`
-  const modelOptions: PickerOption[] = [
+  const modelOptions: ValueChoice[] = [
     ...(trigger || agentAllowsBlankModel(agent)
       ? [{ value: modelSentinel, label: sentinelLabel }]
       : []),
@@ -156,7 +157,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         }))
       : []),
   ]
-  const effortOptions: PickerOption[] = [
+  const effortOptions: ValueChoice[] = [
     { value: effortSentinel, label: sentinelLabel },
     ...(pinned
       ? agentEffortValues(agent).map((value) => ({
@@ -191,37 +192,32 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         notReady={deviceAgentNotReady(device, agent)}
         className="block px-4 py-2 text-[0.6875rem] text-muted-foreground"
       />
-      <Combobox
+      <ModelPicker
         triggerVariant="row"
-        searchable={false}
-        mobileTitle="Model"
+        width="md"
         value={model === `` ? modelSentinel : model}
-        onChange={(value) => {
-          if (value !== null) {
-            onModelChange(value === modelSentinel ? `` : value)
-          }
-        }}
-        options={modelOptions}
+        onChange={(value) =>
+          onModelChange(value === modelSentinel ? `` : value)
+        }
+        models={modelOptions}
         disabled={!pinned}
       />
       {onSubagentModelChange && agentSupportsSubagentModel(agent) && (
         /* EXP-981: claude only — the model its SUBAGENTS run on. Blank is the
            CLI's own default, which is what most machines want. */
-        <Combobox
+        <ModelPicker
           triggerVariant="row"
-          searchable={false}
+          width="md"
           mobileTitle="Subagent model"
           value={
             subagentModel === undefined || subagentModel === ``
               ? modelSentinel
               : subagentModel
           }
-          onChange={(value) => {
-            if (value !== null) {
-              onSubagentModelChange(value === modelSentinel ? `` : value)
-            }
-          }}
-          options={[
+          onChange={(value) =>
+            onSubagentModelChange(value === modelSentinel ? `` : value)
+          }
+          models={[
             { value: modelSentinel, label: `Default` },
             ...contract.codingModel.values.map((value) => ({
               value,
@@ -230,17 +226,13 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           ]}
         />
       )}
-      <Combobox
-        triggerVariant="row"
-        searchable={false}
+      <EffortPicker
         mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
         value={effortValue === `` ? effortSentinel : effortValue}
-        onChange={(value) => {
-          if (value !== null) {
-            onEffortChange(trigger && value === effortSentinel ? `` : value)
-          }
-        }}
-        options={effortOptions}
+        onChange={(value) =>
+          onEffortChange(trigger && value === effortSentinel ? `` : value)
+        }
+        efforts={effortOptions}
         disabled={
           trigger
             ? !pinned

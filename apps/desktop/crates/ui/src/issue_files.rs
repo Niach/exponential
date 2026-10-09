@@ -11,7 +11,9 @@
 //! link on its own paragraph (`[clip.mp4](/api/attachments/{id})`) and render
 //! as a media tile, never listed here either. EVERYTHING else (pdf/zip/plain
 //! text, and also non-inline `image/*` types like tiff or svg) belongs to the
-//! Files section. Web, iOS and Android apply the identical rules.
+//! Files section. EXP-1247: a row uploaded through a FILE button carries
+//! `as_file` and is never inline, whatever its type ([`is_file_row`]). Web,
+//! iOS and Android apply the identical rules.
 //!
 //! Nothing here talks to the network: uploads/downloads go through the
 //! [`crate::markdown::AttachmentTransport`] and deletion through
@@ -94,6 +96,17 @@ pub(crate) fn format_duration(duration_ms: i64) -> String {
     }
 }
 
+/// EXP-1247: the row's file-mode marker (`None` on an older server = false).
+pub(crate) fn is_as_file(attachment: &Attachment) -> bool {
+    attachment.as_file == Some(true)
+}
+
+/// EXP-1247: the row-aware rule ×4 (web `isFileAttachment(row)`): a Files
+/// row is any non-inline type OR an `as_file` upload.
+pub(crate) fn is_file_row(content_type: Option<&str>, as_file: bool) -> bool {
+    as_file || !(is_inline_image(content_type) || is_inline_media(content_type))
+}
+
 /// How a just-uploaded file joins the DESCRIPTION (EXP-316 images, EXP-824
 /// media) — `None` means it stays a Files row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +115,15 @@ pub(crate) enum DescriptionEmbed {
     Image,
     /// `[filename](url)` on its own paragraph — the inline-media form.
     Media,
+}
+
+/// EXP-1247: an `as_file` upload (a file button's pick) never embeds.
+pub(crate) fn description_embed_for(content_type: &str, as_file: bool) -> Option<DescriptionEmbed> {
+    if as_file {
+        None
+    } else {
+        description_embed(content_type)
+    }
 }
 
 pub(crate) fn description_embed(content_type: &str) -> Option<DescriptionEmbed> {
@@ -128,7 +150,7 @@ pub(crate) fn description_fragment(
     }
 }
 
-/// The issue's FILE attachments (non-inline-image, non-media rows) from the synced
+/// The issue's FILE attachments ([`is_file_row`]) from the synced
 /// `attachments` shape, oldest first — the exact list the Files section
 /// renders. Reads the collection the same way
 /// `markdown::attachment_natural_size` does, so an Electric delta re-renders
@@ -148,8 +170,9 @@ pub(crate) fn file_attachments(issue_id: &str, cx: &App) -> Vec<Attachment> {
         .iter()
         .filter(|attachment| attachment.issue_id.as_deref() == Some(issue_id))
         .filter(|attachment| attachment.comment_id.is_none())
-        .filter(|attachment| !is_inline_image(attachment.content_type.as_deref()))
-        .filter(|attachment| !is_inline_media(attachment.content_type.as_deref()))
+        .filter(|attachment| {
+            is_file_row(attachment.content_type.as_deref(), is_as_file(attachment))
+        })
         .cloned()
         .collect();
     // `created_at` is an ISO-8601 UTC string — lexicographic order is
@@ -983,6 +1006,20 @@ mod tests {
         assert_eq!(MARKDOWN_PREVIEW_MAX_BYTES, 1_048_576);
     }
 
+    /// EXP-1247: an `as_file` image is a Files row and never embeds; a
+    /// plain inline image/clip stays out of the list.
+    #[test]
+    fn an_as_file_upload_is_a_files_row_and_never_embeds() {
+        assert!(!is_file_row(Some("image/png"), false));
+        assert!(!is_file_row(Some("video/mp4"), false));
+        assert!(is_file_row(Some("image/png"), true));
+        assert!(is_file_row(Some("video/mp4"), true));
+        assert!(is_file_row(Some("application/pdf"), false));
+        assert_eq!(description_embed_for("image/png", true), None);
+        assert_eq!(description_embed_for("image/png", false), Some(DescriptionEmbed::Image));
+        assert_eq!(description_embed_for("audio/mpeg", false), Some(DescriptionEmbed::Media));
+    }
+
     #[test]
     fn labels_fall_back_when_the_filename_is_missing() {
         let mut attachment = Attachment {
@@ -1001,6 +1038,7 @@ mod tests {
             height: None,
             duration_ms: None,
             poster_storage_key: None,
+            as_file: None,
             created_at: None,
             updated_at: None,
         };

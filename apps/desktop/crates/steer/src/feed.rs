@@ -498,13 +498,67 @@ impl AnswerState {
 // The feed
 // ---------------------------------------------------------------------------
 
+/// EXP-1245 — one fact of the owner's per-turn thread, in arrival order: a
+/// person's message (main transcript only) or a turn edge, each with the
+/// publisher's time (unix ms; this client's clock for a local echo). The
+/// twin of the web `SessionTurnEvent`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnEdge {
+    Message { at: i64, text: String },
+    Started { at: i64 },
+    Ended { at: i64 },
+}
+
+/// The most edges [`SteerFeed::turn_log`] keeps (oldest dropped first).
+const TURN_LOG_CAP: usize = 512;
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// EXP-1245 — the turn log after a replay swap that RETAINED an EXP-783
+/// prefix: the prior edges older than the replay's first (the prefix's,
+/// which the replay does not carry; every prior edge when it logged none)
+/// then the replay's own. Messages sent while the replay staged are left
+/// out: the replay carries them or the commit re-logs them. Pure.
+fn retained_turn_edges(
+    prior: Vec<TurnEdge>,
+    replay: Vec<TurnEdge>,
+    staged_echoes: &[(String, i64)],
+) -> Vec<TurnEdge> {
+    let at = |edge: &TurnEdge| match edge {
+        TurnEdge::Message { at, .. } | TurnEdge::Started { at } | TurnEdge::Ended { at } => *at,
+    };
+    let cutoff = replay.first().map(at);
+    let mut log: Vec<TurnEdge> = prior
+        .into_iter()
+        .filter(|edge| cutoff.is_none_or(|cutoff| at(edge) < cutoff))
+        .filter(|edge| match edge {
+            TurnEdge::Message { at, text } => !staged_echoes
+                .iter()
+                .any(|(echo, echo_at)| echo == text && echo_at == at),
+            _ => true,
+        })
+        .collect();
+    log.extend(replay);
+    if log.len() > TURN_LOG_CAP {
+        let over = log.len() - TURN_LOG_CAP;
+        log.drain(..over);
+    }
+    log
+}
+
 /// The staged half of an EXP-656 replay swap.
 #[derive(Default)]
 struct Staged {
     events: Vec<(Option<u64>, ActivityEvent)>,
     /// Messages sent WHILE the replay was staging: the replay predates them,
-    /// so the commit re-appends whatever it did not carry back.
-    local_echoes: Vec<String>,
+    /// so the commit re-appends (and re-logs, at its send time) whatever it
+    /// did not carry back.
+    local_echoes: Vec<(String, i64)>,
 }
 
 /// The viewer's whole rendering state. Feed it frames, read it for rendering.
@@ -532,6 +586,9 @@ pub struct SteerFeed {
     /// it has produced, off the same slot — the working caption's inputs.
     turn_started_at: Option<i64>,
     turn_tokens: Option<u64>,
+    /// EXP-1245: the person's messages and the turn EDGES, in order — what
+    /// the owner's thread splits into turns (the slot above is latest-wins).
+    turn_log: Vec<TurnEdge>,
     /// EXP-850 §2: the background-task strip, latest-wins whole.
     background_tasks: Vec<crate::frames::BackgroundTask>,
     /// EXP-927: the agent's own task list, latest-wins whole.
@@ -832,6 +889,18 @@ impl SteerFeed {
             }
             scratch.apply_seq(seq, event);
         }
+        // EXP-1245: the page's messages and turn edges join the owner's
+        // thread input too (all older than anything logged so far).
+        if !scratch.turn_log.is_empty() {
+            let mut log = std::mem::take(&mut scratch.turn_log);
+            log.append(&mut self.turn_log);
+            self.turn_log = log;
+            if self.turn_log.len() > TURN_LOG_CAP {
+                // The cap keeps the NEWEST edges, as `log_turn_edge` does.
+                let over = self.turn_log.len() - TURN_LOG_CAP;
+                self.turn_log.drain(..over);
+            }
+        }
         if scratch.items.is_empty() {
             return 0;
         }
@@ -879,15 +948,31 @@ impl SteerFeed {
     pub fn push_local_message(&mut self, text: &str) -> FeedItemId {
         self.touch();
         self.push_echo(text);
+        let at = now_ms();
         if let Some(staged) = self.staged.as_mut() {
             // The replay predates this message; the commit re-appends it if
             // the replay did not carry it back.
-            staged.local_echoes.push(text.to_string());
+            staged.local_echoes.push((text.to_string(), at));
         }
+        self.log_turn_edge(TurnEdge::Message { at, text: text.to_string() });
         self.push_item(FeedKind::UserMessage {
             text: text.to_string(),
             subagent_id: None,
         })
+    }
+
+    /// EXP-1245: the owner's thread input — every main-transcript message
+    /// and turn edge so far, oldest first.
+    pub fn turn_log(&self) -> &[TurnEdge] {
+        &self.turn_log
+    }
+
+    fn log_turn_edge(&mut self, edge: TurnEdge) {
+        self.turn_log.push(edge);
+        if self.turn_log.len() > TURN_LOG_CAP {
+            let over = self.turn_log.len() - TURN_LOG_CAP;
+            self.turn_log.drain(..over);
+        }
     }
 
     /// Record a local echo WITHOUT rendering anything — for a message whose
@@ -1159,15 +1244,21 @@ impl SteerFeed {
                 self.trim();
             }
             ActivityEvent::UserMessage {
-                text, subagent_id, ..
+                text, subagent_id, at,
             } => {
                 if text.trim().is_empty() {
                     return;
                 }
                 // A message this client just sent was already echoed locally
-                // — skip its transcript-derived twin.
+                // (and logged) — skip its transcript-derived twin.
                 if self.consume_echo(&text) {
                     return;
+                }
+                if subagent_id.is_none() {
+                    self.log_turn_edge(TurnEdge::Message {
+                        at: at.unwrap_or_else(now_ms),
+                        text: text.clone(),
+                    });
                 }
                 self.push_item(FeedKind::UserMessage { text, subagent_id });
             }
@@ -1363,8 +1454,18 @@ impl SteerFeed {
                 state,
                 started_at,
                 tokens,
-                ..
+                at,
             } => {
+                let started = crate::frames::TurnState::Started;
+                let new_turn = state == started
+                    && (self.turn_state != started
+                        || (started_at.is_some() && started_at != self.turn_started_at));
+                if new_turn {
+                    let at = started_at.or(at).unwrap_or_else(now_ms);
+                    self.log_turn_edge(TurnEdge::Started { at });
+                } else if state != started && self.turn_state == started {
+                    self.log_turn_edge(TurnEdge::Ended { at: at.unwrap_or_else(now_ms) });
+                }
                 if state == crate::frames::TurnState::Started
                     && started_at.is_some()
                     && started_at != self.turn_started_at
@@ -1529,6 +1630,9 @@ impl SteerFeed {
         // EXP-848: a swap with no `turn` in its replay means nobody has said
         // the agent is working, which is exactly `Ended`.
         self.turn_state = crate::frames::TurnState::default();
+        // EXP-1245: the replay re-logs the turns it carries; the retained
+        // prefix's edges (older than the replay's first) are kept below.
+        let prior_log = std::mem::take(&mut self.turn_log);
         self.answers.clear();
         self.echoes.clear();
         if let Some(anchor) = anchor_id {
@@ -1549,13 +1653,19 @@ impl SteerFeed {
             self.handle_activity(event);
             self.seq = None;
         }
-        for text in staged.local_echoes {
+        if retained_next_id.is_some() {
+            let replay = std::mem::take(&mut self.turn_log);
+            self.turn_log = retained_turn_edges(prior_log, replay, &staged.local_echoes);
+        }
+        for (text, at) in staged.local_echoes {
             if self.tail_carries_echo(&text) {
                 continue;
             }
             // Not in the replay: re-show it, and re-arm the dedupe so its
-            // transcript-derived twin doesn't render a second copy.
+            // transcript-derived twin doesn't render a second copy — which
+            // is why it is logged HERE (the twin never will be).
             self.push_echo(&text);
+            self.log_turn_edge(TurnEdge::Message { at, text: text.clone() });
             self.push_item(FeedKind::UserMessage {
                 text,
                 subagent_id: None,
@@ -3119,6 +3229,112 @@ mod tests {
     }
 
     // ── EXP-848: the turn slot ─────────────────────────────────────────────
+
+    /// EXP-1245: the owner's thread input — main-transcript messages and
+    /// the turn EDGES (a republished identical edge logs nothing), with the
+    /// publisher's time.
+    #[test]
+    fn the_turn_log_records_messages_and_edges() {
+        use crate::frames::TurnState;
+        let turn = |state: TurnState, started_at: Option<i64>, at: Option<i64>| ActivityEvent::Turn {
+            state,
+            started_at,
+            tokens: None,
+            at,
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply(turn(TurnState::Started, Some(1_000), Some(1_000)));
+        feed.apply(turn(TurnState::Started, Some(1_000), Some(1_500)));
+        feed.apply(turn(TurnState::Ended, Some(1_000), Some(2_000)));
+        feed.apply(turn(TurnState::Ended, Some(1_000), Some(2_100)));
+        feed.apply(ActivityEvent::UserMessage { text: "next".into(), subagent_id: None, at: Some(3_000) });
+        feed.apply(ActivityEvent::UserMessage {
+            text: "to the subagent".into(),
+            subagent_id: Some("s1".into()),
+            at: Some(3_100),
+        });
+        feed.apply(turn(TurnState::Started, Some(3_010), Some(3_010)));
+        assert_eq!(
+            feed.turn_log(),
+            &[
+                TurnEdge::Started { at: 1_000 },
+                TurnEdge::Ended { at: 2_000 },
+                TurnEdge::Message { at: 3_000, text: "next".into() },
+                TurnEdge::Started { at: 3_010 },
+            ]
+        );
+        // A local send logs once: its transcript twin is consumed.
+        feed.push_local_message("go");
+        feed.apply(ActivityEvent::UserMessage { text: "go".into(), subagent_id: None, at: Some(9_000) });
+        assert_eq!(
+            feed.turn_log().iter().filter(|edge| matches!(edge, TurnEdge::Message { .. })).count(),
+            2
+        );
+    }
+
+    /// EXP-1245: the turn log survives an EXP-783 swap that retains a
+    /// prefix (its edges stay), a message sent mid-replay is logged exactly
+    /// once by the commit, and an older page's edges join it in front.
+    #[test]
+    fn the_turn_log_survives_swaps_and_older_pages() {
+        use crate::frames::TurnState;
+        let turn = |state: TurnState, at: i64| ActivityEvent::Turn {
+            state,
+            started_at: (state == TurnState::Started).then_some(at),
+            tokens: None,
+            at: Some(at),
+        };
+        let message = |text: &str, at: i64| ActivityEvent::UserMessage {
+            text: text.into(),
+            subagent_id: None,
+            at: Some(at),
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply_seq(Some(10), message("first", 1_000));
+        feed.apply_seq(Some(11), turn(TurnState::Started, 1_010));
+        feed.apply_seq(Some(12), turn(TurnState::Ended, 1_500));
+        feed.apply_seq(Some(13), ActivityEvent::narration("old tail"));
+
+        // The relay's log reaches back to seq 13 only; a message is sent
+        // while the replay stages.
+        feed.apply_reset();
+        feed.push_local_message("steer me");
+        feed.apply_seq(Some(13), ActivityEvent::narration("old tail"));
+        feed.apply_seq(Some(14), turn(TurnState::Started, 2_000));
+        feed.apply_synced_from(13);
+        // Its transcript twin is swallowed, so the commit's log is the one.
+        feed.apply(message("steer me", 9_000));
+        let log = feed.turn_log();
+        assert_eq!(
+            &log[..4],
+            &[
+                TurnEdge::Message { at: 1_000, text: "first".into() },
+                TurnEdge::Started { at: 1_010 },
+                TurnEdge::Ended { at: 1_500 },
+                TurnEdge::Started { at: 2_000 },
+            ]
+        );
+        assert_eq!(log.len(), 5);
+        assert!(matches!(&log[4], TurnEdge::Message { text, .. } if text == "steer me"));
+
+        // An older page: its message and edges land in FRONT of the log.
+        let page = vec![
+            (Some(1), message("earliest", 100)),
+            (Some(2), turn(TurnState::Started, 110)),
+            (Some(3), turn(TurnState::Ended, 200)),
+        ];
+        assert_eq!(feed.prepend_page(page), 1);
+        assert_eq!(
+            &feed.turn_log()[..4],
+            &[
+                TurnEdge::Message { at: 100, text: "earliest".into() },
+                TurnEdge::Started { at: 110 },
+                TurnEdge::Ended { at: 200 },
+                TurnEdge::Message { at: 1_000, text: "first".into() },
+            ]
+        );
+        assert_eq!(feed.turn_log().len(), 8);
+    }
 
     #[test]
     fn turn_is_a_slot_that_defaults_to_ended() {

@@ -22,8 +22,10 @@ import SwiftUI
 //     there is nothing for a call site to tune.
 //   - MarkdownToolbar's `UIMenu`s stay system: they hang off a UIKit keyboard
 //     accessory view, which has no SwiftUI presentation host to anchor to.
-//   - ReviewsView's long-press `.contextMenu` stays system: a press-and-hold
-//     preview is a different interaction, not a dropdown.
+//   - Long-press menus are NOT system any more: every `.contextMenu` is gone,
+//     a press-and-hold floats this same popup from the row through
+//     `glassLongPressMenu` (GlassLongPressMenu.swift; a stack member's "Merge
+//     through here", the issue relation rows, …).
 
 // MARK: - Tokens
 

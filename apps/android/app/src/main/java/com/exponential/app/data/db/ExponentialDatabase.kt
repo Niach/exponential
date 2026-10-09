@@ -385,8 +385,11 @@ import androidx.room.TypeConverters
     //      so every open draft page sees it was created elsewhere. Explicit
     //      [MIGRATION_81_82] adds the nullable column and refetches only the
     //      issues shape.
+    // v83 (EXP-1247): attachments.as_file — a file-path upload that never
+    //      inlines. Explicit [MIGRATION_82_83] adds the column (existing rows
+    //      false) and refetches only the attachments shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 82,
+    version = 83,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

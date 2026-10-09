@@ -94,12 +94,6 @@ impl<T: TabStateEmpty> TabStateStore<T> {
         }
     }
 
-    /// Every tab went (a team switch). `live` = the subject still on show.
-    pub(crate) fn clear(&mut self, live: Option<&str>) {
-        self.entries.clear();
-        self.closed = live.map(str::to_string);
-    }
-
     #[cfg(test)]
     fn len(&self) -> usize {
         self.entries.len()
@@ -170,14 +164,14 @@ mod tests {
         assert_eq!(store.take("issue-a"), Some(Draft("still typing")));
     }
 
+    /// EXP-1250: a team switch PARKS its tabs, so their stashes stay put
+    /// for the way back (nothing clears the store wholesale any more).
     #[test]
-    fn a_team_switch_clears_every_stash() {
+    fn a_parked_tab_keeps_its_stash() {
         let mut store = TabStateStore::default();
         store.stash("issue-a", Draft("a"));
         store.stash("issue-b", Draft("b"));
-        store.clear(Some("issue-c"));
-        assert_eq!(store.len(), 0);
-        store.stash("issue-c", Draft("c"));
-        assert_eq!(store.take("issue-c"), None);
+        assert_eq!(store.take("issue-a"), Some(Draft("a")));
+        assert_eq!(store.take("issue-b"), Some(Draft("b")));
     }
 }

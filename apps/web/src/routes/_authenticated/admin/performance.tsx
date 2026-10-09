@@ -11,17 +11,13 @@ import { trpc } from "@/lib/trpc-client"
 import {
   Pill,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
+  AdminCard,
   DayBars,
   EmailStatusBadge,
   formatRelative,
@@ -90,25 +86,18 @@ function PerformanceError({ error }: ErrorComponentProps) {
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
       <h1 className="text-2xl font-bold">Performance</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">
-            Couldn’t load performance data
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {error instanceof Error ? error.message : String(error)}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void router.invalidate()}
-          >
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
+      <AdminCard
+        title="Couldn’t load performance data"
+        description={error instanceof Error ? error.message : String(error)}
+      >
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => void router.invalidate()}
+        >
+          Retry
+        </Button>
+      </AdminCard>
     </div>
   )
 }
@@ -440,15 +429,9 @@ function GraphCard({
   children: React.ReactNode
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
-        {description && (
-          <CardDescription className="text-xs">{description}</CardDescription>
-        )}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
+    <AdminCard title={title} description={description}>
+      {children}
+    </AdminCard>
   )
 }
 
@@ -533,111 +516,99 @@ function ServerSection({
       </div>
       <StaleNote staleSince={staleSince} />
       <Details id="server">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Requests by class</CardTitle>
-            <CardDescription className="text-xs">
-              Trailing 60 minutes. Shape long-poll durations include the ~20s
-              poll window by design.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border overflow-x-auto">
-              <div className="min-w-[520px]">
-                <div className="grid grid-cols-[1fr_80px_80px_90px_90px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Class</div>
-                  <div className="text-right">5m</div>
-                  <div className="text-right">60m</div>
-                  <div className="text-right">avg</div>
-                  <div className="text-right">max</div>
+        <AdminCard
+          title="Requests by class"
+          description="Trailing 60 minutes. Shape long-poll durations include the ~20s poll window by design."
+        >
+          <div className="rounded-md border overflow-x-auto">
+            <div className="min-w-[520px]">
+              <div className="grid grid-cols-[1fr_80px_80px_90px_90px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Class</div>
+                <div className="text-right">5m</div>
+                <div className="text-right">60m</div>
+                <div className="text-right">avg</div>
+                <div className="text-right">max</div>
+              </div>
+              {metrics.requests.map((r) => (
+                <div
+                  key={r.cls}
+                  className="grid grid-cols-[1fr_80px_80px_90px_90px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
+                >
+                  <div>{REQUEST_CLASS_LABELS[r.cls] ?? r.cls}</div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(r.last5m)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(r.last60m)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatMs(r.avgMs)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatMs(r.maxMs)}
+                  </div>
                 </div>
-                {metrics.requests.map((r) => (
+              ))}
+            </div>
+          </div>
+        </AdminCard>
+
+        <AdminCard
+          title="Schedulers"
+          description="In-process sweeps started by the production server entry. “Never ran” is normal in dev and right after a deploy."
+        >
+          <div className="rounded-md border overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-[1fr_110px_80px_70px_1fr_90px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Sweep</div>
+                <div>Last run</div>
+                <div className="text-right">Duration</div>
+                <div>Status</div>
+                <div>Detail</div>
+                <div className="text-right">Runs / fails</div>
+              </div>
+              {schedulerNames.map((name) => {
+                const run = reported.get(name)
+                return (
                   <div
-                    key={r.cls}
-                    className="grid grid-cols-[1fr_80px_80px_90px_90px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
+                    key={name}
+                    className="grid grid-cols-[1fr_110px_80px_70px_1fr_90px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
                   >
-                    <div>{REQUEST_CLASS_LABELS[r.cls] ?? r.cls}</div>
-                    <div className="text-right tabular-nums">
-                      {formatCount(r.last5m)}
+                    <div>{SCHEDULER_LABELS[name] ?? name}</div>
+                    <div className="text-muted-foreground">
+                      {run ? formatRelative(run.lastRunAt) : `never ran`}
                     </div>
                     <div className="text-right tabular-nums">
-                      {formatCount(r.last60m)}
+                      {run ? formatMs(run.lastDurationMs) : `—`}
+                    </div>
+                    <div>
+                      {run ? (
+                        <Pill
+                          className={
+                            run.lastOk ? undefined : `text-destructive`
+                          }
+                        >
+                          {run.lastOk ? `ok` : `failed`}
+                        </Pill>
+                      ) : (
+                        `—`
+                      )}
+                    </div>
+                    <div
+                      className="truncate text-muted-foreground"
+                      title={run?.lastError ?? run?.lastDetail ?? undefined}
+                    >
+                      {run?.lastError ?? run?.lastDetail ?? `—`}
                     </div>
                     <div className="text-right tabular-nums">
-                      {formatMs(r.avgMs)}
-                    </div>
-                    <div className="text-right tabular-nums">
-                      {formatMs(r.maxMs)}
+                      {run ? `${run.runs} / ${run.failures}` : `—`}
                     </div>
                   </div>
-                ))}
-              </div>
+                )
+              })}
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Schedulers</CardTitle>
-            <CardDescription className="text-xs">
-              In-process sweeps started by the production server entry. “Never
-              ran” is normal in dev and right after a deploy.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border overflow-x-auto">
-              <div className="min-w-[640px]">
-                <div className="grid grid-cols-[1fr_110px_80px_70px_1fr_90px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Sweep</div>
-                  <div>Last run</div>
-                  <div className="text-right">Duration</div>
-                  <div>Status</div>
-                  <div>Detail</div>
-                  <div className="text-right">Runs / fails</div>
-                </div>
-                {schedulerNames.map((name) => {
-                  const run = reported.get(name)
-                  return (
-                    <div
-                      key={name}
-                      className="grid grid-cols-[1fr_110px_80px_70px_1fr_90px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
-                    >
-                      <div>{SCHEDULER_LABELS[name] ?? name}</div>
-                      <div className="text-muted-foreground">
-                        {run ? formatRelative(run.lastRunAt) : `never ran`}
-                      </div>
-                      <div className="text-right tabular-nums">
-                        {run ? formatMs(run.lastDurationMs) : `—`}
-                      </div>
-                      <div>
-                        {run ? (
-                          <Pill
-                            className={
-                              run.lastOk ? undefined : `text-destructive`
-                            }
-                          >
-                            {run.lastOk ? `ok` : `failed`}
-                          </Pill>
-                        ) : (
-                          `—`
-                        )}
-                      </div>
-                      <div
-                        className="truncate text-muted-foreground"
-                        title={run?.lastError ?? run?.lastDetail ?? undefined}
-                      >
-                        {run?.lastError ?? run?.lastDetail ?? `—`}
-                      </div>
-                      <div className="text-right tabular-nums">
-                        {run ? `${run.runs} / ${run.failures}` : `—`}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </AdminCard>
       </Details>
     </section>
   )
@@ -667,91 +638,84 @@ function ElectricSection({ metrics }: { metrics: RuntimeData[`metrics`] }) {
         </p>
       </div>
       <Details id="electric">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Snapshot semaphore</CardTitle>
-            <CardDescription className="text-xs">
-              Concurrently-proxied snapshot-class requests (live long-polls are
-              never gated). Sustained queueing means clients are waiting on
-              cold starts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Meter
-              label={`Active slots${proxy.queued > 0 ? ` (${proxy.queued} queued)` : ``}`}
-              value={proxy.active}
-              max={proxy.capacity}
-              warn={proxy.queued > 0}
+        <AdminCard
+          title="Snapshot semaphore"
+          description="Concurrently-proxied snapshot-class requests (live long-polls are never gated). Sustained queueing means clients are waiting on cold starts."
+          contentClassName="space-y-3"
+        >
+          <Meter
+            label={`Active slots${proxy.queued > 0 ? ` (${proxy.queued} queued)` : ``}`}
+            value={proxy.active}
+            max={proxy.capacity}
+            warn={proxy.queued > 0}
+          />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <StatCard
+              label="High-water active"
+              value={formatCount(proxy.activeHighWater)}
+              hint={`of ${proxy.capacity}`}
             />
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <StatCard
-                label="High-water active"
-                value={formatCount(proxy.activeHighWater)}
-                hint={`of ${proxy.capacity}`}
-              />
-              <StatCard
-                label="High-water queued"
-                value={formatCount(proxy.queuedHighWater)}
-              />
-              <StatCard
-                label="Queue waits (60m)"
-                value={formatCount(proxy.queueWaits.count)}
-                hint={
-                  proxy.queueWaits.count > 0
-                    ? `avg ${formatMs(proxy.queueWaits.avgMs)}, max ${formatMs(proxy.queueWaits.maxMs)}`
-                    : undefined
-                }
-              />
-              <StatCard
-                label="Snapshot latency (60m)"
-                value={formatMs(upstream.snapshotAvgMs)}
-                hint={`max ${formatMs(upstream.snapshotMaxMs)} · ${formatCount(upstream.snapshotCount60m)} req`}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            <StatCard
+              label="High-water queued"
+              value={formatCount(proxy.queuedHighWater)}
+            />
+            <StatCard
+              label="Queue waits (60m)"
+              value={formatCount(proxy.queueWaits.count)}
+              hint={
+                proxy.queueWaits.count > 0
+                  ? `avg ${formatMs(proxy.queueWaits.avgMs)}, max ${formatMs(proxy.queueWaits.maxMs)}`
+                  : undefined
+              }
+            />
+            <StatCard
+              label="Snapshot latency (60m)"
+              value={formatMs(upstream.snapshotAvgMs)}
+              hint={`max ${formatMs(upstream.snapshotMaxMs)} · ${formatCount(upstream.snapshotCount60m)} req`}
+            />
+          </div>
+        </AdminCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Requests per shape</CardTitle>
-            <CardDescription className="text-xs">
+        <AdminCard
+          title="Requests per shape"
+          description={
+            <>
               Since process start, busiest first. Raw bytes{` `}
               {formatBytes(upstream.rawBytes)}, gzipped responses{` `}
               {formatCount(upstream.gzippedResponses)}.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {perTable.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No shape traffic yet.
-              </p>
-            ) : (
-              <div className="rounded-md border overflow-x-auto">
-                <div className="min-w-[400px]">
-                  <div className="grid grid-cols-[1fr_110px_110px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                    <div>Table</div>
-                    <div className="text-right">Long-polls</div>
-                    <div className="text-right">Snapshots</div>
-                  </div>
-                  {perTable.map((t) => (
-                    <div
-                      key={t.table}
-                      className="grid grid-cols-[1fr_110px_110px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
-                    >
-                      <div className="truncate">{t.table}</div>
-                      <div className="text-right tabular-nums">
-                        {formatCount(t.live)}
-                      </div>
-                      <div className="text-right tabular-nums">
-                        {formatCount(t.snapshot)}
-                      </div>
-                    </div>
-                  ))}
+            </>
+          }
+        >
+          {perTable.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No shape traffic yet.
+            </p>
+          ) : (
+            <div className="rounded-md border overflow-x-auto">
+              <div className="min-w-[400px]">
+                <div className="grid grid-cols-[1fr_110px_110px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                  <div>Table</div>
+                  <div className="text-right">Long-polls</div>
+                  <div className="text-right">Snapshots</div>
                 </div>
+                {perTable.map((t) => (
+                  <div
+                    key={t.table}
+                    className="grid grid-cols-[1fr_110px_110px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
+                  >
+                    <div className="truncate">{t.table}</div>
+                    <div className="text-right tabular-nums">
+                      {formatCount(t.live)}
+                    </div>
+                    <div className="text-right tabular-nums">
+                      {formatCount(t.snapshot)}
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          )}
+        </AdminCard>
       </Details>
     </section>
   )
@@ -782,70 +746,62 @@ function DatabaseSection({
       </div>
       <StaleNote staleSince={staleSince} />
       <Details id="database">
-        <Card>
-          <CardContent className="space-y-3 pt-4">
-            <Meter
-              label="Cache hit ratio (since stats reset)"
-              value={database.cacheHitPct}
-              max={100}
-              display={`${database.cacheHitPct.toFixed(2)}%`}
-              warn={database.cacheHitPct < 95}
-            />
-            <Meter
-              label="Pool (this web process)"
-              value={database.pool.total - database.pool.idle}
-              max={Math.max(database.pool.total, 1)}
-              display={`${database.pool.total - database.pool.idle} busy / ${database.pool.total} open${database.pool.waiting > 0 ? ` · ${database.pool.waiting} waiting` : ``}`}
-              warn={database.pool.waiting > 0}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Largest tables</CardTitle>
-            <CardDescription className="text-xs">
-              Total relation size (data + indexes + toast). Heavy seq scans on a
-              big table usually mean a missing index.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-md border overflow-x-auto">
-              <div className="min-w-[640px]">
-                <div className="grid grid-cols-[1fr_90px_100px_100px_100px_100px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                  <div>Table</div>
-                  <div className="text-right">Size</div>
-                  <div className="text-right">Rows</div>
-                  <div className="text-right">Dead rows</div>
-                  <div className="text-right">Seq scans</div>
-                  <div className="text-right">Idx scans</div>
-                </div>
-                {database.topTables.map((t) => (
-                  <div
-                    key={t.table}
-                    className="grid grid-cols-[1fr_90px_100px_100px_100px_100px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
-                  >
-                    <div className="truncate">{t.table}</div>
-                    <div className="text-right tabular-nums">
-                      {formatBytes(t.totalBytes)}
-                    </div>
-                    <div className="text-right tabular-nums">
-                      {formatCount(t.liveRows)}
-                    </div>
-                    <div className="text-right tabular-nums">
-                      {formatCount(t.deadRows)}
-                    </div>
-                    <div className="text-right tabular-nums">
-                      {formatCount(t.seqScans)}
-                    </div>
-                    <div className="text-right tabular-nums">
-                      {formatCount(t.idxScans)}
-                    </div>
-                  </div>
-                ))}
+        <AdminCard contentClassName="space-y-3 pt-4">
+          <Meter
+            label="Cache hit ratio (since stats reset)"
+            value={database.cacheHitPct}
+            max={100}
+            display={`${database.cacheHitPct.toFixed(2)}%`}
+            warn={database.cacheHitPct < 95}
+          />
+          <Meter
+            label="Pool (this web process)"
+            value={database.pool.total - database.pool.idle}
+            max={Math.max(database.pool.total, 1)}
+            display={`${database.pool.total - database.pool.idle} busy / ${database.pool.total} open${database.pool.waiting > 0 ? ` · ${database.pool.waiting} waiting` : ``}`}
+            warn={database.pool.waiting > 0}
+          />
+        </AdminCard>
+        <AdminCard
+          title="Largest tables"
+          description="Total relation size (data + indexes + toast). Heavy seq scans on a big table usually mean a missing index."
+        >
+          <div className="rounded-md border overflow-x-auto">
+            <div className="min-w-[640px]">
+              <div className="grid grid-cols-[1fr_90px_100px_100px_100px_100px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                <div>Table</div>
+                <div className="text-right">Size</div>
+                <div className="text-right">Rows</div>
+                <div className="text-right">Dead rows</div>
+                <div className="text-right">Seq scans</div>
+                <div className="text-right">Idx scans</div>
               </div>
+              {database.topTables.map((t) => (
+                <div
+                  key={t.table}
+                  className="grid grid-cols-[1fr_90px_100px_100px_100px_100px] items-center gap-3 border-b px-3 py-2 text-xs last:border-b-0"
+                >
+                  <div className="truncate">{t.table}</div>
+                  <div className="text-right tabular-nums">
+                    {formatBytes(t.totalBytes)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(t.liveRows)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(t.deadRows)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(t.seqScans)}
+                  </div>
+                  <div className="text-right tabular-nums">
+                    {formatCount(t.idxScans)}
+                  </div>
+                </div>
+              ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </AdminCard>
       </Details>
     </section>
   )
@@ -906,152 +862,147 @@ function RelaysSection({
       <StaleNote staleSince={staleSince} />
       <Details id="relays">
         <div className="grid gap-3 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-sm">
+          <AdminCard
+            title={
+              <>
                 Steer relay
                 {steer.configured && (
                   <RelayStatusBadge ok={steer.ok} latencyMs={steer.latencyMs} />
                 )}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Remote start + live steer hub. Gauges are current; counters are
-                since relay start.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!steer.configured ? (
-                <p className="text-sm text-muted-foreground">
-                  Not configured (STEER_RELAY_URL / STEER_RELAY_SECRET unset).
-                </p>
-              ) : !steer.ok ? (
-                <p className="text-sm text-muted-foreground">
-                  Probe failed — relay down or unreachable from this server.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-3">
-                    <StatCard
-                      label="Connections"
-                      value={formatCount(steer.connections ?? 0)}
-                    />
-                    <StatCard
-                      label="Devices"
-                      value={formatCount(steer.devices ?? 0)}
-                    />
-                    <StatCard
-                      label="Rooms"
-                      value={formatCount(steer.rooms ?? 0)}
-                    />
-                  </div>
-                  {steer.counters ? (
-                    <div className="space-y-1">
-                      <CounterRow
-                        label="Connections accepted"
-                        value={formatCount(steer.counters.connectionsAccepted)}
-                      />
-                      <CounterRow
-                        label="Activity frames fanned"
-                        value={formatCount(steer.counters.activityFramesFanned)}
-                      />
-                      <CounterRow
-                        label="Remote starts routed"
-                        value={formatCount(steer.counters.startsRouted)}
-                      />
-                      <CounterRow
-                        label="Slow-consumer evictions"
-                        value={formatCount(steer.counters.slowConsumerEvictions)}
-                      />
-                      <CounterRow
-                        label="Rate-limited rejections"
-                        value={formatCount(steer.counters.rateLimitedRejections)}
-                      />
-                      {steer.startedAt ? (
-                        <CounterRow
-                          label="Relay up since"
-                          value={formatRelative(new Date(steer.startedAt))}
-                        />
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Counters n/a — the deployed relay predates /stats.
-                    </p>
-                  )}
+              </>
+            }
+            titleClassName="flex items-center justify-between"
+            description="Remote start + live steer hub. Gauges are current; counters are since relay start."
+          >
+            {!steer.configured ? (
+              <p className="text-sm text-muted-foreground">
+                Not configured (STEER_RELAY_URL / STEER_RELAY_SECRET unset).
+              </p>
+            ) : !steer.ok ? (
+              <p className="text-sm text-muted-foreground">
+                Probe failed — relay down or unreachable from this server.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <StatCard
+                    label="Connections"
+                    value={formatCount(steer.connections ?? 0)}
+                  />
+                  <StatCard
+                    label="Devices"
+                    value={formatCount(steer.devices ?? 0)}
+                  />
+                  <StatCard
+                    label="Rooms"
+                    value={formatCount(steer.rooms ?? 0)}
+                  />
                 </div>
-              )}
-            </CardContent>
-          </Card>
+                {steer.counters ? (
+                  <div className="space-y-1">
+                    <CounterRow
+                      label="Connections accepted"
+                      value={formatCount(steer.counters.connectionsAccepted)}
+                    />
+                    <CounterRow
+                      label="Activity frames fanned"
+                      value={formatCount(steer.counters.activityFramesFanned)}
+                    />
+                    <CounterRow
+                      label="Remote starts routed"
+                      value={formatCount(steer.counters.startsRouted)}
+                    />
+                    <CounterRow
+                      label="Slow-consumer evictions"
+                      value={formatCount(steer.counters.slowConsumerEvictions)}
+                    />
+                    <CounterRow
+                      label="Rate-limited rejections"
+                      value={formatCount(steer.counters.rateLimitedRejections)}
+                    />
+                    {steer.startedAt ? (
+                      <CounterRow
+                        label="Relay up since"
+                        value={formatRelative(new Date(steer.startedAt))}
+                      />
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Counters n/a — the deployed relay predates /stats.
+                  </p>
+                )}
+              </div>
+            )}
+          </AdminCard>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between text-sm">
+          <AdminCard
+            title={
+              <>
                 Push relay
                 {push.configured && (
                   <RelayStatusBadge ok={push.ok} latencyMs={push.latencyMs} />
                 )}
-              </CardTitle>
-              <CardDescription className="text-xs">
-                FCM fan-out. Counters are since relay start.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!push.configured ? (
-                <p className="text-sm text-muted-foreground">
-                  Not configured (PUSH_RELAY_URL unset).
-                </p>
-              ) : !push.ok ? (
-                <p className="text-sm text-muted-foreground">
-                  Probe failed — relay down or unreachable from this server.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {push.firebaseConfigured === false && (
-                    <p className="text-xs text-destructive">
-                      Firebase is not configured on the relay — pushes are being
-                      dropped.
-                    </p>
-                  )}
-                  {push.stats ? (
-                    <div className="space-y-1">
+              </>
+            }
+            titleClassName="flex items-center justify-between"
+            description="FCM fan-out. Counters are since relay start."
+          >
+            {!push.configured ? (
+              <p className="text-sm text-muted-foreground">
+                Not configured (PUSH_RELAY_URL unset).
+              </p>
+            ) : !push.ok ? (
+              <p className="text-sm text-muted-foreground">
+                Probe failed — relay down or unreachable from this server.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {push.firebaseConfigured === false && (
+                  <p className="text-xs text-destructive">
+                    Firebase is not configured on the relay — pushes are being
+                    dropped.
+                  </p>
+                )}
+                {push.stats ? (
+                  <div className="space-y-1">
+                    <CounterRow
+                      label="Send requests (ok / failed)"
+                      value={`${formatCount(push.stats.sendOk)} / ${formatCount(push.stats.sendFailed)}`}
+                    />
+                    <CounterRow
+                      label="FCM deadline timeouts"
+                      value={formatCount(push.stats.deadlineTimeouts)}
+                    />
+                    <CounterRow
+                      label="Tokens (ok / failed)"
+                      value={`${formatCount(push.stats.tokensOk)} / ${formatCount(push.stats.tokensFailed)}`}
+                    />
+                    <CounterRow
+                      label="Invalid tokens pruned"
+                      value={formatCount(push.stats.invalidTokens)}
+                    />
+                    {push.stats.lastError && (
                       <CounterRow
-                        label="Send requests (ok / failed)"
-                        value={`${formatCount(push.stats.sendOk)} / ${formatCount(push.stats.sendFailed)}`}
+                        label="Last error"
+                        value={`${push.stats.lastError}${push.stats.lastErrorAt ? ` (${formatRelative(new Date(push.stats.lastErrorAt))})` : ``}`}
                       />
+                    )}
+                    {push.startedAt ? (
                       <CounterRow
-                        label="FCM deadline timeouts"
-                        value={formatCount(push.stats.deadlineTimeouts)}
+                        label="Relay up since"
+                        value={formatRelative(new Date(push.startedAt))}
                       />
-                      <CounterRow
-                        label="Tokens (ok / failed)"
-                        value={`${formatCount(push.stats.tokensOk)} / ${formatCount(push.stats.tokensFailed)}`}
-                      />
-                      <CounterRow
-                        label="Invalid tokens pruned"
-                        value={formatCount(push.stats.invalidTokens)}
-                      />
-                      {push.stats.lastError && (
-                        <CounterRow
-                          label="Last error"
-                          value={`${push.stats.lastError}${push.stats.lastErrorAt ? ` (${formatRelative(new Date(push.stats.lastErrorAt))})` : ``}`}
-                        />
-                      )}
-                      {push.startedAt ? (
-                        <CounterRow
-                          label="Relay up since"
-                          value={formatRelative(new Date(push.startedAt))}
-                        />
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Counters n/a — the deployed relay predates /stats.
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Counters n/a — the deployed relay predates /stats.
+                  </p>
+                )}
+              </div>
+            )}
+          </AdminCard>
         </div>
       </Details>
     </section>
@@ -1165,84 +1116,69 @@ function NotificationsEmailSection({
 
       <Details id="notifications">
         <div className="grid gap-3 md:grid-cols-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Notifications by type</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {typeRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  None in this window.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {typeRows.map(([type, count]) => (
-                    <CounterRow
-                      key={type}
-                      label={type}
-                      value={formatCount(count)}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Email by status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.emailByStatus.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  None in this window.
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {data.emailByStatus.map((row) => (
-                    <div
-                      key={row.status}
-                      className="flex items-center justify-between text-xs"
-                    >
-                      <EmailStatusBadge status={row.status} />
-                      <span className="tabular-nums">
-                        {formatCount(row.count)}
-                      </span>
-                    </div>
-                  ))}
+          <AdminCard title="Notifications by type">
+            {typeRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                None in this window.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {typeRows.map(([type, count]) => (
                   <CounterRow
-                    label={`Bounced addresses (${days}d)`}
-                    value={`${formatCount(data.bounces.total)} (${formatCount(data.bounces.suppressed)} suppressed, ${formatCount(data.bounces.complaints)} complaints)`}
+                    key={type}
+                    label={type}
+                    value={formatCount(count)}
                   />
+                ))}
+              </div>
+            )}
+          </AdminCard>
+          <AdminCard title="Email by status">
+            {data.emailByStatus.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                None in this window.
+              </p>
+            ) : (
+              <div className="space-y-1.5">
+                {data.emailByStatus.map((row) => (
+                  <div
+                    key={row.status}
+                    className="flex items-center justify-between text-xs"
+                  >
+                    <EmailStatusBadge status={row.status} />
+                    <span className="tabular-nums">
+                      {formatCount(row.count)}
+                    </span>
+                  </div>
+                ))}
+                <CounterRow
+                  label={`Bounced addresses (${days}d)`}
+                  value={`${formatCount(data.bounces.total)} (${formatCount(data.bounces.suppressed)} suppressed, ${formatCount(data.bounces.complaints)} complaints)`}
+                />
+                <CounterRow
+                  label="Read"
+                  value={`${formatCount(totals.read)}${pct(totals.read, totals.total) ? ` (${pct(totals.read, totals.total)})` : ``}`}
+                />
+              </div>
+            )}
+          </AdminCard>
+          <AdminCard title="Email by kind">
+            {data.emailByKind.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                None in this window.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {data.emailByKind.map((row) => (
                   <CounterRow
-                    label="Read"
-                    value={`${formatCount(totals.read)}${pct(totals.read, totals.total) ? ` (${pct(totals.read, totals.total)})` : ``}`}
+                    key={row.kind}
+                    label={row.kind}
+                    value={formatCount(row.count)}
                   />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Email by kind</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {data.emailByKind.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  None in this window.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {data.emailByKind.map((row) => (
-                    <CounterRow
-                      key={row.kind}
-                      label={row.kind}
-                      value={formatCount(row.count)}
-                    />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                ))}
+              </div>
+            )}
+          </AdminCard>
         </div>
       </Details>
     </section>

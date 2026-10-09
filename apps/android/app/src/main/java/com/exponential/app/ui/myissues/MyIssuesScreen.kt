@@ -33,6 +33,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.IssueGroupBand
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LongPressIssueRow
@@ -82,8 +83,9 @@ fun MyIssuesListContent(
             state.groups.forEach { group ->
                 val isCollapsed = group.status in collapsed
                 item(key = "header-${group.status.wire}") {
-                    GroupHeader(
-                        status = group.status,
+                    IssueGroupBand(
+                        glyph = { StatusIcon(group.status, size = 14.dp) },
+                        name = group.status.label,
                         count = group.issues.size,
                         collapsed = isCollapsed,
                         onToggle = {
@@ -125,45 +127,6 @@ fun MyIssuesListContent(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun GroupHeader(
-    status: IssueStatus,
-    count: Int,
-    collapsed: Boolean,
-    onToggle: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (collapsed) ExpIcons.uiChevronRight else ExpIcons.uiChevronDown,
-            contentDescription = if (collapsed) "Expand" else "Collapse",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-        Spacer(Modifier.width(6.dp))
-        StatusIcon(status, size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            status.label,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
     }
 }
 

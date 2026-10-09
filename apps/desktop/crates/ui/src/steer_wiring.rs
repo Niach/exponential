@@ -87,6 +87,11 @@ pub fn install(cx: &mut App) {
             return;
         }
     }
+    // EXP-1249: every gpui_linux portal (file prompts, open/reveal) rides
+    // zbus on tokio — the main thread holds this runtime's context for life.
+    if crate::file_picker::needs_tokio_context() {
+        crate::file_picker::enter_tokio_context(cx);
+    }
 
     // §8.8 own-row Electric kill-switch: install the watch over the shared
     // `coding_sessions` collection.
@@ -695,6 +700,8 @@ fn remote_action_start(
         start.account.as_deref(),
     )
     .with_mcp_servers(start.mcp_server_ids.clone())
+    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
+    .with_computer_use(start.computer_use)
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
     .with_subagent_model(start.subagent_model.as_deref());
@@ -850,6 +857,8 @@ fn remote_issue_start(
         start.account.as_deref(),
     )
     .with_mcp_servers(start.mcp_server_ids.clone())
+    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
+    .with_computer_use(start.computer_use)
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
     .with_subagent_model(start.subagent_model.as_deref());
@@ -1071,6 +1080,8 @@ fn remote_batch_start(
         start.account.as_deref(),
     )
     .with_mcp_servers(start.mcp_server_ids.clone())
+    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
+    .with_computer_use(start.computer_use)
     // EXP-981: the composer's claude-only subagent pick; absent leaves this
     // machine's own launch default in place.
     .with_subagent_model(start.subagent_model.as_deref());

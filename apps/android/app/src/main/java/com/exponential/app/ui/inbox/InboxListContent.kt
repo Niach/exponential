@@ -35,6 +35,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.icons.ExpIcons
@@ -64,7 +65,7 @@ fun InboxListContent(
     onOpenSession: (String) -> Unit = {},
     // EXP-933: an issue row whose latest notification is an agent's message
     // opens the issue on its Results face.
-    onOpenIssueResults: (String) -> Unit = onOpenIssue,
+    onOpenIssueGuide: (String) -> Unit = onOpenIssue,
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -86,7 +87,7 @@ fun InboxListContent(
                     is InboxEntry.Issue -> InboxRow(entry.group) {
                         viewModel.markGroupRead(entry.group)
                         if (entry.group.opensResults) {
-                            onOpenIssueResults(entry.group.issue.id)
+                            onOpenIssueGuide(entry.group.issue.id)
                         } else {
                             onOpenIssue(entry.group.issue.id)
                         }
@@ -135,37 +136,24 @@ private fun InboxRow(group: InboxGroup, onClick: () -> Unit) {
     ) {
         // Type-icon badge: a circular muted container with the latest
         // notification's type icon.
-        TypeIconBadge(notificationTypeIcon(group.latest.type))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        IssueRowContent(
+            title = group.issue.title,
+            leading = { TypeIconBadge(notificationTypeIcon(group.latest.type)) },
+            identifier = group.issue.identifier,
+            identifierGap = 8.dp,
+            titleWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
+            subLine = {
                 Text(
-                    group.issue.identifier,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    group.issue.title,
-                    fontWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
+                    group.latest.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
                 )
-            }
-            Text(
-                group.latest.title,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        TrailingTimeAndDot(time = relativeTime(group.latest.createdAt), unread = group.unread)
+            },
+            trailingGap = 8.dp,
+            trailing = { TrailingTimeAndDot(time = relativeTime(group.latest.createdAt), unread = group.unread) },
+        )
     }
 }
 
@@ -196,20 +184,12 @@ private fun MessageInboxRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TypeIconBadge(icon)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    n.title,
-                    fontWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                if (teamName != null) {
+        IssueRowContent(
+            title = n.title,
+            leading = { TypeIconBadge(icon) },
+            titleWeight = if (read) FontWeight.Normal else FontWeight.SemiBold,
+            titleAccessory = if (teamName != null) {
+                {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         teamName,
@@ -219,20 +199,24 @@ private fun MessageInboxRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-            }
-            val body = n.body
-            if (!body.isNullOrBlank()) {
-                Text(
-                    body,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        Spacer(Modifier.width(8.dp))
-        TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = unread)
+            } else {
+                null
+            },
+            subLine = {
+                val body = n.body
+                if (!body.isNullOrBlank()) {
+                    Text(
+                        body,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            trailingGap = 8.dp,
+            trailing = { TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = unread) },
+        )
     }
 }
 

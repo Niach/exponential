@@ -188,4 +188,44 @@ final class AttachmentFilesTests: XCTestCase {
             "Markdown · \(Int64(2048).formatted(.byteCount(style: .file)))"
         )
     }
+
+    // EXP-1247: the row-aware rule — an `asFile` row is never inline, so it
+    // always lists under Files (web `attachment-files.test.ts`).
+    func testAnAsFileRowIsAFileAndNeverInline() {
+        XCTAssertTrue(AttachmentFiles.isFile(contentType: "image/png", asFile: true))
+        XCTAssertFalse(AttachmentFiles.isInlineImage(contentType: "image/png", asFile: true))
+        XCTAssertFalse(AttachmentFiles.isInlineMedia(contentType: "video/mp4", asFile: true))
+        XCTAssertTrue(AttachmentFiles.isFile(contentType: "video/mp4", asFile: true))
+        // Without the marker the content type decides, as before.
+        XCTAssertFalse(AttachmentFiles.isFile(contentType: "image/png", asFile: false))
+        XCTAssertTrue(AttachmentFiles.isInlineImage(contentType: "image/png", asFile: false))
+        XCTAssertTrue(AttachmentFiles.isFile(contentType: "application/pdf", asFile: false))
+        let draftRow = DraftAttachmentDto(
+            id: "a1", filename: "shot.png", contentType: "image/png", sizeBytes: 1, url: "/api/attachments/a1",
+            asFile: true
+        )
+        XCTAssertTrue(AttachmentFiles.isFile(draftRow))
+        let inlineRow = DraftAttachmentDto(
+            id: "a2", filename: "shot.png", contentType: "image/png", sizeBytes: 1, url: "/api/attachments/a2"
+        )
+        XCTAssertFalse(AttachmentFiles.isFile(inlineRow))
+    }
+
+    func testAFileButtonUploadMarksItsRoute() {
+        XCTAssertEqual(AttachmentsApi.withAsFile("/api/issues/i1/files", true), "/api/issues/i1/files?asFile=1")
+        XCTAssertEqual(AttachmentsApi.withAsFile("/api/issues/i1/files", false), "/api/issues/i1/files")
+    }
+
+    func testTheDraftRowDecodesAsFileTolerantly() throws {
+        let marked = try JSONDecoder().decode(
+            DraftAttachmentDto.self,
+            from: Data(#"{"id":"a","filename":"x.png","contentType":"image/png","sizeBytes":1,"url":"/u","asFile":true}"#.utf8)
+        )
+        XCTAssertTrue(marked.asFile)
+        let legacy = try JSONDecoder().decode(
+            DraftAttachmentDto.self,
+            from: Data(#"{"id":"a","filename":"x.png","contentType":"image/png","sizeBytes":1,"url":"/u"}"#.utf8)
+        )
+        XCTAssertFalse(legacy.asFile)
+    }
 }

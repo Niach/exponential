@@ -95,15 +95,17 @@ class PrStackTest {
         val all = listOf(foreignTop, foreignBottom, sibling, mine)
 
         // The bug: the account-wide pool chains team B's top onto team A's PR.
-        assertEquals("b21", PrStack.stackMergeChoice(mine, all)?.topIssueId)
+        assertEquals("b21", PrStack.stackMergeConfirm(mine, all, PrStack.StackConfirmMode.Stack)?.issueId)
 
         val pool = PrStack.teamIssues(mine, all, boards)
         assertEquals(setOf("a20", "a7"), pool.map { it.id }.toSet())
-        assertNull(PrStack.stackMergeChoice(mine, pool))
+        assertNull(PrStack.stackMergeConfirm(mine, pool, PrStack.StackConfirmMode.Stack))
         // Team B still reads its own stack.
         assertEquals(
             listOf("APP-20", "APP-21"),
-            PrStack.stackMergeChoice(foreignBottom, PrStack.teamIssues(foreignBottom, all, boards))?.members,
+            PrStack.stackMergeConfirm(
+                foreignBottom, PrStack.teamIssues(foreignBottom, all, boards), PrStack.StackConfirmMode.Stack,
+            )?.landing,
         )
     }
 

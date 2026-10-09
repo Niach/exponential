@@ -35,7 +35,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -628,7 +628,7 @@ impl ActionPromptForm {
         trigger
             .dropdown_menu(move |mut menu, _window, _cx| {
                 let none_view = view.clone();
-                menu = menu.item(PopupMenuItem::new("None").on_click(move |_, _, cx| {
+                menu = menu.item(crate::controls::pointer_label_item("None", false).on_click(move |_, _, cx| {
                     if let Some(view) = none_view.upgrade() {
                         view.update(cx, |this, cx| {
                             this.repo_id = None;
@@ -640,7 +640,7 @@ impl ActionPromptForm {
                     let view = view.clone();
                     let repo_id = repo.id.clone();
                     menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(repo.full_name.clone())).on_click(
+                        crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false).on_click(
                             move |_, _, cx| {
                                 if let Some(view) = view.upgrade() {
                                     let repo_id = repo_id.clone();

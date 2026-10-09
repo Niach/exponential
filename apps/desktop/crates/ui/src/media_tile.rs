@@ -30,7 +30,7 @@ use gpui::{
 };
 use gpui_component::{
     h_flex,
-    menu::{ContextMenuExt as _, PopupMenuItem},
+    menu::ContextMenuExt as _,
     spinner::Spinner,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -442,7 +442,7 @@ pub(crate) fn render_media_tile(
     crate::controls::claim_right_click(clickable)
         .context_menu(move |menu, _window, _cx| {
             let mut menu = menu.item(
-                PopupMenuItem::new("Open in player")
+                crate::controls::pointer_label_item("Open in player", false)
                     .icon(Icon::from(ExpIcon::Play))
                     .on_click({
                         let id = menu_tile.attachment_id.clone();
@@ -453,7 +453,7 @@ pub(crate) fn render_media_tile(
                     }),
             );
             menu = menu.item(
-                PopupMenuItem::new("Preview")
+                crate::controls::pointer_label_item("Preview", false)
                     .icon(Icon::from(registry::UI_WATCH))
                     .on_click({
                         let tile = menu_tile.clone();
@@ -469,7 +469,7 @@ pub(crate) fn render_media_tile(
                     }),
             );
             menu = menu.item(
-                PopupMenuItem::new("Open in browser")
+                crate::controls::pointer_label_item("Open in browser", false)
                     .icon(Icon::from(ExpIcon::ArrowUpRight))
                     .on_click({
                         let id = menu_tile.attachment_id.clone();
@@ -487,7 +487,7 @@ pub(crate) fn render_media_tile(
             );
             if let Some(images) = menu_images.clone() {
                 menu = menu.item(
-                    PopupMenuItem::new("Download")
+                    crate::controls::pointer_label_item("Download", false)
                         .icon(Icon::from(registry::UI_DOWNLOAD))
                         .on_click({
                             let id = menu_tile.attachment_id.clone();

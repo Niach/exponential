@@ -15,25 +15,29 @@ struct EstimateSheet: View {
     /// Nil = clear the estimate.
     let onSelect: (Int?) -> Void
 
-    /// One picker row; `nil` is the "No estimate" sentinel.
-    private struct Option: Identifiable {
-        let value: Int?
-        var id: String { value.map(String.init) ?? "__none" }
+    /// The "No estimate" row's value; every other row is its number.
+    static let noneValue = "__none"
+
+    static func pickerValue(_ value: Int?) -> String {
+        value.map(String.init) ?? noneValue
     }
 
     var body: some View {
-        let options = [Option(value: nil)]
-            + estimatePickerValues(current: current, scale: estimationType).map { Option(value: $0) }
-        GlassPickerSheet(
-            title: "Estimate",
-            items: options,
-            selectedID: Option(value: current).id,
-            idFor: { $0.id },
-            onSelect: { onSelect($0.value) }
-        ) { option in
-            // Plain text rows on every client (web `EstimateControl`, Android
-            // `EstimatePickerSheet`, desktop menu): the value IS the label.
-            Text(estimateLabel(option.value, scale: estimationType))
-        }
+        let values: [Int?] = [nil] + estimatePickerValues(current: current, scale: estimationType)
+        // EXP-1021: the shared picker's own sheet body — plain text rows on
+        // every client (web `EstimateControl`, Android `EstimatePickerSheet`,
+        // desktop menu): the value IS the label; the pick wears the check.
+        GlassPickerContent(
+            items: values.map { value in
+                PickerItem(value: Self.pickerValue(value), label: estimateLabel(value, scale: estimationType))
+            },
+            mode: .single,
+            value: [Self.pickerValue(current)],
+            onChange: { picked in
+                guard let id = picked.first else { return }
+                onSelect(id == Self.noneValue ? nil : Int(id))
+            },
+            title: "Estimate"
+        )
     }
 }

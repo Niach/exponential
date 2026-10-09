@@ -8,15 +8,25 @@ import {
 import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
 import { FixConflictsCard } from "@/components/launch-dialog/fix-conflicts-card"
-import { ActionPicker } from "@/components/launch-dialog/action-picker"
-import { IssuePicker } from "@/components/launch-dialog/issue-picker"
+import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
+import {
+  COMPOSER_MENU_TEST_IDS,
+  COMPOSER_SUGGESTION_ICON,
+} from "@/components/launch-dialog/composer-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
-import { AttachmentThumb, Pill, conceptIcon, Composer, ComposerSubmit, ComposerTool } from "@exp/ui"
+import {
+  AttachmentFileTile,
+  AttachmentThumb,
+  Button,
+  conceptIcon,
+  Composer,
+  ComposerSubmit,
+} from "@exp/ui"
+import type { IconConcept } from "@exp/icons"
 import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -31,21 +41,18 @@ import {
 // <action>" / "Implement <issues>" — the chips live there now, not in the
 // card), an action's typed input fields follow, then the mention field
 // (`@` members, `#` issue refs, `:` emoji; Enter sends, Shift+Enter breaks
-// the line), the pending-image strip, and a tool row with `#` (issue
-// picker), ▶ (action picker) and the image button, the submit glyph carrying
-// the contract label (Start chat / Start coding / Start batch · N / Run
-// action). All state is the hook's (`use-launch-composer.ts`); this file owns
-// chrome, the caret and the file plumbing. Test ids are byte-identical with
-// the native suites (`agent-composer*`).
+// the line), the pending-image strip, and a tool row whose ONE tool is the
+// "+" menu (EXP-1249: Implement issue ›, Run action ›, Add file or image,
+// the run's options and tools — `launch-dialog/composer-plus-menu.tsx`), the
+// submit glyph carrying the contract label (Start chat / Start coding / Start
+// batch · N / Run action). Under the card: the options line, then the quiet
+// suggestion rows. All state is the hook's (`use-launch-composer.ts`); this
+// file owns chrome, the caret and the file plumbing. Test ids are
+// byte-identical with the native suites (`agent-composer*`).
 //
 // Icons are CONCEPTS — this is a multi-client surface (`lib/icons.test.ts`).
 
-const IssueRefIcon = conceptIcon(`editor-issue-ref`)
-const NavActionsIcon = conceptIcon(`nav-actions`)
-// EXP-850 §13: the STEER composers (this one and the session composer)
-// attach with the `ui-add` plus ×4; comment and description editors keep
-// `editor-image`.
-const UiAddIcon = conceptIcon(`ui-add`)
+const SuggestionIcon = conceptIcon(COMPOSER_SUGGESTION_ICON as IconConcept)
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 
@@ -144,7 +151,6 @@ export function LaunchComposer({
     void model.submit()
   }
 
-  const checkedCount = subject?.kind === `issues` ? subject.ids.length : 0
   const actionSubject = subject?.kind === `action`
   const hasSubject = subject !== null
   const inputDefs = model.selectedAction?.inputs ?? []
@@ -157,23 +163,6 @@ export function LaunchComposer({
           — and the field under it is the optional half. The chips are the
           ones the card used to carry in its leading row, ✕ and all. */}
       <LaunchHeadline model={model} />
-      {/* EXP-790: the chips only while there is nothing typed and no subject
-          — once the field has text they would just be in the way. */}
-      {showSuggestions && (
-        <div className="flex flex-wrap items-center gap-1.5 px-1">
-          {suggestions.map((suggestion) => (
-            <Pill
-              key={suggestion}
-              size="sm"
-              mode="action"
-              className="max-w-full"
-              onClick={() => insertSuggestion(fieldRef.current, suggestion)}
-            >
-              <span className="truncate">{suggestion}</span>
-            </Pill>
-          ))}
-        </div>
-      )}
       <Composer
         data-testid="agent-composer"
         strip={
@@ -209,57 +198,35 @@ export function LaunchComposer({
             ) : null}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
-                {images.map((image) => (
-                  <AttachmentThumb
-                    key={image.url}
-                    src={image.url}
-                    removeLabel="Remove image"
-                    onRemove={() => model.removeImage(image.url)}
-                    disabled={busy}
-                  />
-                ))}
+                {images.map((image) =>
+                  image.kind === `image` ? (
+                    <AttachmentThumb
+                      key={image.url}
+                      src={image.url}
+                      removeLabel="Remove image"
+                      onRemove={() => model.removeImage(image.url)}
+                      disabled={busy}
+                    />
+                  ) : (
+                    <AttachmentFileTile
+                      key={image.url}
+                      name={image.uploadedName ?? image.file.name}
+                      removeLabel={`Remove ${image.file.name}`}
+                      onRemove={() => model.removeImage(image.url)}
+                      disabled={busy}
+                    />
+                  )
+                )}
               </div>
             )}
           </>
         }
         tools={
           <>
-            <IssuePicker
-              teamId={model.teamId}
-              eligible={model.eligibleIssues}
-              checked={model.checkedIssues}
-              onToggle={model.toggleIssue}
-              disabled={busy}
-            >
-              <ComposerTool
-                aria-label="Pick issues"
-                title="Issues"
-                data-testid="agent-composer-issues-button"
-                className={checkedCount > 0 ? `text-foreground` : undefined}
-              >
-                <IssueRefIcon />
-              </ComposerTool>
-            </IssuePicker>
-            <ActionPicker
-              actions={model.actions}
-              selectedActionId={actionSubject && subject ? subject.id : null}
-              onSelect={model.pickAction}
-              disabled={busy}
-            >
-              <ComposerTool
-                aria-label="Pick an action"
-                title="Actions"
-                data-testid="agent-composer-actions-button"
-                className={actionSubject ? `text-foreground` : undefined}
-              >
-                <NavActionsIcon />
-              </ComposerTool>
-            </ActionPicker>
             <input
               ref={fileInputRef}
               type="file"
               multiple
-              accept={acceptedImageContentTypes.join(`,`)}
               className="hidden"
               onChange={(e) => {
                 filePickerOpenRef.current = false
@@ -267,18 +234,14 @@ export function LaunchComposer({
                 e.target.value = ``
               }}
             />
-            <ComposerTool
-              aria-label="Attach image"
-              title="Attach image"
-              data-testid="agent-composer-image-button"
+            <ComposerPlusMenu
+              model={model}
               disabled={busy}
-              onClick={() => {
+              onAttach={() => {
                 filePickerOpenRef.current = true
                 fileInputRef.current?.click()
               }}
-            >
-              <UiAddIcon />
-            </ComposerTool>
+            />
           </>
         }
         submit={
@@ -369,6 +332,29 @@ export function LaunchComposer({
         />
       </Composer>
       <LaunchOptionsLine model={model} />
+      {/* EXP-790/EXP-1249: the suggestions only while there is nothing
+          typed and no subject, as QUIET rows under everything else — muted
+          text behind a faint glyph, no pill, no border. */}
+      {showSuggestions && (
+        <div className="flex flex-col items-start px-1 pt-1">
+          {suggestions.map((suggestion) => (
+            <Button
+              key={suggestion}
+              type="button"
+              variant="ghost"
+              data-testid={COMPOSER_MENU_TEST_IDS.suggestion}
+              className="group h-auto max-w-full justify-start gap-2 px-0 py-1 text-[13px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
+              onClick={() => insertSuggestion(fieldRef.current, suggestion)}
+            >
+              <SuggestionIcon
+                aria-hidden
+                className="size-3.5 shrink-0 opacity-50 group-hover:opacity-80"
+              />
+              <span className="truncate">{suggestion}</span>
+            </Button>
+          ))}
+        </div>
+      )}
       {/* EXP-980: the submit on BLOCKED issues asks first (SLOP-3: Cancel ·
           Start anyway · Stacked PR). */}
       <BlockedStartDialog

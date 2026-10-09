@@ -43,8 +43,8 @@ export const entry: StyleguideEntry = {
   status: {
     web: {
       state: `ok`,
-      symbol: `RepositoryPickerList`,
-      file: `packages/ui/src/repository-picker.tsx`,
+      symbol: `RepositoryPicker / RepositoryPickerList`,
+      file: `packages/ui/src/picker/repository-picker.tsx`,
     },
     desktop: {
       state: `ok`,

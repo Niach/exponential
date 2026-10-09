@@ -150,11 +150,50 @@ final class WorkSubjectModel {
     /// the coding target when it has any, else the newest run on the issue by
     /// ANY member with results. nil for an issue-less subject (its Results are
     /// the shown run's own).
-    func resultsRun(boundId: String?) -> CodingSessionEntity? {
+    /// EXP-1251: `issuePrUrl` adds the last step — a run on ANOTHER issue
+    /// whose topics are tagged with this issue's PR (a run that stacked it).
+    func resultsRun(boundId: String?, issuePrUrl: String? = nil) -> CodingSessionEntity? {
         guard let issueId else { return nil }
+        observePrTagged(issuePrUrl)
+        let extra = prTaggedRows.filter { row in !allIssueRows.contains { $0.id == row.id } }
         return WorkFaces.issueResultsRun(
-            allIssueRows, issueId: issueId, boundId: boundId, me: currentUserId, now: now
+            allIssueRows + extra, issueId: issueId, boundId: boundId, me: currentUserId, now: now,
+            issuePrUrl: issuePrUrl
         )
+    }
+
+    /// EXP-1251: the runs whose results NAME the issue's PR url — the
+    /// candidates `issueResultsRun`'s PR-tag step reads (it checks the tag
+    /// itself; the LIKE only narrows the read).
+    private var prTaggedRows: [CodingSessionEntity] = []
+    @ObservationIgnored private var prTaggedKey: String?
+    @ObservationIgnored private var prTaggedTask: Task<Void, Never>?
+
+    private func observePrTagged(_ prUrl: String?) {
+        let key = prUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard key != (prTaggedKey ?? "") || (prTaggedTask == nil && !key.isEmpty) else { return }
+        prTaggedTask?.cancel()
+        prTaggedTask = nil
+        prTaggedKey = key
+        guard !key.isEmpty, let pool = try? db.pool(forAccountId: accountId) else {
+            // Read during a body pass: the write waits for the next turn.
+            if !prTaggedRows.isEmpty { Task { [weak self] in self?.prTaggedRows = [] } }
+            return
+        }
+        let pattern = "%\(key)%"
+        let observation = ValueObservation.tracking { db in
+            try CodingSessionEntity
+                .filter(Column("results").like(pattern))
+                .fetchAll(db)
+        }
+        prTaggedTask = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    guard let self else { return }
+                    self.prTaggedRows = rows
+                }
+            } catch {}
+        }
     }
 
     /// The machine a Resume of an ENDED run would go to (`RunResume.target`,
@@ -195,6 +234,9 @@ final class WorkSubjectModel {
         chainObservationTask = nil
         runObservationTask?.cancel()
         runObservationTask = nil
+        prTaggedTask?.cancel()
+        prTaggedTask = nil
+        prTaggedKey = nil
         deviceObservationTask?.cancel()
         deviceObservationTask = nil
         clockTask?.cancel()

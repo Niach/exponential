@@ -1,10 +1,8 @@
 import type { ReactNode } from "react"
-import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
 
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { Button } from "./button"
 import { cn } from "./cn"
-import { DiffCounts } from "./diff-counts"
 import { DropdownMenu, DropdownMenuTrigger } from "./dropdown-menu"
 import { conceptIcon } from "./icons.generated"
 import { SESSION_DOT_CLASS, type SessionDotTone } from "./session-dot"
@@ -13,8 +11,9 @@ import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "./tabs"
 // EXP-1152 — THE Work face strip, one component for every Work screen on the
 // web: the md+ work header (`WorkFaceToggle`, EXP-870/877) and the phone's
 // header band (`MobileFaceTabs`, EXP-1150). It is the segmented capsule
-// (`tabs.tsx`) naming the faces `Issue · Run/Runs · +N −M · Results` in their
-// fixed order — the desktop `work_header.rs` `FaceToggle`, iOS
+// (`tabs.tsx`) naming the faces `Issue · Run/Runs · Guide` in their fixed
+// order (EXP-1251: Changes + Results merged into the Guide; its counts moved
+// into the body) — the desktop `work_header.rs` `FaceToggle`, iOS
 // `WorkFaceTabs`, Android `FaceTabs.kt`. An unavailable face is HIDDEN, never
 // disabled, and the strip is absent under two faces unless the `Runs` caret
 // earns it (EXP-950: a lone `Runs` item keeps the run menu in reach). The
@@ -22,9 +21,8 @@ import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "./tabs"
 // strip owns only where the caret sits. A NULL face (EXP-1024, the workflow
 // node panel) leaves every segment inactive.
 
-/** The four faces. `diff` is the changes face, `results` the published
- *  screenshots (EXP-879). */
-export type WorkFaceStripFace = `issue` | `run` | `diff` | `results`
+/** The three faces (EXP-1251). */
+export type WorkFaceStripFace = `issue` | `run` | `guide`
 
 export interface WorkFaceStripItem {
   face: WorkFaceStripFace
@@ -34,36 +32,12 @@ export interface WorkFaceStripItem {
 
 const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
-/** The word the Changes segment wears until its files are known. */
-export const CHANGES_FACE_WORD = `Changes`
-
-/** EXP-1152: the Changes segment's label — the desktop `FaceToggle::diff`
- *  rule on every client: the `+N −M` counts (`DiffCounts`, U+2212) once the
- *  face's files are known, the word `Changes` until then. The counts' one
- *  string is the segment's accessible name. */
-export function ChangesFaceLabel({
-  counts,
-}: {
-  counts: { additions: number; deletions: number } | null | undefined
-}) {
-  if (!counts) return <>{CHANGES_FACE_WORD}</>
-  const text = `${additionsLabel(counts.additions)} ${deletionsLabel(counts.deletions)}`
-  return (
-    <DiffCounts
-      additions={counts.additions}
-      deletions={counts.deletions}
-      title={text}
-      aria-label={text}
-    />
-  )
-}
-
 /** EXP-1162: the segments' state (contract `detail-chrome.json` FACE MARKS,
  *  ×4) — the header title carries none. The Run tab never draws a dot: while
  *  its run is live it wears the agent's brand mark (`AgentRunMark`, the
  *  sidebar Running row's), leading the label, with the amber badge while it
- *  waits on a person. An open pull request puts a 6px dot on the Results /
- *  Changes tab, 6px after the label. */
+ *  waits on a person. An open pull request puts a 6px dot on the Guide tab,
+ *  6px after the label. */
 export type WorkFaceStripDots = Partial<
   Record<WorkFaceStripFace, SessionDotTone>
 >

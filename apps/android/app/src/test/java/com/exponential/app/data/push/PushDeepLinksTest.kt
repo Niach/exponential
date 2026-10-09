@@ -182,20 +182,20 @@ class PushDeepLinksTest {
         )
     }
 
-    // EXP-933: an agent message about an issue opens that issue's Results.
+    // EXP-933: an agent message about an issue opens that issue's Guide.
     @Test
-    fun `an agent message push with an issue targets the issue's results`() {
+    fun `an agent message push with an issue targets the issue's guide`() {
         assertEquals(
-            PushDeepLinks.Target.IssueResults("i1"),
+            PushDeepLinks.Target.IssueGuide("i1"),
             PushDeepLinks.target(type = PushDeepLinks.TYPE_AGENT_MESSAGE, issueId = "i1"),
         )
         assertEquals(
-            "exponential://issue/i1?face=results&userId=user-1",
-            PushDeepLinks.uri(PushDeepLinks.Target.IssueResults("i1"), "user-1"),
+            "exponential://issue/i1?face=guide&userId=user-1",
+            PushDeepLinks.uri(PushDeepLinks.Target.IssueGuide("i1"), "user-1"),
         )
         assertEquals(
-            "exponential://issue/i1?face=results",
-            PushDeepLinks.uri(PushDeepLinks.Target.IssueResults("i1"), null),
+            "exponential://issue/i1?face=guide",
+            PushDeepLinks.uri(PushDeepLinks.Target.IssueGuide("i1"), null),
         )
         // Any other type naming an issue keeps the plain issue link.
         assertEquals(

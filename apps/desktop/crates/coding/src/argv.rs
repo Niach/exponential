@@ -448,6 +448,11 @@ pub struct LaunchOptions {
     /// this device; `crate::agent_profiles::launch_account` resolves it (and
     /// rides every ambient result back as `None`).
     pub account: Option<String>,
+    /// EXP-1249: computer use for THIS run (the composer "+" menu's toggle,
+    /// the start frame's `computerUse`). `None` = the device's own switch
+    /// (`Settings.computer_use`, published as `launch_defaults.computerUse`);
+    /// `Some` overrides it either way ([`Self::computer_use_on`]).
+    pub computer_use: Option<bool>,
 }
 
 impl LaunchOptions {
@@ -475,6 +480,7 @@ impl LaunchOptions {
             // EXP-1158: unnamed — the launcher runs it on the agent's last
             // used login.
             account: None,
+            computer_use: None,
         }
     }
 
@@ -552,8 +558,22 @@ impl LaunchOptions {
             },
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         }
         .with_account(account)
+    }
+
+    /// EXP-1249: layer the start frame's per-run `computerUse` on. `None` =
+    /// the frame carried none (the device's own switch decides).
+    pub fn with_computer_use(mut self, computer_use: Option<bool>) -> Self {
+        self.computer_use = computer_use;
+        self
+    }
+
+    /// EXP-1249: whether THIS run gets the device's computer-use server — the
+    /// run's own pick when it made one, else the device switch.
+    pub fn computer_use_on(&self, device_default: bool) -> bool {
+        self.computer_use.unwrap_or(device_default)
     }
 
     /// EXP-792: the remote frame's MCP server picks. Deduplicated, blanks
@@ -738,7 +758,27 @@ mod tests {
             subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
+            computer_use: None,
         }
+    }
+
+    /// EXP-1249: a run's own computer-use pick wins over the device switch,
+    /// both ways; no pick = the switch.
+    #[test]
+    fn a_runs_computer_use_pick_overrides_the_device_switch() {
+        let unset = claude_opts();
+        assert!(unset.computer_use_on(true));
+        assert!(!unset.computer_use_on(false));
+        let on = claude_opts().with_computer_use(Some(true));
+        assert!(on.computer_use_on(false));
+        let off = claude_opts().with_computer_use(Some(false));
+        assert!(!off.computer_use_on(true));
+        assert_eq!(claude_opts().with_computer_use(None).computer_use, None);
+        assert_eq!(
+            LaunchOptions::defaults(&crate::Settings::default()).computer_use,
+            None,
+            "a settings-default launch leaves it to the device"
+        );
     }
 
     /// EXP-792: the two-server pick every renderer test uses — one OAuth

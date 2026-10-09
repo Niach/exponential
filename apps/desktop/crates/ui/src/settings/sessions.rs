@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use gpui::{IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     ActiveTheme as _,
 };
 
@@ -124,7 +124,7 @@ impl Render for SessionsPane {
                         for (days, label) in CHOICES {
                             let entity = entity.clone();
                             menu = menu.item(
-                                PopupMenuItem::new(label)
+                                crate::controls::pointer_label_item(label, false)
                                     .checked(current == days)
                                     .on_click(move |_, _, cx| {
                                         entity.update(cx, |this, cx| this.set_days(days, cx));

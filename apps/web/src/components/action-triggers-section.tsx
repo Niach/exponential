@@ -1,19 +1,15 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { deleteTriggerPrompt, promptActions } from "@/lib/prompts"
-import { Ellipsis, Pencil, Trash2 } from "lucide-react"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import {
   AGENT_LABELS,
   conceptIcon,
   Button,
   Pill,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   GlassSectionHeader,
   ListRow,
   LiveDot,
+  Menu,
   Prompt,
   Switch,
   toast,
@@ -35,6 +31,9 @@ import {
 // Runs, so a row carries no run history of its own.
 
 const TriggerScheduleIcon = conceptIcon(`trigger-schedule`)
+const UiMoreIcon = conceptIcon(`ui-more`)
+const UiEditIcon = conceptIcon(`ui-edit`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 const TriggerEventIcon = conceptIcon(`trigger-event`)
 
 /** The glyph of a trigger kind — the Triggers rows and the Actions list. */
@@ -156,25 +155,37 @@ function TriggerMenu({
   onDelete: () => void
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Menu
+      align="end"
+      aria-label="Trigger actions"
+      title="Trigger"
+      entries={[
+        ...(onEdit
+          ? [
+              {
+                kind: `item` as const,
+                id: `edit`,
+                label: `Edit`,
+                icon: UiEditIcon,
+                onSelect: onEdit,
+              },
+            ]
+          : []),
+        {
+          kind: `item`,
+          id: `delete`,
+          label: `Delete`,
+          icon: UiDeleteIcon,
+          destructive: true,
+          onSelect: onDelete,
+        },
+      ]}
+      trigger={
         <Button variant="ghost" size="icon-sm" aria-label="Trigger menu">
-          <Ellipsis />
+          <UiMoreIcon />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {onEdit && (
-          <DropdownMenuItem onClick={onEdit}>
-            <Pencil className="h-4 w-4" />
-            Edit
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          <Trash2 className="h-4 w-4" />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+    />
   )
 }
 

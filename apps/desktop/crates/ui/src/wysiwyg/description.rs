@@ -98,6 +98,10 @@ pub struct WysiwygDescription {
     /// EXP-335: set by hosts with a Files destination — gates the rail's
     /// attach button (the action-prompt editor has none, so no button).
     on_attach_files: Option<OnAttachFiles>,
+    /// EXP-1247: the rail's "Attach file" picks, ALL of them (images and
+    /// clips included), for a host that uploads them `as_file`. Unset = the
+    /// legacy split (inline images embed, the rest ride `on_attach_files`).
+    on_attach_as_file: Option<OnAttachFiles>,
     /// Authenticated fetch/decode cache (same type the block editor uses).
     images: Entity<ImageCache>,
     /// State shared with the vendored environment's paste handler + resolver.
@@ -441,6 +445,7 @@ impl WysiwygDescription {
             upload_issue,
             on_save,
             on_attach_files: None,
+            on_attach_as_file: None,
             images,
             shared,
             staged: Vec::new(),
@@ -1076,19 +1081,25 @@ impl WysiwygDescription {
         self.on_attach_files = Some(handler);
     }
 
-    /// EXP-335: does the rail render the attach button?
-    pub(super) fn has_attach_handler(&self) -> bool {
-        self.on_attach_files.is_some()
+    /// EXP-1247: route every "Attach file" pick to `handler` as a FILE (no
+    /// inline detour). Drops and the image button keep inlining.
+    pub fn set_attach_as_file_handler(&mut self, handler: OnAttachFiles) {
+        self.on_attach_as_file = Some(handler);
     }
 
-    /// Rail "Attach file": any file type. Inline-image picks embed at the
-    /// caret through the editor's own image pipeline (identical to the image
-    /// button); everything else routes to the host's attach hook.
+    /// EXP-335: does the rail render the attach button?
+    pub(super) fn has_attach_handler(&self) -> bool {
+        self.on_attach_files.is_some() || self.on_attach_as_file.is_some()
+    }
+
+    /// Rail "Attach file": any file type. EXP-1247: with an as-file hook
+    /// every pick goes there (a file, never inlined); without one, inline
+    /// images embed at the caret and everything else rides the attach hook.
     pub(super) fn pick_attach(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.on_attach_files.is_none() {
+        if self.on_attach_files.is_none() && self.on_attach_as_file.is_none() {
             return;
         }
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,
@@ -1099,6 +1110,10 @@ impl WysiwygDescription {
                 return;
             };
             this.update_in(cx, |this, window, cx| {
+                if let Some(on_attach) = this.on_attach_as_file.clone() {
+                    on_attach(paths, window, cx);
+                    return;
+                }
                 let (images, others): (Vec<_>, Vec<_>) = paths.into_iter().partition(|path| {
                     crate::markdown::image_paste::is_inline_image_path(path)
                 });
@@ -1121,7 +1136,7 @@ impl WysiwygDescription {
     /// Rail "Insert image": pick files and feed them through the SAME
     /// materialize path a paste takes, so staging/upload behaves identically.
     pub(super) fn pick_image(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,

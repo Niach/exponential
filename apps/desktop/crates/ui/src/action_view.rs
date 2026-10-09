@@ -20,7 +20,6 @@
 //! EXP-832: `render` builds elements and NOTHING else — the joins (devices,
 //! pins, the run tree) happen once per data change in [`ActionView::refresh`].
 
-use std::collections::HashSet;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -30,7 +29,7 @@ use gpui::{
 };
 use gpui_component::{
     button::Button,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -59,9 +58,6 @@ pub struct ActionView {
     /// The Prompt section — built once the action's row is synced, rebuilt
     /// when the page is pointed at another action.
     prompt: Option<Entity<ActionPromptForm>>,
-    /// EXP-897: the parent runs whose child runs are folded away, by tree
-    /// node key (the sessions lists' rule). Per view, never persisted.
-    collapsed: HashSet<String>,
     derived: ActionDerived,
     /// A refused trigger write (the server's own sentence), shown under the
     /// Triggers rows until the next write.
@@ -106,12 +102,10 @@ struct TriggerRow {
 }
 
 /// One Runs row: a run or a group row, plus its place in the session tree
-/// (EXP-818/EXP-897/EXP-1061 — nested ×4, folded by its node key).
+/// (EXP-818/EXP-897/EXP-1061 — nested ×4; EXP-1248: children always show).
 #[derive(Clone, Debug, PartialEq)]
 struct RunRow {
-    key: String,
     depth: usize,
-    has_children: bool,
     /// A run, titled by what started it ([`run_rows::action_run_title`]).
     facts: run_rows::RunListFacts,
 }
@@ -163,9 +157,7 @@ impl ActionDerived {
         })
         .into_iter()
         .map(|row| RunRow {
-            key: row.key,
             depth: row.depth,
-            has_children: row.has_children,
             facts: row.run,
         })
         .collect();
@@ -230,7 +222,6 @@ impl ActionView {
             scroll: ScrollHandle::new(),
             action_id: None,
             prompt: None,
-            collapsed: HashSet::new(),
             derived: ActionDerived::default(),
             trigger_error: None,
             trigger_writing: false,
@@ -252,7 +243,6 @@ impl ActionView {
         }
         self.action_id = Some(action_id);
         self.prompt = None;
-        self.collapsed.clear();
         self.trigger_error = None;
         self.scroll = ScrollHandle::new();
         self.derived = ActionDerived::compute(cx, self.action_id.as_deref());
@@ -287,12 +277,6 @@ impl ActionView {
         if had_action && self.derived.action.is_none() && self.derived.ready && on_screen {
             crate::navigation::go_back_to(window, cx, Screen::Actions);
         }
-    }
-
-    /// EXP-897: the folded parents of the Runs (the shared
-    /// [`crate::sessions_section::Collapsible`] contract).
-    pub(crate) fn collapsed_runs_mut(&mut self) -> &mut HashSet<String> {
-        &mut self.collapsed
     }
 
     /// Re-derive the page off the collections and repaint — the ONE place
@@ -695,7 +679,7 @@ impl ActionView {
                     let delete_view = view.clone();
                     let delete_id = trigger_id.clone();
                     menu.item(
-                        PopupMenuItem::new("Edit")
+                        crate::controls::pointer_label_item("Edit", false)
                             .icon(Icon::from(registry::UI_EDIT))
                             .on_click(move |_, window, cx| {
                                 crate::trigger_dialog::open_edit(
@@ -800,40 +784,29 @@ impl ActionView {
                 )
                 .into_any_element();
         }
-        // EXP-897: everything under a folded node leaves the list.
-        let visible = crate::sessions_section::drop_collapsed(
-            self.derived.runs.iter().collect::<Vec<_>>(),
-            &self.collapsed,
-            |row| row.key.as_str(),
-            |row| row.depth,
-        );
-        // EXP-965: the connector every nested row draws, off the VISIBLE
-        // depth sequence (a folded subtree is not part of the tree on screen).
+        // EXP-965/1248: children always show; the connector every nested
+        // row draws comes off the depth sequence.
         let guides = domain::tree_guides::guides_for(
-            &visible.iter().map(|row| row.depth).collect::<Vec<_>>(),
+            &self.derived.runs.iter().map(|row| row.depth).collect::<Vec<_>>(),
         );
-        for (index, row) in visible.into_iter().enumerate() {
-            let fold = crate::sessions_section::fold_for(
-                row.key.clone(),
-                row.has_children,
-                &self.collapsed,
-                cx,
-            );
+        for (index, row) in self.derived.runs.iter().enumerate() {
             let guides = guides.get(index).cloned().unwrap_or_default();
             let open_id = row.facts.session_id().to_string();
-            let element = run_rows::render_run_list_row(
-                "action-run",
-                index,
-                guides,
-                fold,
-                row.facts.clone(),
-                false,
-                // This page is context-free (no list to pin the run beside),
-                // so the run opens over the rail and its Back — the history —
-                // returns here.
-                Box::new(move |_, window, cx| {
-                    crate::session_screen::open_session(&open_id, window, cx);
-                }),
+            // This page is context-free (no list to pin the run beside), so
+            // the run opens over the rail and its Back — the history —
+            // returns here.
+            let on_open: run_rows::RunRowAction = Box::new(move |_, window, cx| {
+                crate::session_screen::open_session(&open_id, window, cx);
+            });
+            let element = run_rows::run_row(
+                row.facts.clone().row_spec(
+                    "action-run",
+                    index,
+                    run_rows::RunRowSize::Big,
+                    guides,
+                    false,
+                    on_open,
+                ),
                 cx,
             );
             section = section.child(list_row(element, index));

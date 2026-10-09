@@ -1,25 +1,24 @@
 import Foundation
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
-// session) with up to four FACES held as screen state, never as navigation:
-// `issue`, `run`, `changes` and (EXP-879) `results`. EXP-1150: the faces are
-// TABS — a segmented strip under the nav bar lists `availableFaces` with
+// session) with up to three FACES held as screen state, never as navigation:
+// `issue`, `run` and `guide` (EXP-1251: Changes + Results merged into the
+// Guide, its diff counts moved into the body). EXP-1150: the faces are TABS —
+// a segmented strip under the nav bar lists `availableFaces` with
 // `faceLabel` (tapping the selected `Runs` tab opens the run menu), and a
 // horizontal swipe on the face body moves to the neighbour (`swipeTarget`).
 // Stop / Resume sit in the nav bar's trailing slot only while the Run face
-// shows, and the Merge PR pill trails the tab row on every face. These are
-// the PURE rules every
-// phone client mirrors byte for byte: web `lib/work-faces.ts` (the spec),
-// Android `domain/WorkFaces.kt` — same names, same cases, same test names.
+// shows. These are the PURE rules every phone client mirrors byte for byte:
+// web `lib/work-faces.ts` (the spec), Android `domain/WorkFaces.kt` — same
+// names, same cases, same test names.
 
-/// The four faces. `changes` is the run's diff, else the issue's open PR;
-/// `results` (EXP-879) is the shown RUN's published screenshots, so — like the
-/// run's own diff — it is a sub-face of Run: no run of mine, no results.
+/// The three faces. EXP-1251: `guide` = the run's Guide (its published
+/// sections + pictures) over the diff (the run's live diff, else the issue's
+/// open PR).
 public enum WorkFaceKind: String, Equatable, Sendable, CaseIterable {
     case issue
     case run
-    case changes
-    case results
+    case guide
 }
 
 /// EXP-862: the ONE session-dot mapping, hand-mirrored with web
@@ -40,12 +39,11 @@ public enum WorkFaces {
     public static let runFaceLabel = "Run"
     /// EXP-886: the Run face's label with MORE THAN ONE own run on the issue.
     public static let runsFaceLabel = "Runs"
-    public static let changesFaceLabel = "Changes"
-    /// EXP-879: the run's published screenshots.
-    public static let resultsFaceLabel = "Results"
-    /// EXP-933: the inline `sessions_results` card's button that switches the
-    /// Work screen to its Results face, byte-identical ×4.
-    public static let openResultsLabel = "Open Results"
+    /// EXP-1251: the Guide face (contract `diffUi.guideFace`).
+    public static let guideFaceLabel = DomainContract.diffUiGuideFace
+    /// EXP-933: the transcript card under a settled `sessions_guide` call that
+    /// switches the run to its Guide face, byte-identical ×4.
+    public static let openResultsLabel = "Open \(guideFaceLabel)"
     /// The Start coding verb once the shown run ended for good.
     public static let startCodingLabel = "Start coding"
 
@@ -59,49 +57,21 @@ public enum WorkFaces {
         switch face {
         case .issue: return issueFaceLabel
         case .run: return multipleRuns ? runsFaceLabel : runFaceLabel
-        case .changes: return changesFaceLabel
-        case .results: return resultsFaceLabel
+        case .guide: return guideFaceLabel
         }
     }
 
-    /// EXP-1152: what the Changes tab WEARS — the desktop `work_header.rs`
-    /// `FaceToggle::diff` rule on every phone: the `+N −M` counts of the files
-    /// the face draws (the run's live diff, else the issue's loaded PR files)
-    /// once they are known, the word `Changes` until then. `nil` = the word.
-    public struct ChangesFaceCounts: Equatable, Sendable {
-        public let additions: Int
-        public let deletions: Int
-
-        public init(additions: Int, deletions: Int) {
-            self.additions = additions
-            self.deletions = deletions
-        }
-    }
-
-    /// No totals, or totals over zero files (an empty diff), keep the word.
-    public static func changesFaceCounts(_ totals: Diff.Totals?) -> ChangesFaceCounts? {
-        guard let totals, totals.files > 0 else { return nil }
-        return ChangesFaceCounts(additions: totals.additions, deletions: totals.deletions)
-    }
-
-    /// The counts as ONE string (`+12 −2`, U+2212) — the segment's accessible
-    /// name and the natives' plain label, byte-identical ×3.
-    public static func changesFaceText(_ counts: ChangesFaceCounts) -> String {
-        "\(Diff.additionsLabel(counts.additions)) \(Diff.deletionsLabel(counts.deletions))"
-    }
-
-    /// The faces a subject can show, in their fixed order. Changes is
-    /// independent of Run: an issue with an open PR and no run of mine still
-    /// has its PR files. Results (EXP-879) goes LAST and is not: it belongs to
-    /// the shown run's own row.
+    /// The faces a subject can show, in their fixed order. EXP-1251: the
+    /// Guide shows when the run published results OR there is a diff (live,
+    /// PR or branch), independent of Run: an issue with an open PR and no run
+    /// of mine still has its PR files. It comes last.
     public static func availableFaces(
-        hasIssue: Bool, hasRun: Bool, hasChanges: Bool, hasResults: Bool
+        hasIssue: Bool, hasRun: Bool, hasResults: Bool, hasDiff: Bool
     ) -> [WorkFaceKind] {
         var faces: [WorkFaceKind] = []
         if hasIssue { faces.append(.issue) }
         if hasRun { faces.append(.run) }
-        if hasChanges { faces.append(.changes) }
-        if hasResults { faces.append(.results) }
+        if hasResults || hasDiff { faces.append(.guide) }
         return faces
     }
 
@@ -153,25 +123,29 @@ public enum WorkFaces {
 
     /// EXP-933: the run whose RESULTS an issue shows — `codingTarget` when
     /// that run has any, else the newest run on the issue (startedAt, ties:
-    /// larger id) by ANY member with results. Fixture
+    /// larger id) by ANY member with results, else (EXP-1251) the newest run
+    /// anywhere whose topics are tagged with the issue's PR. Fixture
     /// `session-results.json` `issueResultsRun` (×4).
     public static func issueResultsRun(
         _ rows: [CodingSessionEntity],
         issueId: String,
         boundId: String?,
         me: String?,
-        now: Date
+        now: Date,
+        issuePrUrl: String? = nil
     ) -> CodingSessionEntity? {
         if let own = codingTarget(rows, issueId: issueId, boundId: boundId, me: me, now: now),
            hasSessionResults(own.results) {
             return own
         }
-        return newest(rows.filter { $0.issueId == issueId && hasSessionResults($0.results) })
+        let onIssue = newest(rows.filter { $0.issueId == issueId && hasSessionResults($0.results) })
+        guard onIssue == nil, let issuePrUrl, !issuePrUrl.isEmpty else { return onIssue }
+        return newest(rows.filter { sessionResultPrUrls($0.results).contains(issuePrUrl) })
     }
 
     /// EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark
     /// duplicate · Delete issue) belongs to the issue, so it shows on the
-    /// ISSUE face alone. On Run, Changes and Results the trailing slot carries
+    /// ISSUE face alone. On Run and Guide the trailing slot carries
     /// the run's own verb (Stop / Resume) and nothing else — a Delete issue
     /// sitting beside a running agent acts on a subject that face is not even
     /// showing.
@@ -217,16 +191,15 @@ public enum WorkFaces {
         return faces[next]
     }
 
-    /// Where a face lands when it vanishes under the reader (the diff cleared,
-    /// the results went with the run row): changes → run → issue, and results
-    /// the same way — both are the run's. `nil` = nothing left.
+    /// Where a face lands when it vanishes under the reader (the diff cleared
+    /// and the results list was empty, the run row went): guide → run →
+    /// issue. `nil` = nothing left.
     public static func fallbackFace(
         shown: WorkFaceKind, available: [WorkFaceKind]
     ) -> WorkFaceKind? {
         if available.contains(shown) { return shown }
         let order: [WorkFaceKind] = switch shown {
-        case .changes: [.run, .issue]
-        case .results: [.run, .issue]
+        case .guide: [.run, .issue]
         case .run: [.issue]
         case .issue: []
         }
@@ -236,9 +209,9 @@ public enum WorkFaces {
     /// EXP-1154: whether a requested `initialFace` that is not available yet
     /// keeps HOLDING the fallback off. It lets go once the face is there or
     /// the reader moved elsewhere; otherwise it waits for the runs AND, for
-    /// Changes and Results, for the issue row too: both read it (the open PR,
-    /// the pushed branch), and it usually lands after the runs, so a Reviews
-    /// row would otherwise fall back to the Issue face. `issueResolved` =
+    /// the Guide, for the issue row too: it reads it (the open PR, the pushed
+    /// branch), and it usually lands after the runs, so a Reviews row would
+    /// otherwise fall back to the Issue face. `issueResolved` =
     /// true when the subject names no issue.
     public static func holdsPendingFace(
         pending: WorkFaceKind,
@@ -250,7 +223,7 @@ public enum WorkFaces {
         if available.contains(pending) || shown != pending { return false }
         if !runsResolved { return true }
         switch pending {
-        case .changes, .results: return !issueResolved
+        case .guide: return !issueResolved
         case .issue, .run: return false
         }
     }
@@ -350,6 +323,23 @@ public extension WorkFaces {
         endedAt: String?,
         now: Date
     ) -> RunRowCaption {
+        runRowCaption(
+            state: state,
+            device: device,
+            start: startedAt.flatMap(WireTimestamps.parse),
+            end: endedAt.flatMap(WireTimestamps.parse),
+            now: now
+        )
+    }
+
+    /// The same caption over parsed stamps (what a turn's row reads).
+    static func runRowCaption(
+        state: RunRowState,
+        device: String,
+        start: Date?,
+        end: Date?,
+        now: Date
+    ) -> RunRowCaption {
         switch state {
         case .paused: return RunRowCaption(text: "Paused · \(device)", tone: .muted)
         case .needsInput: return RunRowCaption(text: "Needs input · \(device)", tone: .amber)
@@ -357,14 +347,132 @@ public extension WorkFaces {
         case .done: return RunRowCaption(text: "Done · \(device)", tone: .sky)
         case .working, .ended:
             let verb = state == .working ? "Building on" : "Ended on"
-            let start = startedAt.flatMap(WireTimestamps.parse)
-            let end = state == .working ? now : endedAt.flatMap(WireTimestamps.parse)
+            let finish = state == .working ? now : end
             var elapsed = ""
-            if let start, let end {
-                let ms = Int((end.timeIntervalSince(start) * 1000).rounded())
-                elapsed = " · \(AgentFeed.workingDuration(ms: ms))"
+            if let start, let finish {
+                elapsed = " · \(AgentFeed.workingDuration(ms: elapsedMs(start, finish)))"
             }
             return RunRowCaption(text: "\(verb) \(device)\(elapsed)", tone: .muted)
         }
+    }
+
+    private static func elapsedMs(_ start: Date, _ end: Date) -> Int {
+        Int((end.timeIntervalSince(start) * 1000).rounded())
+    }
+
+    /// EXP-1245: one status row PER TURN. A settled turn reads `Done on
+    /// <device> · <turn duration>`; the open (newest) turn reads the run's row
+    /// (`runRowCaption`) timed from the TURN's start, not the run's; a sent
+    /// message still waiting for its turn has no row (nil). `runEndedAt` =
+    /// the run's `ended_at`, else `updated_at`. Fixture `run-row.json`
+    /// `turnCaptions` (×4).
+    static func turnRowCaption(
+        turnStartedAt: Date?,
+        turnEndedAt: Date?,
+        state: RunRowState,
+        device: String,
+        runEndedAt: Date?,
+        now: Date,
+        endKnown: Bool = true
+    ) -> RunRowCaption? {
+        guard let start = turnStartedAt else { return nil }
+        if let end = turnEndedAt {
+            // Web M6 ×4: a settled turn whose end was never observed (the
+            // first turn, closed only by the next message) drops the
+            // duration rather than count the idle gap.
+            guard endKnown else { return RunRowCaption(text: "Done on \(device)", tone: .muted) }
+            return RunRowCaption(
+                text: "Done on \(device) · \(AgentFeed.workingDuration(ms: elapsedMs(start, end)))",
+                tone: .muted
+            )
+        }
+        return runRowCaption(state: state, device: device, start: start, end: runEndedAt, now: now)
+    }
+
+    /// A turn's row caption off the turns model (its ms stamps).
+    static func turnRowCaption(
+        _ turn: SessionTurn,
+        state: RunRowState,
+        device: String,
+        runEndedAt: Date?,
+        now: Date,
+        endKnown: Bool = true
+    ) -> RunRowCaption? {
+        turnRowCaption(
+            turnStartedAt: turn.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
+            turnEndedAt: turn.endedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
+            state: state,
+            device: device,
+            runEndedAt: runEndedAt,
+            now: now,
+            endKnown: endKnown
+        )
+    }
+}
+
+// MARK: - EXP-1251: the Guide's section pages
+
+/// A section page under the Guide: a 1-based section number, `lead` (the
+/// Summary's own files), `other` (the automatic Other changes) or `all`
+/// (Show complete diff). Web `GuideSectionKey`.
+public enum GuideSectionKey: Equatable, Hashable, Sendable {
+    case section(Int)
+    case lead
+    case other
+    case all
+}
+
+/// A section page: the back row's caption (`02 / 06`, numbered sections
+/// only), its title, the files it covers and their summed counts.
+public struct GuideSectionPage: Equatable, Sendable {
+    public let section: GuideSectionKey
+    public let caption: String?
+    public let title: String
+    public let files: [Diff.File]
+    public let additions: Int
+    public let deletions: Int
+}
+
+public extension WorkFaces {
+    /// The page `section` opens over `files` (the diff the Guide counts): the
+    /// same coverage the Guide's rows read, so a page never shows a file its
+    /// row did not count. nil = no such section (a stale link) or no diff
+    /// loaded.
+    /// `numbered` false = the PR-body fallback (an unnumbered Guide): its
+    /// page carries no `01 / 01` caption, as its band carries no number.
+    static func guideSectionPage(
+        _ groups: [SessionResultGroup],
+        files: [Diff.File]?,
+        section: GuideSectionKey,
+        numbered: Bool = true
+    ) -> GuideSectionPage? {
+        guard let files else { return nil }
+        let coverage = guideCoverage(groups, files)
+        func page(_ title: String, _ caption: String?, _ set: GuideChangeSet?) -> GuideSectionPage? {
+            guard let set else { return nil }
+            return GuideSectionPage(
+                section: section, caption: caption, title: title,
+                files: set.files, additions: set.additions, deletions: set.deletions
+            )
+        }
+        switch section {
+        case .all: return page(guideChangesTopic, nil, coverage.complete)
+        case .other:
+            guard let other = coverage.other else { return nil }
+            return page(other.topic, nil, other.changes)
+        case .lead:
+            guard let lead = coverage.lead else { return nil }
+            return page(lead.group.topic, nil, lead.changes)
+        case let .section(index):
+            guard let hit = coverage.sections.first(where: { $0.index == index }) else { return nil }
+            return page(
+                hit.group.topic, numbered ? guideSectionCaption(hit.index, hit.total) : nil, hit.changes
+            )
+        }
+    }
+
+    /// The section page's back-row summary: `+A −D · N files`.
+    static func guideSectionSummary(_ page: GuideSectionPage) -> String {
+        "\(Diff.additionsLabel(page.additions)) \(Diff.deletionsLabel(page.deletions)) · \(guideFileCountLabel(page.files.count))"
     }
 }

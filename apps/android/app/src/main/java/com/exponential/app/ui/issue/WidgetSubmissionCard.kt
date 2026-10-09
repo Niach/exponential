@@ -116,10 +116,10 @@ fun WidgetSubmissionCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
             ) {
-                MetaRow("Reporter", reporter)
-                submission.pageUrl?.let { MetaRow("Page", it) }
-                if (display.isNotEmpty()) MetaRow("Display", display)
-                submission.userAgent?.let { MetaRow("User agent", it) }
+                SubmissionMetaLine("Reporter", reporter)
+                submission.pageUrl?.let { SubmissionMetaLine("Page", it) }
+                if (display.isNotEmpty()) SubmissionMetaLine("Display", display)
+                submission.userAgent?.let { SubmissionMetaLine("User agent", it) }
                 if (customDataJson != null) {
                     Row(verticalAlignment = Alignment.Top) {
                         MetaLabel("Custom data")
@@ -141,8 +141,10 @@ fun WidgetSubmissionCard(
     }
 }
 
+/** One label / value line of the expanded submission (a read-only caption
+ *  pair, not the shared tappable property [com.exponential.app.ui.components.MetaRow]). */
 @Composable
-private fun MetaRow(label: String, value: String) {
+private fun SubmissionMetaLine(label: String, value: String) {
     Row(verticalAlignment = Alignment.Top) {
         MetaLabel(label)
         Spacer(Modifier.width(8.dp))

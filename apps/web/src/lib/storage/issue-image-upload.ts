@@ -1,4 +1,5 @@
 export interface UploadedIssueAttachment {
+  asFile?: boolean
   contentType: string
   filename: string
   height: number | null
@@ -11,10 +12,12 @@ export interface UploadedIssueAttachment {
 async function postIssueUpload(
   path: string,
   file: File,
-  fallbackMessage: string
+  fallbackMessage: string,
+  asFile = false
 ) {
   const formData = new FormData()
   formData.append(`file`, file)
+  if (asFile) formData.append(`asFile`, `1`)
 
   const response = await fetch(path, {
     method: `POST`,
@@ -39,36 +42,22 @@ async function postIssueUpload(
 }
 
 /**
- * Inline-image upload. Since EXP-297 this posts to the any-type `/files`
- * route — identical request/response contract; the server applies the 10 MB
- * ceiling only to the five accepted inline image types (everything else gets
- * the 50 MB file cap), so callers must pre-filter to accepted image types.
- */
-export async function uploadIssueImageFile(issueId: string, file: File) {
-  return postIssueUpload(
-    `/api/issues/${issueId}/files`,
-    file,
-    `Failed to upload image`
-  )
-}
-
-/**
- * Steer-image upload (EXP-702): EVERY steered image goes to the session's
- * own server-only store — issue runs included, so steering screenshots never
- * land in the issue's Files section. Same request/response contract as the
- * issue route; the server only accepts the inline image types (10 MB) and
+ * Steer attachment upload (EXP-702): EVERY steered image or file goes to the
+ * session's own server-only store — issue runs included, so steering
+ * attachments never land in the issue's Files section. Same request/response
+ * contract and per-type caps as the issue route (images 10 MB, files 50 MB),
  * only from the session's owner.
  */
 export async function uploadSessionImageFile(sessionId: string, file: File) {
   return postIssueUpload(
     `/api/sessions/${sessionId}/files`,
     file,
-    `Failed to upload image`
+    `Failed to upload file`
   )
 }
 
 /**
- * EXP-825: an image attached to a START — the Agent page composer — before
+ * EXP-825: an image or file attached to a START — the Agent page composer — before
  * any session exists. Lands in the team's pending store; the device binds it
  * to the session row it creates (or the orphan sweep reclaims it).
  */
@@ -76,22 +65,35 @@ export async function uploadTeamSessionImageFile(teamId: string, file: File) {
   return postIssueUpload(
     `/api/teams/${teamId}/session-files`,
     file,
-    `Failed to upload image`
-  )
-}
-
-/**
- * Arbitrary-file upload (EXP-297): 50 MB for non-images, 10 MB for the inline
- * image types. Non-image rows never enter markdown — they render from the
- * synced attachments collection in the issue's Files section.
- */
-export async function uploadIssueFile(issueId: string, file: File) {
-  return postIssueUpload(
-    `/api/issues/${issueId}/files`,
-    file,
     `Failed to upload file`
   )
 }
+
+export interface AttachmentUploadOptions {
+  /** EXP-1247: picked through a FILE/paperclip path — the row lists in Files
+   *  even when it is an image, and is never inlined. */
+  asFile?: boolean
+}
+
+/**
+ * The ONE issue upload (EXP-297 `/files`): any type, 10 MB for the five
+ * inline image types, 50 MB otherwise. Inline images ride `![](…)`; every
+ * other row (and every `asFile` row) renders from the synced attachments
+ * collection in the issue's Files section.
+ */
+export async function uploadIssueAttachment(
+  issueId: string,
+  file: File,
+  { asFile = false }: AttachmentUploadOptions = {}
+) {
+  return postIssueUpload(
+    `/api/issues/${issueId}/files`,
+    file,
+    asFile ? `Failed to upload file` : `Failed to upload image`,
+    asFile
+  )
+}
+
 
 /** EXP-878: the upload path of an issue DRAFT — same contract as the issue
  *  route, owner-only. `media-upload.ts` builds the same path for clips. */
@@ -100,21 +102,21 @@ export function draftUploadPath(draftId: string) {
 }
 
 /**
- * EXP-878: an image pasted/dropped into the New issue page (EXP-1170). Uploads are eager
- * there — the row exists before the issue does (`attachments.draft_id`), so
- * the description carries the final `/api/attachments/{id}` URL from the
- * moment the image lands, exactly like the issue-detail editor.
+ * EXP-878: the ONE draft upload of the New issue page (EXP-1170). Uploads are
+ * eager there — the row exists before the issue does (`attachments.draft_id`),
+ * so an inline image carries its final `/api/attachments/{id}` URL from the
+ * moment it lands, and Files rows are reparented onto the issue by
+ * `issues.create({ draftId })`.
  */
-export async function uploadDraftImageFile(draftId: string, file: File) {
+export async function uploadDraftAttachment(
+  draftId: string,
+  file: File,
+  { asFile = false }: AttachmentUploadOptions = {}
+) {
   return postIssueUpload(
     draftUploadPath(draftId),
     file,
-    `Failed to upload image`
+    asFile ? `Failed to upload file` : `Failed to upload image`,
+    asFile
   )
-}
-
-/** EXP-878: a non-image attachment on a draft — the New issue page's Files
- *  section, reparented onto the issue by `issues.create({ draftId })`. */
-export async function uploadDraftFile(draftId: string, file: File) {
-  return postIssueUpload(draftUploadPath(draftId), file, `Failed to upload file`)
 }

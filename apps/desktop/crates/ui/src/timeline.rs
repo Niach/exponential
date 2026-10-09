@@ -869,7 +869,7 @@ impl IssueTimeline {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,
@@ -896,7 +896,7 @@ impl IssueTimeline {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let receiver = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let receiver = crate::file_picker::prompt_for_paths(cx, gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,

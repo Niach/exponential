@@ -8,6 +8,51 @@ package com.exponential.app.domain
 
 const val MAX_STEER_IMAGES = 4
 
+/** Wave D ×4: non-image files ride the same message, capped separately
+ *  (4 × [MAX_FILE_UPLOAD_BYTES]); images keep their own four. */
+const val MAX_STEER_FILES = 4
+
+/**
+ * Wave D ×4: one non-image attachment on the wire — the upload's id and the
+ * server's sanitized `filename` (the upload response), which becomes the link
+ * text of its `[<name>](/api/attachments/<id>)` line.
+ */
+data class SteerFile(val id: String, val name: String)
+
+/** The ONE rejection copy ×4 for a pick the steer/start composers refuse. */
+const val STEER_ATTACHMENT_REJECTED = "Images up to 10 MB and files up to 50 MB can be attached"
+
+/** The file cap toast ×4. */
+const val STEER_FILES_CAP = "Up to 4 files per message"
+
+/** The image cap copy (unchanged). */
+const val STEER_IMAGES_CAP = "Up to $MAX_STEER_IMAGES images per message"
+
+/**
+ * Wave D ×4: why a pick cannot join the pending set, or null when it can.
+ * An inline image counts against [MAX_STEER_IMAGES] × [MAX_IMAGE_UPLOAD_BYTES];
+ * anything else is a file against [MAX_STEER_FILES] × [MAX_FILE_UPLOAD_BYTES].
+ * Size refusals share ONE copy ([STEER_ATTACHMENT_REJECTED]).
+ */
+fun steerAttachmentRefusal(
+    imageCount: Int,
+    fileCount: Int,
+    isImage: Boolean,
+    sizeBytes: Long,
+): String? = if (isImage) {
+    when {
+        sizeBytes > MAX_IMAGE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
+        imageCount >= MAX_STEER_IMAGES -> STEER_IMAGES_CAP
+        else -> null
+    }
+} else {
+    when {
+        sizeBytes > MAX_FILE_UPLOAD_BYTES -> STEER_ATTACHMENT_REJECTED
+        fileCount >= MAX_STEER_FILES -> STEER_FILES_CAP
+        else -> null
+    }
+}
+
 // EXP-698: a POSITIONAL reference to one of the message's images. The composer
 // drops `[Image #k]` at the caret when the k-th image is attached, so the agent
 // reads "crop [Image #2]" instead of guessing which embed a sentence means. The
@@ -31,7 +76,13 @@ fun imageMarker(index: Int): String = imageMarker(index.toLong())
 private fun markerNumber(match: MatchResult): Long? = match.groupValues[1].toLongOrNull()
 
 /** One embed line, exactly as [buildSteerImageMessage] writes it. */
-private val EMBED_LINE = Regex("""^!\[image]\(/api/attachments/([^)\s]+)\)$""")
+private val EMBED_LINE = Regex("""(?U)^!\[image]\(/api/attachments/([^)\s]+)\)$""")
+
+/**
+ * One file line, exactly as [buildSteerMessage] writes it: a plain link (no
+ * `!`), its text the filename with `]` and `\` backslash-escaped.
+ */
+private val FILE_LINE = Regex("""(?U)^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)\s]+)\)$""")
 
 /** Runs of spaces/tabs a removed marker leaves behind. */
 private val SPACE_RUN = Regex("""[ \t]{2,}""")
@@ -42,6 +93,41 @@ fun buildSteerImageMessage(text: String, attachmentIds: List<String>): String {
     val embeds = attachmentIds.joinToString("\n") { "![image](/api/attachments/$it)" }
     if (trimmed.isEmpty()) return embeds
     return "$trimmed\n\n$embeds"
+}
+
+/** A filename as link text: `\` and `]` backslash-escaped (×4 contract). */
+fun escapeSteerFileName(name: String): String =
+    name.replace("\\", "\\\\").replace("]", "\\]")
+
+/** The inverse of [escapeSteerFileName]: any `\x` reads as `x`. */
+private fun unescapeSteerFileName(text: String): String {
+    val out = StringBuilder(text.length)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        if (c == '\\' && i + 1 < text.length) {
+            out.append(text[i + 1])
+            i += 2
+        } else {
+            out.append(c)
+            i++
+        }
+    }
+    return out.toString()
+}
+
+/**
+ * Wave D ×4: prose, blank line, the image embed block exactly as
+ * [buildSteerImageMessage] writes it (frozen), then one
+ * `[<filename>](/api/attachments/<id>)` line per file. Files carry no
+ * positional marker. With no files this IS [buildSteerImageMessage].
+ */
+fun buildSteerMessage(text: String, imageIds: List<String>, files: List<SteerFile>): String {
+    val withImages = buildSteerImageMessage(text, imageIds)
+    if (files.isEmpty()) return withImages
+    val links = files.joinToString("\n") { "[${escapeSteerFileName(it.name)}](/api/attachments/${it.id})" }
+    if (withImages.isEmpty()) return links
+    return if (imageIds.isEmpty()) "$withImages\n\n$links" else "$withImages\n$links"
 }
 
 /**
@@ -55,12 +141,20 @@ data class ParsedSteerMessage(
     val text: String,
     val attachmentIds: List<String>,
     val markers: List<Long>,
+    /** Wave D: the trailing file lines, in order (peeled before the images). */
+    val files: List<SteerFile> = emptyList(),
 )
 
 fun parseSteerMessage(message: String): ParsedSteerMessage {
     val lines = message.split("\n")
     var end = lines.size
     while (end > 0 && lines[end - 1].isBlank()) end--
+    val files = ArrayDeque<SteerFile>()
+    while (end > 0) {
+        val match = FILE_LINE.matchEntire(lines[end - 1].trim()) ?: break
+        files.addFirst(SteerFile(id = match.groupValues[2], name = unescapeSteerFileName(match.groupValues[1])))
+        end--
+    }
     val attachmentIds = ArrayDeque<String>()
     while (end > 0) {
         val match = EMBED_LINE.matchEntire(lines[end - 1].trim()) ?: break
@@ -72,6 +166,7 @@ fun parseSteerMessage(message: String): ParsedSteerMessage {
         text = text,
         attachmentIds = attachmentIds.toList(),
         markers = steerImageMarkers(text),
+        files = files.toList(),
     )
 }
 

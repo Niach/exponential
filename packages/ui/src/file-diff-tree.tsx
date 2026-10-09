@@ -40,8 +40,8 @@ export function FileDiffTree({
   selected?: string | null
   onSelect: (path: string) => void
   /** EXP-916: no card chrome and the rows fill the height — the tree as
-   *  the sidebar's panel (a review's `ReviewFilesNav`), whose column is
-   *  the frame. Default: a bordered card beside the diff. */
+   *  a column (the Guide section page's tree), whose frame is the
+   *  parent's. Default: a bordered card beside the diff. */
   flush?: boolean
   className?: string
 }) {

@@ -53,6 +53,7 @@ import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.TeamLiveRuns
+import com.exponential.app.domain.workFaceFromParam
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
@@ -191,7 +192,7 @@ fun AppNavHost() {
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateIssueDeepLink(resolution.issueId, face = null)
+                        navController.navigateIssueDeepLink(resolution.issueId, rawFace = null)
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -622,25 +623,23 @@ private fun AuthenticatedNav(
                 },
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
-                // EXP-933: an agent message's issue row → its Results face.
-                onOpenIssueResults = { id -> navController.navigate("issue/$id?face=results") },
+                // EXP-933: an agent message's issue row → its Guide face.
+                onOpenIssueGuide = { id -> navController.navigate("issue/$id?face=guide") },
             )
         }
         composable("reviews") {
             // Reviews — its own bottom-bar destination beside My Work
             // (EXP-147; it used to be a PersonalScreen segment). EXP-1154: rows
-            // open the issue's Work screen on its Changes face (the review IS
-            // the issue); the long-press sheet keeps issue access.
+            // open the issue's Work screen on its Guide face (the review IS
+            // the issue); rows carry no long-press.
             ReviewsScreen(
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChanges = { id -> navController.navigate("issue/$id?face=changes") },
+                onOpenChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
                 onOpenRunChanges = { id -> navController.navigate("runChanges/$id") },
-                onOpenAgent = openAgent,
             )
         }
         composable("runChanges/{sessionId}") { entry ->
-            // EXP-1194: the Changes face of a run's own issue-less PR.
+            // EXP-1194: the Guide of a run's own issue-less PR.
             val sessionId = entry.arguments?.getString("sessionId").orEmpty()
             RunChangesScreen(
                 sessionId = sessionId,
@@ -778,20 +777,19 @@ private fun AuthenticatedNav(
             ),
         ) { entry ->
             // EXP-893: the Work screen on its Issue face — the run and the
-            // diff are FACES of the same screen, never routes. EXP-933:
-            // `?face=results` (an agent message's inbox row or push) opens it
-            // on the Results face instead; EXP-1154: `?face=changes` (a Reviews
-            // row) on the Changes face, the review of its PR.
+            // diff are FACES of the same screen, never routes. `?face=guide`
+            // (an agent message's inbox row or push, a Reviews row) opens it on
+            // the Guide; the old words results/changes/diff land there too.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
             val initialFace = entry.arguments?.getString("face")?.let { face ->
-                WorkFaceKind.entries.firstOrNull { it.name.equals(face, ignoreCase = true) }
+                workFaceFromParam(face)
             }
             WorkScreen(
                 subject = WorkSubject.Issue(issueId),
                 initialFace = initialFace,
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=changes") },
+                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
@@ -809,7 +807,7 @@ private fun AuthenticatedNav(
                 subject = WorkSubject.Session(sessionId),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=changes") },
+                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 onOpenAgent = openAgent,
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,

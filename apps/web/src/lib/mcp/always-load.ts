@@ -35,7 +35,7 @@ export const GATED_ALWAYS_LOAD_TOOLS = [
   `exponential_sessions_ask_parent`,
   // EXP-879: a run that never learns it can publish a screenshot never does —
   // the instructions ask for one, so the tool has to be there when it looks.
-  `exponential_sessions_results`,
+  `exponential_sessions_guide`,
   // EXP-1172: the playbook asks for a shot when a picture helps.
   `exponential_sessions_show`,
 ] as const

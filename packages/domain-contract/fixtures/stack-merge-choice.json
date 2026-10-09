@@ -1,372 +1,408 @@
 {
-  "_doc": "EXP-1145: a PLAIN Merge control on a member of a PR stack asks first, x4 (web lib/pr-stack.ts stackMergeChoice; desktop pr_stack::stack_merge_choice; iOS PrStack.stackMergeChoice; Android PrStack.stackMergeChoice). Input: the issue being merged + the synced issue rows (id, identifier, branch, prBaseBranch, prState, prUrl). Only OPEN pull requests form the chain (stackChain over the open rows in identifier order); choice is null when the issue has no open PR or its chain has fewer than 2 open members -> merge plainly, no dialog. Otherwise the dialog: title, listing (members bottom to top joined by ' → ', the merged one suffixed ' (this one)', a batch PR named 'EXP-2 +1'), the two sentences, body = listing + blank line + stackSentence + newline + thisSentence; buttons mergeStack (issues.mergePr({issueId: topIssueId, mergeStack: true})), mergeThis (the plain single-PR merge), cancel. SLOP-3: Reviews rows ask the same way. mergeStack on the server = the open chain merged bottom-up one PR at a time (plain squash + the EXP-324 retarget between), no GitHub stack API.",
-  "labels": {
-    "title": "This pull request is part of a stack",
-    "mergeStack": "Merge stack",
-    "mergeThis": "Merge this pull request",
-    "cancel": "Cancel"
-  },
-  "cases": [
-    {
-      "name": "a lone pull request merges plainly",
-      "issue": "b",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        }
-      ],
-      "choice": null
+  "_doc": "EXP-1145 -> EXP-1248: the stack merge ASKS through ONE confirm x4 (Merge stack / Merge through here), specified under `confirm` (its own _doc). The old 3-way choice (Merge stack / Merge this pull request / Cancel) is gone on every client.",
+  "confirm": {
+    "_doc": "EXP-1248: the ONE stack merge confirm x4 (web lib/pr-stack.ts stackMergeConfirm; desktop pr_stack::stack_merge_confirm; iOS PrStack.stackMergeConfirm; Android PrStack.stackMergeConfirm). It replaces the 3-way dialog. Input: the issue, the synced issue rows (id, identifier, branch, prBaseBranch, prState, prUrl) and a mode: 'stack' = the ONE merge control, labelled Merge stack on any member of an open stack (lands the whole open chain: input = the TOP member), 'through' = the ghost Merge through here on a hovered stack-rail row / a phone row's long-press (lands that member and every open member beneath it: input = that issue). Only a LINEAR open stack of 2+ pull requests (pr-stack-view.json rules: open rows, one representative per pr_url, no fork) has one; null = the plain merge confirm. title = the primary button = contract diffUi.mergeStack / diffUi.mergeThrough; landing = bottom-first labels (a batch PR = 'EXP-2 +1'); staysOpen = the members above (GitHub retargets them); body = 'Lands 1 pull request: X.' or 'Lands N pull requests, bottom-up: A, B.' plus ' C stays open.' / ' C, D stay open.' when any; input = issues.mergePr({issueId, mergeStack: true}). Server: mergeStack = ONE GitHub merge-async on that member after the line is made a GitHub stack (no fallback).",
+    "labels": {
+      "mergeStack": "Merge stack",
+      "mergeThrough": "Merge through here",
+      "cancel": "Cancel"
     },
-    {
-      "name": "the bottom of a three-stack",
-      "issue": "b",
-      "issues": [
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
-        },
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/m"
-        }
-      ],
-      "choice": {
-        "members": [
-          "EXP-1105",
-          "EXP-1144",
-          "EXP-1150"
+    "cases": [
+      {
+        "name": "Merge stack from the middle lands the whole open chain through its top",
+        "issue": "m",
+        "mode": "stack",
+        "issues": [
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          }
         ],
-        "position": 1,
-        "bottomIssueId": "b",
-        "topIssueId": "t",
-        "listing": "EXP-1105 (this one) → EXP-1144 → EXP-1150",
-        "stackSentence": "Merge stack lands all 3 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-1105 alone; EXP-1144, EXP-1150 are retargeted onto the base branch and stay open.",
-        "body": "EXP-1105 (this one) → EXP-1144 → EXP-1150\n\nMerge stack lands all 3 pull requests, bottom-up.\nMerge this pull request lands EXP-1105 alone; EXP-1144, EXP-1150 are retargeted onto the base branch and stay open."
-      }
-    },
-    {
-      "name": "the middle of a three-stack",
-      "issue": "m",
-      "issues": [
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
-        },
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/m"
+        "confirm": {
+          "title": "Merge stack",
+          "landing": [
+            "EXP-1105",
+            "EXP-1144",
+            "EXP-1150"
+          ],
+          "staysOpen": [],
+          "body": "Lands 3 pull requests, bottom-up: EXP-1105, EXP-1144, EXP-1150.",
+          "input": {
+            "issueId": "t",
+            "mergeStack": true
+          }
         }
-      ],
-      "choice": {
-        "members": [
-          "EXP-1105",
-          "EXP-1144",
-          "EXP-1150"
+      },
+      {
+        "name": "Merge stack from the bottom is the same confirm",
+        "issue": "b",
+        "mode": "stack",
+        "issues": [
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          }
         ],
-        "position": 2,
-        "bottomIssueId": "b",
-        "topIssueId": "t",
-        "listing": "EXP-1105 → EXP-1144 (this one) → EXP-1150",
-        "stackSentence": "Merge stack lands all 3 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-1144 and the one below it (EXP-1105); EXP-1150 is retargeted onto the base branch and stays open.",
-        "body": "EXP-1105 → EXP-1144 (this one) → EXP-1150\n\nMerge stack lands all 3 pull requests, bottom-up.\nMerge this pull request lands EXP-1144 and the one below it (EXP-1105); EXP-1150 is retargeted onto the base branch and stays open."
-      }
-    },
-    {
-      "name": "the top of a three-stack",
-      "issue": "t",
-      "issues": [
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
-        },
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/m"
+        "confirm": {
+          "title": "Merge stack",
+          "landing": [
+            "EXP-1105",
+            "EXP-1144",
+            "EXP-1150"
+          ],
+          "staysOpen": [],
+          "body": "Lands 3 pull requests, bottom-up: EXP-1105, EXP-1144, EXP-1150.",
+          "input": {
+            "issueId": "t",
+            "mergeStack": true
+          }
         }
-      ],
-      "choice": {
-        "members": [
-          "EXP-1105",
-          "EXP-1144",
-          "EXP-1150"
+      },
+      {
+        "name": "Merge through here on the middle lands it and the one below",
+        "issue": "m",
+        "mode": "through",
+        "issues": [
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          }
         ],
-        "position": 3,
-        "bottomIssueId": "b",
-        "topIssueId": "t",
-        "listing": "EXP-1105 → EXP-1144 → EXP-1150 (this one)",
-        "stackSentence": "Merge stack lands all 3 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-1150 and the 2 below it (EXP-1105, EXP-1144), the whole stack.",
-        "body": "EXP-1105 → EXP-1144 → EXP-1150 (this one)\n\nMerge stack lands all 3 pull requests, bottom-up.\nMerge this pull request lands EXP-1150 and the 2 below it (EXP-1105, EXP-1144), the whole stack."
-      }
-    },
-    {
-      "name": "a merged foundation below and nothing open above merges plainly",
-      "issue": "m",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "merged",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/m"
+        "confirm": {
+          "title": "Merge through here",
+          "landing": [
+            "EXP-1105",
+            "EXP-1144"
+          ],
+          "staysOpen": [
+            "EXP-1150"
+          ],
+          "body": "Lands 2 pull requests, bottom-up: EXP-1105, EXP-1144. EXP-1150 stays open.",
+          "input": {
+            "issueId": "m",
+            "mergeStack": true
+          }
         }
-      ],
-      "choice": null
-    },
-    {
-      "name": "a merged foundation below drops out of the chain",
-      "issue": "m",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "merged",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/m"
-        },
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
-        }
-      ],
-      "choice": {
-        "members": [
-          "EXP-1144",
-          "EXP-1150"
+      },
+      {
+        "name": "Merge through here on the bottom lands it alone",
+        "issue": "b",
+        "mode": "through",
+        "issues": [
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          }
         ],
-        "position": 1,
-        "bottomIssueId": "m",
-        "topIssueId": "t",
-        "listing": "EXP-1144 (this one) → EXP-1150",
-        "stackSentence": "Merge stack lands all 2 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-1144 alone; EXP-1150 is retargeted onto the base branch and stays open.",
-        "body": "EXP-1144 (this one) → EXP-1150\n\nMerge stack lands all 2 pull requests, bottom-up.\nMerge this pull request lands EXP-1144 alone; EXP-1150 is retargeted onto the base branch and stays open."
-      }
-    },
-    {
-      "name": "a closed member is no longer in the chain",
-      "issue": "b",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "closed",
-          "prUrl": "https://github.com/o/r/pull/m"
-        },
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
+        "confirm": {
+          "title": "Merge through here",
+          "landing": [
+            "EXP-1105"
+          ],
+          "staysOpen": [
+            "EXP-1144",
+            "EXP-1150"
+          ],
+          "body": "Lands 1 pull request: EXP-1105. EXP-1144, EXP-1150 stay open.",
+          "input": {
+            "issueId": "b",
+            "mergeStack": true
+          }
         }
-      ],
-      "choice": null
-    },
-    {
-      "name": "an issue without an open pull request merges plainly",
-      "issue": "m",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "m",
-          "identifier": "EXP-1144",
-          "branch": "exp/EXP-1144",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "merged",
-          "prUrl": "https://github.com/o/r/pull/m"
-        },
-        {
-          "id": "t",
-          "identifier": "EXP-1150",
-          "branch": "exp/EXP-1150",
-          "prBaseBranch": "exp/EXP-1144",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t"
-        }
-      ],
-      "choice": null
-    },
-    {
-      "name": "a batch pull request is one member named with its count",
-      "issue": "t2",
-      "issues": [
-        {
-          "id": "b1",
-          "identifier": "EXP-2",
-          "branch": "exp/batch-1",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/9"
-        },
-        {
-          "id": "b2",
-          "identifier": "EXP-3",
-          "branch": "exp/batch-1",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/9"
-        },
-        {
-          "id": "t2",
-          "identifier": "EXP-4",
-          "branch": "exp/EXP-4",
-          "prBaseBranch": "exp/batch-1",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/t2"
-        }
-      ],
-      "choice": {
-        "members": [
-          "EXP-2 +1",
-          "EXP-4"
+      },
+      {
+        "name": "Merge through here on the top lands the whole stack",
+        "issue": "t",
+        "mode": "through",
+        "issues": [
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          }
         ],
-        "position": 2,
-        "bottomIssueId": "b1",
-        "topIssueId": "t2",
-        "listing": "EXP-2 +1 → EXP-4 (this one)",
-        "stackSentence": "Merge stack lands all 2 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-4 and the one below it (EXP-2 +1), the whole stack.",
-        "body": "EXP-2 +1 → EXP-4 (this one)\n\nMerge stack lands all 2 pull requests, bottom-up.\nMerge this pull request lands EXP-4 and the one below it (EXP-2 +1), the whole stack."
-      }
-    },
-    {
-      "name": "a fork follows the lower identifier",
-      "issue": "b",
-      "issues": [
-        {
-          "id": "b",
-          "identifier": "EXP-1105",
-          "branch": "exp/EXP-1105",
-          "prBaseBranch": "master",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/b"
-        },
-        {
-          "id": "f6",
-          "identifier": "EXP-6",
-          "branch": "exp/EXP-6",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/f6"
-        },
-        {
-          "id": "f5",
-          "identifier": "EXP-5",
-          "branch": "exp/EXP-5",
-          "prBaseBranch": "exp/EXP-1105",
-          "prState": "open",
-          "prUrl": "https://github.com/o/r/pull/f5"
+        "confirm": {
+          "title": "Merge through here",
+          "landing": [
+            "EXP-1105",
+            "EXP-1144",
+            "EXP-1150"
+          ],
+          "staysOpen": [],
+          "body": "Lands 3 pull requests, bottom-up: EXP-1105, EXP-1144, EXP-1150.",
+          "input": {
+            "issueId": "t",
+            "mergeStack": true
+          }
         }
-      ],
-      "choice": {
-        "members": [
-          "EXP-1105",
-          "EXP-5"
+      },
+      {
+        "name": "a batch pull request lands as one name with its count",
+        "issue": "t2",
+        "mode": "through",
+        "issues": [
+          {
+            "id": "b1",
+            "identifier": "EXP-2",
+            "branch": "exp/batch-1",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/9"
+          },
+          {
+            "id": "b2",
+            "identifier": "EXP-3",
+            "branch": "exp/batch-1",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/9"
+          },
+          {
+            "id": "t2",
+            "identifier": "EXP-4",
+            "branch": "exp/EXP-4",
+            "prBaseBranch": "exp/batch-1",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t2"
+          }
         ],
-        "position": 1,
-        "bottomIssueId": "b",
-        "topIssueId": "f5",
-        "listing": "EXP-1105 (this one) → EXP-5",
-        "stackSentence": "Merge stack lands all 2 pull requests, bottom-up.",
-        "thisSentence": "Merge this pull request lands EXP-1105 alone; EXP-5 is retargeted onto the base branch and stays open.",
-        "body": "EXP-1105 (this one) → EXP-5\n\nMerge stack lands all 2 pull requests, bottom-up.\nMerge this pull request lands EXP-1105 alone; EXP-5 is retargeted onto the base branch and stays open."
+        "confirm": {
+          "title": "Merge through here",
+          "landing": [
+            "EXP-2 +1",
+            "EXP-4"
+          ],
+          "staysOpen": [],
+          "body": "Lands 2 pull requests, bottom-up: EXP-2 +1, EXP-4.",
+          "input": {
+            "issueId": "t2",
+            "mergeStack": true
+          }
+        }
+      },
+      {
+        "name": "a lone pull request has no stack confirm",
+        "issue": "b",
+        "mode": "stack",
+        "issues": [
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          }
+        ],
+        "confirm": null
+      },
+      {
+        "name": "a fork is a tree, never a stack confirm",
+        "issue": "b",
+        "mode": "stack",
+        "issues": [
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "f5",
+            "identifier": "EXP-5",
+            "branch": "exp/EXP-5",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/f5"
+          },
+          {
+            "id": "f6",
+            "identifier": "EXP-6",
+            "branch": "exp/EXP-6",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/f6"
+          }
+        ],
+        "confirm": null
+      },
+      {
+        "name": "a merged foundation drops out of what lands",
+        "issue": "t",
+        "mode": "stack",
+        "issues": [
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "merged",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/m"
+          },
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          }
+        ],
+        "confirm": {
+          "title": "Merge stack",
+          "landing": [
+            "EXP-1144",
+            "EXP-1150"
+          ],
+          "staysOpen": [],
+          "body": "Lands 2 pull requests, bottom-up: EXP-1144, EXP-1150.",
+          "input": {
+            "issueId": "t",
+            "mergeStack": true
+          }
+        }
+      },
+      {
+        "name": "an issue without an open pull request has none",
+        "issue": "m",
+        "mode": "through",
+        "issues": [
+          {
+            "id": "b",
+            "identifier": "EXP-1105",
+            "branch": "exp/EXP-1105",
+            "prBaseBranch": "master",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/b"
+          },
+          {
+            "id": "m",
+            "identifier": "EXP-1144",
+            "branch": "exp/EXP-1144",
+            "prBaseBranch": "exp/EXP-1105",
+            "prState": "merged",
+            "prUrl": "https://github.com/o/r/pull/m"
+          },
+          {
+            "id": "t",
+            "identifier": "EXP-1150",
+            "branch": "exp/EXP-1150",
+            "prBaseBranch": "exp/EXP-1144",
+            "prState": "open",
+            "prUrl": "https://github.com/o/r/pull/t"
+          }
+        ],
+        "confirm": null
       }
-    }
-  ]
+    ]
+  }
 }

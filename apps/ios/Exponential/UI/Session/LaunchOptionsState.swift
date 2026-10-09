@@ -248,7 +248,21 @@ final class LaunchOptionsState {
             resume: resume,
             // EXP-1158: the picked id VERBATIM (`system` names the ambient
             // login); blank = unnamed = the machine's last used login.
-            account: AccountOptions.wireAccount(account)
+            account: AccountOptions.wireAccount(account),
+            // EXP-792: omitted when nothing is picked.
+            mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds,
+            // EXP-1249: set only after the person FLIPPED it (web M12 rule);
+            // the composer clears the flip on every device change, and the
+            // row exists only on a device with `codingSessionComputerUseCap`.
+            computerUse: computerUse
         )
     }
+
+    // MARK: - EXP-1249: the composer "+" menu's per-run picks
+
+    /// The team MCP servers this run gets (`McpServers.preselect` seeds it).
+    var mcpServerIds: [String] = []
+    /// Per-run computer use: the person's explicit flip; nil = untouched =
+    /// the device's own default (and the key stays off the wire).
+    var computerUse: Bool?
 }

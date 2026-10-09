@@ -8,6 +8,11 @@ import { byCreatedAtDesc } from "@/lib/ordering"
  * `packages/domain-contract/fixtures/reviews-queue.json` (its `_doc` = the
  * rules). Synced issues + runs + the `repositories.openPulls` results →
  * board bands, "Agent runs" bands and the unlinked-PR repo bands.
+ *
+ * EXP-1248 (rule 9, `_groupDoc`): inside a board band a PR TREE nests under
+ * its root (`items` kind `pr` with a depth) and a linear STACK is ONE `stack`
+ * item, top first, over its base branch. Bands render NO count (`count` is
+ * the nav dot's input only).
  */
 
 /** A repository band's trailing caption on a single-team list ×4. */
@@ -32,6 +37,9 @@ export interface QueueIssue {
   createdAt: Date | string | number
   prUrl: string | null
   prState: string | null
+  /** EXP-1248: the stack edge (absent = no edge). */
+  branch?: string | null
+  prBaseBranch?: string | null
 }
 
 export interface QueueSession {
@@ -61,9 +69,19 @@ export interface QueueEntry<I extends QueueIssue> {
   issues: I[]
 }
 
+/** EXP-1248: one display item of a board band. */
+export type QueueItem<I extends QueueIssue> =
+  /** A lone PR (depth 0) or a member of a PR TREE, pre-order under its root. */
+  | { kind: `pr`; entry: QueueEntry<I>; depth: number }
+  /** A linear STACK: its entries TOP first, then the base-branch row. */
+  | { kind: `stack`; entries: QueueEntry<I>[]; baseBranch: string | null }
+
 export interface QueueBoardGroup<B extends QueueBoard, I extends QueueIssue> {
   board: B
+  /** Every entry, flat, newest first (rule 3). */
   entries: QueueEntry<I>[]
+  /** The same entries as the band draws them (rule 9). */
+  items: QueueItem<I>[]
 }
 
 export interface QueueRunGroup<S extends QueueSession> {
@@ -104,6 +122,79 @@ export function reviewsNav(input: {
     dot,
     shows: input.yolo.length === 0 || input.yolo.some((yolo) => !yolo) || dot,
   }
+}
+
+const edge = (branch: string | null | undefined): string | null =>
+  branch != null && branch !== `` ? branch : null
+
+/**
+ * (9) A band's entries as items. Edge: an entry sits on the entry (same
+ * band) whose representative's `branch` is its representative's
+ * `prBaseBranch`. A component lists where its NEWEST entry would (its first
+ * entry in band order), walked from its ROOT (the entry with no parent; a
+ * cycle breaks where it first repeats). Any
+ * entry with two children = a TREE: pre-order, children in band order,
+ * depth = distance from the root. Otherwise 2+ entries = a STACK item, top
+ * first, `baseBranch` = the root's `prBaseBranch`. One entry = depth 0.
+ */
+export function queueItems<I extends QueueIssue>(
+  entries: readonly QueueEntry<I>[]
+): QueueItem<I>[] {
+  const rep = (entry: QueueEntry<I>) => entry.issues[0]!
+  const owner = new Map<string, QueueEntry<I>>()
+  for (const entry of entries) {
+    const branch = edge(rep(entry).branch)
+    if (branch && !owner.has(branch)) owner.set(branch, entry)
+  }
+  const parentOf = new Map<string, QueueEntry<I>>()
+  const children = new Map<string, QueueEntry<I>[]>()
+  for (const entry of entries) {
+    const base = edge(rep(entry).prBaseBranch)
+    const parent = base ? owner.get(base) : undefined
+    if (!parent || parent.key === entry.key) continue
+    parentOf.set(entry.key, parent)
+    const bucket = children.get(parent.key)
+    if (bucket) bucket.push(entry)
+    else children.set(parent.key, [entry])
+  }
+  const placed = new Set<string>()
+  const items: QueueItem<I>[] = []
+  for (const start of entries) {
+    if (placed.has(start.key)) continue
+    // Climb to the root; a cycle stops where it first repeats.
+    let root = start
+    const climbed = new Set([root.key])
+    for (;;) {
+      const parent = parentOf.get(root.key)
+      if (!parent || climbed.has(parent.key) || placed.has(parent.key)) break
+      climbed.add(parent.key)
+      root = parent
+    }
+    // The component under the root, pre-order, children in band order.
+    const members: Array<{ entry: QueueEntry<I>; depth: number }> = []
+    let fork = false
+    const visit = (entry: QueueEntry<I>, depth: number) => {
+      if (placed.has(entry.key)) return
+      placed.add(entry.key)
+      members.push({ entry, depth })
+      const below = (children.get(entry.key) ?? []).filter(
+        (child) => !placed.has(child.key)
+      )
+      if (below.length > 1) fork = true
+      for (const child of below) visit(child, depth + 1)
+    }
+    visit(root, 0)
+    if (members.length > 1 && !fork) {
+      items.push({
+        kind: `stack`,
+        entries: members.map((member) => member.entry).reverse(),
+        baseBranch: edge(rep(root).prBaseBranch),
+      })
+    } else {
+      for (const member of members) items.push({ kind: `pr`, ...member })
+    }
+  }
+  return items
 }
 
 export function reviewsQueue<
@@ -156,6 +247,7 @@ export function reviewsQueue<
     .map(([boardId, boardEntries]) => ({
       board: boardById.get(boardId)!,
       entries: boardEntries,
+      items: queueItems(boardEntries),
     }))
     .sort((a, b) => {
       const team =

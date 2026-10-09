@@ -17,10 +17,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueSearch
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.StatusIcon
@@ -43,7 +45,7 @@ private const val MAX_PICKER_ROWS = 50
 /**
  * EXP-825: the composer's `#` tool — the multi-select issue picker the
  * Start-coding sheet's Issues tab used to be. Nothing is submitted here: every
- * toggle chips the issue on the composer at once, and Done just closes. The
+ * toggle chips the issue on the composer at once, and the footer just closes. The
  * checked rows stay put on toggle (EXP-241 — re-sorting teleported the tapped
  * row out from under the finger); the validation captions read the same as
  * under the composer so the reason a batch is blocked is visible while picking.
@@ -119,8 +121,19 @@ internal fun AgentIssuePickerSheet(
         emptyText = if (issues.isEmpty()) "No eligible issues to code." else "No matching issues.",
         title = "Issues",
         sheetModifier = Modifier.testTag("agent-composer-issues-picker"),
-        // A multi picker never closes on a pick — Done is how a phone leaves it.
-        primaryAction = SheetPrimaryAction(label = "Done", onClick = onDismiss),
+        // A multi picker never closes on a pick: the footer is how a phone
+        // leaves it. EXP-1249: once something is picked it reads `Implement N
+        // issues` (composer-menu.json `implementButton`); it only closes, the
+        // picks are already the subject.
+        primaryAction = if (checked.isEmpty()) {
+            SheetPrimaryAction(label = "Done", onClick = onDismiss)
+        } else {
+            SheetPrimaryAction(
+                label = ComposerMenu.implementButtonLabel(checked.size),
+                onClick = onDismiss,
+                testTag = ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID,
+            )
+        },
         caption = if (caption == null) {
             null
         } else {
@@ -153,26 +166,15 @@ internal fun AgentIssuePickerSheet(
 private fun RowScope.IssueRowBody(option: IssueOption) {
     val status = IssueStatus.fromWire(option.status)
     val priority = IssuePriority.fromWire(option.priority)
-    PriorityIcon(priority, size = 16.dp)
-    Spacer(Modifier.width(10.dp))
-    Text(
-        option.identifier,
-        style = MaterialTheme.typography.labelMedium,
-        fontFamily = FontFamily.Monospace,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.widthIn(min = 60.dp),
-    )
-    Spacer(Modifier.width(10.dp))
-    StatusIcon(status, size = 16.dp)
-    Spacer(Modifier.width(10.dp))
-    Text(
-        option.title,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.weight(1f),
+    IssueRowContent(
+        title = option.title,
+        leading = { PriorityIcon(priority, size = 16.dp) },
+        leadingGap = 10.dp,
+        identifier = option.identifier,
+        identifierMinWidth = 60.dp,
+        identifierEllipsis = true,
+        identifierGap = 10.dp,
+        status = { StatusIcon(status, size = 16.dp) },
+        statusGap = 10.dp,
     )
 }

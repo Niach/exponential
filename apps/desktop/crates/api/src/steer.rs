@@ -181,6 +181,11 @@ pub struct StartSessionInput {
     /// a start without it keeps the byte-identical shape the fixtures lock.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,
+    /// EXP-1249: computer use for THIS run (the composer "+" toggle); absent
+    /// = the target machine's own switch. Sent only to a machine advertising
+    /// `computer-use-run`, and LAST on the wire like every option before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer_use: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -425,6 +430,30 @@ mod tests {
         assert!(
             request.ends_with(
                 r#"{"deviceId":"dev-2","resumeSessionId":"33333333-3333-4333-8333-333333333333","account":"0a1b2c3d"}"#
+            ),
+            "{request}"
+        );
+    }
+
+    /// EXP-1249: the per-run computer-use pick rides LAST as `computerUse`.
+    #[test]
+    fn start_session_carries_the_computer_use_flag_last() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                account: Some("0a1b2c3d".to_string()),
+                computer_use: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d","computerUse":false}"#
             ),
             "{request}"
         );

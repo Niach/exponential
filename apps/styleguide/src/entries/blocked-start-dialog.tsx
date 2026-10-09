@@ -214,9 +214,9 @@ export const entry: StyleguideEntry = {
     },
     ios: {
       state: `ok`,
-      symbol: `BlockedStartSheet`,
-      file: `apps/ios/Exponential/UI/Agent/BlockedStartSheet.swift`,
-      note: `a fitted sheet rather than an alert, because it hosts the graph`,
+      symbol: `BlockedStartAlert`,
+      file: `apps/ios/Exponential/UI/Agent/BlockedStartAlert.swift`,
+      note: `the shared GlassAlert card (EXP-1215), the graph in its content slot`,
     },
     android: {
       state: `ok`,

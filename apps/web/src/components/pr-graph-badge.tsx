@@ -287,9 +287,9 @@ export function PrGraphOverlay({
 
   // EXP-930: EVERY issue the view lists opens: a real `<Link>`, so ⌘-click
   // and middle-click work like anywhere else; the dialog closes behind it.
-  // EXP-1154: a PR row opens the issue on its Changes face (`?view=diff`),
-  // the review of that PR; the Reviews detail page is gone.
-  const issueLink = (row: Issue, view?: `diff`) => {
+  // EXP-1251: a PR row opens the issue on its Guide (`?view=guide`), the
+  // review of that PR.
+  const issueLink = (row: Issue, view?: `guide`) => {
     const boardSlug = boardSlugById?.get(row.boardId)
     if (!boardSlug) return undefined
     return ({ className, children }: RelationIssueRowLinkProps) => (
@@ -343,7 +343,7 @@ export function PrGraphOverlay({
         glyph={glyph}
         code={row.prNumber ? `#${row.prNumber}` : row.identifier}
         noAssignee
-        link={issueLink(row, `diff`)}
+        link={issueLink(row, `guide`)}
         trailing={
           <span className="flex shrink-0 items-center">
             <PrStateBadge state={row.prState} />

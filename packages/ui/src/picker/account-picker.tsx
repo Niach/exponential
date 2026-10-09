@@ -7,7 +7,6 @@
 // resolve to ONE symbol, and the typed-picker contract test names it.
 export {
   AccountPicker,
-  AccountLimitBars,
   AccountOptionLabel,
   ACCOUNT_LIMIT_LABELS,
   accountLimitBars,

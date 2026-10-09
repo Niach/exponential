@@ -40,6 +40,7 @@ interface AttachmentRow {
   boardId?: string | null
   commentId?: string | null
   draftId?: string | null
+  asFile?: boolean
   uploaderId?: string | null
   filename: string
   contentType: string
@@ -106,15 +107,16 @@ function makeQueryable() {
           // The fake ignores predicates except for the one filter the tests
           // exercise: the owner-linked pass selects exactly `id` from
           // attachments WHERE comment_id IS NOT NULL (EXP-554) OR draft_id IS
-          // NOT NULL (EXP-878) — the rows whose OWNING COLUMN is the
-          // reference, so no markdown scan can vouch for them.
+          // NOT NULL (EXP-878) OR as_file (EXP-1247) — the rows whose OWNING
+          // COLUMN is the reference, so no markdown scan can vouch for them.
           const isOwnerLinkedPass =
             table === attachments &&
             Object.keys(fields).length === 1 &&
             Object.keys(fields)[0] === `id`
           if (isOwnerLinkedPass) {
             rows = (rows as AttachmentRow[]).filter(
-              (row) => row.commentId != null || row.draftId != null
+              (row) =>
+                row.commentId != null || row.draftId != null || row.asFile === true
             )
           }
           return thenable(
@@ -375,6 +377,27 @@ describe(`attachments.sweepUnreferencedImages`, () => {
   it(`never reclaims draft-owned images (EXP-878)`, async () => {
     state.attachmentRows = [
       imageRow({ id: ATT_A, draftId: `draft-1` }),
+      imageRow({
+        id: ATT_B,
+        storageKey: `issues/issue-1/${ATT_B}-old.png`,
+      }),
+    ]
+    state.issueRows = []
+    state.commentRows = []
+
+    const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
+
+    expect(result.deletedCount).toBe(1)
+    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
+      `issues/issue-1/${ATT_B}-old.png`,
+    ])
+  })
+
+  // EXP-1247: an image picked through a FILE path lists in Files and is
+  // never a markdown embed, so no body ever vouches for it.
+  it(`never reclaims as_file images (EXP-1247)`, async () => {
+    state.attachmentRows = [
+      imageRow({ id: ATT_A, asFile: true }),
       imageRow({
         id: ATT_B,
         storageKey: `issues/issue-1/${ATT_B}-old.png`,

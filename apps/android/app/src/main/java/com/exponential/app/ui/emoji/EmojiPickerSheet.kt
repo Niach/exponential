@@ -115,7 +115,7 @@ fun EmojiPickerSheet(
             // in order.
             val recentRecords = recents.mapNotNull { data.findUnicode(it) }
             if (recentRecords.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("Recent") }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmojiCategoryHeader("Recent") }
                 items(recentRecords) { emoji ->
                     EmojiCell(emoji.unicode, emoji.label) { unicode ->
                         pick(unicode, emoji.unicode)
@@ -124,7 +124,7 @@ fun EmojiPickerSheet(
             }
             data.groups.forEach { group ->
                 if (group.emojis.isEmpty()) return@forEach
-                item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader(group.label) }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmojiCategoryHeader(group.label) }
                 items(group.emojis) { emoji ->
                     EmojiCell(emoji.unicode, emoji.label) { unicode ->
                         pick(unicode, emoji.unicode)
@@ -142,7 +142,7 @@ fun EmojiPickerSheet(
  * `emoji-picker.tsx`), not this app's section language.
  */
 @Composable
-private fun SectionHeader(label: String) {
+private fun EmojiCategoryHeader(label: String) {
     Text(
         label.uppercase(),
         style = MaterialTheme.typography.labelSmall,

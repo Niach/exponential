@@ -88,10 +88,6 @@ struct AgentPageView: View {
                             if composer.subject != AgentComposerPrompt.Subject.none {
                                 AgentComposerHeadline(model: composer)
                             }
-                            // EXP-820: a few suggestion chips over the empty
-                            // prompt box — the pool is byte-identical ×4 and
-                            // each mount draws `ChatSuggestions.count` of it.
-                            suggestionChips(composer)
                             AgentComposerCard(model: composer) { issueId in
                                 deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                             }
@@ -103,6 +99,9 @@ struct AgentPageView: View {
                                 EditorAutocompleteMenu(model: composer.draftEditor)
                             }
                             AgentOptionsRow(model: composer)
+                            // EXP-1249: quiet suggestion rows BELOW the options
+                            // line (the pool is byte-identical ×4).
+                            suggestionRows(composer)
                             captions(composer)
                         }
 
@@ -284,40 +283,28 @@ struct AgentPageView: View {
         return model
     }
 
-    // MARK: - Suggestions (EXP-820)
+    // MARK: - Suggestions (EXP-820, EXP-1249)
 
-    /// The chips over an EMPTY composer: no subject and nothing typed, exactly
-    /// web's gate (`launch-composer.tsx` `showSuggestions`) — once the field has
-    /// text or a subject they would only be in the way.
-    ///
-    /// A tap inserts the suggestion at the caret and, for one carrying a `#`
-    /// placeholder, parks the caret right behind that `#` so the issue-ref
-    /// autocomplete opens on the spot (`ChatSuggestions.caretOffset`).
+    /// The rows under an EMPTY composer: no subject and nothing typed, exactly
+    /// web's gate (`launch-composer.tsx` `showSuggestions`). A tap inserts the
+    /// suggestion at the caret and, for one carrying a `#` placeholder, parks
+    /// the caret right behind that `#` so the issue-ref autocomplete opens on
+    /// the spot (`ChatSuggestions.caretOffset`).
     @ViewBuilder
-    private func suggestionChips(_ composer: AgentComposerModel) -> some View {
+    private func suggestionRows(_ composer: AgentComposerModel) -> some View {
         if composer.subject == AgentComposerPrompt.Subject.none, composer.trimmedDraft.isEmpty {
-            // A phone scrolls them sideways rather than wrapping: the pool's
-            // longer prompts are a full sentence, and a wrapped row of them
-            // would push the composer off the first screen.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(suggestions, id: \.self) { suggestion in
-                        GlassPill(
-                            suggestion,
-                            mode: .action {
-                                composer.draftEditor.insertTextAtCaret(
-                                    suggestion,
-                                    caretOffset: ChatSuggestions.caretOffset(suggestion)
-                                )
-                            }
-                        )
-                    }
-                }
-                .padding(.horizontal, 4)
+            ComposerSuggestionRows(suggestions: suggestions) { suggestion in
+                composer.draftEditor.insertTextAtCaret(
+                    suggestion,
+                    caretOffset: ChatSuggestions.caretOffset(suggestion)
+                )
             }
+            .padding(.horizontal, 4)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("chat-suggestions")
         }
     }
+
 
     // MARK: - Captions
 

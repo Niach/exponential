@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Badge,
+  Pill,
   ResizeHandle,
   Separator,
   Sidebar,
@@ -44,15 +44,14 @@ import { firstName } from "@/lib/user-display"
 import type { Board, Team } from "@/db/schema"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
+import { useRecentRunsPanelRouteGuard } from "@/lib/recent-runs-panel"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
-import { TeamListNav } from "@/components/team/list-nav"
-import { ReviewFilesNav } from "@/components/team/review-files-nav"
+import { ListDetailPane, listDetailKey } from "@/components/team/list-detail"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import { SidebarRunningSection } from "@/components/team/sidebar-running"
-import { RecentRunsSidebar } from "@/components/team/recent-runs-nav"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import {
   InboxUnreadBadge,
@@ -203,12 +202,10 @@ export function TeamSidebar({
     select: (s) => s.location.pathname.endsWith(`/agent`),
   })
   const occupant = useSidebarOccupant()
+  // EXP-1246: the Recent panel survives the runs it opens.
+  useRecentRunsPanelRouteGuard()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
-  // EXP-916: a Changes face's panel is its file tree, not a list.
-  const reviewFiles = occupant.kind === `review`
-  // EXP-923: the Agent page's Recent runs panel.
-  const recentRuns = occupant.kind === `recent`
   // EXP-870: a panel is up → the rail compacts to its icon column instead of
   // leaving. Strictly derived, never a toggle.
   const compact = occupant.kind !== `main`
@@ -457,7 +454,7 @@ export function TeamSidebar({
                                 >
                                   <NavDraftsIcon className="h-4 w-4" />
                                   <span className="flex-1">{DRAFTS_LABEL}</span>
-                                  <Badge count={draftCount} data-testid="drafts-count-badge" />
+                                  <Pill size="sm" className="tabular-nums" data-testid="drafts-count-badge">{draftCount}</Pill>
                                 </Link>
                               </SidebarMenuButton>
                             </SidebarMenuItem>
@@ -638,10 +635,10 @@ export function TeamSidebar({
                 />
               </PanelLayer>
 
-              {/* EXP-851: the LIST NAV — the list an open detail came from.
-                  Mounted only while one is up: its lists run live queries and
-                  tRPC polls, and an off-screen Support poll every 30s is not
-                  free. */}
+              {/* EXP-1246: the ONE list-detail host — the Inbox or Agent ›
+                  Recent, beside what it opened. Mounted only while one is up:
+                  its lists run live queries. Keyed by the LIST, so stepping
+                  through it one detail at a time never remounts it. */}
               <PanelLayer
                 panel="list"
                 inert={!listOrigin}
@@ -651,50 +648,11 @@ export function TeamSidebar({
                 )}
               >
                 {listOrigin && (
-                  <TeamListNav
-                    // Keyed by the origin so switching lists remounts instead
-                    // of carrying the previous list's tab/fold state over.
-                    key={`${listOrigin.kind}:${
-                      `boardSlug` in listOrigin ? listOrigin.boardSlug : ``
-                    }`}
+                  <ListDetailPane
+                    key={listDetailKey(listOrigin)}
                     teamSlug={teamSlug}
                     team={team}
-                    boards={boards}
                     origin={listOrigin}
-                  />
-                )}
-              </PanelLayer>
-
-              {/* EXP-916: the DIFF's file tree (EXP-1154: an issue's or a
-                  run's Changes face) — a diff's context is the files it
-                  touches, so that panel sits beside it where another detail
-                  keeps its list. Same depth as the
-                  list nav, so the two never slide over each other. */}
-              <PanelLayer
-                panel="review"
-                inert={!reviewFiles}
-                className={cn(
-                  `transition-transform`,
-                  OFFSET_CLASS[panelOffset(`review`, occupant.kind)]
-                )}
-              >
-                {reviewFiles && <ReviewFilesNav />}
-              </PanelLayer>
-
-              {/* EXP-923: the Agent page's RECENT runs, behind that page's
-                  history toggle. Same slot and depth as the list nav — the
-                  Agent route never has one, so the two can never collide. */}
-              <PanelLayer
-                panel="recent"
-                inert={!recentRuns}
-                className={cn(
-                  `transition-transform`,
-                  OFFSET_CLASS[panelOffset(`recent`, occupant.kind)]
-                )}
-              >
-                {recentRuns && team && (
-                  <RecentRunsSidebar
-                    teamId={team.id}
                     currentUserId={session?.user?.id}
                   />
                 )}

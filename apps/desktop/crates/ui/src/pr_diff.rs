@@ -15,6 +15,10 @@
 //! One instance per issue tab, re-pointed on issue switches. Same-id
 //! re-points are no-ops — the fetch must not re-run per render; the diff is a
 //! snapshot of the PR at open time.
+//!
+//! EXP-1251: the pane IS the Guide's diff page — [`PrDiffView::set_paths`]
+//! filters both the tree and the cards to one section's files (`None` = the
+//! complete diff); the host draws the `← Guide` back row above it.
 
 use std::sync::Arc;
 
@@ -43,6 +47,8 @@ pub struct PrDiffView {
     /// The pane's own painted width — [`crate::diff_pane`]'s tree gate (it
     /// writes and reads it; 0 before the first paint).
     pane_width: std::rc::Rc<std::cell::Cell<f32>>,
+    /// EXP-1251: the Guide section's paths the page shows (`None` = all).
+    paths: Option<Vec<String>>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -68,6 +74,7 @@ impl PrDiffView {
         // The file counts come off the diff's own summaries; a pending Guide
         // pick lands the moment they arrive.
         subscriptions.push(cx.observe(&diff, |this: &mut Self, _, cx| {
+            this.sync_filter(cx);
             this.apply_pending_path(cx);
             cx.notify();
         }));
@@ -88,6 +95,7 @@ impl PrDiffView {
             filter,
             pending_path: None,
             pane_width: std::rc::Rc::new(std::cell::Cell::new(0.)),
+            paths: None,
             _subscriptions: subscriptions,
         }
     }
@@ -122,23 +130,28 @@ impl PrDiffView {
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
     }
 
-    /// The issue whose PR files the pane holds (or is loading).
-    pub(crate) fn issue_id(&self) -> Option<&str> {
-        self.issue_id.as_deref()
+    /// EXP-1251 — show only `paths` (a Guide section's files; the diff keeps
+    /// its own order), or every file (`None`).
+    pub(crate) fn set_paths(&mut self, paths: Option<Vec<String>>, cx: &mut gpui::Context<Self>) {
+        if self.paths == paths {
+            return;
+        }
+        self.paths = paths;
+        self.selected = 0;
+        self.sync_filter(cx);
+        cx.notify();
     }
 
-    /// EXP-889 — the counts the pane is showing (`+N −M`), for the work
-    /// header's Changes item. `None` until the files land (and for a pull
-    /// request with none): the item then wears the word `Changes`, exactly
-    /// like the web's switcher row without `diffStats`.
-    pub(crate) fn totals(&self, cx: &App) -> Option<(u32, u32)> {
+    /// The diff indices on show, in diff order.
+    fn shown(&self, cx: &App) -> Vec<usize> {
         let files = self.diff.read(cx).files();
-        let totals = domain::diff::Totals {
-            files: files.len(),
-            additions: files.iter().map(|file| file.additions).sum(),
-            deletions: files.iter().map(|file| file.deletions).sum(),
-        };
-        (totals.files > 0).then_some((totals.additions, totals.deletions))
+        shown_indices(files.iter().map(|file| file.filename.as_ref()), self.paths.as_deref())
+    }
+
+    /// Push the current filter into the cards (a no-op when unchanged).
+    fn sync_filter(&mut self, cx: &mut gpui::Context<Self>) {
+        let only = self.paths.is_some().then(|| self.shown(cx));
+        self.diff.update(cx, |diff, cx| diff.set_file_filter(only, cx));
     }
 
     /// Name `index` in the file list and scroll the diff to it.
@@ -184,8 +197,7 @@ impl PrDiffView {
         cx.notify();
     }
 
-    /// EXP-916: the tree's inputs (and, EXP-1154, the Results Guide's file
-    /// rows' counts).
+    /// EXP-1251: EVERY file of the PR — what the Guide's coverage counts.
     pub(crate) fn pane_files(&self, cx: &App) -> Vec<crate::diff_pane::PaneFile> {
         self.diff
             .read(cx)
@@ -198,9 +210,24 @@ impl PrDiffView {
                     file.additions,
                     file.deletions,
                 )
+                .with_previous_path(file.previous_path.as_deref())
             })
             .collect()
     }
+}
+
+/// EXP-1251 — the indices of `files` a page filtered to `paths` shows (every
+/// one without a filter), in the diff's order.
+pub(crate) fn shown_indices<'a>(
+    files: impl IntoIterator<Item = &'a str>,
+    paths: Option<&[String]>,
+) -> Vec<usize> {
+    files
+        .into_iter()
+        .enumerate()
+        .filter(|(_, name)| paths.is_none_or(|paths| paths.iter().any(|path| path == name)))
+        .map(|(ix, _)| ix)
+        .collect()
 }
 
 /// EXP-1154 — whether re-pointing the pane from `previous` to `next` clears
@@ -255,17 +282,24 @@ impl Render for PrDiffView {
             .issue_id
             .as_ref()
             .and_then(|id| MergeState::global(cx).read(cx).error(id));
+        let shown = self.shown(cx);
+        let all = self.pane_files(cx);
+        let files: Vec<crate::diff_pane::PaneFile> =
+            shown.iter().filter_map(|&ix| all.get(ix).cloned()).collect();
+        let selected = shown.iter().position(|&ix| ix == self.selected).unwrap_or(0);
         crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
-                files: self.pane_files(cx),
-                selected: self.selected,
+                files,
+                selected,
                 filter: Some(self.filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption,
                 diff: self.diff.clone(),
                 pane_width: self.pane_width.clone(),
-                on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
-                    this.select_file(index, cx);
+                on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {
+                    if let Some(&actual) = shown.get(index) {
+                        this.select_file(actual, cx);
+                    }
                 }),
                 on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
                     this.toggle_dir(path, cx);
@@ -286,6 +320,16 @@ mod tests {
         assert!(!clears_merge_error(None, "a"));
         assert!(!clears_merge_error(Some("a"), "a"));
         assert!(clears_merge_error(Some("a"), "b"));
+    }
+
+    /// EXP-1251: a section page shows only its paths, in the diff's order.
+    #[test]
+    fn a_section_page_shows_only_its_paths() {
+        let files = ["a.rs", "b.rs", "c.rs"];
+        assert_eq!(shown_indices(files, None), vec![0, 1, 2]);
+        let paths = vec!["c.rs".to_string(), "a.rs".to_string(), "gone.rs".to_string()];
+        assert_eq!(shown_indices(files, Some(&paths)), vec![0, 2]);
+        assert!(shown_indices(files, Some(&[])).is_empty());
     }
 
     #[test]

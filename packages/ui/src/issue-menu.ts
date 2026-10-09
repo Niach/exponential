@@ -1,23 +1,23 @@
-import {
-  CheckCheck,
-  Copy,
-  SquareCheckBig,
-  SquarePen,
-  Undo2,
-  type LucideIcon,
-} from "lucide-react"
+import { CheckCheck, Copy, SquareCheckBig, SquarePen, Undo2 } from "lucide-react"
 
 import { conceptIcon } from "./icons.generated"
-import type { MenuSpecimenRow } from "./menu-specimen"
+import type {
+  MenuEntry,
+  MenuIcon,
+  MenuItemEntry,
+  MenuSubmenuEntry,
+} from "./menu"
 
-// EXP-1074 — THE issue context menu's layout, in one place.
+// EXP-1074 — THE issue context menu's layout, in one place; since the UI
+// cleanup batch it is DATA the live menu renders, not a list a test compares
+// hand-written JSX against.
 //
-// The web draws it live (apps/web/src/components/issue-context-menu, one host
-// for every row and chip; its test locks the rendered item order to this
-// list), the IDE mirrors it (crates/ui/src/issue_list.rs
-// `build_row_context_menu`), and the styleguide draws it at rest
-// (entries/issue-context-menu.tsx through `MenuSpecimen`). `when` names the
-// rows only some issues get; `sample` is the resting value the specimen shows.
+// The web turns it into `MenuEntry[]` (`issueMenuEntries`, consumed by
+// apps/web/src/components/issue-context-menu/session.tsx through `Menu`),
+// the IDE mirrors it (crates/ui/src/issue_list.rs `build_row_context_menu`),
+// and the styleguide renders the SAME entries at rest (`MenuPanel`). `when`
+// names the rows only some issues get; `sample` is the resting value the
+// styleguide shows.
 
 export type IssueMenuCondition =
   /** A phone: the long-press opened it, so "Select" starts a selection. */
@@ -29,40 +29,60 @@ export type IssueMenuCondition =
   /** The team has more than one board to move to. */
   | `boards`
 
-export interface IssueMenuEntry {
+export type IssueMenuKey =
+  | `open`
+  | `toggle-done`
+  | `copy-id`
+  | `select`
+  | `unmark-duplicate`
+  | `status`
+  | `assignee`
+  | `priority`
+  | `labels`
+  | `estimate`
+  | `due-date`
+  | `move-board`
+  | `add-relation`
+  | `delete`
+
+export interface IssueMenuLayoutRow {
   kind: `item` | `submenu` | `separator`
+  key?: IssueMenuKey
   /** "Mark as done" reads "Move to backlog" on a completed issue. */
   label?: string
-  icon?: LucideIcon
+  icon?: MenuIcon
   destructive?: boolean
   sample?: string
   when?: IssueMenuCondition
 }
 
-export const ISSUE_MENU_LAYOUT: readonly IssueMenuEntry[] = [
-  { kind: `item`, label: `Open issue`, icon: SquarePen },
-  { kind: `item`, label: `Mark as done`, icon: CheckCheck },
-  { kind: `item`, label: `Copy issue ID`, icon: Copy },
-  { kind: `item`, label: `Select`, icon: SquareCheckBig, when: `phone` },
-  { kind: `item`, label: `Unmark duplicate`, icon: Undo2, when: `duplicate` },
+/** @deprecated the old name of a layout row. */
+export type IssueMenuEntry = IssueMenuLayoutRow
+
+export const ISSUE_MENU_LAYOUT: readonly IssueMenuLayoutRow[] = [
+  { kind: `item`, key: `open`, label: `Open issue`, icon: SquarePen },
+  { kind: `item`, key: `toggle-done`, label: `Mark as done`, icon: CheckCheck },
+  { kind: `item`, key: `copy-id`, label: `Copy issue ID`, icon: Copy },
+  { kind: `item`, key: `select`, label: `Select`, icon: SquareCheckBig, when: `phone` },
+  { kind: `item`, key: `unmark-duplicate`, label: `Unmark duplicate`, icon: Undo2, when: `duplicate` },
   { kind: `separator` },
-  { kind: `submenu`, label: `Status`, icon: conceptIcon(`status-backlog`), sample: `Backlog` },
-  { kind: `submenu`, label: `Assignee`, icon: conceptIcon(`ui-unassigned`), sample: `Unassigned` },
-  { kind: `submenu`, label: `Priority`, icon: conceptIcon(`priority-none`), sample: `No priority` },
-  { kind: `submenu`, label: `Labels`, icon: conceptIcon(`settings-labels`), sample: `None` },
-  { kind: `submenu`, label: `Estimate`, icon: conceptIcon(`ui-estimate`), sample: `None`, when: `estimation` },
-  { kind: `submenu`, label: `Set due date`, icon: conceptIcon(`ui-due-date`), sample: `None` },
-  { kind: `submenu`, label: `Move to board`, icon: conceptIcon(`nav-boards`), sample: `App`, when: `boards` },
-  { kind: `submenu`, label: `Add relation`, icon: conceptIcon(`relation-section`) },
+  { kind: `submenu`, key: `status`, label: `Status`, icon: conceptIcon(`status-backlog`), sample: `Backlog` },
+  { kind: `submenu`, key: `assignee`, label: `Assignee`, icon: conceptIcon(`ui-unassigned`), sample: `Unassigned` },
+  { kind: `submenu`, key: `priority`, label: `Priority`, icon: conceptIcon(`priority-none`), sample: `No priority` },
+  { kind: `submenu`, key: `labels`, label: `Labels`, icon: conceptIcon(`settings-labels`), sample: `None` },
+  { kind: `submenu`, key: `estimate`, label: `Estimate`, icon: conceptIcon(`ui-estimate`), sample: `None`, when: `estimation` },
+  { kind: `submenu`, key: `due-date`, label: `Set due date`, icon: conceptIcon(`ui-due-date`), sample: `None` },
+  { kind: `submenu`, key: `move-board`, label: `Move to board`, icon: conceptIcon(`nav-boards`), sample: `App`, when: `boards` },
+  { kind: `submenu`, key: `add-relation`, label: `Add relation`, icon: conceptIcon(`relation-section`) },
   // No separator above the destructive row (EXP-687): the red is the divider.
-  { kind: `submenu`, label: `Delete issue`, icon: conceptIcon(`ui-delete`), destructive: true },
+  { kind: `item`, key: `delete`, label: `Delete issue`, icon: conceptIcon(`ui-delete`), destructive: true },
 ]
 
 function present(
-  entry: IssueMenuEntry,
+  row: IssueMenuLayoutRow,
   conditions: ReadonlySet<IssueMenuCondition>
 ): boolean {
-  return entry.when === undefined || conditions.has(entry.when)
+  return row.when === undefined || conditions.has(row.when)
 }
 
 /** The item labels, top to bottom, for an issue meeting `conditions`. */
@@ -70,31 +90,70 @@ export function issueMenuLabels(
   conditions: ReadonlySet<IssueMenuCondition>
 ): string[] {
   return ISSUE_MENU_LAYOUT.filter(
-    (entry) => entry.kind !== `separator` && present(entry, conditions)
-  ).map((entry) => entry.label ?? ``)
+    (row) => row.kind !== `separator` && present(row, conditions)
+  ).map((row) => row.label ?? ``)
 }
 
-/** The layout as specimen rows, under the issue's header band. */
-export function issueMenuSpecimenRows(
-  conditions: ReadonlySet<IssueMenuCondition>,
+/** What the live menu fills in per row: the verb, and anything that differs
+ *  from the layout for THIS issue (a label, a glyph, the current value). */
+export type IssueMenuSlot =
+  | Partial<Omit<MenuItemEntry, `kind`>>
+  | Partial<Omit<MenuSubmenuEntry, `kind`>>
+
+/**
+ * The layout as `MenuEntry[]` under the issue's header band. A row is drawn
+ * when its `when` condition holds AND the caller filled its slot; separators
+ * tidy themselves around the rows that drop out.
+ */
+export function issueMenuEntries({
+  header,
+  conditions,
+  slots,
+}: {
   header: { identifier: string; title: string }
-): MenuSpecimenRow[] {
-  const rows: MenuSpecimenRow[] = [{ kind: `header`, ...header }, { kind: `separator` }]
-  for (const entry of ISSUE_MENU_LAYOUT) {
-    if (!present(entry, conditions)) continue
-    if (entry.kind === `separator`) {
-      rows.push({ kind: `separator` })
-    } else if (entry.kind === `item`) {
-      rows.push({ kind: `item`, label: entry.label ?? ``, icon: entry.icon, destructive: entry.destructive })
-    } else {
-      rows.push({
-        kind: `submenu`,
-        label: entry.label ?? ``,
-        icon: entry.icon,
-        destructive: entry.destructive,
-        value: entry.sample,
+  conditions: ReadonlySet<IssueMenuCondition>
+  slots: Partial<Record<IssueMenuKey, IssueMenuSlot>>
+}): MenuEntry[] {
+  const entries: MenuEntry[] = [
+    { kind: `header`, id: `header`, identifier: header.identifier, title: header.title },
+  ]
+  for (const row of ISSUE_MENU_LAYOUT) {
+    if (row.kind === `separator`) {
+      entries.push({ kind: `separator` })
+      continue
+    }
+    const slot = row.key ? slots[row.key] : undefined
+    if (!slot || !present(row, conditions)) continue
+    const base = {
+      id: row.key,
+      label: row.label ?? ``,
+      icon: row.icon,
+      destructive: row.destructive,
+    }
+    if (row.kind === `item`) {
+      entries.push({
+        kind: `item`,
+        onSelect: () => {},
+        ...base,
+        ...(slot as Partial<MenuItemEntry>),
       })
+    } else {
+      entries.push({ kind: `submenu`, ...base, ...(slot as Partial<MenuSubmenuEntry>) })
     }
   }
-  return rows
+  return entries
+}
+
+/** The layout at rest, every row filled with its `sample` — the styleguide. */
+export function issueMenuSampleEntries(
+  conditions: ReadonlySet<IssueMenuCondition>,
+  header: { identifier: string; title: string }
+): MenuEntry[] {
+  const slots: Partial<Record<IssueMenuKey, IssueMenuSlot>> = {}
+  for (const row of ISSUE_MENU_LAYOUT) {
+    if (!row.key) continue
+    slots[row.key] =
+      row.kind === `submenu` ? { value: row.sample, entries: [] } : { onSelect: () => {} }
+  }
+  return issueMenuEntries({ header, conditions, slots })
 }

@@ -1,8 +1,8 @@
 import {
-  Combobox,
   GlassGroup,
   GlassSectionHeader,
   GlassToggleRow,
+  Picker,
   SubShellHost,
   conceptIcon,
 } from "@exp/ui"
@@ -73,13 +73,13 @@ export const entry: StyleguideEntry = {
           checked
           onCheckedChange={noop}
         />
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Computer use model"
           value="haiku"
           onChange={noop}
-          options={[
+          items={[
             { value: `haiku`, label: `Haiku` },
             { value: `sonnet`, label: `Sonnet` },
             { value: `opus`, label: `Opus` },
@@ -88,21 +88,21 @@ export const entry: StyleguideEntry = {
         />
       </GlassGroup>
       <GlassGroup>
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Model"
           value="opus"
           onChange={noop}
-          options={[{ value: `opus`, label: `Opus` }]}
+          items={[{ value: `opus`, label: `Opus` }]}
         />
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Subagent model"
           value="opus"
           onChange={noop}
-          options={[{ value: `opus`, label: `Opus` }]}
+          items={[{ value: `opus`, label: `Opus` }]}
         />
         <GlassToggleRow
           id="demo-device-settings-ultracode"

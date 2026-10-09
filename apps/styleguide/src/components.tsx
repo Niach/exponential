@@ -58,7 +58,8 @@ import {
   AgentBrandMark,
   AgentRunMark,
   AccountPicker,
-  AccountLimitBars,
+  accountLimitWindows,
+  UsageWindows,
   MENU_SURFACE_CLASS,
   cn,
   AgentPicker,
@@ -79,6 +80,7 @@ import {
   FAB_CHROME_CLASS,
   FabButton,
   FileDiffCard,
+  FileDiffList,
   FileDiffTree,
   GlassGroup,
   EntityPreviewCard,
@@ -100,7 +102,6 @@ import {
   Pill,
   PrGithubButton,
   PreviewMedia,
-  RichTab,
   ResizeHandle,
   SessionInlineResultTile,
   SessionResultsView,
@@ -113,7 +114,6 @@ import {
   WORK_COLUMN_CLASS,
   WorkHeader,
   CollapsedTitle,
-  ChangesFaceLabel,
   DropdownMenuContent,
   DropdownMenuItem,
   WorkFaceStrip,
@@ -277,7 +277,6 @@ const noop = (): void => {}
 const PlusGlyph = conceptIcon(`ui-add`)
 const PlayGlyph = conceptIcon(`action-run`)
 const MoreGlyph = conceptIcon(`ui-more`)
-const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
 const PropertiesGlyph = conceptIcon(`ui-properties`)
 const CommentGlyph = conceptIcon(`notification-issue-comment`)
@@ -570,7 +569,6 @@ function na(note: string): ComponentStatus {
   return { state: `n/a`, note }
 }
 
-const DESKTOP_SURFACE = `apps/desktop/crates/ui/src/surface.rs`
 const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
 // VAPP-90 converged the IDE's generic controls into the Exponential UI gpui
 // painter crate (`exponential-ui-gpui/src/controls/*`); the rows below name
@@ -729,12 +727,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · +N −M · Results in that fixed order, the segmented capsule above. The Changes segment wears the diff's counts once its files are known and the word Changes until then (the desktop FaceToggle::diff rule); the Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on Results, or on Changes when there is no Results face. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Changes segment is the review of its pull request (the Reviews detail screen is gone).`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
     status: {
       web: ok(
         `WorkFaceStrip`,
         `packages/ui/src/work-face-strip.tsx`,
-        `WorkFaceToggle + MobileFaceTabs in apps/web plug the run menu and the phone pager`
+        `apps/web/src/components/work-faces.tsx plugs in the run menu and the phone pager`
       ),
       desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
@@ -745,19 +743,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <WorkFaceStrip
-        face="diff"
+        face="guide"
         // A run waiting on a person, and an open pull request.
-        dots={{ run: `needs_input`, results: `review` }}
+        dots={{ run: `needs_input`, guide: `review` }}
         run={{ agent: `claude`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: noop },
           { face: `run`, label: `Runs`, onSelect: noop },
-          {
-            face: `diff`,
-            label: <ChangesFaceLabel counts={{ additions: 12, deletions: 2 }} />,
-            onSelect: noop,
-          },
-          { face: `results`, label: `Results`, onSelect: noop },
+          { face: `guide`, label: `Guide`, onSelect: noop },
         ]}
         runMenu={{
           // A portal: nothing renders at rest, the caret is the specimen.
@@ -769,44 +762,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           ),
         }}
       />
-    ),
-  },
-  {
-    id: `rich-tab`,
-    title: `Rich tab`,
-    kind: `Buttons & chips`,
-    blurb: `The STRIP tab — the desktop's top tab strip and session bar, the web agent dock. 32 tall, radius 6, capped at 240, padding left 8 and right 4 (the short side is the 24px ghost X beside it; 8 on a chip that carries none), gap 6; no chrome at rest, hover and active both take the active fill and full foreground, active adds the card hairline. ONE 14px lead box holds either a 14px status glyph or the 8px liveness dot, so a run chip's title lines up with an issue chip's; the mono identifier is text-xs, the title truncates at 180, an exit code rides a small badge. Never a pill: pills carry a label, this carries a state. EXP-923: every chip closes again and the strip is a flat list of them — the live agent CLUSTERS are gone with the live tabs, which are rail rows now.`,
-    status: {
-      web: ok(`RichTab`, `packages/ui/src/rich-tab.tsx`),
-      desktop: ok(`surface::rich_tab`, DESKTOP_SURFACE),
-      ios: na(`no terminal or top tab strips`),
-      android: na(`no terminal or top tab strips`),
-    },
-    island: () => (
-      <div className="flex flex-wrap items-center gap-2">
-        <RichTab
-          active
-          icon={<ShellGlyph className="size-4" />}
-          identifier="1"
-          title="zsh"
-          onSelect={noop}
-          onClose={noop}
-        />
-        <RichTab
-          status="bg-emerald-500"
-          identifier="APP-14"
-          title="Fix the merge queue"
-          onSelect={noop}
-          onClose={noop}
-        />
-        <RichTab
-          icon={<ShellGlyph className="size-4" />}
-          title="bun run typecheck"
-          badge={<Pill>exit 1</Pill>}
-          onSelect={noop}
-          onClose={noop}
-        />
-      </div>
     ),
   },
   {
@@ -1113,7 +1068,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `file-diff-card`,
     title: `File diff card`,
     kind: `Surfaces`,
-    blurb: `EXP-916: the ONE per-file unit every diff surface is made of — the review page, a Changes face and the transcript's edited-files card all stack THIS. A sticky glassy header (\`status letter · dimmed dir / name · +a −d · chevron\`) over the unified four-column body; the collapse threshold, the "Show N more lines" step and its wording are \`contract.diffUi\`, so nobody re-derives them. Two extra header states carry a live edit run: \`pending\` (the call is still going — no counts, an inert chevron, no body) and \`failed\` (rose, a trailing "failed", no body). \`flush\` drops the outer box so a card can be a ROW of a parent that divides its own children.`,
+    blurb: `EXP-916: the ONE per-file unit every diff surface is made of — a Guide section page, the complete diff and the transcript's edited-files card all stack THIS. A sticky glassy header (\`status letter · dimmed dir / name · +a −d · chevron\`) over the unified four-column body; the collapse threshold, the "Show N more lines" step and its wording are \`contract.diffUi\`, so nobody re-derives them. Two extra header states carry a live edit run: \`pending\` (the call is still going — no counts, an inert chevron, no body) and \`failed\` (rose, a trailing "failed", no body). \`flush\` drops the outer box so a card can be a ROW of a parent that divides its own children.`,
     status: {
       web: ok(`FileDiffCard`, WEB_DIFF_CARD),
       desktop: ok(`diff::render_file_card`, DESKTOP_DIFF),
@@ -1153,6 +1108,23 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       android: ok(`DiffFileTree`, ANDROID_DIFF_TREE),
     },
     island: () => <FileDiffTree files={TREE_FILES} onSelect={noop} />,
+  },
+  {
+    id: `file-diff-list`,
+    title: `File diff list`,
+    kind: `Surfaces`,
+    blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. A Guide section page, the complete diff (an issue's or a run's) and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
+    status: {
+      web: ok(`FileDiffList`, `packages/ui/src/file-diff-list.tsx`),
+      desktop: ok(`diff_pane::render`, DESKTOP_DIFF_PANE),
+      ios: ok(`DiffFileList`, `apps/ios/Exponential/UI/Session/SessionDiffList.swift`),
+      android: leftover(
+        `GuideSectionDiff`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
+        `the card stack is inlined in the Guide section page (and EditedFilesCard); no shared list composable`
+      ),
+    },
+    island: () => <FileDiffList files={[FIXTURE_FILE, ...TREE_FILES.slice(0, 2)]} truncatedLines={12} />,
   },
   {
     id: `fab-chrome`,
@@ -1358,55 +1330,57 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `usage-bar`,
+    id: `usage-windows`,
     title: `Usage windows`,
     kind: `Feedback`,
-    blurb: `Every rate-limit window the machine reported, TWO lines each: the window's name left and its countdown right, then the meter with the percent (tabular, "NN%", never "62% used"). Stale numbers dim the whole block to 50% and add one "as of …" line — they are never hidden, because aged numbers still beat none.`,
+    blurb: `Every rate-limit window an agent login reported, ONE component at three densities off the same rows. full: two lines per window, the name left and its countdown right, then the meter with the percent (tabular, "NN%", never "62% used") — the run's usage overlay, under the account it spends. mini: up to three windows on one line (the five-hour one, the week, the first per-model one) as wire label · 4px meter · percent, the reset centred under the two windows — the other accounts and every login on the Devices page. hover: label · meter, no percent — the account picker's preview. Stale numbers dim the block to 50% and add one "as of …" line; they are never hidden, because aged numbers still beat none.`,
     status: {
-      web: ok(`UsageWindows`, `apps/web/src/components/agent-usage-bar.tsx`),
-      desktop: ok(`render_usage_windows`, `apps/desktop/crates/ui/src/usage_bar.rs`),
-      ios: ok(`UsageWindows`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
-      android: ok(
+      web: ok(
         `UsageWindows`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`
+        `packages/ui/src/usage-windows.tsx`,
+        `apps/web agent-usage-windows.tsx resolves the rows off lib/agent-usage.ts`
       ),
-    },
-    render: () =>
-      [
-        `<div class="cmp-stack">`,
-        `<div class="cmp-usage-bar">`,
-        `<div class="line"><span class="label">Current session</span><span class="amount">resets in 1h 4m</span></div>`,
-        `<div class="track"><div class="fill"></div></div>`,
-        `</div>`,
-        `<div class="cmp-usage-bar warn">`,
-        `<div class="line"><span class="label">All models</span><span class="amount">resets in 1h 14m</span></div>`,
-        `<div class="track"><div class="fill"></div></div>`,
-        `</div>`,
-        `</div>`,
-      ].join(``),
-  },
-  {
-    id: `usage-mini`,
-    title: `Usage mini`,
-    kind: `Feedback`,
-    blurb: `The same report in one line: up to three windows (the five-hour one, the week, the first per-model one) as wire label · 4px meter · percent. It sits under an account row that is not the one the run spends — the other accounts in the usage overlay, every login under a device, and the account picker's hover preview — where the two-line form would not fit and the long titles would not either.`,
-    status: {
-      web: ok(`UsageMini`, `apps/web/src/components/agent-usage-mini.tsx`),
-      desktop: ok(`render_usage_mini`, `apps/desktop/crates/ui/src/usage_bar.rs`),
-      ios: ok(`AgentUsageMini`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
+      desktop: ok(
+        `render_usage_windows / render_usage_mini`,
+        `apps/desktop/crates/ui/src/usage_bar.rs`
+      ),
+      ios: ok(
+        `UsageWindows / AgentUsageMini`,
+        `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`
+      ),
       android: ok(
-        `AgentUsageMini`,
+        `UsageWindows / AgentUsageMini`,
         `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`
       ),
     },
-    render: () =>
-      [
-        `<div class="cmp-usage-mini">`,
-        `<div class="line"><span class="label">5h</span><span class="track"><span class="fill"></span></span><span class="amount">4%</span></div>`,
-        `<div class="line"><span class="label">Week</span><span class="track"><span class="fill"></span></span><span class="amount">73%</span></div>`,
-        `<div class="line"><span class="label">Fable</span><span class="track"><span class="fill"></span></span><span class="amount">100%</span></div>`,
-        `</div>`,
-      ].join(``),
+    island: () => (
+      <div className="grid w-[300px] gap-5">
+        <UsageWindows
+          windows={[
+            { key: `session`, label: `Current session`, percent: 62, caption: `resets in 1h 4m` },
+            { key: `weekly`, label: `All models`, percent: 88, caption: `resets in 3d 2h` },
+          ]}
+        />
+        <UsageWindows
+          density="mini"
+          windows={[
+            { key: `session`, label: `5h`, percent: 4, caption: `resets in 2h 14m` },
+            { key: `weekly`, label: `Week`, percent: 73, caption: `resets in 3d` },
+            { key: `model:fable`, label: `Fable`, percent: 100 },
+          ]}
+        />
+        <div className={cn(MENU_SURFACE_CLASS, `w-36 p-2`)}>
+          <UsageWindows
+            density="hover"
+            windows={accountLimitWindows({
+              fiveHour: 0.4,
+              week: 0.85,
+              model: { label: `Fable`, used: 0.97 },
+            })}
+          />
+        </div>
+      </div>
+    ),
   },
   {
     id: `tokens-fills`,
@@ -2252,7 +2226,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good), the changes (the file sheet + the white Merge capsule, a centred cluster) and the results (the Merge capsule alone). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on all four faces: in the cluster on Changes and Results, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the Guide (the white Merge capsule, a centred cluster; a section page adds the file sheet). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on every face: in the cluster on the Guide, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -2263,7 +2237,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(
         `FloatingBottomBar / FloatingBarCircle / FloatingBarCapsule`,
         `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`,
-        `FloatingBarCluster is the Changes/Results layout, where the slots hug their content`
+        `FloatingBarCluster is the Guide layout, where the slots hug their content`
       ),
       android: ok(
         `FloatingBottomBar / BarCircle / BarCapsule`,
@@ -2287,7 +2261,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
     leftovers: [
       {
-        file: `apps/web/src/components/issue-changes-face.tsx`,
+        file: `apps/web/src/components/session-merge-button.tsx`,
         note: `the white MergeCapsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill, not MobileWorkCapsule`,
       },
     ],
@@ -2296,7 +2270,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-header`,
     title: `Work header`,
     kind: `Surfaces`,
-    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, diff, Results) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
+    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, Guide, a Guide section page) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
     status: {
       web: ok(
         `WorkHeader / CollapsedTitle`,
@@ -2373,7 +2347,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `changes-file-sheet`,
     title: `Changed files sheet`,
     kind: `Buttons & chips`,
-    blurb: `EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither readable, so below md the Changes face's aside is gone and the tree lives in a bottom sheet hung off the work bar's LEADING slot. The trigger is the bar's own 52px circle carrying the files glyph over the COUNT, which is the whole affordance — a reader has to know how many files a PR touches before deciding to open it. A pick closes the sheet and reports the path; the card list scrolls to it. The sheet is a closed Radix portal at rest, so the specimen is the trigger.`,
+    blurb: `EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither readable, so below md the Guide section page has no aside and the tree lives in a bottom sheet hung off the work bar's LEADING slot. The trigger is the bar's own 52px circle carrying the files glyph over the COUNT, which is the whole affordance — a reader has to know how many files a PR touches before deciding to open it. A pick closes the sheet and reports the path; the card list scrolls to it. The sheet is a closed Radix portal at rest, so the specimen is the trigger.`,
     status: {
       web: ok(
         `ChangesFileSheet`,
@@ -2381,7 +2355,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the sheet holds the same FileDiffTree the md+ column does; the title is contract.diffUi.changedFilesTitle`
       ),
       desktop: na(
-        `no sheet: the IDE has room for the column, so the file tree is the ReviewFilesNav panel (review_files_nav.rs)`
+        `no sheet: the IDE has room for the column, so the Guide section page draws the file tree beside the diff (pr_diff.rs)`
       ),
       ios: ok(
         `DiffFileListSheet`,
@@ -2405,9 +2379,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: leftover(
-        `PrChangesFace.githubToolbarButton`,
-        `apps/ios/Exponential/UI/Issue/PrChangesFace.swift`,
-        `private; WorkScreen.swift holds a second inline copy under the same accessibility id`
+        `WorkScreen toolbar Button (changes-github-action)`,
+        `apps/ios/Exponential/UI/Work/WorkScreen.swift`,
+        `inline on the Guide face's toolbar; RunChangesView.swift holds a second copy under the same accessibility id`
       ),
       android: ok(
         `GithubHeaderAction`,
@@ -2432,7 +2406,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-872: ONE account picker per platform, replacing the agent picker + the account picker on every launch surface (the composer's options line, the automation editor's Account row, the workflow runner). The list is every signed-in login the machine reports across both agents, flattened (\`flattenAccounts\`): the row and the chip read as the agent's brand mark + the login's EMAIL — never a profile name, never the word "default"; the last used login is simply first, and a dead credential rides a muted hint. Picking a login implies its agent. One login collapses the inline word to plain text. EXP-992: on a pointer platform hovering a row shows a very small preview right of it — three 4px bars labelled 5h / week / <model> off the login's limits; on touch the same bars sit inline under the email in the sheet row. The menu is a portal, so the specimen is the closed trigger at both variants beside the bars block.`,
     status: {
       web: ok(
-        `AccountPicker / AccountLimitBars`,
+        `AccountPicker`,
         `packages/ui/src/account-picker.tsx`,
         `variant inline = the composer word, row = the glass form ladder's picker row`
       ),
@@ -2442,14 +2416,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the hover preview is an anchored overlay right of the menu row`
       ),
       ios: ok(
-        `AccountPickerMenu`,
-        `apps/ios/ExpUI/Sources/AccountPicker.swift`,
-        `touch: the three bars sit inline in the menu row`
+        `AccountPicker`,
+        `apps/ios/ExpUI/Sources/Picker/SharedAccountPicker.swift`,
+        `EXP-1249: the Picker family, bars inline in the sheet row; AccountPickerMenu is gone`
       ),
       android: ok(
-        `AccountPickerPill`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/components/AccountPickerPill.kt`,
-        `touch: the three bars sit inline in the menu row`
+        `AccountPicker + AccountPickerPillTrigger`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/picker/AccountPicker.kt`,
+        `EXP-1249: the Picker family, bars inline in the sheet row; AccountPickerPill is gone`
       ),
     },
     island: () => (
@@ -2482,8 +2456,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           />
         </GlassGroup>
         <div className={cn(MENU_SURFACE_CLASS, `w-36 p-2`)}>
-          <AccountLimitBars
-            limits={{ fiveHour: 0.4, week: 0.85, model: { label: `Fable`, used: 0.97 } }}
+          <UsageWindows
+            density="hover"
+            windows={accountLimitWindows({
+              fiveHour: 0.4,
+              week: 0.85,
+              model: { label: `Fable`, used: 0.97 },
+            })}
           />
         </div>
       </div>
@@ -2552,7 +2531,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       android: leftover(
         `ResultPreviewDialog`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
         `private and results-only; an issue attachment hands off to another app (ui/issue/AttachmentOpen.kt)`
       ),
     },
@@ -2574,10 +2553,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
       ),
       desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
-      ios: ok(`SessionResultsFace`, `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`),
+      ios: ok(`GuideFace`, `apps/ios/Exponential/UI/Work/GuideFace.swift`, `the tiles are SessionResultTiles.swift`),
       android: ok(
-        `ResultsFace`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `GuideFace`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
         `ResultTile + ResultPreviewDialog sit in the same file`
       ),
     },
@@ -2602,13 +2581,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       desktop: ok(`render_inline_picture`, `apps/desktop/crates/ui/src/steer_viewer.rs`, `the steer view method; Earlier band in session_results.rs`),
       ios: ok(
         `SessionInlinePicture`,
-        `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`,
+        `apps/ios/Exponential/UI/Work/SessionResultTiles.swift`,
         `AgentSessionView reads the run's results through the sessionResultsRaw environment value`
       ),
       android: ok(
         `ExpToolPicture`,
         `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
-        `reuses ResultTile + ResultPreviewDialog from ui/work/ResultsFace.kt`
+        `reuses ResultTile + ResultPreviewDialog from ui/work/GuideFace.kt`
       ),
     },
     island: () => (

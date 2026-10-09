@@ -18,9 +18,10 @@ import XCTest
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_chat · sg_chat-issues · sg_chat-action ·
+///   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_action-triggers ·
 ///   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
+///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
@@ -89,6 +90,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// One of the four seeded open PRs on the Reviews queue.
     private static let reviewTitle = "Batch-edit labels from the board"
+    /// APP-14: the seed's realPr issue, so its Guide has files from GitHub.
+    private static let guideTitle = "Group board issues by assignee"
     /// EXP-1204: the seeded chat run with an open PR of its own — its subject
     /// is the Reviews "Agent runs" row title and the RunChanges header.
     private static let runChangesTitle = "Fix the error-type comparison in the resolver"
@@ -414,7 +417,32 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_chat", settle: 2)
 
-        anyElement(app, identified: "agent-composer-issues-button").tap()
+        // ── sg_session-row: THE session row, big (EXP-1248) ─────────────────
+        // The Recent sheet behind the page's history glyph draws every run as
+        // the big SessionRow (mark at 12 + 14·depth, caption, device glyph,
+        // children nested, no fold). A detour no later shot needs, so it is
+        // skipped whole when a scoped run did not ask for it.
+        if ScreenshotShots.isWanted("sg_session-row") {
+            anyElement(app, identified: "agent-history-button").tap()
+            let recentSheet = anyElement(app, identified: "recent-runs-sheet")
+            XCTAssertTrue(recentSheet.waitForExistence(timeout: 20), "The Recent sheet did not open")
+            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: 30) {
+                print("EXP-1248 sg_session-row: no finished runs — reseed with `bun run seed:screenshots`")
+            }
+            snapshot("sg_session-row", settle: 2)
+            dismissSheet(app, whileVisible: recentSheet)
+            _ = recentSheet.waitForNonExistence(timeout: 10)
+            settle(1)
+        }
+
+        // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
+        // `composer-menu.json` rows is `sg_composer-menu`; Implement issue ›
+        // hands off to the issue picker once the sheet is gone.
+        anyElement(app, identified: "agent-composer-plus-button").tap()
+        let plusMenu = anyElement(app, identified: "agent-composer-menu")
+        XCTAssertTrue(plusMenu.waitForExistence(timeout: 20), "The + menu did not open")
+        snapshot("sg_composer-menu", settle: 2)
+        anyElement(app, identified: "agent-composer-menu-implement-issue").tap()
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
         XCTAssertTrue(issuePicker.waitForExistence(timeout: 20), "Issue picker did not open")
         for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
@@ -434,7 +462,12 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(issueChip.waitForExistence(timeout: 15), "No issue chip after picking")
         snapshot("sg_chat-issues", settle: 2)
 
-        anyElement(app, identified: "agent-composer-actions-button").tap()
+        anyElement(app, identified: "agent-composer-plus-button").tap()
+        XCTAssertTrue(
+            anyElement(app, identified: "agent-composer-menu").waitForExistence(timeout: 20),
+            "The + menu did not reopen"
+        )
+        anyElement(app, identified: "agent-composer-menu-run-action").tap()
         let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
         XCTAssertTrue(actionPicker.waitForExistence(timeout: 20), "Action picker did not open")
         let fixRow = app.staticTexts["Fix merge conflicts"].firstMatch
@@ -604,9 +637,9 @@ final class StyleguideScreenshots: XCTestCase {
         let runsTab = anyElement(app, identified: "action-tab-runs")
         XCTAssertTrue(runsTab.waitForExistence(timeout: 15), "Runs tab missing")
         runsTab.tap()
-        let endedRun = anyElement(app, identified: "ended-run-row")
-        let liveRun = anyElement(app, identified: "action-run-row")
-        if !endedRun.waitForExistence(timeout: 45), !liveRun.exists {
+        // EXP-1248: live and ended runs are the same SessionRow now.
+        let actionRunRow = anyElement(app, identified: "action-run-row")
+        if !actionRunRow.waitForExistence(timeout: 45) {
             print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
             XCTAssertTrue(
                 app.staticTexts["No runs yet."].waitForExistence(timeout: 15),
@@ -641,26 +674,69 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
         reviewsTab.tap()
         XCTAssertTrue(
-            app.staticTexts[Self.reviewTitle].firstMatch.waitForExistence(timeout: 60),
+            reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
 
+        // ── sg_pr-row: THE pull-request row (EXP-1248) ──────────────────────
+        // The same queue IS the PrRow surface: one line per PR, a tree nested
+        // with guides, a stack on its rail over the base-branch row.
+        XCTAssertTrue(
+            anyElement(app, identified: "pr-row").waitForExistence(timeout: 30),
+            "Reviews drew no PrRow"
+        )
+        snapshot("sg_pr-row", settle: 1)
+
+        // ── sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251) ─
+        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
+        // no report, so its whole diff is ONE Changes section; that row opens
+        // the section page. Both pop back to Reviews for sg_run-changes.
+        let wantsGuide = ScreenshotShots.isWanted("sg_guide")
+        let wantsGuideSection = ScreenshotShots.isWanted("sg_guide-section")
+        if wantsGuide || wantsGuideSection {
+            reviewRow(app, titled: Self.guideTitle).tap()
+            let guideTab = anyElement(app, identified: "work-face-guide")
+            if guideTab.waitForExistence(timeout: 20) { guideTab.tap() }
+            let changesRow = anyElement(app, identified: "guide-changes-row")
+            // Below the fold on a phone (the PR body comes first), so scroll
+            // to it; the shot then shows the body's end, the Changes row and
+            // Show complete diff.
+            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(60))
+            XCTAssertTrue(
+                changesRow.exists,
+                "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
+            )
+            snapshot("sg_guide", settle: 2)
+            changesRow.tap()
+            let sectionPage = anyElement(app, identified: "guide-section-page")
+            XCTAssertTrue(sectionPage.waitForExistence(timeout: 30), "The Guide section page did not open")
+            snapshot("sg_guide-section", settle: 2)
+            anyElement(app, identified: "guide-section-back").tap()
+            _ = anyElement(app, identified: "work-face-guide").waitForExistence(timeout: 15)
+            goBack(app)
+            XCTAssertTrue(
+                reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 30),
+                "Back from the Guide did not land on Reviews"
+            )
+            settle(1)
+        }
+
         // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
         // The Reviews "Agent runs" band lists Jonas's finished chat run, whose
-        // own pull request is open; its row pushes `RunChangesView`, fed by
-        // `codingSessions.prFiles` — a real public PR the seed points the run
-        // at (SCREENSHOT_RUN_PR_URL), so there are actual files to show.
-        let runRow = app.staticTexts[Self.runChangesTitle].firstMatch
+        // own pull request is open; its row pushes `RunChangesView` (the
+        // run's Guide, EXP-1251), fed by `codingSessions.prFiles` — a real
+        // public PR the seed points the run at (SCREENSHOT_RUN_PR_URL). Its
+        // Changes row opens the section page, where the file cards live.
+        let runRow = reviewRow(app, titled: Self.runChangesTitle)
         XCTAssertTrue(
             runRow.waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded agent run"
         )
         runRow.tap()
-        let runFileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
-        XCTAssertTrue(
-            runFileRows.firstMatch.waitForExistence(timeout: 60),
-            "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
+        openGuideDiff(
+            app,
+            failure: "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
         )
         snapshot("sg_run-changes", settle: 2)
         goBack(app)
@@ -836,4 +912,47 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
+    /// A Reviews row by its title. EXP-1248: a row is a plain Button over
+    /// `PrRow`, which COMBINES its texts into one element, so the title is no
+    /// standalone staticText: match the button whose label contains it.
+    @MainActor
+    private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+    }
+
+    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
+    /// file cards: open the diff (the first Changes row, else Show complete
+    /// diff) as the section page and wait for its file cards.
+    /// The Guide body is a LazyVStack: a row below the fold is not in the
+    /// accessibility tree until it scrolls on screen. Swipe up until one of
+    /// `rows` exists or the deadline passes (a loading Guide just keeps
+    /// waiting; the swipes are harmless on a short page).
+    @MainActor
+    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
+        while Date() < deadline && !rows.contains(where: { $0.exists }) {
+            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
+            app.swipeUp()
+        }
+    }
+
+    @MainActor
+    private func openGuideDiff(_ app: XCUIApplication, failure: String) {
+        let changesRow = anyElement(app, identified: "guide-changes-row")
+        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
+        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
+        if changesRow.exists {
+            changesRow.tap()
+        } else {
+            XCTAssertTrue(completeDiff.exists, failure)
+            completeDiff.tap()
+        }
+        XCTAssertTrue(
+            anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
+            "The Guide section page did not open"
+        )
+        XCTAssertTrue(
+            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
+            failure
+        )
+    }
 }
