@@ -2,7 +2,7 @@
   "id": "exponential",
   "name": "Exponential",
   "description": "Exponential's issue tracker in OpenClaw: issues, boards, comments, pull requests and coding runs over MCP, interactive MCP Apps views for the issue list and a run's report, and the Exponential theme.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "categories": [
     "productivity"
   ],
