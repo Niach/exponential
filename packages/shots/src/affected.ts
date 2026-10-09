@@ -381,9 +381,11 @@ const NATIVE_SHARED: { test: RegExp; platforms: readonly Platform[]; why: string
  * `widenOthers` = every other platform still widens (the core's catalog +
  * themes reach the desktop IDE's controls through the gpui painter, so
  * narrowing them would commit stale shots). `widen` = platforms that widen
- * outright: the Compose primitives module IS linked by the Android app
- * (`:ui-compose-primitives`, SLOP-18 convergence), so it feeds every android
- * shot, not just the kitchen sink.
+ * outright: the primitives ARE linked by the apps (Android
+ * `:ui-compose-primitives`, SLOP-18 convergence; iOS `ExponentialUIPrimitives`,
+ * which every GlassPill, segmented control, avatar, UsageTrack and ContextRing
+ * draws through), so they feed every shot on that platform, not just the
+ * kitchen sink. The rest of each package keeps the narrow scope.
  */
 const SDK_PACKAGES: {
   test: RegExp
@@ -392,6 +394,13 @@ const SDK_PACKAGES: {
   widen?: readonly Platform[]
   why: string
 }[] = [
+  {
+    test: /^packages\/exponential-ui-swift\/Sources\/ExponentialUIPrimitives\//,
+    narrow: [`ios`],
+    widenOthers: false,
+    widen: [`ios`],
+    why: `the SwiftUI primitives the iOS app links`,
+  },
   {
     test: /^packages\/exponential-ui-swift\//,
     narrow: [`ios`],

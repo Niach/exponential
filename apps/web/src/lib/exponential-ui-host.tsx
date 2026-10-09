@@ -21,6 +21,9 @@ import type { VappPackage } from "@exponential-at/ui"
 import { getDeviceIconName } from "@exp/ui"
 import { boardCollection, deviceCollection, issueCollection, teamCollection } from "@/lib/collections"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { readinessAgo } from "@/lib/coding-readiness"
+import { readJsonRpcAnswer } from "@/lib/mcp-oauth/json-rpc-reader"
+import { exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 
 /** The consent card's store: one pending `ask` call at a time, answered
  *  by the person (Allow / Deny). */
@@ -50,38 +53,79 @@ export function createConsentGate() {
 }
 export type ConsentGate = ReturnType<typeof createConsentGate>
 
-const formatAgo = (date: Date, now: Date) => {
-  const minutes = Math.round((now.getTime() - date.getTime()) / 60_000)
-  if (minutes < 60) return `${Math.max(minutes, 1)} min ago`
-  const hours = Math.round(minutes / 60)
-  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`
+/** Online-ness ages out on a clock, not on a delta: `exp:devices` re-derives
+ *  on this beat too (the desktop host's `LIVENESS_TICK`, the Devices page's
+ *  `useNow(30_000)`), standing still while the tab is hidden. */
+export const LIVENESS_TICK_MS = 30_000
+
+/** `exp:devices` rows at `now`: `Online` within the contract's
+ *  `device.onlineWindowSeconds`, else `Last seen <readinessAgo>`. */
+export function devicesValue(
+  devices: readonly {
+    id: string
+    label: string
+    kind: string
+    platform: string | null
+    version: string | null
+    icon: string | null
+    lastSeenAt: Date | string | null
+  }[],
+  now: Date
+) {
+  const rows = devices
+    .slice()
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .map((d) => {
+      const online = d.lastSeenAt ? deviceRowIsOnline(d.lastSeenAt, now) : false
+      const seen = d.lastSeenAt ? new Date(d.lastSeenAt) : null
+      return {
+        id: d.id,
+        label: d.label,
+        detail: [d.kind === `server` ? `Server` : `Desktop`, d.platform, d.version ? `v${d.version}` : null].filter(Boolean).join(` · `),
+        icon: getDeviceIconName(d),
+        discTone: online ? `success` : `muted`,
+        tone: online ? `live` : `idle`,
+        status: online ? `Online` : seen ? `Last seen ${readinessAgo(now.getTime(), seen.getTime())}` : `Offline`,
+      }
+    })
+  return { rows, count: rows.length, online: rows.filter((r) => r.tone === `live`).length }
 }
 
-/** `exp:devices` → `{rows, count, online}` (the Devices template's data). */
+/** `exp:devices` → `{rows, count, online}` (the Devices template's data),
+ *  on every collection change AND every liveness tick (a value equal to the
+ *  last one is not re-emitted). */
 function devicesSource(_source: ParsedSource, emit: SourceEmit): () => void {
+  let last: string | null = null
   const push = () => {
-    const now = new Date()
-    const rows = deviceCollection.toArray
-      .slice()
-      .sort((a, b) => a.label.localeCompare(b.label))
-      .map((d) => {
-        const online = d.lastSeenAt ? deviceRowIsOnline(d.lastSeenAt, now) : false
-        const seen = d.lastSeenAt ? new Date(d.lastSeenAt) : null
-        return {
-          id: d.id,
-          label: d.label,
-          detail: [d.kind === `server` ? `Server` : `Desktop`, d.platform, d.version ? `v${d.version}` : null].filter(Boolean).join(` · `),
-          icon: getDeviceIconName(d),
-          discTone: online ? `success` : `muted`,
-          tone: online ? `live` : `idle`,
-          status: online ? `Online` : seen ? `Last seen ${formatAgo(seen, now)}` : `Offline`,
-        }
-      })
-    emit({ rows, count: rows.length, online: rows.filter((r) => r.tone === `live`).length })
+    const value = devicesValue(deviceCollection.toArray, new Date())
+    const key = JSON.stringify(value)
+    if (key === last) return
+    last = key
+    emit(value)
   }
   const sub = deviceCollection.subscribeChanges(push, { includeInitialState: true })
   push()
-  return () => sub.unsubscribe()
+  let timer: ReturnType<typeof setInterval> | null = null
+  const visible = () => typeof document === `undefined` || document.visibilityState === `visible`
+  const start = () => {
+    if (timer === null) timer = setInterval(push, LIVENESS_TICK_MS)
+  }
+  const stop = () => {
+    if (timer !== null) clearInterval(timer)
+    timer = null
+  }
+  const onVisibility = () => {
+    if (!visible()) return stop()
+    push()
+    start()
+  }
+  if (visible()) start()
+  if (typeof document !== `undefined`) document.addEventListener(`visibilitychange`, onVisibility)
+  return () => {
+    stop()
+    if (typeof document !== `undefined`) document.removeEventListener(`visibilitychange`, onVisibility)
+    sub.unsubscribe()
+  }
 }
 
 /** `exp:issues?board=<id>&limit=<n>` → `{rows, count}`. */
@@ -100,19 +144,42 @@ function issuesSource(source: ParsedSource, emit: SourceEmit): () => void {
   return () => sub.unsubscribe()
 }
 
+/** A JSON-RPC `error` reply to `harness.mcp`: the server's message, with
+ *  its `code` (the desktop twin's `mcp_result` rejects the same way). */
+export class McpCallError extends Error {
+  readonly code: number | undefined
+  readonly data: unknown
+  constructor(error: { code?: number; message?: string; data?: unknown }) {
+    super(error.message || `MCP error`)
+    this.name = `McpCallError`
+    this.code = error.code
+    this.data = error.data
+  }
+}
+
+let mcpRequestId = 0
+
 /** A JSON-RPC tools/call on the app's own MCP endpoint, as the signed-in
- *  viewer (the session cookie); the consent card has already said yes. */
-async function callMcp(tool: string, args: Record<string, unknown>): Promise<unknown> {
+ *  viewer (the session cookie); the consent card has already said yes.
+ *  Resolves the answer's `result`; rejects on HTTP failure, a JSON-RPC
+ *  `error`, or no answer with the request's id (an SSE body is read until
+ *  the message whose `id` is ours, like the server's MCP client). */
+export async function callMcp(tool: string, args: Record<string, unknown>): Promise<unknown> {
+  const id = ++mcpRequestId
   const res = await fetch(`/api/mcp`, {
     method: `POST`,
     credentials: `include`,
     headers: { "content-type": `application/json`, accept: `application/json, text/event-stream` },
-    body: JSON.stringify({ jsonrpc: `2.0`, id: 1, method: `tools/call`, params: { name: tool, arguments: args } }),
+    body: JSON.stringify({ jsonrpc: `2.0`, id, method: `tools/call`, params: { name: tool, arguments: args } }),
   })
-  if (!res.ok) throw new Error(`MCP ${res.status}`)
-  const text = await res.text()
-  const json = text.trimStart().startsWith(`{`) ? JSON.parse(text) : JSON.parse(text.split(`\n`).find((l) => l.startsWith(`data:`))?.slice(5) ?? `{}`)
-  return (json as { result?: unknown }).result
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined)
+    throw new Error(`MCP ${res.status}`)
+  }
+  const message = await readJsonRpcAnswer(res, id)
+  if (!message) throw new Error(`MCP: no answer`)
+  if (message.error) throw new McpCallError(message.error)
+  return message.result ?? null
 }
 
 /** A synced issue's detail url by identifier (null when not synced). */
@@ -173,23 +240,25 @@ export function createAppHost(options: AppHostOptions): ExponentialHost {
   })
 }
 
-/** The consent card: what a surface wants to run, Allow / Deny. */
+/** The consent card: what a surface wants to run, Deny (focused, Enter) /
+ *  Allow, worded by the contract's `exponential-ui-consent` prompt. */
 export function ConsentCard({ gate }: { gate: ConsentGate }) {
   const call = useSyncExternalStore(gate.subscribe, gate.current, gate.current)
   if (!call) return null
   const tool = call.name === `harness.mcp` ? String(call.args.tool ?? ``) : call.name
+  const copy = exponentialUiConsentPrompt(tool)
   return (
     <Prompt
       open
       onOpenChange={(open) => !open && gate.answer(false)}
       data-testid="exponential-ui-consent"
-      title={`Allow this surface to run ${tool}?`}
-      body={`It acts as you, with your access to this team.`}
+      title={copy.title}
+      body={copy.body}
       onDismiss={() => gate.answer(false)}
-      actions={[
-        { label: `Deny`, role: `cancel`, onSelect: () => gate.answer(false) },
-        { label: `Allow`, role: `primary`, onSelect: () => gate.answer(true) },
-      ]}
+      actions={promptActions(copy, {
+        deny: { onSelect: () => gate.answer(false) },
+        allow: { onSelect: () => gate.answer(true) },
+      })}
     />
   )
 }

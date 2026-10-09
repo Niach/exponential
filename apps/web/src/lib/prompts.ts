@@ -248,6 +248,17 @@ export const removeServerPrompt = (server: string) =>
     server,
   })
 
+/** VAPP-91: a host asking before a surface acts as the person (`harness.mcp`
+ *  names its MCP tool, any other `ask` function its own name). Deny takes
+ *  focus and Enter; Allow is the explicit `default` answer. */
+export const exponentialUiConsentPrompt = (tool: string) =>
+  copyOf(
+    P[`exponential-ui-consent`],
+    P[`exponential-ui-consent`].title,
+    P[`exponential-ui-consent`].body,
+    { tool }
+  )
+
 // ── Web-only prompts (not in the fixture until a second client shows them) ──
 
 const cancelAction = (): PromptCopyAction => ({

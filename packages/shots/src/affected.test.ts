@@ -329,6 +329,22 @@ describe(`fail-safe`, () => {
       if (platform !== `ios`) expect(swift.byPlatform.get(platform)).toEqual([])
     }
 
+    // ...but the primitives target is linked by the iOS app: every iOS shot.
+    const swiftPrimitives = affectedScope({
+      changedFiles: [`packages/exponential-ui-swift/Sources/ExponentialUIPrimitives/GlassPill.swift`],
+      platforms: PLATFORMS,
+      includeMissing: false,
+    })
+    expect(swiftPrimitives.byPlatform.get(`ios`)).toHaveLength(viewsFor(`ios`).length)
+    for (const platform of PLATFORMS) {
+      if (platform !== `ios`) expect(swiftPrimitives.byPlatform.get(platform)).toEqual([])
+    }
+    // The rest of the package (core, manifest) keeps the narrow scope.
+    for (const path of [`packages/exponential-ui-swift/Sources/ExponentialUICore/Reducer.swift`, `packages/exponential-ui-swift/Package.swift`]) {
+      const narrow = affectedScope({ changedFiles: [path], platforms: PLATFORMS, includeMissing: false })
+      expect(narrow.byPlatform.get(`ios`)).toEqual(packageViews(`ios`))
+    }
+
     // VAPP-89: the android shot comes from the Compose painter's example app.
     const compose = affectedScope({
       changedFiles: [`packages/exponential-ui-compose/ui-compose/src/main/kotlin/at/exponential/ui/X.kt`],

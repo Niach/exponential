@@ -118,6 +118,7 @@ class PromptsTest {
             Prompts.RemovePasskey.prompt(null),
             Prompts.DeleteAccount.prompt("Cloud"),
             Prompts.RemoveServer.prompt("Cloud"),
+            Prompts.ExponentialUiConsent.prompt("exponential_issues_list"),
         )
         for (prompt in rendered) {
             assertTrue(prompt.title, '{' !in prompt.title && '{' !in (prompt.body ?: ""))

@@ -6,62 +6,9 @@
 // initialize answer carries rides every later request. Never logs a header.
 import { McpHttpError, mcpFetch } from "@/lib/mcp-oauth/net"
 import { discover } from "@/lib/mcp-oauth/oauth-client"
+import { readJsonRpcAnswer, type JsonRpcMessage } from "@/lib/mcp-oauth/json-rpc-reader"
 
 const PROTOCOL_VERSION = `2025-06-18`
-
-type JsonRpcMessage = {
-  id?: number | string | null
-  result?: Record<string, unknown>
-  error?: { message?: string }
-}
-
-/** Pull the JSON-RPC message with `id` out of an SSE body, reading only as
- * far as it (a server may keep the stream open after answering). */
-async function readSse(response: Response, id: number): Promise<JsonRpcMessage | null> {
-  const reader = response.body?.getReader()
-  if (!reader) return null
-  const decoder = new TextDecoder()
-  let buffer = ``
-  let data: string[] = []
-  try {
-    for (;;) {
-      const { value, done } = await reader.read()
-      buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done })
-      let newline: number
-      while ((newline = buffer.indexOf(`\n`)) >= 0) {
-        const line = buffer.slice(0, newline).replace(/\r$/, ``)
-        buffer = buffer.slice(newline + 1)
-        if (line.startsWith(`data:`)) {
-          data.push(line.slice(5).replace(/^ /, ``))
-        } else if (line === `` && data.length > 0) {
-          const message = parseMessage(data.join(`\n`), id)
-          data = []
-          if (message) return message
-        }
-      }
-      if (done) {
-        return data.length > 0 ? parseMessage(data.join(`\n`), id) : null
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => undefined)
-  }
-}
-
-function parseMessage(text: string, id: number): JsonRpcMessage | null {
-  try {
-    const parsed: unknown = JSON.parse(text)
-    const messages = Array.isArray(parsed) ? parsed : [parsed]
-    for (const message of messages) {
-      if (message && typeof message === `object` && (message as JsonRpcMessage).id === id) {
-        return message as JsonRpcMessage
-      }
-    }
-  } catch {
-    // not JSON (a comment / keep-alive): keep reading
-  }
-  return null
-}
 
 interface Session {
   url: string
@@ -91,12 +38,7 @@ async function rpc(
     await response.body?.cancel().catch(() => undefined)
     return { response, message: null }
   }
-  const type = response.headers.get(`content-type`) ?? ``
-  if (type.includes(`text/event-stream`)) {
-    return { response, message: await readSse(response, id) }
-  }
-  const text = await response.text()
-  return { response, message: parseMessage(text, id) }
+  return { response, message: await readJsonRpcAnswer(response, id) }
 }
 
 function statusError(response: Response): string {
