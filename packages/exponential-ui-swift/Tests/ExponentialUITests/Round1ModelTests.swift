@@ -168,7 +168,9 @@ final class Round1ModelTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(replayed, 30, "the presses replayed through the model")
+        // Round 3: a Section writes `open` back only when collapsible, so the
+        // bound-open case lost its press (29 presses remain).
+        XCTAssertGreaterThan(replayed, 25, "the presses replayed through the model")
     }
 
     // MARK: - settings → core
