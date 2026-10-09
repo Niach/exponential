@@ -85,7 +85,7 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
 - **Themes.** `ThemeHandle.builtin(id)` / `ThemeHandle.load(json:)`;
   `model.setTheme` / `setMode`. Painters never read recipes: the core hands
   resolved visuals, and sub-parts it does not synthesize (a Checkbox
-  `check`, a Switch / Slider `thumb`, a ToggleGroup `item`…) resolve through the
+  `check`, a Switch / Slider `thumb`, a Segmented `item`…) resolve through the
   facade's `Theme` object (`model.part(component, part, props:)`), cached
   per query.
 - **Extensions.** `ExponentialUI.register(extension: json, painters: [kind:
@@ -217,7 +217,11 @@ is idle and unfocused; Up / Down step a NumberField, Backspace in an empty
 ChipInput removes the last chip. Switch and Slider are platform controls
 unless the recipe sets `native: false` (the drawn ones are rtl-aware).
 FileUpload takes `.fileImporter` picks and drops (`dragover` meanwhile);
-a ContextMenu opens at a secondary click (macOS) or a long press.
+a context Menu (`openOn: contextmenu`) opens at a secondary click (macOS)
+or a long press; a `bar` Segmented lays each item out as a column (icon
+over a caption label) across the full width. Tree guides (a Row's
+`guides` part, filled by the core) draw at 14 px columns with a 3 px
+rounded elbow and a 1 px bridge above the row.
 
 ## Overlays
 

@@ -145,7 +145,7 @@ struct SelectItemLeaf: View {
     }
 }
 
-/// A DropdownMenu / ContextMenu entry's `itemLabel`: [icon] label (the row,
+/// A Menu entry's `itemLabel`: [icon] label (the row,
 /// its check, shortcut and submenu indicator are the core's own parts).
 struct MenuItemLabelLeaf: View {
     let cx: LeafContext
@@ -277,7 +277,7 @@ struct CodeLineLeaf: View {
 
 /// The platform input a native takes beyond a press (gpui `interactive`):
 /// files dropped on a FileUpload `dropzone` (`dragover` meanwhile), a
-/// secondary click (macOS) or a long press (touch) on a ContextMenu, which
+/// secondary click (macOS) or a long press (touch) on a context Menu (`openOn: contextmenu`), which
 /// opens the core's menu LAYER at that point.
 struct NativeHooks: ViewModifier {
     let node: NodeInfo
@@ -292,17 +292,17 @@ struct NativeHooks: ViewModifier {
             } isTargeted: { on in
                 model.setDragover(id: node.id, on)
             }
-        } else if node.component == "ContextMenu", node.part == nil, node.layer == 0 {
-            content.modifier(ContextMenuGesture(index: node.index, model: model))
+        } else if node.component == "Menu", node.part == nil, node.layer == 0, node.props.str("openOn") == "contextmenu" {
+            content.modifier(MenuContextGesture(index: node.index, model: model))
         } else {
             content
         }
     }
 }
 
-/// Open a ContextMenu at the pointer: a secondary click on macOS, a long
+/// Open a context Menu at the pointer: a secondary click on macOS, a long
 /// press on touch (at the region, like Shift+F10).
-private struct ContextMenuGesture: ViewModifier {
+private struct MenuContextGesture: ViewModifier {
     let index: Int
     let model: SurfaceModel
 

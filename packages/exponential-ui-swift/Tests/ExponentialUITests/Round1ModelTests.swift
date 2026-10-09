@@ -317,10 +317,10 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertEqual(m.focusRequest?.id, trigger.id)
     }
 
-    func testFieldKeysToggleGroupKeysAndAFocusedToast() throws {
+    func testFieldKeysSegmentedKeysAndAFocusedToast() throws {
         let tree = root([
             obj(["id": "n", "component": "NumberField", "props": obj(["label": "N", "name": "n", "value": obj(["path": "/v"]), "step": 1, "max": 100])]),
-            obj(["id": "g", "component": "ToggleGroup", "props": obj(["items": [obj(["label": "A", "value": "a"]), obj(["label": "B", "value": "b"]), obj(["label": "C", "value": "c"])], "value": "a"])]),
+            obj(["id": "g", "component": "Segmented", "props": obj(["items": [obj(["label": "A", "value": "a"]), obj(["label": "B", "value": "b"]), obj(["label": "C", "value": "c"])], "value": "a"])]),
             obj(["id": "toast", "component": "Toast", "props": obj(["title": "Saved", "duration": 0])]),
         ])
         let m = try model(tree)
@@ -332,14 +332,14 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertTrue(m.fieldKey(input, key: "down", shift: true), "Shift = ×10")
         XCTAssertEqual(m.data["v"]?.number, -4)
         XCTAssertFalse(m.fieldKey(input, key: "left"), "the field keeps its other keys")
-        // ToggleGroup: arrows move the roving item (wrap), Space toggles it.
+        // Segmented: arrows move the roving item (wrap), Space toggles it.
         let g = try XCTUnwrap(m.index(of: "g"))
         m.requestFocus("g", keyboard: true)
-        XCTAssertEqual(m.toggleGroupFocusIndex(g), 0)
+        XCTAssertEqual(m.segmentedFocusIndex(g), 0)
         m.handleKey(key: "left")
-        XCTAssertEqual(m.toggleGroupFocusIndex(g), 2, "wraps")
+        XCTAssertEqual(m.segmentedFocusIndex(g), 2, "wraps")
         m.handleKey(key: "space")
-        XCTAssertEqual(m.toggleGroupValues(g), ["c"])
+        XCTAssertEqual(m.segmentedValues(g), ["c"])
         // Escape on a focused toast dismisses it; a sticky toast has no timer.
         XCTAssertNil(m.toastRemainingMs("toast"))
         if let close = m.nodes.first(where: { !$0.removed && $0.owner == "toast" && $0.isFocusable }) {

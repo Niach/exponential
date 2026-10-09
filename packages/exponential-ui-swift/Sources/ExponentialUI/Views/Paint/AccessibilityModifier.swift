@@ -17,7 +17,7 @@ struct A11yInfo: Equatable {
     var traits: AccessibilityTraits = []
     var heading: AccessibilityHeadingLevel?
     var hidden = false
-    /// The node keeps its own element (a host text field, a ToggleGroup).
+    /// The node keeps its own element (a host text field, a Segmented).
     var passthrough = false
     /// A container the reader walks into (`.contain`), else one element.
     var container = false
@@ -53,11 +53,11 @@ struct A11yInfo: Equatable {
         case ("Select", "search"): return "textbox"
         case ("Box", "list") where owner == "Select" || owner == "TimePicker": return "listbox"
         case ("Text", "item") where owner == "Select" || owner == "TimePicker": return "option"
-        case ("Box", "content") where owner == "DropdownMenu" || owner == "ContextMenu": return "menu"
-        case ("Box", "item") where owner == "DropdownMenu" || owner == "ContextMenu": return n.props.str("kind") == "checkbox" ? "menuitemcheckbox" : "menuitem"
-        case ("Text", "item") where owner == "DropdownMenu" || owner == "ContextMenu": return "menuitem"
+        case ("Box", "content") where owner == "Menu": return "menu"
+        case ("Box", "item") where owner == "Menu": return n.props.str("kind") == "checkbox" ? "menuitemcheckbox" : "menuitem"
+        case ("Text", "item") where owner == "Menu": return "menuitem"
         case ("Box", "content") where owner == "Tooltip": return "tooltip"
-        case ("Box", "content") where owner == "Dialog" || owner == "Drawer" || owner == "Sheet" || owner == "Popover" || owner == "HoverCard":
+        case ("Box", "content") where owner == "Dialog" || owner == "Drawer" || owner == "Popover":
             return model.ownerProps(n.index)["dismissible"]?.bool == false ? "alertdialog" : "dialog"
         case ("Box", "root") where owner == "Toast": return n.props.str("live") == "assertive" || model.ownerProps(n.index).str("live") == "assertive" ? "alert" : "status"
         case ("Text", "headerCell"), ("Text", "weekday"): return "columnheader"
@@ -98,7 +98,7 @@ struct A11yInfo: Equatable {
         case ("Skeleton", _), ("TreeGuides", _):
             info.hidden = true
             return info
-        case ("Input", "field"), ("Textarea", "field"), ("Composer", _), ("ToggleGroup", _), ("ChipInput", "input"), ("Select", "search"):
+        case ("Input", "field"), ("Textarea", "field"), ("Composer", _), ("Segmented", _), ("ChipInput", "input"), ("Select", "search"):
             info.passthrough = true
             return info
         case ("NumberField", "input"):

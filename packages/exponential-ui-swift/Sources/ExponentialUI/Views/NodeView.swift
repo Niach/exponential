@@ -76,11 +76,11 @@ extension SurfaceModel {
 
 /// Which pressables handle their own gestures (no Button wrapper): every
 /// host text field (incl. a NumberField / ChipInput `input`, a Select
-/// `search`), the slider track, a ToggleGroup, the carousel dots.
+/// `search`), the slider track, a Segmented, the carousel dots.
 private func selfHandling(_ n: NodeInfo) -> Bool {
     if n.isTextField { return true }
     switch (n.component, n.part) {
-    case ("Slider", "track"), ("ToggleGroup", _), ("Box", "indicator"): return true
+    case ("Slider", "track"), ("Segmented", _), ("Box", "indicator"): return true
     default: return false
     }
 }
@@ -156,7 +156,7 @@ private struct NodeBody: View {
                 if (model.children[safe: index] ?? []).isEmpty {
                     leaf
                 } else {
-                    // A measured leaf that also carries nodes (a DropdownMenu
+                    // A measured leaf that also carries nodes (a Menu
                     // owner sized by its trigger): the nodes paint over it.
                     ZStack(alignment: .topLeading) {
                         leaf

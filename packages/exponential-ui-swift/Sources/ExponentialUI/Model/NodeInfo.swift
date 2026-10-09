@@ -126,7 +126,7 @@ public struct NodeInfo: Identifiable, Sendable {
         }
         if isTextField { return true }
         switch (component, part) {
-        case ("Slider", "track"), ("Box", "indicator"), ("ToggleGroup", _), ("Composer", _): return true
+        case ("Slider", "track"), ("Box", "indicator"), ("Segmented", _), ("Composer", _): return true
         case ("Chart", nil): return !isSparkline
         case ("Button", _), ("Link", _), ("Toggle", _): return true
         default: return pressable
@@ -202,8 +202,8 @@ public struct NodeAccessibility: Sendable, Equatable {
 public struct LayerInfo: Identifiable, Sendable, Equatable {
     public var id: String { owner }
     public let layer: Int
-    /// `Dialog` | `Drawer` | `Popover` | `Tooltip` | `DropdownMenu` |
-    /// `ContextMenu` | `Select` | `DatePicker` | `Toast`…
+    /// `Dialog` | `Drawer` | `Popover` | `Tooltip` | `Menu` |
+    /// `Select` | `DatePicker` | `Toast`…
     public let kind: String
     public let owner: String
     public let root: Int
@@ -240,7 +240,7 @@ public struct LayerInfo: Identifiable, Sendable, Equatable {
         order = l.frames.map { Int($0.index) }
     }
 
-    /// Scrim + focus trap (the core's `modal`: Dialog, Drawer, Sheet…).
+    /// Scrim + focus trap (the core's `modal`: Dialog, Drawer…).
     public var isModal: Bool { modal }
     /// The TOAST class (above every overlay).
     public var isToast: Bool { layerClass == "toast" }

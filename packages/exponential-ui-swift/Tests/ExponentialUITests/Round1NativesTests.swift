@@ -62,7 +62,8 @@ final class Round1NativesTests: XCTestCase {
     /// main-tree node painted.
     func testEverySpecimenPaintsWithoutUnknown() throws {
         let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
-        XCTAssertGreaterThan(specimens.count, 80)
+        // Round 3: 71 (the 17 folded components left, Row/Section/Chip/Segmented/Menu joined).
+        XCTAssertGreaterThan(specimens.count, 65)
         var failures: [String] = []
         for spec in specimens {
             let id = spec["id"]?.string ?? "?"
@@ -89,7 +90,7 @@ final class Round1NativesTests: XCTestCase {
     /// painter knows (no bare boxes where content belongs).
     func testRound1MacrosExpandToKnownLeaves() throws {
         let specimens = try Fixtures.json("specimens.json")["specimens"]?.array ?? []
-        for name in ["Rating", "Stepper", "Breadcrumb", "TabBar", "AppBar", "Kbd", "Label", "Sparkline"] {
+        for name in ["Rating", "Stepper", "Breadcrumb", "Row", "Section", "Chip", "AppBar", "Kbd", "Label", "Sparkline"] {
             guard let spec = specimens.first(where: { $0["component"]?.string == name }), let tree = spec["node"] else { XCTFail("no \(name) specimen"); continue }
             let m = try model(name)
             try m.setNested(json: tree.json)
@@ -172,7 +173,7 @@ final class Round1NativesTests: XCTestCase {
         let box = ControlBox(paddingHorizontal: 12, borderWidth: 1, height: 36)
         let trigger = measurer.measureLeaf(LeafRequest(component: "Select", part: "trigger", props: ["text": .string("A")], control: box), wrap: nil)
         XCTAssertEqual(trigger.width, TextShaper.width("A", ts) + GeometrySpacing.value("sm") + 16 + 26, accuracy: 0.01)
-        // A DropdownMenu's own trigger is an outline button: icon + label, no
+        // A press Menu's own trigger is an outline button: icon + label, no
         // chevron (round-2 contract §7).
         let menuBox = ControlBox(paddingHorizontal: 12, borderWidth: 1, gap: 4, height: 32)
         let menu = measurer.measureLeaf(LeafRequest(component: "Button", part: "trigger", props: ["label": .string("More")], control: menuBox), wrap: nil)
@@ -409,14 +410,14 @@ final class Round1NativesTests: XCTestCase {
     // MARK: - menus, toasts, tables of built-ins
 
     func testMenusToastsAndBuiltins() throws {
-        // A ContextMenu's region: every leaf inside finds its menu.
+        // A context Menu's region: every leaf inside finds its menu.
         let items: JSONValue = .array([
             .object(["label": .string("Copy"), "value": .string("copy"), "shortcut": .string("⌘C")]),
             .object(["kind": .string("checkbox"), "label": .string("Pinned"), "value": .string("pin"), "checked": .bool(true)]),
             .object(["kind": .string("separator")]),
             .object(["kind": .string("submenu"), "label": .string("Move"), "items": .array([.object(["label": .string("Top"), "value": .string("top")])])]),
         ])
-        var tree = node("cm", "ContextMenu", ["items": items]).object!
+        var tree = node("cm", "Menu", ["items": items, "openOn": .string("contextmenu")]).object!
         tree["children"] = .array([node("cm-child", "Text", ["text": .string("Child")])])
         let m = try surface(.object(tree))
         paint(m)
@@ -455,6 +456,130 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(Dictionary(uniqueKeysWithValues: zip(slots, names)), BuiltinIcons.slots)
         let locale = JSONValue.parse(try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("catalog/locale.json"), encoding: .utf8))
         XCTAssertEqual(Set((locale["rtlMirroredIcons"]?.array ?? []).compactMap(\.string)), RTLGlyphs.mirrored)
+    }
+
+    // MARK: - round 3 (VAPP-102): Segmented bar, context Menu, tree guides
+
+    /// `Segmented variant: bar` (the old TabBar): full width,
+    /// `$control.tabBar` tall, each item a column; a press selects; the
+    /// `TabBar` alias expands to the same native.
+    func testSegmentedBarIsAFullWidthColumnRow() throws {
+        let items: JSONValue = .array([
+            .object(["label": .string("Inbox"), "value": .string("inbox"), "icon": .string("inbox")]),
+            .object(["label": .string("Boards"), "value": .string("boards"), "icon": .string("board")]),
+            .object(["label": .string("Settings"), "value": .string("settings"), "icon": .string("settings")]),
+        ])
+        var stack = node("col", "Stack").object!
+        stack["children"] = .array([node("bar", "Segmented", ["items": items, "value": .string("inbox"), "variant": .string("bar")])])
+        let m = try surface(.object(stack))
+        let painted = paint(m)
+        let bar = try XCTUnwrap(m.index(of: "bar"))
+        XCTAssertTrue(painted.contains(bar))
+        XCTAssertEqual(m.frame(bar).width, 390, accuracy: 0.5, "a bar always fills")
+        XCTAssertEqual(m.frame(bar).height, m.control("tabBar", 56), accuracy: 0.5)
+        XCTAssertEqual(m.segmentedValues(bar), ["inbox"])
+        XCTAssertTrue(m.node(bar)!.isFocusable)
+        XCTAssertTrue(A11yInfo.of(m.node(bar)!, model: m, style: m.style(bar)).passthrough, "the leaf owns its item elements")
+        // The measurer: per item the wider of icon (`iconMd`) and caption, `xs` either side.
+        let measurer = SurfaceMeasurer(theme: nil, mode: .light, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        let size = measurer.measureLeaf(LeafRequest(component: "Segmented", props: ["items": items, "variant": .string("bar")]), wrap: nil)
+        XCTAssertEqual(size.height, 56)
+        let caption = SurfaceMeasurer.barCaption(.empty, base: TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: nil))
+        let expected = ["Inbox", "Boards", "Settings"].reduce(CGFloat(0)) { $0 + max(TextShaper.maxContent($1, caption), 20) + 2 * GeometrySpacing.value("xs") }
+        XCTAssertEqual(size.width, expected, accuracy: 0.5)
+        // The alias rides the same native.
+        var aliasStack = node("col", "Stack").object!
+        aliasStack["children"] = .array([node("tb", "TabBar", ["items": items, "value": .string("boards")])])
+        let alias = try surface(.object(aliasStack))
+        paint(alias)
+        let seg = try XCTUnwrap(alias.nodes.first { $0.component == "Segmented" && !$0.removed })
+        XCTAssertEqual(seg.props.str("variant"), "bar")
+        XCTAssertEqual(alias.segmentedValues(seg.index), ["boards"])
+    }
+
+    /// `Menu openOn: contextmenu`: the ONE child is the region; a secondary
+    /// click / long press there opens the core's menu layer at the pointer;
+    /// a press Menu with no child synthesizes its outline Button trigger.
+    func testMenuContextmenuAndPressTrigger() throws {
+        let items: JSONValue = .array([
+            .object(["label": .string("Copy"), "value": .string("copy")]),
+            .object(["label": .string("Archive"), "value": .string("archive")]),
+        ])
+        var tree = node("cm", "Menu", ["items": items, "openOn": .string("contextmenu")]).object!
+        tree["children"] = .array([node("cm-child", "Text", ["text": .string("Right-click me")])])
+        let m = try surface(.object(tree))
+        paint(m)
+        let cm = try XCTUnwrap(m.node(m.index(of: "cm")!))
+        XCTAssertEqual(cm.component, "Menu")
+        XCTAssertEqual(cm.props.str("openOn"), "contextmenu", "NativeHooks keys the gesture on this")
+        XCTAssertFalse(m.layers.contains { $0.owner == "cm" })
+        m.contextMenu(m.index(of: "cm-child")!, at: CGPoint(x: 30, y: 8))
+        let layer = try XCTUnwrap(m.layers.first { $0.owner == "cm" })
+        XCTAssertEqual(layer.kind, "Menu")
+        paint(m)
+        XCTAssertEqual(m.liveParts("cm", "itemLabel").map { $0.props.str("text") }, ["Copy", "Archive"])
+        let content = try XCTUnwrap(m.nodes.first { !$0.removed && $0.owner == "cm" && $0.part == "content" })
+        XCTAssertEqual(A11yInfo.role(of: content, model: m), "menu")
+        // A press Menu with no child: the default outline Button trigger.
+        let p = try surface(node("pm", "Menu", ["items": items, "label": .string("More")]))
+        paint(p)
+        let trigger = try XCTUnwrap(p.nodes.first { !$0.removed && $0.owner == "pm" && $0.part == "trigger" })
+        XCTAssertEqual(trigger.component, "Button")
+        p.press(trigger.index)
+        XCTAssertTrue(p.layers.contains { $0.owner == "pm" })
+        // The ContextMenu alias still opens as a context Menu.
+        var alias = node("ctx", "ContextMenu", ["items": items]).object!
+        alias["children"] = .array([node("ctx-child", "Text", ["text": .string("Region")])])
+        let a = try surface(.object(alias))
+        paint(a)
+        a.contextMenu(a.index(of: "ctx-child")!)
+        XCTAssertTrue(a.layers.contains { $0.owner == "ctx" })
+    }
+
+    /// The round-3 guide geometry: 14 px columns, the line's LEFT edge at
+    /// `i·14 + 7`, a 3 px rounded elbow, verticals bridged 1 px above the
+    /// part; the constants match `layout.json` (generated); a tree Section's
+    /// rows get their guides from the core.
+    func testTreeGuidesGeometry() throws {
+        let generated = try String(contentsOf: Fixtures.dir.deletingLastPathComponent().appendingPathComponent("generated/ExponentialUICatalog.generated.swift"), encoding: .utf8)
+        func array(_ name: String) -> [String] {
+            guard let line = generated.split(separator: "\n").first(where: { $0.contains("static let \(name):") }), let eq = line.firstIndex(of: "=") else { return [] }
+            return (JSONValue.parse(String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)).array ?? []).compactMap(\.string)
+        }
+        let layout = Dictionary(uniqueKeysWithValues: zip(array("layoutConstantNames"), array("layoutConstantValues")))
+        XCTAssertEqual(layout["treeGuideColumn"].flatMap(Double.init).map { CGFloat($0) }, SurfaceMeasurer.treeGuideColumn)
+        XCTAssertEqual(layout["treeGuideRadius"].flatMap(Double.init).map { CGFloat($0) }, SurfaceMeasurer.treeGuideRadius)
+        XCTAssertEqual(layout["treeGuideBridge"].flatMap(Double.init).map { CGFloat($0) }, SurfaceMeasurer.treeGuideBridge)
+        XCTAssertEqual([SurfaceMeasurer.treeGuideColumn, SurfaceMeasurer.treeGuideRadius, SurfaceMeasurer.treeGuideBridge], [14, 3, 1])
+        // Depth 2, elbow in column 1, column 0 passes through, 32 px row.
+        XCTAssertEqual(TreeGuideGeometry.segments(depth: 2, elbowAt: 1, tee: false, passThrough: [0], height: 32), [
+            .vertical(x: 7, from: -1, to: 32),
+            .vertical(x: 21, from: -1, to: 13),
+            .elbow(x: 21, mid: 16, stubEnd: 28),
+        ])
+        // A tee continues to the bottom.
+        XCTAssertEqual(TreeGuideGeometry.segments(depth: 1, elbowAt: 0, tee: true, passThrough: [], height: 28), [
+            .vertical(x: 7, from: -1, to: 28),
+            .elbow(x: 7, mid: 14, stubEnd: 14),
+        ])
+        let measurer = SurfaceMeasurer(theme: nil, mode: .light, extensions: ExtensionRegistry(), kinds: [:], generation: 0)
+        XCTAssertEqual(measurer.measureLeaf(LeafRequest(component: "TreeGuides", props: ["depth": .number(2)]), wrap: nil).width, 28)
+        // The core fills a tree Section's guides from consecutive depths.
+        func row(_ id: String, _ depth: Double) -> JSONValue { node(id, "Row", ["title": .string(id), "depth": .number(depth)]) }
+        var section = node("sec", "Section", ["title": .string("Runs"), "tree": .bool(true)]).object!
+        section["children"] = .array([row("a", 0), row("b", 1), row("c", 2), row("d", 1)])
+        let m = try surface(.object(section))
+        let painted = paint(m)
+        let guides = m.nodes.filter { !$0.removed && $0.component == "TreeGuides" }
+        XCTAssertEqual(guides.count, 3)
+        XCTAssertTrue(guides.allSatisfy { painted.contains($0.index) })
+        let byDepth = guides.map { ($0.props.num("depth") ?? 0, $0.props.flag("tee"), $0.props.list("passThrough").compactMap(\.number)) }
+        XCTAssertEqual(byDepth.map(\.0), [1, 2, 1])
+        XCTAssertEqual(byDepth.map(\.1), [true, false, false], "b tees on to its sibling d")
+        XCTAssertEqual(byDepth.map(\.2), [[], [0], []], "c's column 0 passes through to d")
+        for g in guides {
+            XCTAssertEqual(m.frame(g.index).width, CGFloat(g.props.num("depth") ?? 0) * 14, accuracy: 0.5)
+        }
     }
 
     /// A debugging aid: `R1_SHOTS=<dir>` renders the round-1 specimens
