@@ -146,7 +146,7 @@ pub use net::*;
 #[cfg(feature = "net")]
 mod net {
     use std::io::Read;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -163,13 +163,19 @@ mod net {
         /// Where client messages go (POST, JSON body); `None` = `url`.
         pub post_url: Option<String>,
         pub headers: Vec<(String, String)>,
-        /// Reconnect after a drop, ms (0 = never). Default 2000.
-        pub reconnect_ms: u64,
+        /// Reconnect after a drop (an error or an aborted stream), ms (0 =
+        /// never). `None` = 2000, or the SSE `retry:` value when the stream
+        /// sent one.
+        pub reconnect_ms: Option<u64>,
+        /// Reconnect after a CLEAN end of the stream too (the server resumes
+        /// it). Default false: a stream that ends is done (status `Closed`).
+        /// An SSE stream that sent a `retry:` field signals this itself.
+        pub resumable: bool,
     }
 
     impl HttpTransportOptions {
         pub fn new(url: impl Into<String>) -> Self {
-            HttpTransportOptions { url: url.into(), post_url: None, headers: Vec::new(), reconnect_ms: 2000 }
+            HttpTransportOptions { url: url.into(), post_url: None, headers: Vec::new(), reconnect_ms: None, resumable: false }
         }
 
         pub fn post_url(mut self, url: impl Into<String>) -> Self {
@@ -183,7 +189,12 @@ mod net {
         }
 
         pub fn reconnect_ms(mut self, ms: u64) -> Self {
-            self.reconnect_ms = ms;
+            self.reconnect_ms = Some(ms);
+            self
+        }
+
+        pub fn resumable(mut self, resumable: bool) -> Self {
+            self.resumable = resumable;
             self
         }
     }
@@ -194,10 +205,30 @@ mod net {
         reqwest::blocking::Client::builder().timeout(None::<Duration>).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
     }
 
-    /// Sleep up to `ms`, waking early when `closed` flips.
-    fn wait(ms: u64, closed: &AtomicBool) {
+    /// A stream transport's generation, bumped by every `start`/`close`
+    /// (the TS `generation`): a loop whose generation is stale exits, so an
+    /// old loop asleep in its reconnect wait never runs beside a new one.
+    #[derive(Clone)]
+    struct Live {
+        generation: Arc<AtomicU64>,
+        at: u64,
+    }
+
+    impl Live {
+        /// A fresh generation of `generation`.
+        fn next(generation: &Arc<AtomicU64>) -> Live {
+            Live { generation: generation.clone(), at: generation.fetch_add(1, Ordering::SeqCst) + 1 }
+        }
+
+        fn is(&self) -> bool {
+            self.generation.load(Ordering::SeqCst) == self.at
+        }
+    }
+
+    /// Sleep up to `ms`, waking early when `live` goes stale.
+    fn wait(ms: u64, live: &Live) {
         let mut left = ms;
-        while left > 0 && !closed.load(Ordering::SeqCst) {
+        while left > 0 && live.is() {
             let step = left.min(50);
             std::thread::sleep(Duration::from_millis(step));
             left -= step;
@@ -219,13 +250,13 @@ mod net {
     /// The POST side: one thread sends client messages in order. Like the
     /// TS `StreamTransport.send` (a rejected fetch, no retry), a failed or
     /// timed-out POST drops that message; it reports `Error` (detail = why)
-    /// to `sink` unless `closed`, and the next successful POST reports
+    /// to `sink` while `live`, and the next successful POST reports
     /// `Open` again. The thread exits once every [`flume::Sender`] is
-    /// dropped or `closed` flips (`close`/`start`; still-queued messages
+    /// dropped or `live` goes stale (`close`/`start`; still-queued messages
     /// are dropped) and its in-flight request (bounded by `total`) ends;
     /// it is detached, never joined (a join could block the main thread
     /// for `total`).
-    fn poster(url: String, headers: Vec<(String, String)>, sink: Option<TransportSink>, closed: Arc<AtomicBool>, connect: Duration, total: Duration) -> (flume::Sender<Value>, std::thread::JoinHandle<()>) {
+    fn poster(url: String, headers: Vec<(String, String)>, sink: Option<TransportSink>, live: Live, connect: Duration, total: Duration) -> (flume::Sender<Value>, std::thread::JoinHandle<()>) {
         let (tx, rx) = flume::unbounded::<Value>();
         let handle = std::thread::Builder::new()
             .name("exponential-ui post".into())
@@ -233,14 +264,14 @@ mod net {
                 let client = post_client(connect, total);
                 let report = |status: TransportStatus, detail: Option<String>| {
                     if let Some(sink) = &sink {
-                        if !closed.load(Ordering::SeqCst) {
+                        if live.is() {
                             sink.status(status, detail);
                         }
                     }
                 };
                 let mut failed = false;
                 while let Ok(message) = rx.recv() {
-                    if closed.load(Ordering::SeqCst) {
+                    if !live.is() {
                         break;
                     }
                     let mut req = client.post(&url).header("content-type", "application/json");
@@ -329,14 +360,16 @@ mod net {
     struct StreamTransport {
         options: HttpTransportOptions,
         kind: Kind,
-        closed: Arc<AtomicBool>,
+        generation: Arc<AtomicU64>,
+        /// The running generation (`None` before `start` / after `close`).
+        live: Option<Live>,
         sink: Option<TransportSink>,
         post: Option<flume::Sender<Value>>,
     }
 
     impl StreamTransport {
         fn new(options: HttpTransportOptions, kind: Kind) -> Self {
-            StreamTransport { options, kind, closed: Arc::new(AtomicBool::new(false)), sink: None, post: None }
+            StreamTransport { options, kind, generation: Arc::new(AtomicU64::new(0)), live: None, sink: None, post: None }
         }
 
         fn accept(&self) -> &'static str {
@@ -348,88 +381,124 @@ mod net {
 
         fn start(&mut self, sink: TransportSink) {
             self.close();
-            let closed = Arc::new(AtomicBool::new(false));
-            self.closed = closed.clone();
+            let live = Live::next(&self.generation);
+            self.live = Some(live.clone());
             self.sink = Some(sink.clone());
             let options = self.options.clone();
             let accept = self.accept();
             let kind = self.kind;
             std::thread::Builder::new()
                 .name("exponential-ui stream".into())
-                .spawn(move || {
-                    let client = client();
-                    let deliver = |d: Decoded| {
-                        if !closed.load(Ordering::SeqCst) {
-                            d.messages.into_iter().for_each(|m| sink.message(m));
-                        }
-                    };
-                    while !closed.load(Ordering::SeqCst) {
-                        sink.status(TransportStatus::Connecting, None);
-                        let mut req = client.get(&options.url).header("accept", accept);
-                        for (k, v) in &options.headers {
-                            req = req.header(k.as_str(), v.as_str());
-                        }
-                        let outcome: Result<(), String> = (|| {
-                            let mut res = req.send().map_err(|e| e.to_string())?;
-                            if !res.status().is_success() {
-                                return Err(format!("HTTP {}", res.status().as_u16()));
-                            }
-                            sink.status(TransportStatus::Open, None);
-                            let mut wire = match kind {
-                                Kind::Jsonl => Wire::Jsonl(JsonlDecoder::new()),
-                                Kind::Sse => Wire::Sse(SseDecoder::new()),
-                            };
-                            let mut text = Utf8Chunks::default();
-                            let mut buf = [0u8; 16 * 1024];
-                            loop {
-                                let n = res.read(&mut buf).map_err(|e| e.to_string())?;
-                                if closed.load(Ordering::SeqCst) {
-                                    return Ok(());
-                                }
-                                if n == 0 {
-                                    break;
-                                }
-                                deliver(wire.push(&text.push(&buf[..n])));
-                            }
-                            let tail = text.end();
-                            if !tail.is_empty() {
-                                deliver(wire.push(&tail));
-                            }
-                            deliver(wire.end());
-                            Ok(())
-                        })();
-                        if closed.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        match outcome {
-                            Ok(()) => sink.status(TransportStatus::Closed, None),
-                            Err(e) => sink.status(TransportStatus::Error, Some(e)),
-                        }
-                        if options.reconnect_ms == 0 {
-                            return;
-                        }
-                        wait(options.reconnect_ms, &closed);
-                    }
-                })
+                .spawn(move || run_stream(options, accept, kind, sink, live))
                 .expect("spawn the stream thread");
         }
 
         fn send(&mut self, message: &Value) {
             let post = self.post.get_or_insert_with(|| {
                 let url = self.options.post_url.clone().unwrap_or_else(|| self.options.url.clone());
-                poster(url, self.options.headers.clone(), self.sink.clone(), self.closed.clone(), POST_CONNECT_TIMEOUT, POST_TIMEOUT).0
+                // Before `start`: a generation of its own, gone at the next start/close.
+                let live = self.live.clone().unwrap_or_else(|| Live::next(&self.generation));
+                poster(url, self.options.headers.clone(), self.sink.clone(), live, POST_CONNECT_TIMEOUT, POST_TIMEOUT).0
             });
             let _ = post.send(message.clone());
         }
 
-        /// Stops delivery at once; the reader thread exits at its next
-        /// chunk (a blocking read cannot be interrupted). Dropping the POST
-        /// sender ends the POST thread after its in-flight request (bounded
-        /// by [`POST_TIMEOUT`]); queued, unsent client messages are dropped.
+        /// Stops delivery at once (the generation goes stale); the reader
+        /// thread exits at its next chunk (a blocking read cannot be
+        /// interrupted). Dropping the POST sender ends the POST thread after
+        /// its in-flight request (bounded by [`POST_TIMEOUT`]); queued,
+        /// unsent client messages are dropped.
         fn close(&mut self) {
-            self.closed.store(true, Ordering::SeqCst);
+            self.generation.fetch_add(1, Ordering::SeqCst);
+            self.live = None;
             self.sink = None;
             self.post = None;
+        }
+    }
+
+    /// How one stream request ended.
+    enum StreamEnd {
+        /// A clean end of the body; `retry_ms` = the SSE `retry:` field.
+        Clean { retry_ms: Option<u64> },
+        /// The generation went stale mid-stream.
+        Stale,
+    }
+
+    /// The stream loop (the TS `StreamTransport.run`): connect, decode,
+    /// deliver. An error reconnects after `reconnect_ms`; a CLEAN end stops
+    /// (status `Closed`) unless `resumable` or the SSE stream sent `retry:`.
+    /// `live` is checked after every blocking step.
+    fn run_stream(options: HttpTransportOptions, accept: &'static str, kind: Kind, sink: TransportSink, live: Live) {
+        let client = client();
+        let deliver = |d: Decoded| {
+            if live.is() {
+                d.messages.into_iter().for_each(|m| sink.message(m));
+            }
+        };
+        while live.is() {
+            sink.status(TransportStatus::Connecting, None);
+            let mut req = client.get(&options.url).header("accept", accept);
+            for (k, v) in &options.headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            let outcome: Result<StreamEnd, String> = (|| {
+                let mut res = req.send().map_err(|e| e.to_string())?;
+                if !live.is() {
+                    return Ok(StreamEnd::Stale);
+                }
+                if !res.status().is_success() {
+                    return Err(format!("HTTP {}", res.status().as_u16()));
+                }
+                sink.status(TransportStatus::Open, None);
+                let mut wire = match kind {
+                    Kind::Jsonl => Wire::Jsonl(JsonlDecoder::new()),
+                    Kind::Sse => Wire::Sse(SseDecoder::new()),
+                };
+                let mut text = Utf8Chunks::default();
+                let mut buf = [0u8; 16 * 1024];
+                loop {
+                    let n = res.read(&mut buf).map_err(|e| e.to_string())?;
+                    if !live.is() {
+                        return Ok(StreamEnd::Stale);
+                    }
+                    if n == 0 {
+                        break;
+                    }
+                    deliver(wire.push(&text.push(&buf[..n])));
+                }
+                let tail = text.end();
+                if !tail.is_empty() {
+                    deliver(wire.push(&tail));
+                }
+                deliver(wire.end());
+                let retry_ms = match &wire {
+                    Wire::Sse(d) => d.retry_ms(),
+                    Wire::Jsonl(_) => None,
+                };
+                Ok(StreamEnd::Clean { retry_ms })
+            })();
+            if !live.is() {
+                return;
+            }
+            let mut wait_ms = options.reconnect_ms.unwrap_or(2000);
+            match outcome {
+                Ok(StreamEnd::Stale) => return,
+                Ok(StreamEnd::Clean { retry_ms }) => {
+                    sink.status(TransportStatus::Closed, None);
+                    // A clean end: done, unless the server said it resumes the stream.
+                    if !options.resumable && retry_ms.is_none() {
+                        return;
+                    }
+                    if let (Some(ms), None) = (retry_ms, options.reconnect_ms) {
+                        wait_ms = ms;
+                    }
+                }
+                Err(e) => sink.status(TransportStatus::Error, Some(e)),
+            }
+            if wait_ms == 0 {
+                return;
+            }
+            wait(wait_ms, &live);
         }
     }
 
@@ -734,14 +803,113 @@ mod net {
     #[cfg(test)]
     mod tests {
         use std::net::TcpListener;
-        use std::sync::atomic::AtomicBool;
+        use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering as AtomicOrdering};
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
 
         use serde_json::json;
 
-        use super::{poster, post_client, McpTransportOptions, Rpc, Utf8Chunks};
+        use super::{poster, post_client, HttpTransportOptions, JsonlStreamTransport, Live, McpTransportOptions, Rpc, SseTransport, Utf8Chunks};
+        use crate::transport::Transport;
         use crate::transport::{TransportEvent, TransportSink, TransportStatus};
+
+        /// Answers every GET with `status` + `body` (then closes); counts them.
+        fn stream_server(status: &'static str, content_type: &'static str, body: String) -> (String, Arc<AtomicUsize>) {
+            use std::io::{Read as _, Write as _};
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/stream", listener.local_addr().unwrap());
+            let gets = Arc::new(AtomicUsize::new(0));
+            let counter = gets.clone();
+            std::thread::spawn(move || {
+                for mut conn in listener.incoming().flatten() {
+                    let mut req = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !req.ends_with(b"\r\n\r\n") && conn.read(&mut byte).map(|n| n == 1).unwrap_or(false) {
+                        req.push(byte[0]);
+                    }
+                    counter.fetch_add(1, AtomicOrdering::SeqCst);
+                    let head = format!("HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+                    let _ = conn.write_all(head.as_bytes());
+                    let _ = conn.write_all(body.as_bytes());
+                }
+            });
+            (url, gets)
+        }
+
+        fn recorder() -> (TransportSink, Arc<Mutex<Vec<TransportEvent>>>) {
+            let events = Arc::new(Mutex::new(Vec::<TransportEvent>::new()));
+            let e = events.clone();
+            (TransportSink::new(move |ev| e.lock().unwrap().push(ev)), events)
+        }
+
+        fn messages(events: &Mutex<Vec<TransportEvent>>) -> usize {
+            events.lock().unwrap().iter().filter(|e| matches!(e, TransportEvent::Message(_))).count()
+        }
+
+        fn wait_until(what: &str, cond: impl Fn() -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !cond() {
+                assert!(Instant::now() < deadline, "timed out waiting for {what}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        const LINE: &str = "{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"c\"}}\n";
+
+        #[test]
+        fn a_clean_end_of_stream_closes_the_transport_without_reconnecting() {
+            let (url, gets) = stream_server("200 OK", "application/jsonl", LINE.to_string());
+            let (sink, events) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url).reconnect_ms(5));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            std::thread::sleep(Duration::from_millis(200));
+            assert_eq!(gets.load(AtomicOrdering::SeqCst), 1, "no reconnect after a clean end");
+            assert_eq!(messages(&events), 1, "no re-delivery");
+            assert!(matches!(events.lock().unwrap().last(), Some(TransportEvent::Status(TransportStatus::Closed, None))));
+            t.close();
+        }
+
+        #[test]
+        fn an_error_or_a_resumable_stream_reconnects_and_close_stops_the_loop() {
+            // An HTTP error reconnects.
+            let (url, gets) = stream_server("500 Internal Server Error", "text/plain", String::new());
+            let (sink, events) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url).reconnect_ms(5));
+            t.start(sink);
+            wait_until("a reconnect after an error", || gets.load(AtomicOrdering::SeqCst) > 1);
+            assert!(events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Error, Some(d)) if d == "HTTP 500")));
+            t.close();
+
+            // `resumable: true` reconnects after a clean end.
+            let (url, gets) = stream_server("200 OK", "application/jsonl", LINE.to_string());
+            let (sink, _) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url).reconnect_ms(5).resumable(true));
+            t.start(sink);
+            wait_until("a resumed stream", || gets.load(AtomicOrdering::SeqCst) > 1);
+            // close(): the stale loop stops (at most the in-flight request lands).
+            t.close();
+            std::thread::sleep(Duration::from_millis(100));
+            let after = gets.load(AtomicOrdering::SeqCst);
+            std::thread::sleep(Duration::from_millis(200));
+            assert_eq!(gets.load(AtomicOrdering::SeqCst), after, "a closed transport kept reconnecting");
+
+            // An SSE `retry:` field resumes too (its value = the wait).
+            let (url, gets) = stream_server("200 OK", "text/event-stream", format!("retry: 5\ndata: {LINE}\n"));
+            let (sink, events) = recorder();
+            let mut t = SseTransport::new(HttpTransportOptions::new(url));
+            t.start(sink);
+            wait_until("an SSE retry reconnect", || gets.load(AtomicOrdering::SeqCst) > 1);
+            assert!(messages(&events) >= 1);
+            // A restart leaves exactly one live loop: the old one exits.
+            let (sink, _) = recorder();
+            t.start(sink);
+            t.close();
+            std::thread::sleep(Duration::from_millis(100));
+            let after = gets.load(AtomicOrdering::SeqCst);
+            std::thread::sleep(Duration::from_millis(200));
+            assert_eq!(gets.load(AtomicOrdering::SeqCst), after, "a stale loop survived start + close");
+        }
 
         /// Accepts every connection and never answers (a half-open server).
         fn silent_server() -> String {
@@ -786,7 +954,7 @@ mod net {
                 TransportSink::new(move |e| events.lock().unwrap().push(e))
             };
             let total = Duration::from_millis(300);
-            let (tx, handle) = poster(url, Vec::new(), Some(sink), Arc::new(AtomicBool::new(false)), Duration::from_millis(300), total);
+            let (tx, handle) = poster(url, Vec::new(), Some(sink), Live::next(&Arc::new(AtomicU64::new(0))), Duration::from_millis(300), total);
             let began = Instant::now();
             tx.send(json!({"n": 1})).unwrap();
             tx.send(json!({"n": 2})).unwrap();

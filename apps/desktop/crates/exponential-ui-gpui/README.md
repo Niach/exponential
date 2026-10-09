@@ -398,7 +398,12 @@ host.update(cx, |h, cx| h.connect(cx));
   `sent`) is always there. With the default `net` feature you also get:
   - `JsonlStreamTransport` / `SseTransport`: a streamed GET on a std thread
     (blocking reqwest, no tokio under gpui) plus ordered POSTs of client
-    messages to `post_url`, reconnecting after `reconnect_ms` (0 = never);
+    messages to `post_url`. A clean end of stream closes the transport; it
+    reconnects after an error, or after a clean end only with
+    `resumable(true)` or an SSE `retry:` field, waiting `reconnect_ms`
+    (unset = the `retry:` value or 2000, 0 = never). POSTs and MCP calls
+    are bounded (`POST_TIMEOUT`, `MCP_CALL_TIMEOUT`); a failed send drops
+    that message and reports through the status sink;
   - `WebSocketTransport`: one message or JSONL per frame, on a private
     current-thread tokio runtime;
   - `McpTransport`: JSON-RPC `initialize` then `tools/call`; client messages

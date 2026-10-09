@@ -23,8 +23,8 @@ use exponential_ui::host::{
 };
 use exponential_ui::measure::TextStyle;
 use exponential_ui::surface::PlacedNode;
-use exponential_ui::theme::{Mode, ResolvedTheme};
-use exponential_ui::themes::default_theme;
+use exponential_ui::theme::{try_load_theme, Mode, ResolvedTheme, ThemeOptions};
+use exponential_ui::themes::{builtin_refs, builtin_theme, default_theme, BUILTIN_THEME_IDS};
 use exponential_ui::{ExtensionDef, FlatComponent};
 use gpui::{App, AppContext as _, Context, Entity, Task, WeakEntity};
 use serde_json::Value;
@@ -60,6 +60,60 @@ pub type ConsentHook = Rc<dyn Fn(&FunctionCallInfo, &mut App) -> Task<bool>>;
 pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
 /// Observes a JSON value the host sends or an op it performs (`on_send`, `on_op`).
 pub type ValueObserver = Rc<dyn Fn(&Value)>;
+/// Observes every problem the host meets (`on_issue`).
+pub type IssueObserver = Rc<dyn Fn(&HostIssue)>;
+
+/// One problem the host met; [`ExponentialHost::issues`] keeps the latest
+/// [`MAX_ISSUES`] (the TS `HostIssue`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostIssue {
+    /// A host error code (`TEMPLATE_NOT_FOUND`…) or [`PACKAGE_INVALID`].
+    pub code: String,
+    pub message: String,
+    pub surface_id: Option<String>,
+    /// A JSON pointer (into the package or the message).
+    pub path: Option<String>,
+    pub package_id: Option<String>,
+}
+
+/// The issue code of a package that failed validation.
+pub const PACKAGE_INVALID: &str = "PACKAGE_INVALID";
+/// How many issues [`ExponentialHost::issues`] keeps (oldest dropped).
+pub const MAX_ISSUES: usize = 100;
+
+/// A package passed in [`HostOptions::packages`] that failed validation
+/// (the TS `PackageError`): [`ExponentialHost::new`] panics with it, so
+/// check first with [`HostOptions::validate_packages`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageError {
+    pub package_id: String,
+    pub issues: Vec<PackageIssue>,
+}
+
+impl std::fmt::Display for PackageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let issues: Vec<String> = self.issues.iter().map(|i| format!("{} {}", if i.path.is_empty() { "/" } else { i.path.as_str() }, i.message)).collect();
+        write!(f, "exponential-ui: package {} is unusable: {}", self.package_id, issues.join("; "))
+    }
+}
+
+impl std::error::Error for PackageError {}
+
+fn package_id(pkg: &Value) -> Option<String> {
+    pkg.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_string)
+}
+
+/// A `createSurface.theme` (a built-in id or a theme JSON) → the resolved
+/// theme, or why it is unusable (the TS `resolveSurfaceTheme`).
+pub fn resolve_surface_theme(input: &Value) -> Result<Arc<ResolvedTheme>, Vec<String>> {
+    if let Value::String(id) = input {
+        return builtin_theme(id).ok_or_else(|| vec![format!("unknown built-in theme \"{id}\"; known: {}", BUILTIN_THEME_IDS.join("|"))]);
+    }
+    let refs = builtin_refs();
+    try_load_theme(input, &ThemeOptions::core(&refs))
+        .map(Arc::new)
+        .map_err(|issues| issues.into_iter().map(|i| if i.path.is_empty() { i.message } else { format!("{}: {}", i.path, i.message) }).collect())
+}
 
 /// The host's policy (`catalog/host.json` functions / urls / media).
 #[derive(Clone, Default)]
@@ -99,6 +153,26 @@ pub struct HostOptions {
     pub on_send: Option<ValueObserver>,
     /// Every op the host performs (tests, logging).
     pub on_op: Option<ValueObserver>,
+    /// Every problem the host meets (a package that failed validation, an
+    /// error it answered a message with, an invalid surface theme). A
+    /// transport-less host has no server to tell: this is where they land.
+    pub on_issue: Option<IssueObserver>,
+}
+
+impl HostOptions {
+    /// Validate [`HostOptions::packages`] against these options' catalogs
+    /// (what [`ExponentialHost::new`] would panic on).
+    pub fn validate_packages(&self) -> Result<(), PackageError> {
+        let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
+        let mut router = HostRouter::new(&ids);
+        for pkg in &self.packages {
+            let issues = router.install_package(pkg);
+            if !issues.is_empty() {
+                return Err(PackageError { package_id: package_id(pkg).unwrap_or_else(|| "?".into()), issues });
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Default for HostOptions {
@@ -117,6 +191,7 @@ impl Default for HostOptions {
             plugin: Rc::new(NoHost),
             on_send: None,
             on_op: None,
+            on_issue: None,
         }
     }
 }
@@ -147,6 +222,9 @@ struct SurfaceEntry {
     catalog_id: String,
     package_id: Option<String>,
     send_data_model: bool,
+    /// The server's `createSurface.theme`, resolved (wins over the host's
+    /// theme, [`ExponentialHost::set_theme`] included).
+    theme: Option<Arc<ResolvedTheme>>,
     /// The flat components so far (`components` ops merge by id).
     components: Vec<FlatComponent>,
 }
@@ -172,6 +250,8 @@ pub struct ExponentialHost {
     base: Rc<dyn HostPlugin>,
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
+    on_issue: Option<IssueObserver>,
+    issues: Vec<HostIssue>,
     status: TransportStatus,
     status_detail: Option<String>,
     unsupported_catalog: Option<String>,
@@ -182,6 +262,9 @@ pub struct ExponentialHost {
 }
 
 impl ExponentialHost {
+    /// Panics with a [`PackageError`] when a package in
+    /// [`HostOptions::packages`] fails validation (the TS constructor
+    /// throws); [`HostOptions::validate_packages`] checks first.
     pub fn new(options: HostOptions, cx: &mut Context<Self>) -> Self {
         let (tx, rx) = flume::unbounded::<Inbound>();
         let pump = cx.spawn(async move |this, cx| {
@@ -209,6 +292,8 @@ impl ExponentialHost {
             base: options.plugin,
             on_send: options.on_send,
             on_op: options.on_op,
+            on_issue: options.on_issue,
+            issues: Vec::new(),
             status: TransportStatus::Closed,
             status_detail: None,
             unsupported_catalog: None,
@@ -218,7 +303,10 @@ impl ExponentialHost {
             _pump: pump,
         };
         for pkg in &options.packages {
-            host.install_package(pkg);
+            let issues = host.install_package(pkg);
+            if !issues.is_empty() {
+                panic!("{}", PackageError { package_id: package_id(pkg).unwrap_or_else(|| "?".into()), issues });
+            }
         }
         host
     }
@@ -265,6 +353,22 @@ impl ExponentialHost {
         &self.policy
     }
 
+    /// The latest problems, oldest first (at most [`MAX_ISSUES`]).
+    pub fn issues(&self) -> &[HostIssue] {
+        &self.issues
+    }
+
+    fn report(&mut self, issue: HostIssue) {
+        if let Some(f) = &self.on_issue {
+            f(&issue);
+        }
+        self.issues.push(issue);
+        if self.issues.len() > MAX_ISSUES {
+            let over = self.issues.len() - MAX_ISSUES;
+            self.issues.drain(..over);
+        }
+    }
+
     // --- registration ----------------------------------------------------------
 
     /// A new extension catalog (surfaces created after this see it).
@@ -298,8 +402,16 @@ impl ExponentialHost {
         self.sources.insert(scheme.to_lowercase(), resolver);
     }
 
+    /// Install a package; its validation issues are returned AND reported
+    /// ([`Self::issues`], `on_issue`, code [`PACKAGE_INVALID`]). A package
+    /// with issues is not installed.
     pub fn install_package(&mut self, pkg: &Value) -> Vec<PackageIssue> {
-        self.router.install_package(pkg)
+        let issues = self.router.install_package(pkg);
+        let package_id = pkg.get("id").and_then(Value::as_str).map(str::to_string);
+        for i in &issues {
+            self.report(HostIssue { code: PACKAGE_INVALID.into(), message: i.message.clone(), surface_id: None, path: Some(i.path.clone()), package_id: package_id.clone() });
+        }
+        issues
     }
 
     pub fn set_policy(&mut self, policy: HostPolicy) {
@@ -310,7 +422,7 @@ impl ExponentialHost {
     /// Every surface's theme.
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {
         self.theme = theme.clone();
-        for s in &self.surfaces {
+        for s in self.surfaces.iter().filter(|s| s.theme.is_none()) {
             let t = theme.clone();
             s.view.update(cx, |v, cx| v.set_theme(t, cx));
         }
@@ -347,6 +459,11 @@ impl ExponentialHost {
 
     pub fn sends_data_model(&self, id: &str) -> bool {
         self.entry(id).is_some_and(|s| s.send_data_model)
+    }
+
+    /// The surface's own theme (its `createSurface.theme`), if any.
+    pub fn surface_theme(&self, id: &str) -> Option<Arc<ResolvedTheme>> {
+        self.entry(id).and_then(|s| s.theme.clone())
     }
 
     fn entry(&self, id: &str) -> Option<&SurfaceEntry> {
@@ -424,13 +541,18 @@ impl ExponentialHost {
         ops
     }
 
-    /// A client message to the server.
+    /// A client message to the server. An `error` message is also
+    /// reported ([`Self::issues`]), transport or not.
     pub fn send(&mut self, message: Value) {
         if let Some(t) = self.transport.as_mut() {
             t.send(&message);
         }
         if let Some(f) = &self.on_send {
             f(&message);
+        }
+        if let Some(e) = message.get("error") {
+            let text = |k: &str| e.get(k).and_then(Value::as_str).map(str::to_string);
+            self.report(HostIssue { code: text("code").unwrap_or_default(), message: text("message").unwrap_or_default(), surface_id: text("surfaceId").filter(|s| !s.is_empty()), path: text("path"), package_id: None });
         }
     }
 
@@ -444,11 +566,20 @@ impl ExponentialHost {
                 self.unbind(&sid);
                 self.surfaces.retain(|s| s.id != sid);
                 let catalog_id = op["catalogId"].as_str().unwrap_or("").to_string();
+                let surface_theme = match op.get("theme").filter(|t| !t.is_null()).map(resolve_surface_theme) {
+                    Some(Ok(theme)) => Some(theme),
+                    Some(Err(issues)) => {
+                        let msg = error_message(VALIDATION_FAILED, &sid, &format!("createSurface.theme is unusable: {}", issues.join("; ")), Some("/createSurface/theme"));
+                        self.send(msg);
+                        None
+                    }
+                    None => None,
+                };
                 let plugin = host_plugin_with(self.this.clone(), self.base.clone(), self.media.clone());
                 let options = SurfaceViewOptions {
                     surface_id: sid.clone(),
                     catalog_id: catalog_id.clone(),
-                    theme: self.theme.clone(),
+                    theme: surface_theme.clone().or_else(|| self.theme.clone()),
                     mode: self.mode,
                     extensions: self.extensions.clone(),
                     host: plugin,
@@ -465,7 +596,7 @@ impl ExponentialHost {
                     v
                 });
                 let package_id = self.router.package_id_of(&sid);
-                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), components: Vec::new() });
+                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme, components: Vec::new() });
                 cx.notify();
             }
             "components" => {

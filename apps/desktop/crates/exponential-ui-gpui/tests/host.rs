@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use exponential_ui::host::{FunctionDecision, FunctionPolicy, MediaOptions, MediaRule, UrlPolicy};
 use exponential_ui_gpui::host::FunctionCallEvent;
-use exponential_ui_gpui::runtime::{sync_function, Emit, ExponentialHost, FunctionOutcome, HostOptions, HostPolicy, SourceResolver};
+use exponential_ui_gpui::runtime::{sync_function, Emit, ExponentialHost, FunctionOutcome, HostIssue, HostOptions, HostPolicy, SourceResolver, MAX_ISSUES, PACKAGE_INVALID};
 use exponential_ui_gpui::transport::{MemoryTransport, TransportStatus};
 use exponential_ui_gpui::view::SurfaceView;
 use gpui::{div, prelude::*, App, Entity, Task, TestAppContext, Window};
@@ -328,4 +328,87 @@ fn painter_presses_become_client_messages_and_function_calls(cx: &mut TestAppCon
     assert_eq!(action["context"], json!({"title": "Hello"}));
     assert!(action["timestamp"].as_str().unwrap().ends_with('Z'));
     assert_eq!(*calls.borrow(), vec![json!({"args": {"text": "Hello"}, "component": "toast"})]);
+}
+
+#[gpui::test]
+fn create_surface_theme_applies_a_builtin_or_a_theme_json_and_an_unusable_one_is_an_issue(cx: &mut TestAppContext) {
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    let path = format!("{}/../../../../packages/exponential-ui/themes/neutral.theme.json", env!("CARGO_MANIFEST_DIR"));
+    let mut acme: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    acme["id"] = json!("acme");
+    let with_theme = |sid: &str, theme: Value| json!({"version": "v0.9", "createSurface": {"surfaceId": sid, "catalogId": CORE, "theme": theme}});
+    t.feed([with_theme("a", json!("neutral")), with_theme("b", acme), create("c"), with_theme("d", json!("nope")), with_theme("e", json!({"id": "broken"}))]);
+    cx.run_until_parked();
+    let theme_id = |sid: &str, cx: &mut TestAppContext| host.read_with(cx, |h, _| h.surface_theme(sid).map(|t| t.id.clone()));
+    assert_eq!(theme_id("a", cx).as_deref(), Some("neutral"));
+    assert_eq!(theme_id("b", cx).as_deref(), Some("acme"));
+    for sid in ["c", "d", "e"] {
+        assert_eq!(theme_id(sid, cx), None, "{sid}");
+        assert!(host.read_with(cx, |h, _| h.surface(sid).is_some()), "the surface {sid} is still created");
+    }
+    let sent: Vec<(String, String, String)> = t.sent().iter().filter_map(|m| m.get("error")).map(|e| (e["code"].as_str().unwrap().into(), e["surfaceId"].as_str().unwrap().into(), e["path"].as_str().unwrap_or("").into())).collect();
+    assert_eq!(sent, vec![("VALIDATION_FAILED".into(), "d".into(), "/createSurface/theme".into()), ("VALIDATION_FAILED".into(), "e".into(), "/createSurface/theme".into())]);
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert_eq!(issues.len(), 2);
+    assert!(issues[0].message.contains("unknown built-in theme \"nope\""), "{:?}", issues[0]);
+    assert_eq!(issues[1].path.as_deref(), Some("/createSurface/theme"));
+}
+
+#[gpui::test]
+fn host_issues_record_sent_errors_and_package_problems_without_a_transport(cx: &mut TestAppContext) {
+    init(cx);
+    let seen = Rc::new(RefCell::new(Vec::<HostIssue>::new()));
+    let s = seen.clone();
+    let host = host_with(cx, HostOptions { on_issue: Some(Rc::new(move |i: &HostIssue| s.borrow_mut().push(i.clone()))), ..Default::default() });
+    assert!(!host.read_with(cx, |h, _| h.has_transport()));
+    host.update(cx, |h, cx| {
+        h.receive(&json!({"version": "v0.9", "applyTemplate": {"surfaceId": "x", "templateId": "missing"}}), cx);
+    });
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert_eq!(issues.len(), 1);
+    assert_eq!((issues[0].code.as_str(), issues[0].surface_id.as_deref()), ("TEMPLATE_NOT_FOUND", Some("x")));
+    assert_eq!(*seen.borrow(), issues, "on_issue sees every issue");
+
+    // FUNCTION_DENIED lands there too.
+    let task = host.update(cx, |h, cx| h.call_function(call("x", "admin.wipe"), cx));
+    let _ = outcome(task, cx);
+    assert!(host.read_with(cx, |h, _| h.issues().iter().any(|i| i.code == "FUNCTION_NOT_FOUND" || i.code == "FUNCTION_DENIED")));
+
+    // A package that fails validation: PACKAGE_INVALID, not installed.
+    let bad = json!({"id": "acme.bad", "templates": "nope"});
+    let returned = host.update(cx, |h, _| h.install_package(&bad));
+    assert!(!returned.is_empty());
+    let pkg_issues: Vec<HostIssue> = host.read_with(cx, |h, _| h.issues().iter().filter(|i| i.code == PACKAGE_INVALID).cloned().collect());
+    assert_eq!(pkg_issues.len(), returned.len());
+    assert!(pkg_issues.iter().all(|i| i.package_id.as_deref() == Some("acme.bad")));
+    assert!(host.read_with(cx, |h, _| h.router().package("acme.bad").is_none()));
+
+    // Capped: the oldest drop.
+    host.update(cx, |h, _| {
+        for _ in 0..MAX_ISSUES + 20 {
+            h.install_package(&json!({"id": "acme.flood"}));
+        }
+    });
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert_eq!(issues.len(), MAX_ISSUES);
+    assert!(issues.iter().all(|i| i.package_id.as_deref() == Some("acme.flood")));
+}
+
+#[test]
+fn a_constructor_package_that_fails_validation_is_a_hard_error() {
+    let options = HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() };
+    let err = options.validate_packages().expect_err("an invalid package");
+    assert_eq!(err.package_id, "acme.bad");
+    assert!(err.to_string().starts_with("exponential-ui: package acme.bad is unusable: "), "{err}");
+    assert!(HostOptions { packages: vec![fixture("host-router.json")["packages"]["acme.devices"].clone()], ..Default::default() }.validate_packages().is_ok());
+}
+
+#[gpui::test]
+#[should_panic(expected = "package acme.bad is unusable")]
+fn the_host_panics_on_a_constructor_package_that_fails_validation(cx: &mut TestAppContext) {
+    init(cx);
+    host_with(cx, HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() });
 }

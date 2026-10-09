@@ -96,20 +96,27 @@ pub fn decode_jsonl(text: &str) -> Decoded {
 }
 
 /// Server-Sent Events: `data:` lines join with `\n` per event, a blank line
-/// dispatches, `:` comments and other fields are ignored, an `event:` name
-/// outside SSE_EVENTS drops the event. An event's data is one message or
-/// JSONL.
+/// dispatches, `:` comments and other fields are ignored (`retry:` is kept
+/// as [`SseDecoder::retry_ms`]), an `event:` name outside SSE_EVENTS drops
+/// the event. An event's data is one message or JSONL.
 #[derive(Debug, Clone, Default)]
 pub struct SseDecoder {
     buffer: String,
     data: Vec<String>,
     event: String,
     count: u32,
+    retry_ms: Option<u64>,
 }
 
 impl SseDecoder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The last `retry:` field (ms): the server resumes the stream after it
+    /// ends (a transport reconnects on a clean end only then).
+    pub fn retry_ms(&self) -> Option<u64> {
+        self.retry_ms
     }
 
     pub fn push(&mut self, chunk: &str) -> Decoded {
@@ -153,6 +160,10 @@ impl SseDecoder {
             self.data.push(value.to_string());
         } else if field == "event" {
             self.event = value.to_string();
+        } else if field == "retry" && !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) {
+            if let Ok(ms) = value.parse() {
+                self.retry_ms = Some(ms);
+            }
         }
     }
 
@@ -212,4 +223,21 @@ pub fn messages_from_mcp_result(result: &Value) -> Decoded {
 /// defaults to `a2ui_event`).
 pub fn mcp_action_call(message: &Value, tool: Option<&str>) -> Value {
     json!({"method": "tools/call", "params": {"name": tool.unwrap_or(MCP_ACTION_TOOL), "arguments": {"message": message}}})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SseDecoder;
+
+    #[test]
+    fn sse_keeps_the_last_numeric_retry_field_and_its_messages_are_unchanged() {
+        let mut d = SseDecoder::new();
+        assert_eq!(d.retry_ms(), None);
+        let mut out = d.push("retry: 1500\ndata: {\"a\":1}\n\nretry: soon\n");
+        out.extend(d.end());
+        assert_eq!(out.messages, vec![serde_json::json!({"a": 1})]);
+        assert_eq!(d.retry_ms(), Some(1500), "a non-numeric retry is ignored");
+        d.push("retry:250\n\n");
+        assert_eq!(d.retry_ms(), Some(250));
+    }
 }
