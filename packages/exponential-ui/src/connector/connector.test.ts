@@ -57,6 +57,24 @@ describe(`ExponentialConnector`, () => {
     expect(instance.calls.at(-1)!.auth).toBe(`Bearer at-1`)
   })
 
+  test(`a connector rebuilt after the redirect exchanges with the registered clientId, never registering again`, async () => {
+    const instance = fakeInstance()
+    const before = new ExponentialConnector({ baseUrl: BASE, redirectUri: `https://host.example/cb`, fetch: instance.fetchFn })
+    const { verifier, clientId } = await before.authorizeUrl()
+    expect(clientId).toBe(`client-1`)
+    // the page reloaded: a fresh connector, only what the host kept
+    const after = new ExponentialConnector({ baseUrl: BASE, redirectUri: `https://host.example/cb`, fetch: instance.fetchFn })
+    await after.exchange(`code-1`, verifier, clientId)
+    expect(instance.calls.filter((x) => x.url.endsWith(`/register`))).toHaveLength(1)
+    const tokenCall = instance.calls.find((x) => x.url.endsWith(`/token`))!
+    expect(new URLSearchParams(tokenCall.body).get(`client_id`)).toBe(`client-1`)
+    expect(after.tokens?.accessToken).toBe(`at-1`)
+    // no client id anywhere: refuse instead of registering a client the code was not issued to
+    const blind = new ExponentialConnector({ baseUrl: BASE, redirectUri: `https://host.example/cb`, fetch: instance.fetchFn })
+    await expect(blind.exchange(`code-1`, verifier)).rejects.toThrow(/client id/)
+    expect(instance.calls.filter((x) => x.url.endsWith(`/register`))).toHaveLength(1)
+  })
+
   test(`a declarative vapp runs on the connector's exp: sources`, async () => {
     const instance = fakeInstance()
     const connector = new ExponentialConnector({ baseUrl: BASE, redirectUri: `x`, fetch: instance.fetchFn, tokens: { accessToken: `at-1` }, pollSeconds: 0 })

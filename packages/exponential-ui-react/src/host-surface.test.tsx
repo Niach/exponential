@@ -2,11 +2,14 @@
 // in-memory transport, actions out as A2UI client messages, host functions
 // through the policy gate, the URL policy, sources feeding the data model.
 
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, defineExtension } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, defineExtension, reduceNested } from "@exponential-at/ui"
 import type { ClientMessage, FlatComponent } from "@exponential-at/ui"
-import { HostSurface, useHostStatus, useHostSurfaceIds } from "./host-surface"
+import { HostSurface, useHostStatus, useHostSurface, useHostSurfaceIds } from "./host-surface"
+import { clearMediaCache, mediaCacheStats, MEDIA_CACHE_IDLE_MAX, useMediaSrc } from "./media"
+import { ExponentialSurface, sameData } from "./surface"
+import { renderHook } from "@testing-library/react"
 import { defineReactExtension } from "./extensions"
 
 const V = `v0.9`
@@ -135,5 +138,145 @@ describe(`HostSurface`, () => {
     const sheet = view.container.querySelector(`style[data-xui-style="nodes"]`)!.textContent!
     expect(sheet).toContain(`.xui-n-row{`)
     expect(view.getByText(`b`)).toBeTruthy()
+  })
+})
+
+describe(`review fixes`, () => {
+  it(`the server's createSurface.theme wins over the theme prop`, () => {
+    const host = new ExponentialHost()
+    act(() => {
+      host.receive({ version: V, createSurface: { surfaceId: `th`, catalogId: CORE_CATALOG_ID, theme: `playful` } })
+      host.receive(components(`th`, [{ id: `root`, component: `Text`, text: `hi` }]))
+      host.receive({ version: V, createSurface: { surfaceId: `plain`, catalogId: CORE_CATALOG_ID } })
+      host.receive(components(`plain`, [{ id: `root`, component: `Text`, text: `ho` }]))
+    })
+    const view = render(
+      <>
+        <HostSurface host={host} surfaceId="th" theme="neutral" />
+        <HostSurface host={host} surfaceId="plain" theme="neutral" />
+      </>
+    )
+    const themes = [...view.container.querySelectorAll(`[data-xui-theme]`)].map((el) => el.getAttribute(`data-xui-theme`))
+    expect(themes).toEqual([`playful`, `neutral`])
+  })
+
+  it(`a host surface's templates are the store's (no second reduce)`, () => {
+    const host = new ExponentialHost()
+    act(() => {
+      host.receive(create(`t`))
+      host.receive(
+        components(`t`, [
+          { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
+          { id: `row`, component: `Text`, text: { path: `name` } },
+        ])
+      )
+    })
+    const { result } = renderHook(() => useHostSurface(host, `t`))
+    expect(result.current!.templates).toBe(host.surface(`t`)!.templates)
+    expect(Object.keys(result.current!.templates!)).toEqual([`row`])
+  })
+})
+
+describe(`media cache`, () => {
+  afterEach(() => clearMediaCache())
+
+  it(`is ref-counted and bounded: idle entries past the cap are evicted and revoked`, async () => {
+    let n = 0
+    const created: string[] = []
+    const revoked: string[] = []
+    const fetchSpy = vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(`x`, { status: 200 }))
+    const createSpy = vi.spyOn(URL, `createObjectURL`).mockImplementation(() => {
+      const u = `blob:${++n}`
+      created.push(u)
+      return u
+    })
+    const revokeSpy = vi.spyOn(URL, `revokeObjectURL`).mockImplementation((u) => void revoked.push(u))
+    try {
+      const host = { mediaRequest: (src: string) => ({ url: `https://x.test/${src}`, headers: { authorization: `Bearer t` } }) }
+      const Img = ({ src }: { src: string }) => <i>{useMediaSrc(host, src) ?? `loading`}</i>
+      // two consumers of one image share one fetch
+      const a = render(
+        <>
+          <Img src="0" />
+          <Img src="0" />
+        </>
+      )
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      expect(a.container.textContent).toBe(`blob:1blob:1`)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(mediaCacheStats()).toEqual({ entries: 1, inUse: 1 })
+      a.unmount()
+      expect(mediaCacheStats()).toEqual({ entries: 1, inUse: 0 })
+      expect(revoked).toEqual([])
+      // MEDIA_CACHE_IDLE_MAX + 5 more distinct images, each mounted then unmounted
+      for (let i = 1; i <= MEDIA_CACHE_IDLE_MAX + 5; i++) {
+        const v = render(<Img src={String(i)} />)
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 0))
+        })
+        v.unmount()
+      }
+      expect(mediaCacheStats()).toEqual({ entries: MEDIA_CACHE_IDLE_MAX, inUse: 0 })
+      // the least recently released ones went, their urls revoked
+      expect(revoked).toEqual(created.slice(0, 6))
+      // an image still on screen is never evicted
+      const kept = render(<Img src="kept" />)
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 0))
+      })
+      for (let i = 0; i < MEDIA_CACHE_IDLE_MAX + 2; i++) {
+        const v = render(<Img src={`more-${i}`} />)
+        await act(async () => {
+          await new Promise((r) => setTimeout(r, 0))
+        })
+        v.unmount()
+      }
+      expect(revoked).not.toContain(kept.container.textContent)
+      expect(mediaCacheStats().inUse).toBe(1)
+      kept.unmount()
+    } finally {
+      fetchSpy.mockRestore()
+      createSpy.mockRestore()
+      revokeSpy.mockRestore()
+    }
+  })
+})
+
+describe(`the data prop`, () => {
+  it(`sameData: identity first, then structure, no serialisation`, () => {
+    const items = [{ id: 1 }]
+    expect(sameData({ items, q: `a` }, { items, q: `a` })).toBe(true)
+    expect(sameData({ items, q: `a` }, { items: [{ id: 1 }], q: `a` })).toBe(true)
+    expect(sameData({ items, q: `a` }, { items, q: `b` })).toBe(false)
+    expect(sameData({ a: 1 }, { a: 1, b: undefined })).toBe(false)
+    expect(sameData([1, 2], [1, 2])).toBe(true)
+    expect(sameData([1, 2], { 0: 1, 1: 2 })).toBe(false)
+    expect(sameData(undefined, {})).toBe(false)
+  })
+
+  it(`an inline data object re-created per render keeps edits; new content replaces the model; no JSON.stringify`, () => {
+    const root = reduceNested(
+      { id: `root`, component: `Box`, children: [{ id: `in`, component: `Input`, props: { label: `Name`, name: `name`, value: { path: `/name` } } }, { id: `out`, component: `Text`, props: { text: { path: `/name` } } }] },
+      { catalogId: CORE_CATALOG_ID }
+    ).root!
+    const stringify = vi.spyOn(JSON, `stringify`)
+    try {
+      const view = render(<ExponentialSurface root={root} data={{ name: `Ada` }} theme="neutral" id="dp" />)
+      const input = () => view.container.querySelector(`input`)!
+      const out = () => view.container.querySelector(`[data-xui-id="out"]`)!.textContent
+      expect(out()).toBe(`Ada`)
+      fireEvent.change(input(), { target: { value: `Ada L` } })
+      expect(out()).toBe(`Ada L`)
+      stringify.mockClear()
+      view.rerender(<ExponentialSurface root={root} data={{ name: `Ada` }} theme="neutral" id="dp" />)
+      expect(out()).toBe(`Ada L`)
+      expect(stringify.mock.calls.filter(([v]) => (v as { name?: string } | null)?.name === `Ada`)).toEqual([])
+      view.rerender(<ExponentialSurface root={root} data={{ name: `Grace` }} theme="neutral" id="dp" />)
+      expect(out()).toBe(`Grace`)
+    } finally {
+      stringify.mockRestore()
+    }
   })
 })

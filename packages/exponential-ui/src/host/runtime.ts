@@ -5,6 +5,9 @@
 // store and hands its interactions back through `dispatch`.
 
 import { reduceSurface } from "../reducer"
+import { tryLoadTheme } from "../theme"
+import type { ResolvedTheme } from "../theme-types"
+import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
 import { actionMessage, errorMessage } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
@@ -57,6 +60,45 @@ export interface HostOptions {
   onSend?: (message: ClientMessage) => void
   /** Ops the host performs (tests, logging). */
   onOp?: (op: HostOp) => void
+  /** Every problem the host meets (a package that failed validation, an
+   *  error it answered a message with, an invalid surface theme). A
+   *  transport-less host has no server to tell: this is where they land. */
+  onIssue?: (issue: HostIssue) => void
+}
+
+/** One problem the host met; `host.issues` keeps the latest ones. */
+export interface HostIssue {
+  /** A host error code (`TEMPLATE_NOT_FOUND`…) or `PACKAGE_INVALID`. */
+  code: string
+  message: string
+  surfaceId?: string
+  /** A JSON pointer (into the package or the message). */
+  path?: string
+  packageId?: string
+}
+
+/** A package passed in `HostOptions.packages` that failed validation. */
+export class PackageError extends Error {
+  constructor(
+    readonly packageId: string,
+    readonly issues: PackageIssue[]
+  ) {
+    super(`exponential-ui: package ${packageId} is unusable: ${issues.map((i) => `${i.path || `/`} ${i.message}`).join(`; `)}`)
+    this.name = `PackageError`
+  }
+}
+
+const MAX_ISSUES = 100
+
+/** A `createSurface.theme` (a built-in id or a theme JSON) → the resolved
+ *  theme, or why it is unusable. */
+export function resolveSurfaceTheme(input: unknown): { theme: ResolvedTheme | null; issues: string[] } {
+  if (typeof input === `string`) {
+    if (!BUILTIN_THEME_IDS.includes(input)) return { theme: null, issues: [`unknown built-in theme "${input}"; known: ${BUILTIN_THEME_IDS.join(`|`)}`] }
+    return { theme: builtinTheme(input), issues: [] }
+  }
+  const { theme, issues } = tryLoadTheme(input, { themes: BUILTIN_THEMES })
+  return { theme, issues: issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)) }
 }
 
 export interface FunctionOutcome {
@@ -76,7 +118,10 @@ export class SurfaceStore {
   sendDataModel = false
   components: FlatComponent[] = []
   data: Record<string, unknown> = {}
-  private reduced: { root: UiNode | null; issues: ReduceIssue[] } | null = null
+  /** The server's `createSurface.theme`, resolved (undefined = the
+   *  renderer's own theme). */
+  theme?: ResolvedTheme
+  private reduced: { root: UiNode | null; issues: ReduceIssue[]; templates?: Record<string, UiNode> } | null = null
   private listeners = new Set<Listener>()
   version = 0
 
@@ -93,6 +138,11 @@ export class SurfaceStore {
     return this.reduce().issues
   }
 
+  /** Round 2 §4: the reducer's lifted data templates (absent without any). */
+  get templates(): Record<string, UiNode> | undefined {
+    return this.reduce().templates
+  }
+
   private reduce() {
     if (!this.reduced)
       this.reduced = this.components.length ? reduceSurface(this.components, { catalogId: this.catalogId, extensions: this.extensions() }) : { root: null, issues: [] }
@@ -103,6 +153,12 @@ export class SurfaceStore {
     const byId = new Map(this.components.map((c) => [c.id, c]))
     for (const c of components) byId.set(c.id, c)
     this.components = [...byId.values()]
+    this.reduced = null
+    this.notify()
+  }
+
+  /** Re-reduce on the next read (the extension set changed). */
+  invalidate(): void {
     this.reduced = null
     this.notify()
   }
@@ -171,13 +227,18 @@ export class ExponentialHost {
   statusDetail?: string
   /** The last UNSUPPORTED_CATALOG id seen (the catalog-update banner). */
   unsupportedCatalog?: string
+  /** The latest problems (newest last, capped); a new array per change. */
+  issues: readonly HostIssue[] = []
 
   constructor(private options: HostOptions = {}) {
     this.extensions = [...(options.extensions ?? [])]
     this.router = new HostRouter({ extensionIds: this.extensions.map((e) => e.id) })
     this.functions = { ...(options.functions ?? {}) }
     this.sources = { ...(options.sources ?? {}) }
-    for (const pkg of options.packages ?? []) this.installPackage(pkg)
+    for (const pkg of options.packages ?? []) {
+      const issues = this.installPackage(pkg)
+      if (issues.length) throw new PackageError(typeof pkg?.id === `string` && pkg.id ? pkg.id : `?`, issues)
+    }
   }
 
   /** False for a local-only host (packages, in-memory feeds): no
@@ -204,6 +265,7 @@ export class ExponentialHost {
     if (this.extensions.some((e) => e.id === ext.id)) return
     this.extensions.push(ext)
     this.router.registerExtension(ext.id)
+    for (const store of this.stores.values()) store.invalidate()
   }
 
   registerFunction(name: string, fn: HostFunction): void {
@@ -214,8 +276,20 @@ export class ExponentialHost {
     this.sources[scheme.toLowerCase()] = resolver
   }
 
+  /** Install a package; its validation issues are returned AND reported
+   *  (`issues`, `onIssue`). A package with issues is not installed. */
   installPackage(pkg: VappPackage): PackageIssue[] {
-    return this.router.installPackage(pkg)
+    const issues = this.router.installPackage(pkg)
+    const packageId = typeof pkg?.id === `string` ? pkg.id : undefined
+    for (const i of issues) this.report({ code: `PACKAGE_INVALID`, message: i.message, path: i.path, ...(packageId ? { packageId } : {}) })
+    return issues
+  }
+
+  private report(issue: HostIssue): void {
+    const next = [...this.issues, issue]
+    this.issues = next.length > MAX_ISSUES ? next.slice(next.length - MAX_ISSUES) : next
+    this.options.onIssue?.(issue)
+    this.notify()
   }
 
   // --- surfaces -----------------------------------------------------------
@@ -268,6 +342,10 @@ export class ExponentialHost {
   send(message: ClientMessage): void {
     void this.options.transport?.send(message)
     this.options.onSend?.(message)
+    if (`error` in message) {
+      const e = message.error
+      this.report({ code: e.code, message: e.message, ...(e.surfaceId ? { surfaceId: e.surfaceId } : {}), ...(e.path !== undefined ? { path: e.path } : {}) })
+    }
   }
 
   private perform(op: HostOp): void {
@@ -278,6 +356,11 @@ export class ExponentialHost {
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
         store.packageId = this.router.surface(op.surfaceId)?.packageId
+        if (op.theme !== undefined && op.theme !== null) {
+          const { theme, issues } = resolveSurfaceTheme(op.theme)
+          if (theme) store.theme = theme
+          else this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, `createSurface.theme is unusable: ${issues.join(`; `)}`, `/createSurface/theme`))
+        }
         this.stores.set(op.surfaceId, store)
         this.notify()
         return
@@ -361,13 +444,21 @@ export class ExponentialHost {
       this.send(errorMessage(`FUNCTION_NOT_FOUND`, call.surfaceId, `no function ${call.name}`))
       return { decision }
     }
+    let consentError: string | undefined
     if (decision === `ask`) {
-      const ok = (await this.options.policy?.onFunctionCall?.(call)) === true
+      // A throwing/rejecting consent hook is a deny, never a rejected call
+      // (the painter's pending control must settle).
+      let ok = false
+      try {
+        ok = (await this.options.policy?.onFunctionCall?.(call)) === true
+      } catch (e) {
+        consentError = e instanceof Error ? e.message : String(e)
+      }
       if (!ok) decision = `deny`
     }
     if (decision === `deny`) {
-      this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, `${call.name} was not allowed`))
-      return { decision }
+      this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, consentError === undefined ? `${call.name} was not allowed` : `${call.name} was not allowed: the consent hook failed: ${consentError}`))
+      return consentError === undefined ? { decision } : { decision, error: consentError }
     }
     const fn = this.functions[call.name]
     if (!fn) return { decision: `allow` }

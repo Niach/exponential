@@ -209,12 +209,21 @@ painters through the facade); `catalog/host.json` is the contract and
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
   `openUrl(url)`, `mediaRequest(src)`, `status` / `hasTransport` /
   `unsupportedCatalog` (the `host_offline` state and the catalog-update
-  banner). React paints it with `<HostSurface host surfaceId>`.
+  banner), `issues` + `onIssue` (invalid packages, the errors it answered,
+  an unusable `createSurface.theme`; a package in `packages` that fails
+  validation throws `PackageError`). A surface's `createSurface.theme` (a
+  built-in id or a theme JSON) lands on `store.theme`. React paints it with
+  `<HostSurface host surfaceId>` (the surface's theme wins over `theme`).
+  Stream transports end on a clean EOF (`resumable` or an SSE `retry:`
+  reconnects) and reconnect after errors.
 - **Declarative vapps** (VAPP-82): a package `{id, name, version, catalogId,
   templates: {<id>: {components, data?, bindings?}}, functions?, theme?,
   icon?}` (`validatePackage`); `createVappHost({package, …})` runs one in any
   host. Against an Exponential instance, `ExponentialConnector` does the MCP
-  OAuth grant (discovery, dynamic registration, PKCE S256, consent) and
+  OAuth grant (discovery, dynamic registration, PKCE S256, consent;
+  `authorizeUrl()` returns `{url, verifier, state, clientId}`: keep all
+  three for the callback, `exchange(code, verifier, clientId)`, so a
+  connector rebuilt after the redirect never registers a second client) and
   serves `exp:issues|boards|teams|members` over the instance's MCP tools
   (`sources()`, polled) plus `exponential.mcp` (`functions()`). Hosted vapps
   (the peer-link transport, VAPP-10) embed through the same `Transport`

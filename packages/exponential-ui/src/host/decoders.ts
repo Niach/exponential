@@ -75,10 +75,14 @@ export function decodeJsonl(text: string): Decoded {
 }
 
 /** Server-Sent Events: `data:` lines join with `\n` per event, a blank line
- *  dispatches, `:` comments and other fields are ignored, an `event:` name
+ *  dispatches, `:` comments and other fields are ignored (`retry:` is
+ *  kept as `retryMs`), an `event:` name
  *  outside SSE_EVENTS drops the event. An event's data is one message or
  *  JSONL. */
 export class SseDecoder {
+  /** The last `retry:` field (ms): the server resumes the stream after it
+   *  ends (a transport reconnects on a clean end only then). */
+  retryMs?: number
   private buffer = ``
   private data: string[] = []
   private event = ``
@@ -115,6 +119,7 @@ export class SseDecoder {
     if (value.startsWith(` `)) value = value.slice(1)
     if (field === `data`) this.data.push(value)
     else if (field === `event`) this.event = value
+    else if (field === `retry` && /^\d+$/.test(value)) this.retryMs = Number(value)
   }
 
   private dispatch(out: Decoded): void {

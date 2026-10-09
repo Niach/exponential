@@ -90,15 +90,19 @@ export class ExponentialConnector {
     return this.clientId
   }
 
-  /** Where to send the person. Keep `verifier` + `state` for the callback. */
-  async authorizeUrl(): Promise<{ url: string; verifier: string; state: string }> {
+  /** Where to send the person. Keep `verifier`, `state` AND `clientId`
+   *  for the callback: a connector rebuilt after the redirect needs the
+   *  dynamically registered client id (pass it to `exchange`, or as
+   *  `ConnectorOptions.clientId`), or the code was issued to a client the
+   *  token request does not name. */
+  async authorizeUrl(): Promise<{ url: string; verifier: string; state: string; clientId: string }> {
     const meta = await this.discover()
     const clientId = await this.register()
     const { verifier, challenge } = await pkcePair()
     const state = b64url(crypto.getRandomValues(new Uint8Array(16)))
     const url = new URL(meta.authorization_endpoint)
     url.search = new URLSearchParams({ response_type: `code`, client_id: clientId, redirect_uri: this.options.redirectUri, code_challenge: challenge, code_challenge_method: `S256`, state, scope: `openid profile email offline_access` }).toString()
-    return { url: url.href, verifier, state }
+    return { url: url.href, verifier, state, clientId }
   }
 
   private async token(body: Record<string, string>): Promise<ConnectorTokens> {
@@ -111,9 +115,13 @@ export class ExponentialConnector {
     return this.tokens
   }
 
-  /** The callback: trade the code for tokens. */
-  async exchange(code: string, verifier: string): Promise<ConnectorTokens> {
-    await this.register()
+  /** The callback: trade the code for tokens. `clientId` = the one
+   *  `authorizeUrl` returned (required unless this connector registered it
+   *  or got it in its options): the exchange never registers a new client,
+   *  whose id the code was not issued to. */
+  async exchange(code: string, verifier: string, clientId?: string): Promise<ConnectorTokens> {
+    if (clientId) this.clientId = clientId
+    if (!this.clientId) throw new Error(`no client id for the token exchange; pass the clientId authorizeUrl returned`)
     return this.token({ grant_type: `authorization_code`, code, code_verifier: verifier, redirect_uri: this.options.redirectUri })
   }
 

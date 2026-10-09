@@ -237,6 +237,28 @@ function warnMissingTemplates(surfaceId: string, root: UiNode, templates: Record
 /** Whether a tree calls `formatRelativeTime` without a `now`, or has a
  *  Table with a `relativeTime` column (or bound columns, unknown until
  *  data): the surface then re-binds once a minute (round 2 §3). */
+const isPlain = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
+
+/** Structural equality, short-circuiting on identity at every level (an
+ *  inline `data={{ items, filter }}` with stable values costs one pass over
+ *  its top-level keys). */
+export function sameData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== `object` || typeof b !== `object` || a === null || b === null) return false
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) if (!sameData(a[i], b[i])) return false
+    return true
+  }
+  if (!isPlain(b) || Array.isArray(b)) return false
+  const pa = Object.getPrototypeOf(a)
+  if (pa !== Object.prototype && pa !== null) return false
+  const ka = Object.keys(a as object)
+  if (ka.length !== Object.keys(b).length) return false
+  for (const k of ka) if (!Object.prototype.hasOwnProperty.call(b, k) || !sameData((a as Record<string, unknown>)[k], b[k])) return false
+  return true
+}
+
 function usesLiveClock(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(usesLiveClock)
   if (typeof value !== `object` || value === null) return false
@@ -295,11 +317,12 @@ export function ExponentialSurface({
   // Data: the surface state's, or local state over the `data` prop.
   // A `data` prop with new CONTENT replaces the local model (an inline
   // object re-created on every parent render keeps the user's edits).
+  // Compared structurally against the last ADOPTED prop (identity first,
+  // then per top-level key), never serialised.
   const [localData, setLocalData] = useState<DataModel>(dataProp ?? {})
-  const dataKey = useMemo(() => (dataProp === undefined ? `` : JSON.stringify(dataProp)), [dataProp])
-  const [seenDataKey, setSeenDataKey] = useState(dataKey)
-  if (dataKey !== seenDataKey) {
-    setSeenDataKey(dataKey)
+  const [seenData, setSeenData] = useState(dataProp)
+  if (dataProp !== seenData && !sameData(dataProp, seenData)) {
+    setSeenData(dataProp)
     setLocalData(dataProp ?? {})
   }
   const data = surface ? surface.data : localData

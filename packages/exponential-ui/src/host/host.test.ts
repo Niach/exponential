@@ -9,6 +9,9 @@ import hostContract from "../../catalog/host.json" with { type: "json" }
 import {
   ExponentialHost,
   HostRouter,
+  JsonlStreamTransport,
+  PackageError,
+  SseTransport,
   JsonlDecoder,
   MemoryTransport,
   SseDecoder,
@@ -28,7 +31,8 @@ import {
   SURFACE_COMMANDS,
   SURFACE_SETTING_KEYS,
 } from "."
-import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, VappPackage } from "."
+import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, VappPackage } from "."
+import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
 import { englishFormatter } from "../format"
 import { A11Y_COMMANDS } from "../a11y"
@@ -204,5 +208,156 @@ describe(`ExponentialHost`, () => {
   test(`media requests carry the auth rules`, () => {
     const host = new ExponentialHost({ policy: { media: { baseUrl: `https://app.exponential.at`, rules: [{ prefix: `https://app.exponential.at/api/attachments/`, headers: { authorization: `Bearer k` } }] } } })
     expect(host.mediaRequest(`/api/attachments/a`)).toEqual({ url: `https://app.exponential.at/api/attachments/a`, headers: { authorization: `Bearer k` } })
+  })
+})
+
+describe(`review fixes`, () => {
+  test(`createSurface.theme: a built-in id or a theme JSON lands on the store; an unusable one is an issue`, () => {
+    const sent: ClientMessage[] = []
+    const host = new ExponentialHost({ onSend: (m) => sent.push(m) })
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `a`, catalogId: CORE_CATALOG_ID, theme: `neutral` } })
+    expect(host.surface(`a`)!.theme?.id).toBe(`neutral`)
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `b`, catalogId: CORE_CATALOG_ID, theme: { ...neutralTheme, id: `acme` } } })
+    expect(host.surface(`b`)!.theme?.id).toBe(`acme`)
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `c`, catalogId: CORE_CATALOG_ID } })
+    expect(host.surface(`c`)!.theme).toBeUndefined()
+    expect(sent).toEqual([])
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `d`, catalogId: CORE_CATALOG_ID, theme: `nope` } })
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `e`, catalogId: CORE_CATALOG_ID, theme: { id: `broken` } } })
+    expect(host.surface(`d`)!.theme).toBeUndefined()
+    expect(host.surface(`e`)!.theme).toBeUndefined()
+    expect(sent.map((m) => (`error` in m ? [m.error.code, m.error.surfaceId, m.error.path] : null))).toEqual([
+      [`VALIDATION_FAILED`, `d`, `/createSurface/theme`],
+      [`VALIDATION_FAILED`, `e`, `/createSurface/theme`],
+    ])
+    expect(host.issues.map((i) => [i.code, i.surfaceId])).toEqual([
+      [`VALIDATION_FAILED`, `d`],
+      [`VALIDATION_FAILED`, `e`],
+    ])
+    expect(host.issues[0]!.message).toContain(`unknown built-in theme "nope"`)
+  })
+
+  test(`a throwing or rejecting consent hook is a deny with the error, never a rejected call`, async () => {
+    const sent: ClientMessage[] = []
+    let ran = 0
+    const make = (hook: () => boolean | Promise<boolean>) =>
+      new ExponentialHost({ onSend: (m) => sent.push(m), functions: { "harness.mcp": () => ++ran }, policy: { functions: { ask: [`harness.mcp`] }, onFunctionCall: hook } })
+    const call = { surfaceId: `s`, componentId: `b`, name: `harness.mcp`, args: {} }
+    expect(
+      await make(() => {
+        throw new Error(`card unmounted`)
+      }).callFunction(call)
+    ).toEqual({ decision: `deny`, error: `card unmounted` })
+    expect(await make(() => Promise.reject(new Error(`dialog closed`))).callFunction(call)).toEqual({ decision: `deny`, error: `dialog closed` })
+    expect(ran).toBe(0)
+    expect(sent.map((m) => (`error` in m ? `${m.error.code}: ${m.error.message}` : ``))).toEqual([
+      `FUNCTION_DENIED: harness.mcp was not allowed: the consent hook failed: card unmounted`,
+      `FUNCTION_DENIED: harness.mcp was not allowed: the consent hook failed: dialog closed`,
+    ])
+  })
+
+  test(`packages: an unusable one in the options throws; installPackage + TEMPLATE_NOT_FOUND reach a transport-less host`, () => {
+    const broken = routerFixture.packages.broken as unknown as VappPackage
+    expect(() => new ExponentialHost({ packages: [devicesPackage, broken] })).toThrow(PackageError)
+    const seen: HostIssue[] = []
+    const host = new ExponentialHost({ onIssue: (i) => seen.push(i) })
+    expect(host.hasTransport).toBe(false)
+    const issues = host.installPackage(broken)
+    expect(issues.length).toBeGreaterThan(0)
+    expect(host.issues.map((i) => [i.code, i.path])).toEqual(issues.map((i) => [`PACKAGE_INVALID`, i.path]))
+    host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `devices`, templateId: `list` } })
+    expect(host.surface(`devices`)).toBeUndefined()
+    expect(host.issues.at(-1)).toEqual({ code: `TEMPLATE_NOT_FOUND`, surfaceId: `devices`, message: `no installed package has the template list` })
+    expect(seen).toEqual([...host.issues])
+  })
+
+  test(`the store keeps the reducer's lifted templates; a new extension re-reduces`, () => {
+    const host = new ExponentialHost()
+    host.receive({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    host.receive({
+      version: `v0.9`,
+      updateComponents: {
+        surfaceId: `s`,
+        components: [
+          { id: `root`, component: `List`, children: { componentId: `row`, path: `/rows` } },
+          { id: `row`, component: `Text`, text: { path: `title` } },
+        ],
+      },
+    })
+    const s = host.surface(`s`)!
+    expect(Object.keys(s.templates ?? {})).toEqual([`row`])
+    expect(s.templates).toBe(s.templates)
+    const v = s.version
+    host.registerExtension({ id: `https://acme.example/catalog/v1`, name: `Acme`, extends: CORE_CATALOG_ID, components: {} })
+    expect(s.version).toBe(v + 1)
+  })
+})
+
+/** A fetch whose GET answers each call with the next body (a string = a
+ *  stream that ends cleanly, an Error = a failed request). */
+function streamFetch(bodies: (string | Error)[]) {
+  const gets: number[] = []
+  const f = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === `POST`) return new Response(null, { status: 204 })
+    gets.push(Date.now())
+    const next = bodies[Math.min(gets.length - 1, bodies.length - 1)]!
+    if (next instanceof Error) throw next
+    return new Response(next, { status: 200 })
+  }) as typeof fetch
+  return { f, gets }
+}
+
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
+const line = (surfaceId: string) => JSON.stringify({ version: `v0.9`, createSurface: { surfaceId, catalogId: CORE_CATALOG_ID } }) + `\n`
+
+describe(`stream transports`, () => {
+  test(`a clean end of stream closes the transport: no reconnect, no re-delivery`, async () => {
+    const { f, gets } = streamFetch([line(`s1`)])
+    const t = new JsonlStreamTransport({ url: `https://x.test/a2ui`, reconnectMs: 5, fetch: f })
+    const got: unknown[] = []
+    const statuses: TransportStatus[] = []
+    t.start((m) => got.push(m), (s) => statuses.push(s))
+    await tick(40)
+    expect(gets.length).toBe(1)
+    expect(got.length).toBe(1)
+    expect(statuses).toEqual([`connecting`, `open`, `closed`])
+  })
+
+  test(`an error reconnects; resumable (option or SSE retry:) reconnects after a clean end`, async () => {
+    const failing = streamFetch([new Error(`ECONNRESET`), line(`s1`)])
+    const statuses: TransportStatus[] = []
+    new JsonlStreamTransport({ url: `u`, reconnectMs: 5, fetch: failing.f }).start(() => {}, (s) => statuses.push(s))
+    await tick(40)
+    expect(failing.gets.length).toBe(2)
+    expect(statuses).toEqual([`connecting`, `error`, `connecting`, `open`, `closed`])
+
+    const resumable = streamFetch([line(`s1`)])
+    const a = new JsonlStreamTransport({ url: `u`, reconnectMs: 5, resumable: true, fetch: resumable.f })
+    a.start(() => {}, () => {})
+    await tick(40)
+    a.close()
+    expect(resumable.gets.length).toBeGreaterThan(1)
+
+    const sse = streamFetch([`retry: 5\ndata: ${line(`s1`)}\n`])
+    const b = new SseTransport({ url: `u`, fetch: sse.f })
+    b.start(() => {}, () => {})
+    await tick(40)
+    b.close()
+    expect(sse.gets.length).toBeGreaterThan(1)
+  })
+
+  test(`close() then start() leaves exactly one loop (a stale one asleep in its wait exits)`, async () => {
+    const { f, gets } = streamFetch([new Error(`down`)])
+    const t = new JsonlStreamTransport({ url: `u`, reconnectMs: 20, fetch: f })
+    t.start(() => {}, () => {})
+    await tick(5) // the first loop failed and sleeps in its reconnect wait
+    t.close()
+    t.start(() => {}, () => {})
+    await tick(5)
+    const before = gets.length
+    expect(before).toBe(2)
+    await tick(30) // one reconnect, from the new loop only
+    t.close()
+    expect(gets.length).toBe(3)
   })
 })

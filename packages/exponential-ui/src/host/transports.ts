@@ -52,32 +52,45 @@ export interface HttpTransportOptions {
   /** Where client messages go (POST, JSON body); default `url`. */
   postUrl?: string
   headers?: Record<string, string>
-  /** Reconnect after a drop, ms (0 = never). Default 2000. */
+  /** Reconnect after a drop (an error or an aborted stream), ms (0 =
+   *  never). Default 2000. */
   reconnectMs?: number
+  /** Reconnect after a CLEAN end of the stream too (the server resumes it).
+   *  Default false: a stream that ends is done (status `closed`). An SSE
+   *  stream that sent a `retry:` field signals this itself. */
+  resumable?: boolean
   fetch?: typeof fetch
 }
 
 abstract class StreamTransport implements Transport {
   private controller?: AbortController
-  private closed = false
+  /** Bumped by every start/close: a loop whose generation is stale exits
+   *  (an old loop asleep in its reconnect wait never runs beside a new
+   *  one). */
+  private generation = 0
 
   constructor(protected options: HttpTransportOptions) {}
 
-  protected abstract decoder(): { push(chunk: string): Decoded; end(): Decoded }
+  protected abstract decoder(): { push(chunk: string): Decoded; end(): Decoded; retryMs?: number }
   protected abstract accept(): string
 
   start(receive: Receive, status: Status): void {
-    this.closed = false
-    void this.run(receive, status)
+    this.controller?.abort()
+    const gen = ++this.generation
+    void this.run(gen, receive, status)
   }
 
-  private async run(receive: Receive, status: Status): Promise<void> {
+  private async run(gen: number, receive: Receive, status: Status): Promise<void> {
     const f = this.options.fetch ?? fetch
-    while (!this.closed) {
-      this.controller = new AbortController()
+    const live = () => gen === this.generation
+    while (live()) {
+      const controller = new AbortController()
+      this.controller = controller
       status(`connecting`)
+      let wait = this.options.reconnectMs ?? 2000
       try {
-        const res = await f(this.options.url, { headers: { accept: this.accept(), ...this.options.headers }, signal: this.controller.signal })
+        const res = await f(this.options.url, { headers: { accept: this.accept(), ...this.options.headers }, signal: controller.signal })
+        if (!live()) return
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
         status(`open`)
         const reader = res.body.getReader()
@@ -85,17 +98,24 @@ abstract class StreamTransport implements Transport {
         const dec = this.decoder()
         for (;;) {
           const { done, value } = await reader.read()
+          if (!live()) return
           if (done) break
           dec.push(text.decode(value, { stream: true })).messages.forEach(receive)
         }
         dec.end().messages.forEach(receive)
         status(`closed`)
+        // A clean end: done, unless the server said it resumes the stream.
+        const resumable = this.options.resumable === true || dec.retryMs !== undefined
+        if (!resumable) {
+          if (live()) this.generation += 1
+          return
+        }
+        if (dec.retryMs !== undefined && this.options.reconnectMs === undefined) wait = dec.retryMs
       } catch (e) {
-        if (this.closed) return
+        if (!live()) return
         status(`error`, e instanceof Error ? e.message : String(e))
       }
-      const wait = this.options.reconnectMs ?? 2000
-      if (!wait || this.closed) return
+      if (!wait || !live()) return
       await new Promise((r) => setTimeout(r, wait))
     }
   }
@@ -106,7 +126,7 @@ abstract class StreamTransport implements Transport {
   }
 
   close(): void {
-    this.closed = true
+    this.generation += 1
     this.controller?.abort()
   }
 }
@@ -136,25 +156,29 @@ export class SseTransport extends StreamTransport {
  *  frames. */
 export class WebSocketTransport implements Transport {
   private socket?: WebSocket
-  private closed = false
+  /** Bumped by every start/close: a stale socket's reconnect timer is a
+   *  no-op. */
+  private generation = 0
 
   constructor(private options: { url: string; protocols?: string | string[]; reconnectMs?: number; WebSocket?: typeof WebSocket }) {}
 
   start(receive: Receive, status: Status): void {
-    this.closed = false
+    const gen = ++this.generation
+    const live = () => gen === this.generation
     const WS = this.options.WebSocket ?? WebSocket
     status(`connecting`)
     const socket = new WS(this.options.url, this.options.protocols)
     this.socket = socket
-    socket.onopen = () => status(`open`)
+    socket.onopen = () => live() && status(`open`)
     socket.onmessage = (ev) => {
-      if (typeof ev.data === `string`) decodeJsonl(ev.data).messages.forEach(receive)
+      if (live() && typeof ev.data === `string`) decodeJsonl(ev.data).messages.forEach(receive)
     }
-    socket.onerror = () => status(`error`, `websocket error`)
+    socket.onerror = () => live() && status(`error`, `websocket error`)
     socket.onclose = () => {
+      if (!live()) return
       status(`closed`)
       const wait = this.options.reconnectMs ?? 2000
-      if (!this.closed && wait) setTimeout(() => !this.closed && this.start(receive, status), wait)
+      if (wait) setTimeout(() => live() && this.start(receive, status), wait)
     }
   }
 
@@ -163,7 +187,7 @@ export class WebSocketTransport implements Transport {
   }
 
   close(): void {
-    this.closed = true
+    this.generation += 1
     this.socket?.close()
   }
 }
