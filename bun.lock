@@ -113,6 +113,7 @@
         "@types/react": "^19.2.0",
         "@types/react-dom": "^19.2.0",
         "@vitejs/plugin-react": "^5.0.4",
+        "playwright": "^1.54.2",
         "satori": "^0.26.0",
         "typescript": "^5.7.2",
         "vite": "7.3.3",

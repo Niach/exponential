@@ -5,7 +5,7 @@
    one and not the other. */
 import type { ComponentType } from "react"
 import { breadcrumb, type PageSeo } from "@exp/site-shell/seo"
-import { COMPONENT_DOCS, componentPath, componentSlug } from "./catalog"
+import { COMPONENT_DOCS, componentPath, componentSlug, componentSummary } from "./catalog"
 import { GUIDES, guidePath } from "./guides"
 import { SITE_NAME, SITE_ORIGIN } from "./site"
 
@@ -41,7 +41,7 @@ const route = (
 
 /* The model-facing sentence, then what the page holds (within a snippet). */
 const componentDescription = (sentence: string) => {
-  const full = `${sentence} A live React render, the A2UI JSON, the props and native shots on web, iOS, Android and desktop.`
+  const full = `${sentence} Live render, variants, props, keyboard, A2UI JSON and shots on web, iOS, Android and desktop.`
   return full.length <= 220 ? full : sentence
 }
 
@@ -79,7 +79,7 @@ export const ROUTES: readonly Route[] = [
     `/components/`,
     () => import("../pages/ComponentsIndex"),
     `Components · ${SITE_NAME}`,
-    `The ${COMPONENT_DOCS.length} components of the core catalog, each rendered live by the React renderer and photographed on web, iOS, Android and desktop.`,
+    `The ${COMPONENT_DOCS.length} components of the core catalog, each rendered live, searchable by group, with native shots on web, iOS, Android and desktop.`,
     [`src/pages/ComponentsIndex.tsx`, ...CATALOG_SOURCES],
     crumbs({ name: `Components`, path: `/components/` })
   ),
@@ -88,7 +88,7 @@ export const ROUTES: readonly Route[] = [
       componentPath(doc),
       () => import("../pages/Component"),
       `${doc.name} · Components · ${SITE_NAME}`,
-      componentDescription(doc.description),
+      componentDescription(componentSummary(doc)),
       [`src/pages/Component.tsx`, ...CATALOG_SOURCES, `../../shots/${doc.specimenId}`],
       crumbs({ name: `Components`, path: `/components/` }, { name: doc.name, path: `/components/${componentSlug(doc)}/` })
     )

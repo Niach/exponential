@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Exponential UI · generative UI, native on every platform</title>
     <meta name="theme-color" content="#0a0a0a" />
+    <!-- The light/dark scheme (and the browser bar colour) before the first paint (src/lib/scheme.ts); serve.json's CSP allows exactly this script by hash (scheme.test.ts). -->
+    <script>(function(){var s=null;try{s=localStorage.getItem("xui-site-scheme")}catch(e){}if(s!=="light"&&s!=="dark")s=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.setAttribute("data-scheme",s);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",s==="light"?"#fafafa":"#0a0a0a")})()</script>
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/svg+xml" href="/logo-light.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

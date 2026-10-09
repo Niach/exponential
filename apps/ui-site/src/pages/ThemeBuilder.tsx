@@ -25,8 +25,8 @@ export default function ThemeBuilderPage(_: PageProps) {
       <div className="shell sdk-builder-intro">
         <h1>Theme builder</h1>
         <p>
-          Pick a base, edit tokens and recipes, watch every component part and the kitchen sink re-render live, then export the smallest <code>extends</code> theme. Import a shadcn{` `}
-          <code>globals.css</code>, a tweakcn export or a theme JSON to start from. New to themes? <a href="/guides/themes/">Write your own theme</a>.
+          Edit tokens and recipes over a live preview; export the smallest <code>extends</code> theme. Starts from a base, a shadcn <code>globals.css</code>, a tweakcn export or a theme
+          JSON. <a href="/guides/themes/">Theme guide</a>
         </p>
       </div>
       <div ref={root} className="xb sdk-builder" data-mode="dark">

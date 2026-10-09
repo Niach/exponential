@@ -30,6 +30,10 @@ const GROUP_LABELS: Record<string, string> = {
   opacity: `Opacity`,
   border: `Border width (px)`,
   motion: `Motion (ms)`,
+  breakpoint: `Breakpoint (px)`,
+  ease: `Easing`,
+  density: `Density scale`,
+  blur: `Backdrop blur (px)`,
 }
 
 const isModed = (v: unknown): v is { light: unknown; dark: unknown } => v !== null && typeof v === `object` && !Array.isArray(v) && `light` in v && `dark` in v
@@ -45,10 +49,7 @@ export default function ThemesPage(_: PageProps) {
         <div className="docs-hero-content">
           <span className="section-eyebrow">Runtime themes</span>
           <h1>Themes</h1>
-          <p>
-            A theme is one JSON file every renderer loads at runtime: {tokenCount} tokens (colours per mode, spacing, radius, type, control heights, shadows, motion) and
-            per-part recipes. The same surface below, painted live in each built-in.
-          </p>
+          <p>One JSON file, loaded at runtime by every renderer: {tokenCount} tokens and per-part recipes. Below: one surface in each built-in.</p>
           <div className="docs-hero-cta">
             <a className="btn btn-primary" href="/themes/builder/">
               Open the theme builder
