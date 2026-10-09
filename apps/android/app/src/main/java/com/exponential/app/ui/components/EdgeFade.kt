@@ -30,10 +30,22 @@ import dev.chrisbanes.haze.hazeSource
 /** The Work screen's backdrop state; null (outside it) = the scrim alone. */
 val LocalDetailHaze = compositionLocalOf<HazeState?> { null }
 
-/** Marks scrolling content the chrome blurs. A no-op outside the Work screen. */
+/**
+ * Whether the page composing here is the one ON SCREEN. A pager composes its
+ * neighbours too ([TabPager]'s `beyondViewportPageCount`), and every face body
+ * registers as a source; only the shown page may feed the ONE state. Two
+ * sources on it (the Issue face and the off-screen Run face, EXP-1175) kept
+ * Haze re-running its pre-draw pass on every frame: a never-ending frame loop
+ * that burned the battery and kept Compose from ever going idle.
+ */
+val LocalDetailHazeSourceActive = compositionLocalOf { true }
+
+/** Marks scrolling content the chrome blurs. A no-op outside the Work screen
+ *  and on a pager page that is not the shown one. */
 @Composable
 fun Modifier.detailHazeSource(): Modifier {
     val state = LocalDetailHaze.current ?: return this
+    if (!LocalDetailHazeSourceActive.current) return this
     return this.hazeSource(state)
 }
 

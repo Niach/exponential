@@ -89,6 +89,7 @@ internal fun FixConflictsCard(
             onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
             title = "Pull request",
             enabled = items.isNotEmpty(),
+            sheetModifier = Modifier.testTag("agent-composer-fix-conflicts-picker"),
         ) { open ->
             FixConflictsPrRow(pr = pr, enabled = items.isNotEmpty(), onClick = open)
         }
