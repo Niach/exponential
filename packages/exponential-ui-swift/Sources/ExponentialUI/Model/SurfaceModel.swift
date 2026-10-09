@@ -133,6 +133,9 @@ public final class SurfaceModel {
     @ObservationIgnored var interaction: [String: InteractionState] = [:]
     @ObservationIgnored var pressedId: String?
     @ObservationIgnored var revisions: [String: Int] = [:]
+    /// `componentId\0message` of the paint errors already reported (cleared
+    /// on new components).
+    @ObservationIgnored var reportedPaintErrors: Set<String> = []
     @ObservationIgnored var fields: [String: FieldState] = [:]
     @ObservationIgnored var layerReturn: [String: String] = [:]
     @ObservationIgnored var openLayerKeys: [String] = []
@@ -191,6 +194,7 @@ public final class SurfaceModel {
     @discardableResult
     public func apply(_ message: JSONValue) throws -> FfiApplyOutcome {
         let out = try surface.apply(messageJson: message.json)
+        if out.structureChanged { reportedPaintErrors.removeAll() }
         invalidate(structure: out.structureChanged)
         return out
     }
@@ -198,6 +202,7 @@ public final class SurfaceModel {
     @discardableResult
     public func apply(json: String) throws -> FfiApplyOutcome {
         let out = try surface.apply(messageJson: json)
+        if out.structureChanged { reportedPaintErrors.removeAll() }
         invalidate(structure: out.structureChanged)
         return out
     }
@@ -206,6 +211,7 @@ public final class SurfaceModel {
     @discardableResult
     public func setNested(json: String) throws -> FfiApplyOutcome {
         let out = try surface.setNested(nestedJson: json)
+        reportedPaintErrors.removeAll()
         invalidate(structure: true)
         return out
     }
@@ -214,6 +220,7 @@ public final class SurfaceModel {
     @discardableResult
     public func setComponents(json: String) throws -> FfiApplyOutcome {
         let out = try surface.setComponents(componentsJson: json)
+        reportedPaintErrors.removeAll()
         invalidate(structure: true)
         return out
     }
@@ -294,7 +301,9 @@ public final class SurfaceModel {
             if fixedMeasure, let fixed = try? surface.layoutFixed(sizesJson: nil, wrap: true) {
                 out = fixed
             } else {
-                let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration)
+                let measurer = SurfaceMeasurer(theme: theme, mode: mode, extensions: extensions, kinds: kinds, generation: measureGeneration, mediaAllowed: { [unowned self] src in
+                    MainActor.assumeIsolated { self.mediaRequest(src) != nil }
+                })
                 out = surface.layout(measurer: measurer)
                 calls += measurer.calls
             }

@@ -43,8 +43,11 @@ public struct UrlPolicy: Sendable, Codable, Equatable {
     }
 }
 
-/// The media loader: relative urls resolve against `baseUrl`; every rule
-/// whose `prefix` the absolute url starts with adds its headers.
+/// The media loader: relative urls resolve against `baseUrl`; the absolute
+/// url must use one of `schemes` (default https, http, data: no `file`
+/// unless listed) and, when `hosts` is set, an http(s) host matching one
+/// (exact or `*.example.com`); every rule whose `prefix` the url starts
+/// with adds its headers.
 public struct MediaOptions: Sendable, Codable, Equatable {
     public struct Rule: Sendable, Codable, Equatable {
         public var prefix: String
@@ -57,17 +60,79 @@ public struct MediaOptions: Sendable, Codable, Equatable {
 
     public var baseUrl: String?
     public var rules: [Rule]
+    /// The schemes a src may use (nil = the contract's `media.defaultSchemes`).
+    public var schemes: [String]?
+    /// http(s) hosts media may load from (nil = any).
+    public var hosts: [String]?
 
-    public init(baseUrl: String? = nil, rules: [Rule] = []) {
+    public init(baseUrl: String? = nil, rules: [Rule] = [], schemes: [String]? = nil, hosts: [String]? = nil) {
         self.baseUrl = baseUrl
         self.rules = rules
+        self.schemes = schemes
+        self.hosts = hosts
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         baseUrl = try c.decodeIfPresent(String.self, forKey: .baseUrl)
         rules = try c.decodeIfPresent([Rule].self, forKey: .rules) ?? []
+        schemes = try c.decodeIfPresent([String].self, forKey: .schemes)
+        hosts = try c.decodeIfPresent([String].self, forKey: .hosts)
     }
+}
+
+/// `media.limits` of the host contract: what every image load must fit.
+public struct MediaLimits: Sendable, Equatable {
+    public var maxBytes: Int64
+    public var timeoutMs: Double
+    public var maxPixels: Int64
+
+    public init(maxBytes: Int64, timeoutMs: Double, maxPixels: Int64) {
+        self.maxBytes = maxBytes
+        self.timeoutMs = timeoutMs
+        self.maxPixels = maxPixels
+    }
+
+    /// Read ONCE from the core's contract (`hostContractJson()`).
+    public static let contract: MediaLimits = {
+        let l = JSONValue.parse(hostContractJson())["media"]?["limits"]
+        return MediaLimits(maxBytes: Int64(l?["maxBytes"]?.number ?? 0), timeoutMs: l?["timeoutMs"]?.number ?? 0, maxPixels: Int64(l?["maxPixels"]?.number ?? 0))
+    }()
+}
+
+/// The contract's `paint` section: the hook and the error code a failed
+/// painter reports with.
+enum PaintContract {
+    static let errorCode: String = JSONValue.parse(hostContractJson())["paint"]?["errorCode"]?.string ?? "RENDER_FAILED"
+}
+
+/// The href a link may navigate to under `policy` (the absolute url), or
+/// nil when the URL policy denies it: paint it as text, never open it.
+public func safeHref(_ url: String, policy: UrlPolicy?) -> String? {
+    guard !url.isEmpty, let json = try? decideUrlJson(policyJson: PolicyJSON.encode(policy), url: url) else { return nil }
+    let d = JSONValue.parse(json)
+    guard d["allowed"]?.bool == true, let abs = d["url"]?.string, !abs.isEmpty else { return nil }
+    return abs
+}
+
+/// The media request for `src` under `options` (nil options = the
+/// defaults): the absolute url + the rules' headers, or nil when the media
+/// policy denies it (nothing loads).
+public func policyMediaRequest(_ src: String, options: MediaOptions?) -> URLRequest? {
+    guard !src.isEmpty else { return nil }
+    let json = PolicyJSON.encode(options ?? MediaOptions()) ?? "{}"
+    guard let out = try? mediaRequestJson(url: src, optionsJson: json), let r = JSONValue.parse(out).object, let u = r["url"]?.string.flatMap(URL.init(string:)) else { return nil }
+    var request = URLRequest(url: u)
+    for (k, v) in r["headers"]?.object ?? [:] { request.setValue(v.displayText, forHTTPHeaderField: k) }
+    return request
+}
+
+/// Whether an already-built request's url passes the media schemes / hosts
+/// (a host hook can rewrite, never widen).
+func mediaAllowed(_ request: URLRequest, options: MediaOptions?) -> Bool {
+    guard let url = request.url?.absoluteString else { return false }
+    let check = MediaOptions(schemes: options?.schemes, hosts: options?.hosts)
+    return policyMediaRequest(url, options: check) != nil
 }
 
 /// A parsed binding source `<scheme>:<name>[?k=v&…]`.

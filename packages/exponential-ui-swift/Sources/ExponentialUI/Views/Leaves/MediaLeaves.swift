@@ -23,7 +23,7 @@ struct AvatarLeaf: View {
         let size = min(cx.size.width, cx.size.height)
         let fs = fallback.px("fontSize")
         let src = cx.props.str("src")
-        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         Group {
             if let request {
                 AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
@@ -75,7 +75,7 @@ struct ImageLeaf: View {
         let alt = cx.props.str("alt")
         let muted = cx.themeColor("mutedForeground") ?? cx.ink
         let fallback = cx.props.str("fallback").isEmpty ? BuiltinIcons.name("Image.fallback") : cx.props.str("fallback")
-        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         let fit = cx.props.str("fit")
         let fx = CGFloat(min(1, max(0, cx.props.num("focalX") ?? 0.5)))
         let fy = CGFloat(min(1, max(0, cx.props.num("focalY") ?? 0.5)))
@@ -124,7 +124,7 @@ struct VideoLeaf: View {
 
     var body: some View {
         let poster = cx.props.str("poster")
-        let request = poster.isEmpty ? nil : cx.model.host.mediaRequest(poster)
+        let request = poster.isEmpty ? nil : cx.model.mediaRequest(poster)
         ZStack {
             Color.black.opacity(0.85)
             if let request {

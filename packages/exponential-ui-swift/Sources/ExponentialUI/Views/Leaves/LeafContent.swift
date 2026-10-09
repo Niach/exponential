@@ -105,10 +105,33 @@ private struct ExtensionLeafView: View {
 
     var body: some View {
         let kind = context.node.extensionKind ?? ""
-        if let painter = context.model.extensions.painter(for: kind) {
-            painter.paint(ExtensionContext(node: context.node, props: context.props, style: context.style, textStyle: context.textStyle, ink: context.ink, size: context.size, theme: context.model.theme, mode: context.model.mode, model: context.model, children: nil))
-        } else {
-            Text(kind).font(.system(size: 12)).foregroundStyle(context.ink.opacity(0.6)).frame(width: context.size.width, height: context.size.height, alignment: .topLeading)
+        let ctx = ExtensionContext(node: context.node, props: context.props, style: context.style, textStyle: context.textStyle, ink: context.ink, size: context.size, theme: context.model.theme, mode: context.model.mode, model: context.model, children: nil)
+        // A painter that throws (or a kind without one) paints an empty box
+        // and reports `onPaintError`; the surface keeps painting.
+        switch Self.paint(kind: kind, ctx, model: context.model) {
+        case let .success(view):
+            view
+        case let .failure(error):
+            // Reported from the body: `paintError` dedupes and defers the
+            // host call past this update.
+            let _ = context.model.paintError(componentId: context.node.id, message: error.message)
+            Color.clear.frame(width: context.size.width, height: context.size.height)
+        }
+    }
+
+    struct Failure: Error {
+        let message: String
+    }
+
+    @MainActor
+    static func paint(kind: String, _ ctx: ExtensionContext, model: SurfaceModel) -> Result<AnyView, Failure> {
+        guard let painter = model.extensions.painter(for: kind) else {
+            return .failure(Failure(message: "no painter for the extension kind \(kind.isEmpty ? "?" : kind)"))
+        }
+        do {
+            return .success(try painter.paint(ctx))
+        } catch {
+            return .failure(Failure(message: "\(kind): \(String(describing: error))"))
         }
     }
 }
@@ -244,13 +267,15 @@ struct ButtonLeaf: View {
     }
 }
 
-/// A Link: an underlined label, centred when the leaf is wider.
+/// A Link: an underlined label, centred when the leaf is wider. An href
+/// the URL policy denies paints as plain text (pressing it opens nothing).
 struct LinkLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let label = cx.props.str("label").isEmpty ? cx.props.str("href") : cx.props.str("label")
-        Text(label).font(cx.font).underline().foregroundStyle(cx.ink).lineLimit(1)
+        let allowed = cx.model.linkHref(cx.props.str("href")) != nil
+        Text(label).font(cx.font).underline(allowed).foregroundStyle(cx.ink).lineLimit(1)
             .frame(width: cx.inner.width, height: cx.inner.height)
             .offset(x: cx.inner.minX, y: cx.inner.minY)
     }

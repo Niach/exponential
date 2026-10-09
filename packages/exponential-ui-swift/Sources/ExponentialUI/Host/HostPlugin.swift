@@ -78,6 +78,21 @@ public struct SurfaceUploadEvent: Sendable, Equatable {
     public let files: [SurfaceUploadFile]
 }
 
+/// A component whose painter failed (`catalog/host.json` `paint`): it
+/// painted an empty box; the host forwards this as an A2UI `RENDER_FAILED`
+/// error. Reported once per surface + component + message.
+public struct SurfacePaintError: Sendable, Equatable, Hashable {
+    public let surfaceId: String
+    public let componentId: String
+    public let message: String
+
+    public init(surfaceId: String, componentId: String, message: String) {
+        self.surfaceId = surfaceId
+        self.componentId = componentId
+        self.message = message
+    }
+}
+
 /// What an EMBEDDING APP provides. The SDK knows no transport: actions and
 /// input edits are plain values the host forwards wherever it likes. Every
 /// requirement has a default (the `NoHost` behaviour), so a host implements
@@ -92,16 +107,30 @@ public protocol HostPlugin: AnyObject {
     func onAction(_ event: SurfaceActionEvent)
     /// Host-owned text edits (debounced `change`, `commit` on blur / Enter).
     func onInput(_ event: SurfaceInputEvent)
-    /// `openUrl` and `Link`. Default: the system opener.
+    /// `openUrl`, `Link` and markdown links: only hrefs `urlPolicy`
+    /// allowed reach it, absolute. Default: the system opener.
     func openUrl(_ url: String)
-    /// Rewrites media URLs (relative attachment paths, signed URLs).
+    /// The URL policy every href passes (Link, markdown links, openUrl).
+    /// nil = the contract defaults (https, http, mailto, tel; relative urls
+    /// resolve against `mediaOptions.baseUrl`, else are denied).
+    var urlPolicy: UrlPolicy? { get }
+    /// The media policy every src passes (Image, Avatar, Video + poster,
+    /// Audio, markdown images). nil = the contract defaults.
+    var mediaOptions: MediaOptions? { get }
+    /// Rewrites a media src BEFORE the media policy (relative attachment
+    /// paths, signed URLs); its result never bypasses the policy.
     func resolveUrl(_ src: String) -> String
     /// A host function call (VAPP-91). `ExponentialHost` gates and runs it;
     /// a bare plugin ignores it.
     func onFunctionCall(_ call: SurfaceFunctionCall)
     /// The request an image / avatar / video poster loads with (auth
-    /// headers). Default: `resolveUrl(src)` when it is absolute, no headers.
+    /// headers). Default: `resolveUrl(src)` through the media policy
+    /// (`mediaOptions`). The surface re-checks the result's url against the
+    /// media schemes / hosts.
     func mediaRequest(_ src: String) -> URLRequest?
+    /// A component's painter failed (it painted an empty box). Called once
+    /// per surface + component + message.
+    func onPaintError(_ error: SurfacePaintError)
     /// Called once per structure version for each `Unknown` placeholder.
     func onUnknown(component: String, catalogId: String?, id: String)
     /// A font family NAME a theme asks for → the platform font family to
@@ -128,18 +157,28 @@ public extension HostPlugin {
     func onAction(_ event: SurfaceActionEvent) {}
     func onInput(_ event: SurfaceInputEvent) {}
     func openUrl(_ url: String) {
-        guard let u = URL(string: url) else { return }
-        #if canImport(UIKit)
-        UIApplication.shared.open(u)
-        #elseif canImport(AppKit)
-        NSWorkspace.shared.open(u)
-        #endif
+        guard let href = effectiveHref(url), let u = URL(string: href) else { return }
+        systemOpen(u)
     }
+    var urlPolicy: UrlPolicy? { nil }
+    var mediaOptions: MediaOptions? { nil }
     func resolveUrl(_ src: String) -> String { src }
     func onFunctionCall(_ call: SurfaceFunctionCall) {}
     func mediaRequest(_ src: String) -> URLRequest? {
-        guard !src.isEmpty, let url = URL(string: resolveUrl(src)), url.scheme != nil else { return nil }
-        return URLRequest(url: url)
+        policyMediaRequest(resolveUrl(src), options: mediaOptions)
+    }
+    func onPaintError(_ error: SurfacePaintError) {}
+
+    /// The URL policy with its `baseUrl` defaulting to the media one.
+    var effectiveUrlPolicy: UrlPolicy {
+        var policy = urlPolicy ?? UrlPolicy()
+        if policy.baseUrl == nil { policy.baseUrl = mediaOptions?.baseUrl }
+        return policy
+    }
+
+    /// `url` as the absolute href the URL policy allows, or nil.
+    func effectiveHref(_ url: String) -> String? {
+        safeHref(url, policy: effectiveUrlPolicy)
     }
     func onUnknown(component: String, catalogId: String?, id: String) {}
     func fontFamily(_ name: String) -> String? { nil }
@@ -148,6 +187,16 @@ public extension HostPlugin {
     func pickFiles(_ request: FilePickRequest) -> Bool { false }
     func announce(text: String, live: String) {}
     func copy(_ text: String) -> Bool { false }
+}
+
+/// The platform opener (an href that already passed the URL policy).
+@MainActor
+func systemOpen(_ u: URL) {
+    #if canImport(UIKit)
+    UIApplication.shared.open(u)
+    #elseif canImport(AppKit)
+    NSWorkspace.shared.open(u)
+    #endif
 }
 
 /// The host that does nothing (previews, tests).
@@ -167,6 +216,9 @@ public final class ClosureHost: HostPlugin {
     /// Picked / dropped files (with their bytes).
     public var uploads: (SurfaceUploadEvent) -> Void
     public var announcements: (String, String) -> Void
+    public var paintErrors: (SurfacePaintError) -> Void
+    public var urlPolicy: UrlPolicy?
+    public var mediaOptions: MediaOptions?
 
     public init(
         icons: @escaping (String, CGFloat) -> AnyView? = { _, _ in nil },
@@ -175,8 +227,14 @@ public final class ClosureHost: HostPlugin {
         urls: ((String) -> Void)? = nil,
         unknowns: @escaping (String, String?, String) -> Void = { _, _, _ in },
         uploads: @escaping (SurfaceUploadEvent) -> Void = { _ in },
-        announcements: @escaping (String, String) -> Void = { _, _ in }
+        announcements: @escaping (String, String) -> Void = { _, _ in },
+        paintErrors: @escaping (SurfacePaintError) -> Void = { _ in },
+        urlPolicy: UrlPolicy? = nil,
+        mediaOptions: MediaOptions? = nil
     ) {
+        self.paintErrors = paintErrors
+        self.urlPolicy = urlPolicy
+        self.mediaOptions = mediaOptions
         self.icons = icons
         self.actions = actions
         self.inputs = inputs
@@ -193,14 +251,9 @@ public final class ClosureHost: HostPlugin {
     public func onAction(_ event: SurfaceActionEvent) { actions(event) }
     public func onInput(_ event: SurfaceInputEvent) { inputs(event) }
     public func openUrl(_ url: String) {
-        if let urls { urls(url) } else {
-            guard let u = URL(string: url) else { return }
-            #if canImport(UIKit)
-            UIApplication.shared.open(u)
-            #elseif canImport(AppKit)
-            NSWorkspace.shared.open(u)
-            #endif
-        }
+        guard let href = effectiveHref(url) else { return }
+        if let urls { urls(href) } else if let u = URL(string: href) { systemOpen(u) }
     }
+    public func onPaintError(_ error: SurfacePaintError) { paintErrors(error) }
     public func onUnknown(component: String, catalogId: String?, id: String) { unknowns(component, catalogId, id) }
 }
