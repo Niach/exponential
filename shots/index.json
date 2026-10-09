@@ -2259,6 +2259,13 @@
         "bytes": 22042,
         "sha256": "39ad0c63c3688039154c78d003865feb6ff1a460372b1b1c3ed4104422f1710a"
       },
+      "ios": {
+        "file": "shots/exponential-ui-resizable/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 12764,
+        "sha256": "5352f212716d4d76ff2b59cce306fdea2a5e77227566600f07aa0eef496074e7"
+      },
       "web": {
         "file": "shots/exponential-ui-resizable/web.webp",
         "width": 1800,
