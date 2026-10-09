@@ -59,6 +59,24 @@ public enum ContentBlock: Identifiable, Equatable {
         }
     }
 
+    /// EXP-1238: this block's content under `other`'s id, when both are the
+    /// same kind — how a display-only re-parse keeps a row's block identity
+    /// (and with it the UITextView SwiftUI already measured) while the text
+    /// streams in. A table owns cell ids of its own, so it never adopts; nil
+    /// means "a different kind of block, keep the fresh id".
+    public func adoptingId(of other: ContentBlock) -> ContentBlock? {
+        switch (self, other) {
+        case let (.text(_, content), .text(id, _)):
+            return .text(id: id, attributedContent: content)
+        case let (.image(_, url, alt), .image(id, _, _)):
+            return .image(id: id, url: url, alt: alt)
+        case let (.attachmentLink(_, url, label), .attachmentLink(id, _, _)):
+            return .attachmentLink(id: id, url: url, label: label)
+        default:
+            return nil
+        }
+    }
+
     /// Everything that is NOT an editable text run — an image or a table. Those
     /// blocks are never adjacent to one another in the document: `normalize`
     /// keeps an (initially empty) text block between them, above the first and

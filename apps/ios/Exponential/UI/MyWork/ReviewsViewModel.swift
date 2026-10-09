@@ -48,39 +48,69 @@ struct ReviewGroup: Identifiable {
     var id: String { board.id }
 }
 
-/// "Reviews" (EXP-131): every issue with an open PR across EVERY member team
-/// (EXP-1186, cross-team like the Inbox), collapsed to one entry per distinct PR (a batch PR appears once, not N
-/// times), grouped by board. Mirrors `MyIssuesViewModel`'s GRDB observation
-/// pattern — two independent, cancellable loops over issues + boards.
+/// EXP-1244: one team repo's open pull requests NO issue or run links
+/// (`repositories.openPulls`), listed after the "Agent runs" bands.
+struct RepoReviewGroup: Identifiable {
+    let team: TeamEntity
+    let repositoryId: String
+    let fullName: String
+    let pulls: [OpenPull]
+    var id: String { "\(team.id):\(repositoryId)" }
+}
+
+/// The whole queue, in display order (`ReviewsQueue.build`).
+struct ReviewsSnapshot {
+    var groups: [ReviewGroup] = []
+    var runs: [TeamGroups.Group<RunReviewEntry>] = []
+    var repos: [RepoReviewGroup] = []
+    var isEmpty: Bool { groups.isEmpty && runs.isEmpty && repos.isEmpty }
+}
+
+/// "Reviews" (EXP-131): every open PR across EVERY member team (EXP-1186,
+/// cross-team like the Inbox). EXP-1244: the queue itself is ONE pure
+/// function ×4, `ReviewsQueue.build` (ExpCore, fixture-locked); this model
+/// only observes its inputs — GRDB loops over issues, boards and sessions,
+/// plus one `repositories.openPulls` fetch per team.
 @MainActor @Observable
 final class ReviewsViewModel {
+    /// Every issue carrying a pr_url or an open pr_state: the open ones are
+    /// entries, every pr_url (any state) LINKS a pull request.
     var issues: [IssueEntity] = []
     var boards: [BoardEntity] = []
-    /// EXP-734: issue-less runs whose OWN pull request is open — the chore PRs
-    /// no board group can ever show.
-    var runSessions: [CodingSessionEntity] = []
+    /// Every run carrying a pr_url: issue-less open ones are run entries,
+    /// every pr_url (any state) links a pull request.
+    var sessions: [CodingSessionEntity] = []
     private let accountId: String
     private let db: DatabaseManager
+    /// EXP-1244: the app-wide openPulls store the tab bar's dot reads too.
+    private let openPulls: OpenPullsStore
+    private let repositoriesApi: RepositoriesApi
 
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager) {
+    init(
+        accountId: String, db: DatabaseManager, openPulls: OpenPullsStore,
+        repositoriesApi: RepositoriesApi
+    ) {
         self.accountId = accountId
         self.db = db
+        self.openPulls = openPulls
+        self.repositoriesApi = repositoriesApi
     }
 
     /// The loops are team-agnostic and scope at read time to the member
-    /// teams handed in (`groups(teams:)`, `runEntries(teams:)`).
+    /// teams handed in (`snapshot(teams:)`).
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
-        // Only issues with an OPEN PR are review candidates.
+        // EXP-1244: the open ones AND every linked one — a merged or closed
+        // issue's pr_url still links its pull request (the queue filters).
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity
-                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .filter(Column("pr_state") == DomainContract.prStateOpen || Column("pr_url") != nil)
                 .fetchAll(db)
         }
         issueTask = Task { [weak self] in
@@ -92,7 +122,7 @@ final class ReviewsViewModel {
         }
 
         // Boards resolve each entry's board (name/section) and scope the
-        // list to the active team (issues carry no team_id).
+        // list to the member teams (issues carry no team_id).
         let boardObservation = ValueObservation.tracking { db in
             try BoardEntity.fetchAll(db)
         }
@@ -106,16 +136,16 @@ final class ReviewsViewModel {
 
         // EXP-734: an action or chat run's own PR links no issue, so it can
         // only be found on the session row the server stamped it on.
+        // EXP-1244: every run's pr_url, any state, links its pull request.
         let sessionObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
-                .filter(Column("issue_id") == nil)
-                .filter(Column("pr_state") == DomainContract.prStateOpen)
+                .filter(Column("pr_url") != nil)
                 .fetchAll(db)
         }
         sessionTask = Task { [weak self] in
             do {
                 for try await sessions in sessionObservation.values(in: pool) {
-                    self?.runSessions = sessions
+                    self?.sessions = sessions
                 }
             } catch {}
         }
@@ -130,47 +160,59 @@ final class ReviewsViewModel {
         sessionTask = nil
     }
 
-    /// Review entries grouped by board across `teams` (EXP-1186). Entries
-    /// within a board are newest-first; board sections follow the team order
-    /// (`TeamGroups.ordered`), then the sidebar's `sortOrder` inside a team.
-    /// Empty when no team has synced.
-    func groups(teams: [TeamEntity]) -> [ReviewGroup] {
+    /// EXP-1244: a FORCED openPulls refetch per team, in parallel (joined
+    /// with any in-flight one); a failure means that team lists nothing.
+    /// Called on appear, on refresh and whenever the team set changes.
+    func refreshPulls(teamIds: [String]) async {
+        await openPulls.refresh(
+            accountId: accountId, teamIds: teamIds, api: repositoriesApi, force: true
+        )
+    }
+
+    /// EXP-1244: a merged external pull request leaves the list (and the
+    /// tab's dot) at once.
+    func dropPull(repositoryId: String, number: Int) {
+        openPulls.drop(accountId: accountId, repositoryId: repositoryId, number: number)
+    }
+
+    /// The queue across `teams` (EXP-1186), in the team order
+    /// (`TeamGroups.ordered`): board bands, then one "Agent runs" band per
+    /// team, then the repository bands (EXP-1244). Empty when no team has
+    /// synced.
+    func snapshot(teams: [TeamEntity]) -> ReviewsSnapshot {
         let orderedTeams = TeamGroups.ordered(teams)
-        let teamIds = Set(orderedTeams.map(\.id))
-        let teamBoards = boards.filter { teamIds.contains($0.teamId) }
-        let boardById = Dictionary(uniqueKeysWithValues: teamBoards.map { ($0.id, $0) })
-        let candidates = issues.filter { boardById[$0.boardId] != nil }
-
-        // Collapse issues sharing a prUrl into one entry (fall back to the issue
-        // id when prUrl is absent). Preserve first-seen order for determinism.
-        var buckets: [String: [IssueEntity]] = [:]
-        var keyOrder: [String] = []
-        for issue in candidates {
-            let key = (issue.prUrl?.isEmpty == false) ? issue.prUrl! : "issue:\(issue.id)"
-            if buckets[key] == nil { keyOrder.append(key); buckets[key] = [] }
-            buckets[key]?.append(issue)
+        let teamById = Dictionary(orderedTeams.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let queue = ReviewsQueue.build(
+            teamIds: orderedTeams.map(\.id),
+            boards: boards,
+            issues: issues,
+            sessions: sessions,
+            pulls: openPulls.pulls(accountId: accountId, teamIds: orderedTeams.map(\.id))
+        )
+        let groups = queue.boardGroups.compactMap { group -> ReviewGroup? in
+            guard let team = teamById[group.board.teamId] else { return nil }
+            return ReviewGroup(
+                board: group.board, team: team,
+                entries: group.entries.map { ReviewEntry(id: $0.key, issues: $0.issues) }
+            )
         }
-
-        let entries: [ReviewEntry] = keyOrder.compactMap { key in
-            guard let bucket = buckets[key], !bucket.isEmpty else { return nil }
-            // Newest first inside the entry — representative is the newest issue.
-            let sorted = bucket.sorted { Self.newerFirst($0, $1) }
-            return ReviewEntry(id: key, issues: sorted)
+        let runs = queue.runGroups.compactMap { group -> TeamGroups.Group<RunReviewEntry>? in
+            guard let team = teamById[group.teamId] else { return nil }
+            return TeamGroups.Group(team: team, items: group.sessions.map {
+                RunReviewEntry(
+                    session: $0,
+                    title: PastRuns.chatSubject($0) ?? $0.actionName ?? PastRuns.chatRunName
+                )
+            })
         }
-        .sorted { Self.newerFirst($0.representative, $1.representative) }
-
-        // A pull request linking issues on two boards lists under its
-        // representative's board.
-        let byBoard = Dictionary(grouping: entries) { $0.representative.boardId }
-        return orderedTeams.flatMap { team in
-            teamBoards
-                .filter { $0.teamId == team.id }
-                .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
-                .compactMap { board in
-                    guard let boardEntries = byBoard[board.id], !boardEntries.isEmpty else { return nil }
-                    return ReviewGroup(board: board, team: team, entries: boardEntries)
-                }
+        let repos = queue.repoGroups.compactMap { repo -> RepoReviewGroup? in
+            guard let team = teamById[repo.teamId] else { return nil }
+            return RepoReviewGroup(
+                team: team, repositoryId: repo.repositoryId,
+                fullName: repo.fullName, pulls: repo.pulls
+            )
         }
+        return ReviewsSnapshot(groups: groups, runs: runs, repos: repos)
     }
 
     /// The team a review entry's board belongs to — the recovery run's seed
@@ -183,48 +225,10 @@ final class ReviewsViewModel {
     /// `issue`'s OWN team. `issues` spans every team of the account and
     /// branch names repeat across teams.
     func stackPool(for issue: IssueEntity) -> [IssueEntity] {
-        PrStack.teamPool(of: issue, issues: issues, boards: boards)
-    }
-
-    /// EXP-734: the agent runs parking their OWN open pull request, one entry
-    /// per distinct prUrl (newest run wins), newest first, split per team in
-    /// the team order (EXP-1186: one "Agent runs" section per team). Sessions
-    /// carry `team_id`, so no board scope is needed. A batch run's PR also
-    /// links its issues, so a run PR an issue row already lists is left to
-    /// that row.
-    func runEntries(teams: [TeamEntity]) -> [TeamGroups.Group<RunReviewEntry>] {
-        let teamIds = Set(teams.map(\.id))
-        let issuePrUrls = Set(issues.compactMap { $0.prUrl }.filter { !$0.isEmpty })
-        var byPrUrl: [String: CodingSessionEntity] = [:]
-        for session in runSessions where teamIds.contains(session.teamId) {
-            guard session.hasOpenPr, let prUrl = session.prUrl,
-                  !issuePrUrls.contains(prUrl)
-            else { continue }
-            if let current = byPrUrl[prUrl], Self.newerFirst(current, session) { continue }
-            byPrUrl[prUrl] = session
-        }
-        let entries = byPrUrl.values
-            .sorted { Self.newerFirst($0, $1) }
-            .map {
-                RunReviewEntry(
-                    session: $0,
-                    title: PastRuns.chatSubject($0) ?? $0.actionName ?? PastRuns.chatRunName
-                )
-            }
-        return TeamGroups.group(entries, teams: teams) { $0.session.teamId }
-    }
-
-    /// Newest-first by `startedAt`, id as the deterministic tie-break — the
-    /// issue rule applied to session rows.
-    private static func newerFirst(_ a: CodingSessionEntity, _ b: CodingSessionEntity) -> Bool {
-        if a.startedAt != b.startedAt { return a.startedAt > b.startedAt }
-        return a.id > b.id
-    }
-
-    /// Newest-first by `createdAt` (Postgres wire text compares chronologically,
-    /// the IssueSorting precedent), id as the deterministic tie-break.
-    private static func newerFirst(_ a: IssueEntity, _ b: IssueEntity) -> Bool {
-        if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
-        return a.id > b.id
+        PrStack.teamPool(
+            of: issue,
+            issues: issues.filter { $0.prState == DomainContract.prStateOpen },
+            boards: boards
+        )
     }
 }

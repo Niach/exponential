@@ -9,12 +9,10 @@ import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import {
-  useReviewsOpenPrCount,
-  useShowsReviewsAcrossTeams,
+  useReviewsNav,
   useAgentsRunningCount,
 } from "@/hooks/use-nav-counts"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
-import { useBoardsForTeams } from "@/hooks/use-team-data"
 import { ACTIONS_LABEL } from "@/components/team/sidebar-nav-entries"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
@@ -109,15 +107,8 @@ function InboxDot() {
 // in_review issue status. green-500/yellow-400 match the natives'
 // semantic tokens (EXP-699). EXP-1186: across every member team — the
 // phone's Reviews is cross-team like the inbox.
-function ReviewsDot({
-  boards,
-  teamIds,
-}: {
-  boards: Board[] | undefined
-  teamIds: readonly string[]
-}) {
-  const count = useReviewsOpenPrCount(boards, teamIds)
-  if (count === 0) return null
+function ReviewsDot({ dot }: { dot: boolean }) {
+  if (!dot) return null
   return <TabDot className="bg-green-500" />
 }
 
@@ -201,8 +192,8 @@ export function MobileTabBar({
   // Agent dot read every member team (md+ = the active team, the bar is
   // hidden there anyway).
   const scope = useCrossTeamScope(team)
-  const { boards: scopeBoards } = useBoardsForTeams(scope.teamIds)
-  const showsReviews = useShowsReviewsAcrossTeams(scope.teams, scopeBoards)
+  const reviewsNav = useReviewsNav(scope.teams)
+  const showsReviews = reviewsNav.shows
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -282,7 +273,7 @@ export function MobileTabBar({
             className={tabClass(onReviews)}
           >
             <NavReviewsIcon className="size-5" />
-            <ReviewsDot boards={scopeBoards} teamIds={scope.teamIds} />
+            <ReviewsDot dot={reviewsNav.dot} />
           </Link>
         )}
         {/* EXP-1187: Actions is a tab; Drafts stay the Inbox's third

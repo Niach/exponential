@@ -33,7 +33,7 @@ import com.exponential.app.ui.theme.flatRow
  * The Reviews list's pull-request row: a flat row with the green PR glyph,
  * the `pr-batch` mark on a PR that links several issues, the mono [label]
  * (`#n`, else the identifier) and the [title]. [details] adds lines under the
- * identity line, [trailing] the row's controls, [footer] what captions the
+ * identity line ([titleTrailing] closes it), [trailing] the row's controls, [footer] what captions the
  * row below it.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -47,6 +47,8 @@ internal fun ReviewPrRow(
     onLongClick: (() -> Unit)? = null,
     /** A tap on the batch mark (Reviews: the batch's issues); null = inert. */
     onBatchMark: (() -> Unit)? = null,
+    /** After the title on the identity line (EXP-1244: an unlinked PR's Draft pill). */
+    titleTrailing: (@Composable () -> Unit)? = null,
     details: @Composable ColumnScope.() -> Unit = {},
     trailing: @Composable RowScope.() -> Unit = {},
     footer: @Composable ColumnScope.() -> Unit = {},
@@ -105,6 +107,10 @@ internal fun ReviewPrRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (titleTrailing != null) {
+                        Spacer(Modifier.width(6.dp))
+                        titleTrailing()
+                    }
                 }
                 details()
             }

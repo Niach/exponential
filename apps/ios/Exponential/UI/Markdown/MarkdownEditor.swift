@@ -62,7 +62,11 @@ struct MarkdownEditor: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
-    @State private var toolbar = MarkdownToolbar()
+    /// EXP-1238: built on the first EDITABLE appearance, never for a read-only
+    /// render — it is a UIKit input view with a rail of buttons, and `@State`'s
+    /// initial value used to construct one on every `init`, i.e. on every
+    /// re-render of every transcript bubble.
+    @State private var toolbar: MarkdownToolbar?
     /// EXP-551 — the toolbar's emoji button opens a sheet, which resigns the
     /// text view's first responder; `emojiRefocusTarget` is the block to hand
     /// focus back to once it dismisses.
@@ -80,6 +84,80 @@ struct MarkdownEditor: View {
     // line (e.g. a code span) blew the whole column out to ~3× screen width
     // and embedded images rendered at native pixel size.
     var body: some View {
+        // EXP-1238: a read-only render is the block stack and NOTHING else.
+        // The picker, importer and sheet presenters below are editing chrome,
+        // and every transcript bubble used to carry them. With them, a lazy
+        // transcript row logged an AttributeGraph cycle at its first layout —
+        // a cycle SwiftUI settles with a STALE geometry, which is how a
+        // streamed narration kept an earlier fragment's height and drew its
+        // last lines over the sent message below it (and, with enough rows
+        // churning, crashed in the stack layout). Without them: no cycle.
+        if isReadOnly {
+            blockStack
+        } else {
+            blockStack
+                .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
+                    EmojiPickerSheet(preferences: emojiPreferences) { unicode in
+                        model.insertTextAtCaret(unicode)
+                    }
+                }
+                .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
+                // EXP-824: the library offers videos too; a video pick is normalised
+                // to 720p H.264/AAC and lands as an inline player block.
+                .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .any(of: [.images, .videos]))
+                .onChange(of: photoItem) { _, newItem in
+                    guard let newItem else { return }
+                    Task { await ingestPhoto(newItem) }
+                }
+                .fileImporter(
+                    isPresented: $showFileImporter,
+                    allowedContentTypes: [.item],
+                    allowsMultipleSelection: true
+                ) { result in
+                    guard case let .success(urls) = result else { return }
+                    for url in urls { ingestPickedFile(url) }
+                }
+                .onAppear(perform: configureEditing)
+                // Membership can sync in after mount and flip the attach gate:
+                // `onAttachFile` is derived from membership, and on a cold start the
+                // editor mounts before the team_members rows land. Without this the
+                // "Files" entry would stay missing for the life of the view — and
+                // EXP-327 removed the Files section's own paperclip, so there is no
+                // other way in.
+                .onChange(of: onAttachFile == nil) { _, isNil in
+                    toolbar?.onFilePick = isNil ? nil : { showFileImporter = true }
+                }
+        }
+    }
+
+    /// The editing wiring, once, on an editable editor's first appearance.
+    private func configureEditing() {
+        let toolbar = self.toolbar ?? MarkdownToolbar()
+        self.toolbar = toolbar
+        toolbar.onImagePick = { showPhotoPicker = true }
+        if onAttachFile != nil {
+            toolbar.onFilePick = { showFileImporter = true }
+        } else {
+            toolbar.onFilePick = nil
+        }
+        toolbar.onEmoji = {
+            // Captured while the text view is still first responder.
+            emojiRefocusTarget = model.insertionTargetBlockId
+            showEmojiPicker = true
+        }
+        model.mentionMembers = mentionMembers
+        // EXP-551: decode the bundled dataset off-main once, then wire the
+        // `:shortcode` typeahead into the model.
+        EmojiCatalog.shared.preload()
+        model.emojiSearch = { query in
+            EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)
+        }
+        model.onEmojiInserted = { record in
+            EmojiPreferences().recordRecent(record.unicode)
+        }
+    }
+
+    private var blockStack: some View {
         Group {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(model.blocks) { block in
@@ -179,60 +257,6 @@ struct MarkdownEditor: View {
                             .onTapGesture { model.focusEnd() }
                     }
                 }
-        }
-        .sheet(isPresented: $showEmojiPicker, onDismiss: refocusAfterEmojiPicker) {
-            EmojiPickerSheet(preferences: emojiPreferences) { unicode in
-                model.insertTextAtCaret(unicode)
-            }
-        }
-        .onChange(of: mentionMembers) { _, newValue in model.mentionMembers = newValue }
-        // EXP-824: the library offers videos too; a video pick is normalised
-        // to 720p H.264/AAC and lands as an inline player block.
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .any(of: [.images, .videos]))
-        .onChange(of: photoItem) { _, newItem in
-            guard let newItem else { return }
-            Task { await ingestPhoto(newItem) }
-        }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: true
-        ) { result in
-            guard case let .success(urls) = result else { return }
-            for url in urls { ingestPickedFile(url) }
-        }
-        .onAppear {
-            guard !isReadOnly else { return }
-            toolbar.onImagePick = { showPhotoPicker = true }
-            if onAttachFile != nil {
-                toolbar.onFilePick = { showFileImporter = true }
-            } else {
-                toolbar.onFilePick = nil
-            }
-            toolbar.onEmoji = {
-                // Captured while the text view is still first responder.
-                emojiRefocusTarget = model.insertionTargetBlockId
-                showEmojiPicker = true
-            }
-            model.mentionMembers = mentionMembers
-            // EXP-551: decode the bundled dataset off-main once, then wire the
-            // `:shortcode` typeahead into the model.
-            EmojiCatalog.shared.preload()
-            model.emojiSearch = { query in
-                EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)
-            }
-            model.onEmojiInserted = { record in
-                EmojiPreferences().recordRecent(record.unicode)
-            }
-        }
-        // Membership can sync in after mount and flip the attach gate:
-        // `onAttachFile` is derived from membership, and on a cold start the
-        // editor mounts before the team_members rows land. Without this the
-        // "Files" entry would stay missing for the life of the view — and
-        // EXP-327 removed the Files section's own paperclip, so there is no
-        // other way in.
-        .onChange(of: onAttachFile == nil) { _, isNil in
-            toolbar.onFilePick = isNil ? nil : { showFileImporter = true }
         }
     }
 
@@ -480,6 +504,27 @@ final class EditorTextView: UITextView {
     /// would deallocate out from under the view.
     var ownedTextStorage: NSTextStorage?
 
+    /// EXP-1238: a block text view never scrolls — its frame IS its content —
+    /// so any offset UIKit hands it (a content-inset adjustment, a caret
+    /// reveal racing a frame that has not grown yet) would only draw the text
+    /// displaced inside a frame that no longer covers it. Pin it at the origin.
+    override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set { super.contentOffset = isScrollEnabled ? newValue : .zero }
+    }
+
+    /// EXP-1238: a read-only block is sized by `BlockTextEditor.sizeThatFits`
+    /// alone; its intrinsic content size is never read. UITextView still
+    /// invalidates it whenever its storage is processed (the first time from
+    /// inside `makeUIView`), and SwiftUI's representable host answers every
+    /// such invalidation with another layout pass — pure churn for a row that
+    /// re-measures through its inputs anyway. Editable blocks keep it: their
+    /// growth while typing rides it.
+    override func invalidateIntrinsicContentSize() {
+        guard !isReadOnlyRendering else { return }
+        super.invalidateIntrinsicContentSize()
+    }
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -595,6 +640,59 @@ extension EditorTextView: UIGestureRecognizerDelegate {
     }
 }
 
+// MARK: - Detached measurement (EXP-1238)
+
+/// A TextKit 1 stack that mirrors one block's storage and lays it out at
+/// any width WITHOUT touching the live text view — see
+/// `BlockTextEditor.sizeThatFits` for why the live view must not be measured
+/// at a width other than its bounds. `MarkdownLayoutManager` is the same
+/// layout manager the view draws with, so attachments (chip titles) and
+/// paragraph geometry measure identically.
+@MainActor
+private final class TextMeasurer {
+    private let storage = NSTextStorage()
+    private let layoutManager = MarkdownLayoutManager()
+    private let container: NSTextContainer
+
+    init() {
+        container = NSTextContainer(
+            size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        )
+        container.widthTracksTextView = false
+        container.heightTracksTextView = false
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+    }
+
+    /// Copy the view's text and container settings in; called once per
+    /// content change (the coordinator tracks staleness).
+    func sync(from tv: UITextView) {
+        storage.setAttributedString(tv.textStorage)
+        container.lineFragmentPadding = tv.textContainer.lineFragmentPadding
+        container.lineBreakMode = tv.textContainer.lineBreakMode
+        container.maximumNumberOfLines = tv.textContainer.maximumNumberOfLines
+    }
+
+    /// The text's size when wrapped at `width` (a view width, insets
+    /// included; `greatestFiniteMagnitude` = unwrapped), as the view would
+    /// report it: the used rect's right edge plus the trailing line-fragment
+    /// padding and the insets, rounded UP so a fractional line never spills a
+    /// pixel past its frame and a hugging bubble never wraps its longest line.
+    func size(width: CGFloat, insets: UIEdgeInsets) -> CGSize {
+        let horizontal = insets.left + insets.right
+        let available = width.isFinite && width < .greatestFiniteMagnitude
+            ? max(0, width - horizontal)
+            : CGFloat.greatestFiniteMagnitude
+        container.size = CGSize(width: available, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: container)
+        let used = layoutManager.usedRect(for: container)
+        return CGSize(
+            width: ceil(used.maxX + container.lineFragmentPadding + horizontal),
+            height: ceil(used.height + insets.top + insets.bottom)
+        )
+    }
+}
+
 // MARK: - Block Text Editor (UIViewRepresentable)
 
 struct BlockTextEditor: UIViewRepresentable {
@@ -662,6 +760,9 @@ struct BlockTextEditor: UIViewRepresentable {
         tv.isReadOnlyRendering = isReadOnly
         tv.isScrollEnabled = false
         tv.alwaysBounceVertical = false
+        // EXP-1238: the safe area and the keyboard are the HOST scroll view's
+        // business; a text view sized to its content must never inset itself.
+        tv.contentInsetAdjustmentBehavior = .never
         tv.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
         tv.keyboardAppearance = .dark // app chrome is forced-dark
         tv.autocorrectionType = .default
@@ -714,52 +815,58 @@ struct BlockTextEditor: UIViewRepresentable {
     // CAPPED at the proposal, which is what keeps the runaway-width hazard
     // above fixed: past the cap the text wraps, so the height has to be
     // measured at the capped width either way.
+    //
+    // EXP-1238: every measurement goes through the coordinator's DETACHED
+    // TextKit stack (`TextMeasurer`), never `tv.sizeThatFits`. Measuring the
+    // live view at a width other than its bounds (the hugging bubble's
+    // unbounded ideal probe, every pass) resizes its text container and
+    // re-lays the view out twice per question; the detached stack answers
+    // without touching the view, and the answers are memoized per proposal
+    // until the content changes — SwiftUI asks several times per pass and a
+    // lazy list re-asks on every scroll tick, which is where the scroll lag
+    // came from. A nil / zero / infinite width (a stack probing for ideal or
+    // minimum) is answered from the text too instead of falling back to
+    // UIKit's intrinsic size, which measures against the current bounds.
     func sizeThatFits(
         _ proposal: ProposedViewSize,
         uiView tv: EditorTextView,
         context: Context
     ) -> CGSize? {
-        guard let width = proposal.width, width.isFinite, width > 0 else {
-            // A table row scrolls horizontally, so SwiftUI proposes no width to
-            // its cells (EXP-726). Hug the content between the cell bounds and
-            // measure the height AT that width, or the text wraps into a height
-            // nobody reserved.
-            guard singleLine else { return nil }
-            let ideal = tv.sizeThatFits(
-                CGSize(
-                    width: CGFloat.greatestFiniteMagnitude,
-                    height: CGFloat.greatestFiniteMagnitude
+        let coord = context.coordinator
+        let key = Coordinator.MeasureKey(width: proposal.width ?? -1, hugs: hugsContentWidth)
+        if let hit = coord.measurements[key] { return hit }
+        let size: CGSize
+        if let width = proposal.width, width.isFinite, width > 0 {
+            var targetWidth = width
+            if hugsContentWidth {
+                // An empty block (the separators normalize() puts around
+                // images) measures 0 wide — keep the proposal there rather
+                // than collapsing the whole column to nothing.
+                let ideal = coord.measure(tv, width: .greatestFiniteMagnitude)
+                if ideal.width > 0 { targetWidth = min(width, ideal.width) }
+            }
+            size = CGSize(width: targetWidth, height: coord.measure(tv, width: targetWidth).height)
+        } else {
+            let ideal = coord.measure(tv, width: .greatestFiniteMagnitude)
+            if singleLine {
+                // A table row scrolls horizontally, so SwiftUI proposes no
+                // width to its cells (EXP-726). Hug the content between the
+                // cell bounds and measure the height AT that width, or the
+                // text wraps into a height nobody reserved.
+                let clamped = min(
+                    max(ideal.width > 0 ? ideal.width : MarkdownStyle.tableCellMinWidth,
+                        MarkdownStyle.tableCellMinWidth),
+                    MarkdownStyle.tableCellMaxWidth
                 )
-            )
-            let clamped = min(
-                max(ideal.width.isFinite ? ceil(ideal.width) : MarkdownStyle.tableCellMinWidth,
-                    MarkdownStyle.tableCellMinWidth),
-                MarkdownStyle.tableCellMaxWidth
-            )
-            let fitted = tv.sizeThatFits(
-                CGSize(width: clamped, height: .greatestFiniteMagnitude)
-            )
-            return CGSize(width: clamped, height: fitted.height)
-        }
-        var targetWidth = width
-        if hugsContentWidth {
-            let ideal = tv.sizeThatFits(
-                CGSize(
-                    width: CGFloat.greatestFiniteMagnitude,
-                    height: CGFloat.greatestFiniteMagnitude
-                )
-            )
-            // An empty block (the separators normalize() puts around images)
-            // measures 0 wide — keep the proposal there rather than collapsing
-            // the whole column to nothing.
-            if ideal.width > 0, ideal.width.isFinite {
-                targetWidth = min(width, ceil(ideal.width))
+                size = CGSize(width: clamped, height: coord.measure(tv, width: clamped).height)
+            } else {
+                // Zero width = fully compressible; the height is the unwrapped
+                // one either way, the real proposal follows with a width.
+                size = CGSize(width: proposal.width == 0 ? 0 : ideal.width, height: ideal.height)
             }
         }
-        let fitted = tv.sizeThatFits(
-            CGSize(width: targetWidth, height: .greatestFiniteMagnitude)
-        )
-        return CGSize(width: targetWidth, height: fitted.height)
+        coord.measurements[key] = size
+        return size
     }
 
     func updateUIView(_ tv: EditorTextView, context: Context) {
@@ -785,16 +892,31 @@ struct BlockTextEditor: UIViewRepresentable {
             coord.beginProgrammaticChange()
             tv.attributedText = content
             if textAlignment != .natural { tv.textAlignment = textAlignment }
+            // EXP-1238: the caret restore stays INSIDE the programmatic window.
+            // Setting `selectedRange` fires `textViewDidChangeSelection`, which
+            // outside the window wrote the selection back into the observed
+            // model — a state write in the middle of SwiftUI's update. A
+            // read-only render has no caret to restore at all.
+            if !isReadOnly {
+                let pos = min(savedRange.location, tv.textStorage.length)
+                tv.selectedRange = NSRange(location: pos, length: 0)
+            }
             coord.endProgrammaticChange()
-            let pos = min(savedRange.location, tv.textStorage.length)
-            tv.selectedRange = NSRange(location: pos, length: 0)
+            // New content, new height — drop the memoized answers; SwiftUI
+            // re-asks because the representable's inputs changed (a streamed
+            // row grows in place).
+            coord.invalidateMeasurements()
         }
 
         // Caret requested by a structural mutation (merge/split), applied inline
-        // — no DispatchQueue hop. Consumed once.
+        // — no DispatchQueue hop. Consumed once. Programmatic for the same
+        // reason as above: the model asked for this caret, it must not hear
+        // about it again mid-update.
         if let desired = model.consumeDesiredSelection(for: blockId) {
             let pos = min(desired, tv.textStorage.length)
+            coord.beginProgrammaticChange()
             tv.selectedRange = NSRange(location: pos, length: 0)
+            coord.endProgrammaticChange()
         }
 
         if content.length == 0, let placeholder {
@@ -803,6 +925,12 @@ struct BlockTextEditor: UIViewRepresentable {
             coord.hidePlaceholder()
         }
 
+        // EXP-1238: the toolbar is built on the editor's first appearance,
+        // which can be AFTER this view's `makeUIView` — install it here too.
+        if !isReadOnly, let toolbar, tv.inputAccessoryView !== toolbar {
+            tv.inputAccessoryView = toolbar
+            if tv.isFirstResponder { tv.reloadInputViews() }
+        }
         if !isReadOnly, isFocused, !tv.isFirstResponder {
             tv.becomeFirstResponder()
             toolbar?.textView = tv
@@ -853,6 +981,31 @@ struct BlockTextEditor: UIViewRepresentable {
         /// EXP-727 — see `BlockTextEditor.onDeleteTable`.
         var onDeleteTable: (() -> Void)?
         var appliedRevision = 0
+
+        /// EXP-1238: `sizeThatFits` answers per proposed width, valid until
+        /// the storage changes (a revision apply, a keystroke, a chip pass).
+        struct MeasureKey: Hashable {
+            let width: CGFloat
+            let hugs: Bool
+        }
+        var measurements: [MeasureKey: CGSize] = [:]
+        private var measurer = TextMeasurer()
+        private var measurerStale = true
+
+        func invalidateMeasurements() {
+            measurements.removeAll(keepingCapacity: true)
+            measurerStale = true
+        }
+
+        /// The block's size at `width` (its own insets included), from the
+        /// detached stack — see `BlockTextEditor.sizeThatFits`.
+        func measure(_ tv: UITextView, width: CGFloat) -> CGSize {
+            if measurerStale {
+                measurer.sync(from: tv)
+                measurerStale = false
+            }
+            return measurer.size(width: width, insets: tv.textContainerInset)
+        }
 
         private var isProgrammaticChange = false
         private var placeholderLabel: UILabel?
@@ -938,6 +1091,7 @@ struct BlockTextEditor: UIViewRepresentable {
         }
 
         func textViewDidChange(_ tv: UITextView) {
+            invalidateMeasurements()
             guard !isProgrammaticChange else { return }
             placeholderLabel?.isHidden = tv.textStorage.length != 0
             guard let model, let blockId else { return }
@@ -993,6 +1147,7 @@ struct BlockTextEditor: UIViewRepresentable {
             tv.textStorage.beginEditing()
             tv.textStorage.setAttributedString(result.attributed)
             tv.textStorage.endEditing()
+            invalidateMeasurements()
             // Keep the SELECTION, not just the caret: collapsing it here wiped
             // an active selection whenever a ref happened to resolve.
             let length = tv.textStorage.length

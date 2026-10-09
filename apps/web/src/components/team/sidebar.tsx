@@ -37,7 +37,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@exp/ui"
-import { useShowsReviews } from "@/hooks/use-nav-counts"
+import { useReviewsNav } from "@/hooks/use-nav-counts"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
@@ -172,7 +172,8 @@ export function TeamSidebar({
   const openNewDraft = useOpenNewDraft(teamSlug)
   // EXP-878: the Drafts entry lists only while a draft is parked.
   const draftCount = useDraftCount(team?.id)
-  const showsReviews = useShowsReviews(team ?? undefined, boards)
+  const reviewsNav = useReviewsNav(team ? [team] : [])
+  const showsReviews = reviewsNav.shows
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -426,8 +427,7 @@ export function TeamSidebar({
                                 </Link>
                               </SidebarMenuButton>
                               <ReviewsOpenBadge
-                                boards={boards}
-                                teamId={team?.id}
+                                dot={reviewsNav.dot}
                                 placement="row"
                               />
                             </SidebarMenuItem>

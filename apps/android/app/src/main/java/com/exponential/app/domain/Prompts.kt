@@ -172,6 +172,22 @@ object Prompts {
             spec.render(if (number != null) "title" else "titleNoNumber", "body", "number" to "${number ?: ""}")
     }
 
+    /** EXP-1244: an open pull request NO issue or run links (Reviews' repository bands). */
+    object MergeExternalPr {
+        val spec = primarySpec(
+            "merge-external-pr",
+            mapOf(
+                "title" to "Merge {repository}#{number}?",
+                "body" to "It is squash-merged into {base}. No issue is linked to it.",
+            ),
+            listOf("repository", "number", "base"),
+            "merge",
+            "Merge",
+        )
+        fun prompt(repository: String, number: Int, base: String) =
+            spec.render("title", "body", "repository" to repository, "number" to "$number", "base" to base)
+    }
+
     object StopRun {
         val spec = destructiveSpec("stop-run", mapOf("title" to "Stop this run?"), emptyList(), "stop", "Stop")
         fun prompt() = spec.render("title", null)
@@ -410,7 +426,7 @@ object Prompts {
     val all: Map<String, Spec> by lazy {
         listOf(
             DeleteIssue.spec, DeleteIssues.spec, DeleteFile.spec, MoveIssue.spec, MergeIssuePr.spec,
-            MergeRunPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
+            MergeRunPr.spec, MergeExternalPr.spec, StopRun.spec, ResumeRun.spec, DeleteTrigger.spec, DeleteAction.spec, RemoveDevice.spec,
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,

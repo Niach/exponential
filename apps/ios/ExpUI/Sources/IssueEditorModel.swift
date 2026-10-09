@@ -390,6 +390,30 @@ public final class IssueEditorModel {
         selection = nil
     }
 
+    /// EXP-1238 — a DISPLAY-ONLY reload that keeps block identity: take the
+    /// blocks `prototype` parsed (a cached, fully decorated parse of the new
+    /// text) and give each one the id of the block that stood at its position
+    /// before, kind permitting. The host's `ForEach` then sees the SAME text
+    /// block with a bumped revision and re-applies its content to the text
+    /// view it already has, instead of tearing one UITextView down and
+    /// building, measuring and laying out a new one — which is what a
+    /// streamed narration did on every fragment, dozens of times a second. No
+    /// save baseline, no remote state: a model that only displays serializes
+    /// nothing.
+    public func adoptDisplayBlocks(from prototype: IssueEditorModel) {
+        let previous = blocks
+        var next = prototype.blocks
+        for index in next.indices where index < previous.count {
+            if let kept = next[index].adoptingId(of: previous[index]) {
+                next[index] = kept
+            }
+        }
+        blocks = next
+        bumpAllRevisions()
+        focusedBlockId = nil
+        selection = nil
+    }
+
     /// EXP-802 — replace the WHOLE draft with plain `text`, KEEPING focus and
     /// the keyboard, for the single-field composers `plainText` reads back.
     ///

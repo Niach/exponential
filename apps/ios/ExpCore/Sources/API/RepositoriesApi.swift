@@ -112,6 +112,74 @@ public struct RepoBranches: Decodable, Sendable {
     }
 }
 
+/// EXP-1244: one open pull request listed live from GitHub
+/// (`repositories.openPulls`), the Reviews queue's repository bands.
+public struct OpenPull: Decodable, Sendable, Equatable, Identifiable {
+    public let number: Int
+    public let url: String
+    public let title: String
+    public let branch: String
+    public let baseBranch: String
+    public let draft: Bool
+    public let authorLogin: String?
+    public let authorAvatarUrl: String?
+    public let createdAt: String?
+
+    public var id: String { url }
+
+    public init(
+        number: Int, url: String, title: String = "", branch: String = "",
+        baseBranch: String = "", draft: Bool = false, authorLogin: String? = nil,
+        authorAvatarUrl: String? = nil, createdAt: String? = nil
+    ) {
+        self.number = number
+        self.url = url
+        self.title = title
+        self.branch = branch
+        self.baseBranch = baseBranch
+        self.draft = draft
+        self.authorLogin = authorLogin
+        self.authorAvatarUrl = authorAvatarUrl
+        self.createdAt = createdAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        number = try c.decode(Int.self, forKey: .number)
+        url = try c.decode(String.self, forKey: .url)
+        title = (try? c.decode(String.self, forKey: .title)) ?? ""
+        branch = (try? c.decode(String.self, forKey: .branch)) ?? ""
+        baseBranch = (try? c.decode(String.self, forKey: .baseBranch)) ?? ""
+        draft = (try? c.decode(Bool.self, forKey: .draft)) ?? false
+        authorLogin = try? c.decodeIfPresent(String.self, forKey: .authorLogin)
+        authorAvatarUrl = try? c.decodeIfPresent(String.self, forKey: .authorAvatarUrl)
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case number, url, title, branch, baseBranch, draft, authorLogin, authorAvatarUrl, createdAt
+    }
+}
+
+/// One team repo's open pull requests (`repositories.openPulls` `repos[]`).
+public struct OpenPullsRepo: Decodable, Sendable, Equatable {
+    public let repositoryId: String
+    public let fullName: String
+    public let pulls: [OpenPull]
+
+    public init(repositoryId: String, fullName: String, pulls: [OpenPull]) {
+        self.repositoryId = repositoryId
+        self.fullName = fullName
+        self.pulls = pulls
+    }
+}
+
+private struct OpenPullsResult: Decodable { let repos: [OpenPullsRepo] }
+private struct MergePullInput: Encodable {
+    let repositoryId: String
+    let prNumber: Int
+}
+
 /// `repositories.add` returns the upserted registry row; only its id matters.
 private struct AddRepoResult: Decodable {
     let repository: AddedRepo?
@@ -228,6 +296,28 @@ public final class RepositoriesApi: Sendable {
             accountId: accountId,
             path: "repositories.branchDiff",
             input: IssueIdInput(issueId: issueId)
+        )
+    }
+
+    /// EXP-1244: every team repo's open pull requests, live from GitHub
+    /// (server-cached ~60s). The Reviews queue drops the ones an issue or
+    /// run links (`ReviewsQueue.build`).
+    public func openPulls(accountId: String, teamId: String) async throws -> [OpenPullsRepo] {
+        let result: OpenPullsResult = try await trpc.query(
+            accountId: accountId,
+            path: "repositories.openPulls",
+            input: RepoTeamIdInput(teamId: teamId)
+        )
+        return result.repos
+    }
+
+    /// EXP-1244: squash-merge a pull request no issue or run links
+    /// (`repositories.mergePull`); throws when GitHub refuses it.
+    public func mergePull(accountId: String, repositoryId: String, prNumber: Int) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.mergePull",
+            input: MergePullInput(repositoryId: repositoryId, prNumber: prNumber)
         )
     }
 }

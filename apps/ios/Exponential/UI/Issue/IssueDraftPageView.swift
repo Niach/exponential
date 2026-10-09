@@ -6,11 +6,10 @@ import SwiftUI
 /// (`IssueFaceView` as hosted by `WorkScreen`), identical ×4. The differences
 /// are the whole spec: the header's identifier slot reads
 /// `IssueDraftPage.header` (collapsing over the typed title), the trailing
-/// cluster is `Create` + an `×` labelled `Discard draft` (EXP-1191), and the body is
+/// cluster is `Create` alone (EXP-1239: no `×` beside the Back), and the body is
 /// title → property chips → description → Files, nothing else. The draft
 /// autosaves (`IssueDraftViewModel`). EXP-1212: a draft WITH content never
-/// goes silently: `×` confirms (`IssueDraftPage.DiscardConfirm`), and Back or
-/// any navigator path change (held through `IssueDraftLeaveGuard`) asks
+/// goes silently: Back or any navigator path change (held through `IssueDraftLeaveGuard`) asks
 /// `IssueDraftPage.Leave`. With the system back button hidden, the
 /// interactive swipe-back is off, so the custom Back is the only pop.
 struct IssueDraftPageView: View {
@@ -52,8 +51,6 @@ struct IssueDraftPageView: View {
     /// EXP-1162: the header title's collapse, flipped only on the edge.
     @State private var titleScrolledAway = false
     @State private var titleEdges = TitleCollapseTracker()
-    /// EXP-1212: `×` on a draft with content asks first.
-    @State private var confirmDiscard = false
     /// EXP-1212: the navigation the leave dialog holds, and the dialog.
     @State private var heldLeave: IssueDraftLeaveGuard.Held?
     @State private var leavePresented = false
@@ -136,26 +133,8 @@ struct IssueDraftPageView: View {
             if focused == nil { vm.saveNow() }
         }
         // EXP-1212: the app's own centred alert card (`GlassAlert`), never
-        // the system alert / confirmation popover: one question, then one
-        // compact row, Cancel · Discard (destructive text on the outline
-        // pill) trailing; a scrim tap = Cancel. Each card on a zero-size
-        // node of its own (EXP-240): stacked with the child sheet on one
-        // node SwiftUI drops them.
-        .background {
-            Color.clear
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .glassAlert(
-                    isPresented: $confirmDiscard,
-                    title: IssueDraftPage.DiscardConfirm.title,
-                    actions: [
-                        GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
-                        GlassAlertAction(IssueDraftPage.DiscardConfirm.confirm, role: .destructive, id: "discard") {
-                            discardAndClose()
-                        },
-                    ]
-                )
-        }
+        // the system alert, on a zero-size node of its own (EXP-240):
+        // stacked with the child sheet on one node SwiftUI drops it.
         // The leave dialog: Discard (quiet, leading) … Save draft (plain) ·
         // Create issue (the default, primary, trailing); a sub-issue draft
         // offers no Keep (`IssueDraftPage.leaveChoices`). Create without a
@@ -246,27 +225,6 @@ struct IssueDraftPageView: View {
             .fontWeight(.semibold)
             .disabled(!vm.canCreate)
             .accessibilityIdentifier("issue-draft-create")
-        }
-        // EXP-1191: Discard is the draft's only action — a bare `×`, not a
-        // one-item `…` menu; its label (and pointer tooltip) says what it does.
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                if vm.prompt(for: .discard) == .discardConfirm {
-                    confirmDiscard = true
-                } else {
-                    discardAndClose()
-                }
-            } label: {
-                AppIcon(AppIcons.uiClose, size: AppIcon.Size.medium, weight: .medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle().inset(by: -GlassMenuTokens.triggerHitInset))
-            }
-            .buttonStyle(.plain)
-            .disabled(vm.creating)
-            .help(IssueDraftPage.discard)
-            .accessibilityLabel(IssueDraftPage.discard)
-            .accessibilityIdentifier("issue-draft-discard")
         }
     }
 
@@ -359,25 +317,16 @@ struct IssueDraftPageView: View {
         }
     }
 
-    /// EXP-1231: the draft is gone from under the prompts: close both, and
+    /// EXP-1231: the draft is gone from under the prompt: close it, and
     /// drop the navigation the leave dialog held (marked answered, so its
     /// dismissal never drops it twice).
     private func dropPrompts() {
-        confirmDiscard = false
         if let held = heldLeave {
             heldLeave = nil
             leaveAnswered = true
             held.dropped()
         }
         leavePresented = false
-    }
-
-    /// Discard draft, the page's own exit: never the leave dialog, and never
-    /// while a Create is in flight (it owns the draft).
-    private func discardAndClose() {
-        guard !vm.creating else { return }
-        vm.discard()
-        onClose()
     }
 
     // MARK: - Body
