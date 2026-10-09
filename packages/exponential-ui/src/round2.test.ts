@@ -39,16 +39,20 @@ describe(`format.json (§3)`, () => {
     for (const c of formatFixture.calls) expect(resolveDynamic(c.call, {}), c.name).toEqual(c.expected)
   })
 
+  // CLDR 42+ ICUs (macOS 27, Safari) join a medium date and its time with " at ", older ones (Node, Chromium) with ", ":
+  // one expectation, so the fixture's spelling is not a platform lottery.
+  const dateTimeJoiner = (v: unknown) => (typeof v === `string` ? v.replace(` at `, `, `) : v)
+
   test(`the English fallback equals Intl en-US (the platform ICU) on every call`, () => {
     const intl = formatFunctions(intlFormatter(`en-US`, `UTC`)) as Record<string, (args: Record<string, unknown>) => unknown>
-    for (const c of formatFixture.calls) expect(intl[c.call.call](c.call.args), c.name).toEqual(c.expected)
+    for (const c of formatFixture.calls) expect(dateTimeJoiner(intl[c.call.call](c.call.args)), c.name).toEqual(dateTimeJoiner(c.expected))
   })
 
   test(`zoned: the fallback at the host's offset = Intl in the IANA zone`, () => {
     for (const c of formatFixture.zoned) {
       const call = c.call.call as `formatDate`
       expect(formatFunctions(englishFormatter(fixedOffset(c.offsetMinutes)))[call](c.call.args), c.name).toBe(c.expected)
-      expect(formatFunctions(intlFormatter(`en-US`, c.timeZone))[call](c.call.args), `${c.name} (Intl)`).toBe(c.expected)
+      expect(dateTimeJoiner(formatFunctions(intlFormatter(`en-US`, c.timeZone))[call](c.call.args)), `${c.name} (Intl)`).toBe(dateTimeJoiner(c.expected))
       const at = typeof c.call.args.value === `number` ? c.call.args.value : Date.parse(String(c.call.args.value))
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c.call.args.value))) expect(intlZoneOffset(c.timeZone)(at), `${c.name} offset`).toBe(c.offsetMinutes)
     }
