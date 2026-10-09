@@ -3,9 +3,9 @@
 // generator agree without a JSON Schema engine. core.schema.json is the same
 // rules for external consumers.
 
-import { ICON_NAMES } from "./catalog.generated"
+import { FUNCTION_NAMES, ICON_NAMES } from "./catalog.generated"
 import { catalogView, isKnownToken, parseTokenRef } from "./catalog"
-import { isDynamic } from "./expr"
+import { isCall, isDynamic } from "./expr"
 import { BREAKPOINTS, isResponsiveValue } from "./macros"
 import { isStringRef, parseStringRef } from "./strings"
 import { validateStyle } from "./style"
@@ -13,7 +13,7 @@ import type { CatalogView } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 const ICONS: ReadonlySet<string> = new Set(ICON_NAMES)
-const HEX = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8}|[0-9a-fA-F]{3,4})$/
+const FUNCTIONS: ReadonlySet<string> = new Set(FUNCTION_NAMES)
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export interface PropIssue {
@@ -61,9 +61,10 @@ function checkScalar(
         issues.push({ path, message: `not an icons.json name` })
       return
     case `color`:
-      if (typeof value === `string` && HEX.test(value)) return
+      // Round 4 (VAPP-103): a node's colour is a TOKEN, never a literal, so
+      // the theme's light and dark modes both apply (themes keep literals).
       if (isKnownToken(value) && parseTokenRef(value)?.group === `color`) return
-      issues.push({ path, message: `expected #hex or $color.<name>` })
+      issues.push({ path, message: `expected $color.<name>` })
       return
     case `style`:
       for (const issue of validateStyle(value, { path, root: false }))
@@ -131,6 +132,51 @@ function checkProps(
   for (const name of Object.keys(props)) {
     if (!(name in schemas)) issues.push({ path: `${path}.${name}`, message: `unknown prop` })
   }
+}
+
+/** A function name a surface may call: a catalog function, or a HOST
+ *  function, which is always namespaced (`app.toast`, `harness.openIssue`). */
+export function isCallableName(name: string): boolean {
+  return FUNCTIONS.has(name) || /^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$/.test(name)
+}
+
+/** Every `{call}` at any depth of `value` whose name is neither a catalog
+ *  function nor a namespaced host function (round 4: a typo is caught at
+ *  validate time, not when the user presses). */
+function checkCalls(value: unknown, path: string, issues: PropIssue[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => checkCalls(v, `${path}[${i}]`, issues))
+    return
+  }
+  if (typeof value !== `object` || value === null) return
+  if (isCall(value) && !isCallableName(value.call))
+    issues.push({ path, message: `unknown function "${value.call}"; known: the catalog functions, or a namespaced host function (app.toast)` })
+  for (const [k, v] of Object.entries(value)) checkCalls(v, `${path}.${k}`, issues)
+}
+
+/** What validateProps leaves out, round 4 (VAPP-103): the node's `style`
+ *  (whitelisted keys, known tokens, `$color.*` colours), every function a
+ *  prop, `visible` or an `on` action calls, and a Table's slot columns
+ *  (each `type: slot` column names one of the node's slots). In this order;
+ *  the Rust core (`validate::validate_node`) reports the same issues. */
+export function validateNode(
+  node: { component: string; props: Record<string, unknown>; style?: unknown; visible?: unknown; on?: Record<string, unknown>; slots?: Record<string, unknown> }
+): PropIssue[] {
+  const issues: PropIssue[] = []
+  if (node.style !== undefined) for (const issue of validateStyle(node.style, { path: `style` })) issues.push(issue)
+  for (const [k, v] of Object.entries(node.props)) checkCalls(v, `props.${k}`, issues)
+  if (node.visible !== undefined) checkCalls(node.visible, `visible`, issues)
+  for (const [event, action] of Object.entries(node.on ?? {})) checkCalls(action, `on.${event}`, issues)
+  if (node.component === `Table` && Array.isArray(node.props.columns)) {
+    const slots = Object.keys(node.slots ?? {})
+    node.props.columns.forEach((column, i) => {
+      if (typeof column !== `object` || column === null || (column as { type?: unknown }).type !== `slot`) return
+      const slot = (column as { slot?: unknown }).slot
+      if (typeof slot !== `string`) issues.push({ path: `props.columns[${i}].slot`, message: `a slot column names one of the Table's slots` })
+      else if (!slots.includes(slot)) issues.push({ path: `props.columns[${i}].slot`, message: `no slot "${slot}" on this Table; slots: ${slots.join(`|`) || `none`}` })
+    })
+  }
+  return issues
 }
 
 /** Every issue in a node's props against its component definition. */

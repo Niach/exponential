@@ -19,7 +19,7 @@ import { expandMacros, propsAt, responsiveAt } from "./macros"
 import { reduceNested, reduceSurface } from "./reducer"
 import { coreSchema } from "./schema"
 import { DEFAULT_STRINGS, STRING_IDS, formatString, isStringRef, resolveString, stringTable } from "./strings"
-import { applyContrast, applyDensity, loadTheme, resolveConditionKey, resolveMode, resolveRecipe, resolveStyleValues, resolveToken, validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, applyContrast, applyDensity, loadTheme, resolveConditionKey, resolveMode, resolveRecipe, resolveStyleValues, resolveToken, validateTheme } from "./theme"
 import { BUILTIN_THEMES, builtinTheme } from "./themes"
 import { validateProps } from "./validate"
 import type { Action, FlatComponent, NestedNode, UiNode } from "./types"
@@ -43,7 +43,7 @@ describe(`bound macro inputs (§1)`, () => {
 
   test(`catalog-macros.json carries a bound case per bindable macro prop and a responsive case per responsive prop`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.kind !== `macro` || def.deprecated) continue // round 3: an alias keeps its example case only
+      if (def.kind !== `macro`) continue
       for (const [prop, schema] of Object.entries(def.props)) {
         if (schema.bindable) expect(cases.some((c) => c.name === `${name}/bound:${prop}`), `${name}/bound:${prop}`).toBe(true)
         if (schema.responsive) expect(cases.some((c) => c.name === `${name}/responsive:${prop}`), `${name}/responsive:${prop}`).toBe(true)
@@ -52,14 +52,14 @@ describe(`bound macro inputs (§1)`, () => {
     expect(canon(cases)).toContain(`"path":"/value"`)
   })
 
-  test(`the audit's bugs: Progress width, Pagination label, Collapsible body, Pill label`, () => {
+  test(`the audit's bugs: Progress width, Pagination label, Collapsible body, Chip label`, () => {
     const progress = expand({ id: `p`, component: `Progress`, props: { value: { path: `/upload` } } })
     expect(byId(progress, `p.track.fill`)!.style!.width).toEqual({ call: `percent`, args: { value: { path: `/upload` }, max: 100 } })
     const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } })
     expect(byId(pager, `g.label`)!.props.text).toEqual({ call: `concat`, args: { values: [{ call: `fallback`, args: { value: { path: `/page` }, default: 1 } }, ` / `, 5] } })
     const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
     expect(byId(collapsible, `c.body`)!.visible).toEqual({ path: `/open` })
-    const pill = expand({ id: `pl`, component: `Pill`, props: { label: { path: `/name` } } })
+    const pill = expand({ id: `pl`, component: `Chip`, props: { label: { path: `/name` } } })
     expect(byId(pill, `pl.label`)!.props.text).toEqual({ path: `/name` })
   })
 
@@ -79,19 +79,16 @@ describe(`bound macro inputs (§1)`, () => {
   test(`$set: a bound prop gets the write-back, the author's event keeps its routed context`, () => {
     const withHandler = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, on: { change: { event: { name: `toggled` } } } })
     const press = byId(withHandler, `c.trigger`)!.on!.press as Action
-    expect(Object.keys(press)).toEqual([`event`, `function`])
-    expect(press.function).toEqual({ call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } })
+    expect(Object.keys(press)).toEqual([`event`, `functionCall`])
+    expect(press.functionCall).toEqual({ call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } })
     const outcome = runAction(press, { open: false })
     expect(outcome.data).toEqual({ open: true })
     expect(outcome.event).toEqual({ name: `toggled`, context: { open: true } })
     const literal = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: false }, on: { change: { event: { name: `toggled` } } } })
     expect(byId(literal, `c.trigger`)!.on!.press).toEqual({ event: { name: `toggled`, context: { open: true } } })
-    // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger; a TabBar alias hands its bound value to the Segmented native.
+    // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger.
     const section = expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } })
     expect(runAction(byId(section, `s.header`)!.on!.press, { open: true }).data).toEqual({ open: false })
-    const tabs = expand({ id: `t`, component: `TabBar`, props: { items: [{ label: `A`, value: `a`, icon: `nav-inbox` }, { label: `B`, value: `b`, icon: `nav-issues` }], value: { path: `/tab` } } })
-    expect(tabs.component).toBe(`Segmented`)
-    expect(tabs.props).toMatchObject({ variant: `bar`, fill: true, value: { path: `/tab` } })
     const alert = expand({ id: `a`, component: `AlertDialog`, props: { title: `Sure?`, open: { path: `/ask` } } })
     expect(runAction(alert.slots!.footer.children[1].on!.press, { ask: true }).data).toEqual({ ask: false })
   })
@@ -267,7 +264,6 @@ describe(`accessibility (§6)`, () => {
   test(`every component has a role and keys; interactive ones name their keys; entries name real components`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
       expect(COMPONENT_A11Y[name], name).toBeDefined()
-      if (def.deprecated) continue // round 3: an alias defers to its replacement's entry
       if ((def.events?.length ?? 0) > 0 && name !== `Chart`) expect(COMPONENT_A11Y[name].keys.length, `${name} keys`).toBeGreaterThan(0)
     }
     for (const name of Object.keys(COMPONENT_A11Y)) expect(coreCatalog.components[name], name).toBeDefined()
@@ -334,10 +330,10 @@ describe(`theming (§5)`, () => {
   })
 
   test(`validation of the new groups and keys`, () => {
-    const bad = { id: `bad`, name: `Bad`, extends: `neutral`, tokens: { ease: { standard: [0, 1] }, density: { compact: 9 } }, contrast: { light: { color: { foreground: `black` } } }, recipes: { Button: { root: [{ style: { transition: 120, transform: `skew(4deg)`, borderStyle: `wavy` } }] } } }
+    const bad = { $schema: THEME_SCHEMA_ID, id: `bad`, name: `Bad`, extends: `neutral`, tokens: { ease: { standard: [0, 1] }, density: { compact: 9 } }, contrast: { light: { color: { foreground: `black` } } }, recipes: { Button: { root: [{ style: { transition: 120, transform: `skew(4deg)`, borderStyle: `wavy` } }] } } }
     const issues = validateTheme(bad, { themes: BUILTIN_THEMES }).map((i) => i.path)
     for (const path of [`tokens.ease.standard`, `tokens.density.compact`, `contrast.light.color.foreground`, `recipes.Button.root[0].style.transition`, `recipes.Button.root[0].style.transform`, `recipes.Button.root[0].style.borderStyle`]) expect(issues, path).toContain(path)
-    const ok = loadTheme({ id: `ok`, name: `Ok`, extends: `neutral`, tokens: { breakpoint: { md: 700 } } }, { themes: BUILTIN_THEMES })
+    const ok = loadTheme({ $schema: THEME_SCHEMA_ID, id: `ok`, name: `Ok`, extends: `neutral`, tokens: { breakpoint: { md: 700 } } }, { themes: BUILTIN_THEMES })
     expect(ok.tokens.breakpoint).toEqual({ sm: 640, md: 700, lg: 1024, xl: 1280 })
   })
 })
@@ -347,7 +343,7 @@ describe(`reducer and schema additions`, () => {
     const flat: FlatComponent[] = [
       { id: `root`, component: `Stack`, children: [`list`, `t`, `x`] },
       { id: `list`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` }, visible: { path: `/show` } },
-      { id: `row`, component: `ListRow`, title: { path: `name` } },
+      { id: `row`, component: `Row`, title: { path: `name` } },
       { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, accessibility: { label: `Members` } },
       { id: `cell`, component: `Badge`, text: { path: `s` } },
       { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell` } },

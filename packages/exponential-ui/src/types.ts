@@ -58,10 +58,6 @@ export interface ComponentDef {
   slotScope?: `row`
   /** Never offered to a model (the Unknown placeholder, TreeGuides = a Row part). */
   hidden?: boolean
-  /** Round 3 (docs/round-3-contract.md): a ONE-RELEASE alias naming its
-   *  replacement; a macro that expands to it. Still reduces; never in the
-   *  prompt, the docs, the specimens or the lite subset. */
-  deprecated?: string
   /** `planned` = in the catalog, painters land later. */
   status?: string
   description: string
@@ -78,11 +74,18 @@ export interface CatalogSource {
   unknownComponent: string
   enums: Record<string, readonly string[]>
   defs: Record<string, DefSchema>
-  functions: { names: readonly string[]; core: Record<string, CoreFunctionDef> }
+  functions: { names: readonly string[]; core: Record<string, CoreFunctionDef>; basic: Record<string, FunctionSignature> }
   /** Round 1: `<Component>.<part>[.<variant>]` → the icons.json name a
    *  renderer draws for a part it owns (`$comment` aside). */
   builtinIcons: Record<string, string>
   components: Record<string, ComponentDef>
+}
+
+/** Round 4: a basic function's signature (core.catalog.json `functions.basic`). */
+export interface FunctionSignature {
+  /** Argument name → its type (`number`, `string`, `boolean`, `array`, `object`, `any`). */
+  args: Record<string, string>
+  returns: string
 }
 
 /** Round 1: one core function (core.catalog.json `functions.core`). */
@@ -155,10 +158,8 @@ export interface FunctionCall {
  *  function, then dispatches the event. */
 export interface Action {
   event?: { name: string; context?: Record<string, unknown> }
-  /** A2UI v0.9's client function action. */
+  /** A2UI v0.9's client function action (round 4: the ONLY key). */
   functionCall?: FunctionCall
-  /** The legacy key the core also reads. */
-  function?: FunctionCall
 }
 
 /** A data-driven child list: one `component` per item at `path`; `key` = a

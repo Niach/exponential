@@ -41,7 +41,7 @@ export const STYLE_MEDIA_PATTERN: string = styleJson.conditions.media
 export const STYLE_TRANSFORM_PATTERN: string = styleJson.conditions.transform
 
 type Len = number | `${number}%` | `${number}px` | `auto` | `$${string}`
-type Color = `#${string}` | `$color.${string}`
+type Color = `$color.${string}`
 type Align =
   | `flex-start`
   | `flex-end`
@@ -175,7 +175,6 @@ export type Style = StyleProps & {
 }
 
 const LENGTH = /^-?\d+(\.\d+)?(px|%)$/
-const HEX = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8}|[0-9a-fA-F]{3,4})$/
 const RATIO = /^\d+(\.\d+)?\/\d+(\.\d+)?$/
 const NUMERIC_TOKEN_GROUPS = new Set([
   `spacing`,
@@ -192,8 +191,11 @@ function tokenOk(value: unknown, groups: ReadonlySet<string>): boolean {
   return ref !== null && groups.has(ref.group) && isKnownToken(value)
 }
 
+/** Round 4 (VAPP-103): a node's colour is a `$color.*` TOKEN, never a
+ *  literal, so the theme's light and dark modes both apply. (A THEME's
+ *  recipes keep literal hex: theme.ts checks them, not this.) */
 function colorOk(value: unknown): boolean {
-  return (typeof value === `string` && HEX.test(value)) || tokenOk(value, new Set([`color`]))
+  return tokenOk(value, new Set([`color`]))
 }
 
 function gradientError(key: string, value: unknown): string | null {
@@ -232,7 +234,7 @@ function valueError(key: string, value: unknown): string | null {
       return `${key}: expected px, "N%", "auto" or a numeric token`
     case `color`:
       if (colorOk(value)) return null
-      return `${key}: expected #hex or $color.<name>`
+      return `${key}: expected $color.<name>`
     case `gradient`:
       return gradientError(key, value)
     case `token`:

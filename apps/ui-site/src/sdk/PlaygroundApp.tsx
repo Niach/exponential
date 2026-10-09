@@ -239,7 +239,7 @@ export default function PlaygroundApp() {
                 onKeyDown={(e) => onEditorKey(e, setThemeJson)}
                 spellCheck={false}
                 aria-label="Theme JSON"
-                placeholder={`{\n  "id": "brand",\n  "name": "Brand",\n  "extends": "neutral",\n  "modes": { "dark": { "color": { "primary": "#2563eb" } } },\n  "recipes": { "Button": { "root": [{ "style": { "borderRadius": "$radius.full" } }] } }\n}`}
+                placeholder={`{\n  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",\n  "id": "brand",\n  "name": "Brand",\n  "extends": "neutral",\n  "modes": { "dark": { "color": { "primary": "#2563eb" } } },\n  "recipes": { "Button": { "root": [{ "style": { "borderRadius": "$radius.full" } }] } }\n}`}
               />
               <p className="sdk-note">
                 A theme file (<code>extends</code> a built-in, override what changes). Build one in the <a href="/themes/builder/">theme builder</a>.

@@ -6,8 +6,10 @@
 
 use std::sync::{Arc, LazyLock};
 
+use serde_json::Value;
+
 use crate::generated::themes as g;
-use crate::theme::{ResolvedTheme, ThemeRef};
+use crate::theme::{try_load_theme, ResolvedTheme, ThemeIssue, ThemeOptions, ThemeRef};
 
 /// Source order = resolution order.
 pub const BUILTIN_THEME_IDS: &[&str] = g::BUILTIN_THEME_IDS;
@@ -41,9 +43,41 @@ pub fn default_theme() -> Arc<ResolvedTheme> {
     builtin_theme(DEFAULT_THEME_ID).expect("default theme is a built-in")
 }
 
+/// Round 4 (VAPP-103): the theme a host paints with, NEVER a failure: a
+/// built-in id (a JSON string) or a theme file over the built-ins; anything
+/// unusable (an unknown id, a bad `$schema`, an unknown token, a missing
+/// value) falls back to [`default_theme`] with the issues saying why (TS
+/// `themeOrDefault`, Swift/Kotlin `ThemeHandle.loadOrDefault`).
+pub fn theme_or_default(input: &Value) -> (Arc<ResolvedTheme>, Vec<ThemeIssue>) {
+    if let Some(id) = input.as_str() {
+        return match builtin_theme(id) {
+            Some(t) => (t, vec![]),
+            None => (default_theme(), vec![ThemeIssue { path: "theme".into(), message: format!("unknown built-in theme \"{id}\"; known: {}", BUILTIN_THEME_IDS.join("|")) }]),
+        };
+    }
+    let refs = builtin_refs();
+    match try_load_theme(input, &ThemeOptions::core(&refs)) {
+        Ok(t) => (Arc::new(t), vec![]),
+        Err(issues) => (default_theme(), issues),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_or_default_never_fails() {
+        let (t, issues) = theme_or_default(&serde_json::json!("nope"));
+        assert_eq!(t.id, DEFAULT_THEME_ID);
+        assert_eq!(issues[0].path, "theme");
+        let (t, issues) = theme_or_default(&serde_json::json!({"id": "x", "name": "X", "extends": "neutral"}));
+        assert_eq!(t.id, DEFAULT_THEME_ID);
+        assert_eq!(issues[0].path, "$schema");
+        let (t, issues) = theme_or_default(&serde_json::json!({"$schema": crate::theme::THEME_SCHEMA_ID, "id": "x", "name": "X", "extends": "neutral"}));
+        assert_eq!((t.id.as_str(), issues.len()), ("x", 0));
+        assert_eq!(theme_or_default(&serde_json::json!("playful")).0.id, "playful");
+    }
 
     #[test]
     fn builtins_parse_in_source_order() {

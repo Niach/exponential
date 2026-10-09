@@ -1,5 +1,11 @@
 # Exponential UI — round 1 contract (renderer hardening)
 
+> **Round 4 (VAPP-103):** this is the round's historical record. Names it
+> uses that round 3 folded (ToggleGroup, TabBar, ButtonGroup, DropdownMenu,
+> ContextMenu, Sheet, HoverCard, Pill, EntityChip, Band, RowList and the
+> ListRow family) are REMOVED from the catalog; `round-3-contract.md` §4 maps
+> each to what replaces it.
+
 Round 1 makes one A2UI surface render faithfully, responsively and
 accessibly on web, desktop, iOS and Android. This file is the CONTRACT half:
 what changed in `@exponential-at/ui` (catalog, macros, style, tokens,

@@ -15,14 +15,6 @@ export const COMPONENT_DOCS: readonly ComponentDoc[] = componentsDoc.components
 export const COMPONENT_GROUPS: readonly string[] = componentsDoc.groups
 export const CATALOG_ID: string = componentsDoc.catalogId
 export const LITE_CATALOG_ID: string = componentsDoc.liteCatalogId
-/** The one-release deprecated aliases (alias → its replacement): no pages of their own. */
-export const DEPRECATED_ALIASES: Readonly<Record<string, string>> = componentsDoc.deprecated
-/** The deprecated aliases that expand to `name`, sorted. */
-export const aliasesOf = (name: string): string[] =>
-  Object.entries(DEPRECATED_ALIASES)
-    .filter(([, to]) => to === name)
-    .map(([alias]) => alias)
-    .sort()
 export const THEMES_DOC: ThemesDoc = themesDoc
 export const SPECIMENS: readonly Specimen[] = specimensDoc.specimens
 

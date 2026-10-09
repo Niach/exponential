@@ -3747,7 +3747,7 @@
       "id": "exponential-ui-sidebar",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Sidebar",
-      "blurb": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a TabBar, or a Sheet from an AppBar button). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sidebar/.",
+      "blurb": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a `bar` Segmented, or a Drawer from an AppBar button). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sidebar/.",
       "order": 64,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-sidebar",

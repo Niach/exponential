@@ -29,6 +29,7 @@ import {
   decideUrl,
   defineExtension,
   loadTheme,
+  THEME_SCHEMA_ID,
   mcpActionCall,
   mediaRequest,
   messagesFromMcpResult,
@@ -281,8 +282,8 @@ describe(`Exponential UI conformance: @exponential-at/ui-react`, () => {
     const press = (node: UiNode, data: unknown) => {
       let out = data as DataModel
       let call: { call: string; args: Record<string, unknown> } | undefined
-      const fn = (node.on?.press as { functionCall?: { call: string }; function?: { call: string } } | undefined)
-      const name = (fn?.functionCall ?? fn?.function)?.call
+      const fn = node.on?.press as { functionCall?: { call: string } } | undefined
+      const name = fn?.functionCall?.call
       const functions = Object.fromEntries(Object.entries(CLIENT_FUNCTIONS).map(([k, f]) => [k, (args: Record<string, unknown>, c: ResolveContext) => {
         if (k === name) call = { call: k, args }
         return f(args, { ...c, openUrl: () => {} })
@@ -334,7 +335,7 @@ describe(`Exponential UI conformance: @exponential-at/ui-react`, () => {
         await page.goto(h.url({ view: `conditions`, case: ci, ctx: xi }))
         await page.waitForSelector(`[data-xui-id="n"]`, { state: `attached` })
         await page.waitForTimeout(100)
-        const theme = ctx.breakpoints ? loadTheme({ id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
+        const theme = ctx.breakpoints ? loadTheme({ $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
         const want = styleToCss(resolveStyleValues(theme, c.expected[xi], `light`), theme.fonts)
         if (ctx.reducedMotion) delete want.transition // reduced motion zeroes every duration (contract §2)
         const got = await page.evaluate((css) => {

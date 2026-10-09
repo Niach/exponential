@@ -12,7 +12,7 @@
       "fix": [
         "react"
       ],
-      "decision": "An overlay native (Dialog, Drawer, AlertDialog, Popover, Tooltip, a press Menu with a child trigger; the Sheet and HoverCard aliases expand to them) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
+      "decision": "An overlay native (Dialog, Drawer, AlertDialog, Popover, Tooltip, a press Menu with a child trigger) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
     },
     {
       "id": "audio",
@@ -256,7 +256,7 @@
       "fix": [
         "gpui"
       ],
-      "decision": "As `hdr-badge`: the Row's trailing count Badge (the NavRow alias) = padding + its text."
+      "decision": "As `hdr-badge`: the Row's trailing count Badge = padding + its text."
     },
     {
       "id": "nav-inbox.label",

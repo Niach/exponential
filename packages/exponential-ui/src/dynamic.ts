@@ -169,15 +169,56 @@ export interface ActionOutcome {
   call?: { call: string; args: Record<string, unknown> }
 }
 
+/** Round 4 (VAPP-103): the data an interaction's action resolves against =
+ *  the data model WITH the source component's OWN write applied first.
+ *  Every payload key whose same-named prop is a `{path}` binding (an
+ *  Input's `value`, a Checkbox's `checked`, an overlay's `open`, a
+ *  Carousel's `page`) is written at that path, so a `context.query` bound
+ *  to the path the Input writes reads the text just typed, never the text
+ *  before it. Renderers apply it before `runAction` (Rust: `Surface::fire`). */
+export function withOwnWrites(data: unknown, props: Record<string, unknown>, payload: Record<string, unknown> | undefined, scope: DataScope = {}): unknown {
+  let out = data
+  for (const [key, value] of Object.entries(payload ?? {})) {
+    const bound = props[key]
+    if (!isBinding(bound)) continue
+    if (!bound.path.startsWith(`/`) && hasItem(scope)) continue
+    out = writePointer(out, absolutePath(bound.path, scope), value)
+  }
+  return out
+}
+
+/** Round 4 (VAPP-103): a successful Form submit CLOSES the nearest Dialog
+ *  or Drawer around the form (the author never resets the bound `open`
+ *  flag): the id of that overlay in the EXPANDED tree, null when the form
+ *  sits in none. Renderers close it like a dismiss (`open` false written
+ *  through, `change {open: false}`) right after the form's `submit`. */
+export function submitClosesOverlay(root: UiNode, formId: string): string | null {
+  const walk = (n: UiNode, overlay: string | null): string | null | undefined => {
+    const here = n.component === `Dialog` || n.component === `Drawer` ? n.id : overlay
+    if (n.id === formId && n.component === `Form`) return here
+    for (const slot of Object.values(n.slots ?? {})) {
+      const hit = walk(slot, here)
+      if (hit !== undefined) return hit
+    }
+    for (const child of n.children) {
+      const hit = walk(child, here)
+      if (hit !== undefined) return hit
+    }
+    return undefined
+  }
+  return walk(root, null) ?? null
+}
+
 /** What a press does: resolve the function args and the event context
- *  against the data AS IT IS, then apply `set`, then hand back the event. */
+ *  against the data AS IT IS (after `withOwnWrites`), then apply `set`, then
+ *  hand back the event. */
 export function runAction(action: Action, data: unknown, options: ResolveOptions = {}): ActionOutcome {
   const out: ActionOutcome = { data }
   const event = action.event
     ? { name: action.event.name, ...(action.event.context ? { context: resolveDynamic(action.event.context, data, options) as Record<string, unknown> } : {}) }
     : undefined
-  // A2UI's `functionCall` (VAPP-91) or the legacy `function` key.
-  const fn = action.functionCall ?? action.function
+  // A2UI's `functionCall` (round 4: the only key; no legacy `function`).
+  const fn = action.functionCall
   if (fn) {
     const args = resolveDynamic(fn.args ?? {}, data, options) as Record<string, unknown>
     if (fn.call === `set`) {

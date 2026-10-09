@@ -3,7 +3,9 @@
 // the same files with these test names.
 
 import { describe, expect, test } from "bun:test"
-import { loadTheme, resolveRecipe, tryLoadTheme } from "./theme"
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { THEME_SCHEMA_ID, loadTheme, resolveRecipe, tryLoadTheme } from "./theme"
 import { BUILTIN_THEMES, builtinTheme } from "./themes"
 import { checkGeometry, controlGeometry, verifyPainterGeometry } from "./geometry"
 import type { PainterOverride } from "./geometry"
@@ -21,6 +23,34 @@ describe(`theme-resolved.json`, () => {
     const themes = resolvedFixture.themes as unknown as Record<string, ResolvedTheme>
     expect(Object.keys(themes)).toEqual([`neutral`, `exponential`, `playful`])
     for (const [id, expected] of Object.entries(themes)) expect(canon(builtinTheme(id)), id).toBe(canon(expected))
+  })
+})
+
+// Round 4 (VAPP-103): every theme the package ships or records loads, and
+// every one names the format it was written for. (Rust: theme_fixtures.rs.)
+describe(`every shipped and recorded theme loads`, () => {
+  test(`every themes/*.theme.json file and every built-in loads with no issues and carries $schema`, () => {
+    const dir = join(import.meta.dir, `../themes`)
+    const files = readdirSync(dir).filter((f) => f.endsWith(`.theme.json`))
+    expect(files.length).toBe(BUILTIN_THEMES.length)
+    for (const file of files) {
+      const source = JSON.parse(readFileSync(join(dir, file), `utf8`)) as ThemeSource
+      expect(source.$schema, file).toBe(THEME_SCHEMA_ID)
+      expect(tryLoadTheme(source, { themes: BUILTIN_THEMES }).issues, file).toEqual([])
+    }
+    for (const source of BUILTIN_THEMES) expect(tryLoadTheme(source, { themes: BUILTIN_THEMES }).issues, source.id).toEqual([])
+  })
+
+  test(`every theme-extends.json theme loads; every theme-invalid.json object theme names the schema unless that is its point`, () => {
+    for (const c of extendsFixture.cases as unknown as { name: string; theme: ThemeSource }[]) {
+      expect(c.theme.$schema, c.name).toBe(THEME_SCHEMA_ID)
+      expect(tryLoadTheme(c.theme, { themes: BUILTIN_THEMES }).issues, c.name).toEqual([])
+    }
+    for (const c of invalidFixture.cases as { name: string; theme: unknown; issues: { path: string }[] }[]) {
+      if (typeof c.theme !== `object` || c.theme === null) continue
+      const aboutSchema = c.issues.some((i) => i.path === `$schema`)
+      expect((c.theme as { $schema?: string }).$schema === THEME_SCHEMA_ID, c.name).toBe(!aboutSchema)
+    }
   })
 })
 

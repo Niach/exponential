@@ -186,7 +186,7 @@ mod tests {
         assert_eq!(parts["Menu"].props, ["openOn"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        assert_eq!(parts.len(), 88);
+        assert_eq!(parts.len(), 72);
     }
 
     #[test]

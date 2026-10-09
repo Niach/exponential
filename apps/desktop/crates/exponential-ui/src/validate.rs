@@ -8,7 +8,9 @@ use serde_json::Value;
 use crate::catalog::{is_known_token, parse_token_ref, CatalogView};
 use crate::macros::{is_responsive_value, BREAKPOINTS};
 use crate::strings::{is_string_ref, parse_string_ref};
-use crate::style_check::{is_hex_color, validate_style};
+use crate::expr::is_call;
+use crate::style_check::validate_style;
+use crate::types::UiNode;
 use crate::types::{ComponentDef, PropSchema, Props};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -98,14 +100,13 @@ fn check_scalar(schema: &PropSchema, value: &Value, path: &str, view: &CatalogVi
                 issue(issues, path, "not an icons.json name");
             }
         }
+        // Round 4 (VAPP-103): a node's colour is a TOKEN, never a literal, so
+        // the theme's light and dark modes both apply (themes keep literals).
         "color" => {
-            if value.as_str().is_some_and(is_hex_color) {
-                return;
-            }
             if is_known_token(value) && parse_token_ref(value).is_some_and(|(group, _)| group == "color") {
                 return;
             }
-            issue(issues, path, "expected #hex or $color.<name>");
+            issue(issues, path, "expected $color.<name>");
         }
         "style" => {
             for i in validate_style(value, path, Some(false)) {
@@ -163,6 +164,87 @@ fn check_props(schemas: &IndexMap<String, PropSchema>, props: &Props, path: &str
 pub fn validate_props(def: &ComponentDef, props: &Props, path: &str, view: &CatalogView) -> Vec<PropIssue> {
     let mut issues = Vec::new();
     check_props(&def.props, props, path, view, &mut issues);
+    issues
+}
+
+/// A function name a surface may call: a catalog function, or a HOST
+/// function, which is always namespaced (`app.toast`, `harness.openIssue`).
+pub fn is_callable_name(name: &str) -> bool {
+    if crate::generated::catalog::FUNCTION_NAMES.contains(&name) {
+        return true;
+    }
+    // `^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$` (src/validate.ts).
+    let segments: Vec<&str> = name.split('.').collect();
+    segments.len() >= 2
+        && segments.iter().all(|s| {
+            let mut chars = s.chars();
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+}
+
+/// Every `{call}` at any depth of `value` whose name is neither a catalog
+/// function nor a namespaced host function.
+fn check_calls(value: &Value, path: &str, issues: &mut Vec<PropIssue>) {
+    match value {
+        Value::Array(items) => {
+            for (i, v) in items.iter().enumerate() {
+                check_calls(v, &format!("{path}[{i}]"), issues);
+            }
+        }
+        Value::Object(obj) => {
+            if is_call(value) {
+                let name = obj["call"].as_str().unwrap_or("");
+                if !is_callable_name(name) {
+                    issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, or a namespaced host function (app.toast)"));
+                }
+            }
+            for (k, v) in obj {
+                check_calls(v, &format!("{path}.{k}"), issues);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// What `validate_props` leaves out, round 4 (VAPP-103; `src/validate.ts
+/// validateNode`): the node's `style` (whitelisted keys, known tokens,
+/// `$color.*` colours), every function a prop, `visible` or an `on` action
+/// calls, and a Table's slot columns. In this order.
+pub fn validate_node(node: &UiNode) -> Vec<PropIssue> {
+    let mut issues = Vec::new();
+    if let Some(style) = &node.style {
+        for i in validate_style(&Value::Object(style.clone()), "style", None) {
+            issues.push(PropIssue { path: i.path, message: i.message });
+        }
+    }
+    for (k, v) in &node.props {
+        check_calls(v, &format!("props.{k}"), &mut issues);
+    }
+    if let Some(visible) = &node.visible {
+        check_calls(visible, "visible", &mut issues);
+    }
+    for (event, action) in node.on.iter().flatten() {
+        check_calls(action, &format!("on.{event}"), &mut issues);
+    }
+    if node.component == "Table" {
+        if let Some(Value::Array(columns)) = node.props.get("columns") {
+            let slots: Vec<&str> = node.slots.iter().flat_map(|s| s.keys()).map(String::as_str).collect();
+            for (i, column) in columns.iter().enumerate() {
+                if column.get("type").and_then(Value::as_str) != Some("slot") {
+                    continue;
+                }
+                let path = format!("props.columns[{i}].slot");
+                match column.get("slot").and_then(Value::as_str) {
+                    None => issue(&mut issues, &path, "a slot column names one of the Table's slots"),
+                    Some(slot) if !slots.contains(&slot) => {
+                        let known = if slots.is_empty() { "none".to_string() } else { slots.join("|") };
+                        issue(&mut issues, &path, format!("no slot \"{slot}\" on this Table; slots: {known}"));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+    }
     issues
 }
 

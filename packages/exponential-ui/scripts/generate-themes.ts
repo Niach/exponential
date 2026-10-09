@@ -253,9 +253,9 @@ export function themeSchema(): Record<string, unknown> {
     description: `${THEME_HEADER} A theme = token VALUES per mode (colours, shadows) + the mode-less token groups + fonts + component recipes. With \`extends\`, every section is optional and overrides the parent's; a root theme must give every token a value (the loader checks completeness, which a schema cannot).`,
     type: `object`,
     additionalProperties: false,
-    required: [`id`, `name`],
+    required: [`$schema`, `id`, `name`],
     properties: {
-      $schema: { type: `string` },
+      $schema: { const: THEME_SCHEMA_ID, description: `Required: the theme format version this file is written for; a loader refuses any other.` },
       $comment: { type: `string` },
       id: { type: `string`, pattern: `^[a-z][a-z0-9-]*$` },
       name: { type: `string`, minLength: 1 },

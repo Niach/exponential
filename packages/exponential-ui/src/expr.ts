@@ -336,6 +336,29 @@ export function percent(value: unknown, max: unknown): string {
   return `${Math.round(clamped * 100) / 100}%`
 }
 
+/** Round 4 (VAPP-103) `filter`: the items of an array that match, in order,
+ *  so a List or Table binds to a filtered view without an agent round trip.
+ *  `where` = field → value, every entry must hold (`eq` equality); an entry
+ *  whose value is missing, null or "" does NOT constrain (a bound "all"
+ *  choice). `query` = a case-insensitive substring of ANY of `fields` (the
+ *  item's own string and number values when `fields` is absent; a string or
+ *  number item matches itself); a missing, null or blank query does not
+ *  constrain. Not an array → []. */
+export function filterItems(items: unknown, query: unknown, fields: unknown, where: unknown): unknown[] {
+  if (!Array.isArray(items)) return []
+  const needle = typeof query === `string` ? query.trim().toLowerCase() : typeof query === `number` ? String(query) : ``
+  const keys = Array.isArray(fields) ? fields.filter((f): f is string => typeof f === `string`) : null
+  const conditions = typeof where === `object` && where !== null && !Array.isArray(where) ? Object.entries(where as Record<string, unknown>).filter(([, v]) => v !== undefined && v !== null && v !== ``) : []
+  const searchable = (v: unknown) => (typeof v === `string` ? v : typeof v === `number` ? String(v) : null)
+  return items.filter((item) => {
+    const record = typeof item === `object` && item !== null && !Array.isArray(item) ? (item as Record<string, unknown>) : null
+    for (const [field, want] of conditions) if (!valuesEqual(record?.[field], want)) return false
+    if (needle === ``) return true
+    const values = record ? (keys ?? Object.keys(record)).map((k) => record[k]) : [item]
+    return values.some((v) => searchable(v)?.toLowerCase().includes(needle) ?? false)
+  })
+}
+
 /** The core value functions (core.catalog.json `functions.core`; `set` is
  *  an action, src/dynamic.ts runAction) as the renderer
  *  evaluates them once the arguments are resolved: the reference every
@@ -359,6 +382,7 @@ export const CORE_FUNCTIONS: Record<string, (args: Record<string, unknown>) => u
   },
   len: ({ value }) => (Array.isArray(value) ? value.length : typeof value === `string` ? value.length : 0),
   fill: ({ template, params }) => fillTemplate(template, params),
+  filter: ({ items, query, fields, where }) => filterItems(items, query, fields, where),
   // Round 2 (docs/round-2-contract.md §3): the two core format functions, here
   // through the English fallback; a renderer runs them (and the basic
   // format* ones) through the surface's Formatter (src/dynamic.ts).

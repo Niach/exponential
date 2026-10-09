@@ -21,6 +21,7 @@
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
+//   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
 //   + the round-2 fixtures of scripts/generate-round2.ts (format, template items,
 //     text direction, Resizable, virtual lists, animations, the list bench)
 //
@@ -45,6 +46,7 @@ import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
 import { renderHost } from "./generate-host"
 import { renderRound2 } from "./generate-round2"
+import { renderRound4 } from "./generate-round4"
 import { ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
@@ -100,10 +102,8 @@ function builtinIcons(): Record<string, string> {
 }
 
 const components = Object.entries(coreCatalog.components)
-/** What a model is offered: neither the hidden placeholder nor a deprecated alias (round 3). */
-const visible = components.filter(([, def]) => !def.hidden && !def.deprecated)
-/** Round 3: the one-release aliases; their example case stays in the fixtures so every renderer replays the alias. */
-const deprecated = components.filter(([, def]) => def.deprecated)
+/** What a model is offered: everything but the hidden placeholder. */
+const visible = components.filter(([, def]) => !def.hidden)
 const names = components.map(([name]) => name)
 const natives = components.filter(([, d]) => d.kind === `native`).map(([n]) => n)
 const macros = components.filter(([, d]) => d.kind === `macro`).map(([n]) => n)
@@ -188,8 +188,6 @@ const rows = {
   componentEvents: components.map(([, d]) => eventNames(d)),
   componentSlots: components.map(([, d]) => (d.slots ?? []).join(`,`)),
   componentSpecimenIds: names.map(specimenId),
-  // Round 3: the replacement an alias expands to ("" = a live component).
-  componentDeprecated: components.map(([, d]) => d.deprecated ?? ``),
   liteComponents: lite,
   nativeComponents: natives,
   macroComponents: macros,
@@ -230,7 +228,7 @@ const rows = {
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
 }
-const liteFlags = components.map(([, d]) => d.lite && !d.hidden && !d.deprecated)
+const liteFlags = components.map(([, d]) => d.lite && !d.hidden)
 const scalars: [string, string][] = [
   [`catalogId`, CORE_CATALOG_ID],
   [`liteCatalogId`, CORE_LITE_CATALOG_ID],
@@ -362,8 +360,6 @@ function renderDocs() {
     catalogId: CORE_CATALOG_ID,
     liteCatalogId: CORE_LITE_CATALOG_ID,
     groups: [...new Set(components.map(([, d]) => d.group))],
-    /** Round 3: the one-release aliases and what replaces them. */
-    deprecated: Object.fromEntries(deprecated.map(([name, def]) => [name, def.deprecated])),
     components: visible.map(([name, def]) => ({
       name,
       kind: def.kind,
@@ -433,9 +429,6 @@ function boundMacroCases(): ComponentCase[] {
  *  prop and both values of every boolean prop, over the example. */
 function componentCases(): ComponentCase[] {
   const cases: ComponentCase[] = []
-  // Round 3: a deprecated alias keeps ONE case (its example) so every
-  // renderer proves it still expands.
-  for (const [name, def] of deprecated) cases.push(makeCase(name, def, `example`, { ...(def.example ?? {}) }))
   for (const [name, def] of visible) {
     const base = { ...(def.example ?? {}) }
     const make = (suffix: string, props: Record<string, unknown>) => makeCase(name, def, suffix, props)
@@ -737,7 +730,7 @@ function bindDataset(root: UiNode, data: Record<string, unknown>) {
     data,
     bound,
     presses: collect(root)
-      .filter((n) => n.on?.press?.function)
+      .filter((n) => n.on?.press?.functionCall)
       .map((n) => ({ id: n.id, outcome: runAction(n.on!.press, data, BIND_OPTIONS) })),
   }
   const unbound = new Map(collect(root).map((n) => [n.id, n]))
@@ -814,7 +807,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
   },
   {
     name: `Section/set:author-function`,
-    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { function: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
+    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
     datasets: [{ open: true }],
   },
   {
@@ -864,7 +857,7 @@ function promptBudget() {
   const terse = catalogPrompt({ terse: true })
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate.`,
-    budgetTokens: 6500,
+    budgetTokens: 6800,
     full: { components: visible.length, chars: full.length, tokens: estimateTokens(full) },
     lite: { components: lite.length, chars: liteText.length, tokens: estimateTokens(liteText) },
     terse: { components: visible.length, chars: terse.length, tokens: estimateTokens(terse) },
@@ -939,6 +932,8 @@ function renderFiles(): Record<string, string> {
     ...renderHost(),
     // Round 2: the contract fixtures (inputs in scripts/generate-round2.ts).
     ...renderRound2(),
+    // Round 4: the styling + semantics contract (inputs in scripts/generate-round4.ts).
+    ...renderRound4(),
   }
 }
 

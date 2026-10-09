@@ -16,7 +16,7 @@
       "description": "An issue status as the app paints it: the icon concept plus the status colour.",
       "properties": {
         "icon": { "type": "icon", "required": true, "description": "The status icon concept (status-backlog … status-duplicate, or a progress-n-m custom glyph)." },
-        "color": { "type": "color", "description": "The status row's colour; omitted for a builtin's legacy token colour." }
+        "color": { "type": "string", "description": "The status row's stored #rrggbb colour (team data, not a theme colour); omitted for a builtin's token colour." }
       }
     },
     "prRail": {
@@ -138,7 +138,7 @@
       "description": "A label as a pill Chip with its colour dot.",
       "props": {
         "name": { "type": "string", "required": true, "bindable": true, "description": "The label name." },
-        "color": { "type": "color", "required": true, "description": "The label colour." }
+        "color": { "type": "string", "required": true, "description": "The label's stored #rrggbb colour (team data, not a theme colour)." }
       },
       "example": { "name": "bug", "color": "#EF4444" }
     },

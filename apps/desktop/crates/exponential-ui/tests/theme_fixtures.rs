@@ -4,7 +4,7 @@
 
 use exponential_ui::geometry::{check_geometry, control_geometry, GEOMETRY_KEYS, verify_painter_geometry, GeometryCase, MeasuredBox, PainterOverride};
 use exponential_ui::json;
-use exponential_ui::theme::{load_theme, resolve_recipe, try_load_theme, Mode, RecipeQuery, ResolvedTheme, ThemeOptions, ThemeRef};
+use exponential_ui::theme::{load_theme, resolve_recipe, try_load_theme, Mode, RecipeQuery, ResolvedTheme, ThemeOptions, ThemeRef, THEME_SCHEMA_ID};
 use exponential_ui::themes::{builtin_refs, builtin_theme};
 use exponential_ui::Props;
 use indexmap::IndexMap;
@@ -93,6 +93,32 @@ fn the_built_in_sources_load_to_the_recorded_themes() {
         let ThemeRef::Source(source) = &registry[i] else { unreachable!() };
         let loaded = load_theme(source, &options).unwrap_or_else(|e| panic!("{e}"));
         assert_same(&serde_json::to_value(&loaded).unwrap(), &f["themes"][id], id);
+    }
+}
+
+/// Round 4 (VAPP-103): every theme file the package ships and every theme a
+/// fixture records loads, and names the format it was written for (TS:
+/// `every shipped and recorded theme loads`).
+#[test]
+fn every_shipped_and_recorded_theme_loads() {
+    let refs = builtin_refs();
+    let options = ThemeOptions::core(&refs);
+    let mut files: Vec<String> = std::fs::read_dir(format!("{PKG}/themes"))
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.ends_with(".theme.json"))
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 3);
+    for file in &files {
+        let source = read(&format!("themes/{file}"));
+        assert_eq!(source["$schema"].as_str(), Some(THEME_SCHEMA_ID), "{file}");
+        try_load_theme(&source, &options).unwrap_or_else(|e| panic!("{file}: {e:?}"));
+    }
+    for c in fixture("theme-extends.json")["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        assert_eq!(c["theme"]["$schema"].as_str(), Some(THEME_SCHEMA_ID), "{name}");
+        try_load_theme(&c["theme"], &options).unwrap_or_else(|e| panic!("{name}: {e:?}"));
     }
 }
 

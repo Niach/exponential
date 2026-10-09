@@ -459,8 +459,7 @@ final class Round1NativesTests: XCTestCase {
     // MARK: - round 3 (VAPP-102): Segmented bar, context Menu, tree guides
 
     /// `Segmented variant: bar` (the old TabBar): full width,
-    /// `$control.tabBar` tall, each item a column; a press selects; the
-    /// `TabBar` alias expands to the same native.
+    /// `$control.tabBar` tall, each item a column; a press selects.
     func testSegmentedBarIsAFullWidthColumnRow() throws {
         let items: JSONValue = .array([
             .object(["label": .string("Inbox"), "value": .string("inbox"), "icon": .string("inbox")]),
@@ -485,14 +484,6 @@ final class Round1NativesTests: XCTestCase {
         let caption = SurfaceMeasurer.barCaption(.empty, base: TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: nil))
         let expected = ["Inbox", "Boards", "Settings"].reduce(CGFloat(0)) { $0 + max(TextShaper.maxContent($1, caption), 20) + 2 * GeometrySpacing.value("xs") }
         XCTAssertEqual(size.width, expected, accuracy: 0.5)
-        // The alias rides the same native.
-        var aliasStack = node("col", "Stack").object!
-        aliasStack["children"] = .array([node("tb", "TabBar", ["items": items, "value": .string("boards")])])
-        let alias = try surface(.object(aliasStack))
-        paint(alias)
-        let seg = try XCTUnwrap(alias.nodes.first { $0.component == "Segmented" && !$0.removed })
-        XCTAssertEqual(seg.props.str("variant"), "bar")
-        XCTAssertEqual(alias.segmentedValues(seg.index), ["boards"])
     }
 
     /// `Menu openOn: contextmenu`: the ONE child is the region; a secondary
@@ -525,13 +516,6 @@ final class Round1NativesTests: XCTestCase {
         XCTAssertEqual(trigger.component, "Button")
         p.press(trigger.index)
         XCTAssertTrue(p.layers.contains { $0.owner == "pm" })
-        // The ContextMenu alias still opens as a context Menu.
-        var alias = node("ctx", "ContextMenu", ["items": items]).object!
-        alias["children"] = .array([node("ctx-child", "Text", ["text": .string("Region")])])
-        let a = try surface(.object(alias))
-        paint(a)
-        a.contextMenu(a.index(of: "ctx-child")!)
-        XCTAssertTrue(a.layers.contains { $0.owner == "ctx" })
     }
 
     /// The round-3 guide geometry: 14 px columns, the line's LEFT edge at

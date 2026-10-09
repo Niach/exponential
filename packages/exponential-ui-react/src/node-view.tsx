@@ -15,7 +15,7 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, withOwnWrites } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "./box-css"
 import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
@@ -109,8 +109,10 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 }
 
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
- *  function args AND the event context resolve against the data as it is,
- *  then `set` writes (relative paths against the node's scope), any other
+ *  function args AND the event context resolve against the data WITH the
+ *  component's own write applied (round 4 `withOwnWrites`: the context of
+ *  an Input's `change` reads the text just typed, even before React has
+ *  re-rendered the write), then `set` writes (relative paths against the node's scope), any other
  *  function runs, then the event reaches the host with the component's
  *  payload merged OVER the author's context (the payload wins a clashing
  *  key, like the Rust core's `fire`: the author's context was resolved
@@ -118,8 +120,9 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>): Promise<void> | void {
   const action = node.on?.[event]
   if (!action) return undefined
-  const rctx: ResolveContext = resolveContextOf(ctx, scope)
-  const fn = (action as { functionCall?: { call: string; args?: Record<string, unknown> } }).functionCall ?? action.function
+  const base = resolveContextOf(ctx, scope)
+  const rctx: ResolveContext = payload ? { ...base, data: withOwnWrites(ctx.data, node.props, payload, scope ? { base: scope } : {}) } : base
+  const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   let pending: unknown

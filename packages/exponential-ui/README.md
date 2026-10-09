@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 88 components (70 offered + 16 one-release `deprecated` aliases + the hidden TreeGuides part, round 3) with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 72 components (70 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -43,7 +43,7 @@ nothing from the Exponential app.
 | `fixtures/` | the contract (below) |
 | `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
 | `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
-| `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 deprecated aliases, the lite prune |
+| `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
@@ -162,6 +162,17 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   The template language is documented in `macros.json`'s `$comment` and
   implemented in `expr.ts` (pure, line-by-line mirrorable in Rust).
 - `validateProps(def, props)` — the mini schema (`types.ts` `PropSchema`).
+- Round 4 (VAPP-103, `fixtures/round4-contract.json`): `validateNode(node)`
+  (the reducer runs it on every authored node: the node's style, every
+  function its props / `visible` / actions call — a catalog function or a
+  namespaced host function, `isCallableName` — and a Table's slot columns);
+  colours in a node are `$color.*` tokens only; the core function
+  `filter{items, query?, fields?, where?}`; `withOwnWrites` (an action's
+  context resolves AFTER the component's own write) and
+  `submitClosesOverlay` (a valid Form submit closes the Dialog/Drawer around
+  it); `themeOrDefault` (never throws: the default theme + the issues); a
+  theme must name `$schema` = `THEME_SCHEMA_ID`; an action's function is
+  `functionCall` only (no legacy `function` key).
 - `validateStyle` / `create` / `props` — the VAPP-4 `vapp-css` over the whitelist.
 - `defineExtension(def)` — an extension catalog: own id, `extends` the core,
   components (+ macro templates), no core name shadowed.
@@ -277,6 +288,7 @@ so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 | `virtual-list.json` | round 2: the one-axis window, scrollToIndex, sections, the sticky header |
 | `animations.json` | round 2: timing + sampled frames of every `animation` per built-in theme, reduced motion, the CSS @keyframes |
 | `bench-list.json` | round 2: the 100,000-row List every renderer benches (numbers in each renderer's README) |
+| `round4-contract.json` | round 4 (VAPP-103): authored trees → the validator's issues; `filter` args → items; an Input/Switch change → the data + the action context after the own write; a Form submit → which Dialog/Drawer closes |
 | `conformance-known.json` | the gpui ratchet + round 2's 53 divergence decisions (`causes`, `rules`) |
 
 ## Commands

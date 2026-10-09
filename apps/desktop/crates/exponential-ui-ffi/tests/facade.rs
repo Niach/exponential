@@ -202,7 +202,7 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     assert_eq!(out.layers[0].position, "centered");
     assert_eq!(serde_json::from_str::<Value>(&surface.data_json()).unwrap()["open"], json!(true));
     surface.set_builtin_theme("playful".into()).unwrap();
-    assert!(surface.set_theme_json(json!({"id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
+    assert!(surface.set_theme_json(json!({"$schema": "https://ui.exponential.at/schemas/theme/v1.json", "id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
     assert!(matches!(surface.set_theme_json("{\"id\":\"bad\"}".into()), Err(UiError::Theme { .. })));
 }
 
@@ -428,7 +428,7 @@ fn a_theme_object_resolves_parts_colors_and_tokens_for_painters() {
     assert_eq!(theme.font_family("sans".into()).as_deref(), Some("Inter"));
     assert!(theme.control("input".into()).is_some());
     assert_eq!(theme.control("nope".into()), None);
-    let loaded = Theme::load(r##"{"id":"t","name":"T","extends":"neutral","modes":{"light":{"color":{"primary":"#ff0000"}},"dark":{"color":{"primary":"#00ff00"}}}}"##.into(), None).unwrap();
+    let loaded = Theme::load(r##"{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"t","name":"T","extends":"neutral","modes":{"light":{"color":{"primary":"#ff0000"}},"dark":{"color":{"primary":"#00ff00"}}}}"##.into(), None).unwrap();
     assert_eq!(loaded.color("primary".into(), "light".into()).as_deref(), Some("#ff0000"));
     // A surface built on the object paints with it and hands it back.
     let s = Surface::with_theme("s".into(), core_catalog_id(), Some(theme.clone()), "dark".into()).unwrap();
@@ -918,7 +918,7 @@ fn frame_of(s: &Surface, out: &FfiLayout, id: &str) -> FfiFrame {
 #[test]
 fn text_styles_carry_letter_spacing_transform_and_font_style() {
     let theme = Theme::load(
-        r#"{"id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}"#.into(),
+        r#"{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}"#.into(),
         None,
     )
     .unwrap();

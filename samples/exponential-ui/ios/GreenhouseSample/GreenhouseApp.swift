@@ -41,7 +41,11 @@ final class Sample {
         do {
             let (ext, _) = try await URLSession.shared.data(from: Config.server.appending(path: "extension.json"))
             let (themeJSON, _) = try await URLSession.shared.data(from: Config.server.appending(path: "theme.json"))
-            let theme = try ThemeHandle.load(json: String(decoding: themeJSON, as: UTF8.self))
+            // An unusable server theme never fails the app: the default
+            // theme paints and the issues are logged.
+            let theme = ThemeHandle.loadOrDefault(json: String(decoding: themeJSON, as: UTF8.self)) { issues in
+                print("theme.json refused:", issues.map { "\($0.path): \($0.message)" })
+            }
             var stream = URLComponents(url: Config.server.appending(path: "a2ui.jsonl"), resolvingAgainstBaseURL: false)!
             if !Config.live { stream.queryItems = [URLQueryItem(name: "once", value: "1")] }
             let host = ExponentialHost(HostOptions(

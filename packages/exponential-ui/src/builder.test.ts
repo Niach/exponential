@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test"
 import { contrast, parseColor, toHex, toThemeHex } from "./color"
 import { diffTheme, exportThemeJson, importShadcnCss, parseShadow, parseThemeJson, themeFromImport } from "./builder"
-import { loadTheme, resolveRecipe } from "./theme"
+import { THEME_SCHEMA_ID, loadTheme, resolveRecipe } from "./theme"
 import { BUILTIN_THEMES, builtinTheme } from "./themes"
 import { styleToCss } from "./css"
 
@@ -86,10 +86,10 @@ describe(`importShadcnCss`, () => {
 describe(`diffTheme / export`, () => {
   test(`the smallest extends theme that reproduces a draft`, () => {
     const neutral = builtinTheme(`neutral`)
-    const draft = loadTheme({ id: `d`, name: `D`, extends: `neutral`, modes: { dark: { color: { primary: `#60a5fa` } } }, tokens: { radius: { md: 12 }, type: { family: { sans: `Inter` } } }, fonts: { Inter: { source: `host` } }, recipes: { Card: { root: [{ style: { borderWidth: `$border.none` } }] } } }, { themes: [neutral] })
+    const draft = loadTheme({ $schema: THEME_SCHEMA_ID, id: `d`, name: `D`, extends: `neutral`, modes: { dark: { color: { primary: `#60a5fa` } } }, tokens: { radius: { md: 12 }, type: { family: { sans: `Inter` } } }, fonts: { Inter: { source: `host` } }, recipes: { Card: { root: [{ style: { borderWidth: `$border.none` } }] } } }, { themes: [neutral] })
     const minimal = diffTheme(draft, neutral)
     expect(minimal).toEqual({
-      id: `d`, name: `D`, extends: `neutral`,
+      $schema: THEME_SCHEMA_ID, id: `d`, name: `D`, extends: `neutral`,
       modes: { dark: { color: { primary: `#60a5fa` } } },
       tokens: { radius: { md: 12 }, type: { family: { sans: `Inter` } } },
       fonts: { Inter: { source: `host` } },
@@ -101,13 +101,13 @@ describe(`diffTheme / export`, () => {
     expect(text.startsWith(`{\n  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",\n  "id": "d"`)).toBe(true)
     expect(parseThemeJson(text, BUILTIN_THEMES).theme?.id).toBe(`d`)
     expect(parseThemeJson(`{nope`, BUILTIN_THEMES).issues[0].message).toMatch(/not JSON/)
-    expect(parseThemeJson(`{"id":"x","name":"X","extends":"neutral","tokens":{"spacing":{"huge":1}}}`, BUILTIN_THEMES).issues[0].path).toBe(`tokens.spacing.huge`)
+    expect(parseThemeJson(`{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"x","name":"X","extends":"neutral","tokens":{"spacing":{"huge":1}}}`, BUILTIN_THEMES).issues[0].path).toBe(`tokens.spacing.huge`)
   })
 
   test(`diffTheme on an unchanged theme is empty`, () => {
     const neutral = builtinTheme(`neutral`)
-    const copy = loadTheme({ id: `same`, name: `Same`, extends: `neutral` }, { themes: [neutral] })
-    expect(diffTheme(copy, neutral)).toEqual({ id: `same`, name: `Same`, extends: `neutral` })
+    const copy = loadTheme({ $schema: THEME_SCHEMA_ID, id: `same`, name: `Same`, extends: `neutral` }, { themes: [neutral] })
+    expect(diffTheme(copy, neutral)).toEqual({ $schema: THEME_SCHEMA_ID, id: `same`, name: `Same`, extends: `neutral` })
   })
 })
 
@@ -125,7 +125,7 @@ describe(`styleToCss`, () => {
 describe(`round 1: diffTheme keeps the new groups and the contrast overlays`, () => {
   test(`breakpoints, easings and contrast survive the round trip`, () => {
     const base = builtinTheme(`neutral`)
-    const draft = loadTheme({ id: `brand`, name: `Brand`, extends: `neutral`, tokens: { breakpoint: { md: 720 }, ease: { standard: [0.4, 0, 0.2, 1] } }, contrast: { dark: { color: { ring: `#ffff00` } } } }, { themes: BUILTIN_THEMES })
+    const draft = loadTheme({ $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, tokens: { breakpoint: { md: 720 }, ease: { standard: [0.4, 0, 0.2, 1] } }, contrast: { dark: { color: { ring: `#ffff00` } } } }, { themes: BUILTIN_THEMES })
     const diff = diffTheme(draft, base, { id: `brand`, name: `Brand` })
     expect(diff.tokens).toEqual({ breakpoint: { md: 720 }, ease: { standard: [0.4, 0, 0.2, 1] } })
     expect(diff.contrast).toEqual({ dark: { color: { ring: `#ffff00` } } })

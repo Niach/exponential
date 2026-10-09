@@ -805,6 +805,11 @@ pub fn validate_theme(source: &Value, options: &ThemeOptions) -> Vec<ThemeIssue>
     let Some(src) = source.as_object() else {
         return vec![issue("theme", "expected a theme object {id, name, modes, tokens, recipes}")];
     };
+    // Round 4 (VAPP-103): the schema id is READ: a theme written for
+    // another (or no) format version is refused outright.
+    if src.get("$schema").and_then(Value::as_str) != Some(THEME_SCHEMA_ID) {
+        issues.push(issue("$schema", format!("expected \"{THEME_SCHEMA_ID}\"")));
+    }
     if !src.get("id").and_then(Value::as_str).is_some_and(is_kebab_id) {
         issues.push(issue("id", "expected a kebab-case id"));
     }
@@ -1464,7 +1469,7 @@ mod tests {
     fn a_theme_that_changes_primary_and_the_button_radius_works_everywhere() {
         let refs = builtin_refs();
         let brand = load_theme(
-            &json!({"id": "brand", "name": "Brand", "extends": "neutral", "modes": {"light": {"color": {"primary": "#2563eb"}}}, "recipes": {"Button": {"root": [{"style": {"borderRadius": "$radius.full"}}]}}}),
+            &json!({"$schema": THEME_SCHEMA_ID, "id": "brand", "name": "Brand", "extends": "neutral", "modes": {"light": {"color": {"primary": "#2563eb"}}}, "recipes": {"Button": {"root": [{"style": {"borderRadius": "$radius.full"}}]}}}),
             &ThemeOptions::core(&refs),
         )
         .unwrap();
@@ -1480,7 +1485,7 @@ mod tests {
     #[test]
     fn chains_of_chains_and_resolved_parents() {
         let refs = [ThemeRef::Resolved(builtin_theme("playful").unwrap())];
-        let child = load_theme(&json!({"id": "c", "name": "C", "extends": "playful", "tokens": {"spacing": {"md": 20}}}), &ThemeOptions::core(&refs)).unwrap();
+        let child = load_theme(&json!({"$schema": THEME_SCHEMA_ID, "id": "c", "name": "C", "extends": "playful", "tokens": {"spacing": {"md": 20}}}), &ThemeOptions::core(&refs)).unwrap();
         assert_eq!(child.chain, ["neutral", "playful", "c"]);
         assert_eq!(child.tokens.spacing["md"], 20.0);
         assert_eq!(child.tokens.radius["md"], 14.0);
@@ -1489,10 +1494,10 @@ mod tests {
     #[test]
     fn source_chains_and_cycles() {
         let refs = [
-            ThemeRef::Source(json!({"id": "a", "name": "A", "extends": "b"})),
-            ThemeRef::Source(json!({"id": "b", "name": "B", "extends": "a"})),
+            ThemeRef::Source(json!({"$schema": THEME_SCHEMA_ID, "id": "a", "name": "A", "extends": "b"})),
+            ThemeRef::Source(json!({"$schema": THEME_SCHEMA_ID, "id": "b", "name": "B", "extends": "a"})),
         ];
-        let err = try_load_theme(&json!({"id": "c", "name": "C", "extends": "a"}), &ThemeOptions::core(&refs)).unwrap_err();
+        let err = try_load_theme(&json!({"$schema": THEME_SCHEMA_ID, "id": "c", "name": "C", "extends": "a"}), &ThemeOptions::core(&refs)).unwrap_err();
         assert_eq!(err, [issue("extends", "cycle: c → a → b → a")]);
     }
 
@@ -1503,21 +1508,21 @@ mod tests {
         let e = load_theme(&Value::Null, &opts).unwrap_err();
         assert_eq!(e.id, "?");
         assert!(load_theme(&json!(42), &ThemeOptions::default()).unwrap_err().to_string().contains("expected a theme object"));
-        let bad = json!({"id": "bad", "name": "Bad", "extends": "neutral", "tokens": {"spacing": {"huge": 1}}, "recipes": {"Button": {"root": [{"style": {"display": "flex"}}]}}});
+        let bad = json!({"$schema": THEME_SCHEMA_ID, "id": "bad", "name": "Bad", "extends": "neutral", "tokens": {"spacing": {"huge": 1}}, "recipes": {"Button": {"root": [{"style": {"display": "flex"}}]}}});
         let e = load_theme(&bad, &opts).unwrap_err();
         let paths: Vec<&str> = e.issues.iter().map(|i| i.path.as_str()).collect();
         assert_eq!(paths, ["tokens.spacing.huge", "recipes.Button.root[0].style.display"]);
         let msg = e.to_string();
         assert!(msg.contains("Theme \"bad\" is invalid:"));
         assert!(msg.contains("not a recipe key"));
-        let err = try_load_theme(&json!({"id": "x", "name": "X", "extends": "nope"}), &opts).unwrap_err();
+        let err = try_load_theme(&json!({"$schema": THEME_SCHEMA_ID, "id": "x", "name": "X", "extends": "nope"}), &opts).unwrap_err();
         assert!(err[0].message.contains("unknown theme \"nope\""));
         assert_eq!(validate_theme(&json!("neutral"), &ThemeOptions::default()).len(), 1);
     }
 
     #[test]
     fn a_root_theme_must_give_every_token_a_value() {
-        let issues = try_load_theme(&json!({"id": "bare", "name": "Bare", "modes": {}, "tokens": {}, "recipes": {}}), &ThemeOptions::default()).unwrap_err();
+        let issues = try_load_theme(&json!({"$schema": THEME_SCHEMA_ID, "id": "bare", "name": "Bare", "modes": {}, "tokens": {}, "recipes": {}}), &ThemeOptions::default()).unwrap_err();
         assert!(issues.len() > 100);
         assert!(issues[0].message.starts_with("missing value for $color."));
     }

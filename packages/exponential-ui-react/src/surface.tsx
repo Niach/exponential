@@ -18,17 +18,16 @@ import {
   builtinTheme,
   formatString,
   intlFormatter,
-  loadTheme,
+  themeOrDefault,
   mediaMatches,
   parseMediaCondition,
   resolveMode,
   stringTable,
   textDirection,
-  BUILTIN_THEMES,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ScrollAlign, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
+import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
 import { compileNodeSheet, queryToken, surfaceClass } from "./box-css"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
@@ -110,18 +109,33 @@ export interface ExponentialSurfaceProps {
   children?: ReactNode
 }
 
-const resolvedCache = new Map<string, ResolvedTheme>()
+/** A theme prop, resolved: the theme to paint with and why the asked one
+ *  was refused (empty when it loaded). */
+export interface ThemeResolution {
+  theme: ResolvedTheme
+  issues: ThemeIssue[]
+}
+
+const resolvedCache = new Map<string, ThemeResolution>()
 
 /** A theme prop → the resolved theme (built-ins cached by id, theme files
- *  resolved against the built-ins and cached by content). */
-export function resolveThemeInput(input: ThemeInput | undefined): ResolvedTheme {
-  if (!input) return builtinTheme(DEFAULT_THEME_ID)
-  if (typeof input === `string`) return builtinTheme(input)
-  if (`chain` in input && Array.isArray((input as ResolvedTheme).chain)) return input as ResolvedTheme
-  const key = JSON.stringify(input)
+ *  resolved against the built-ins and cached by content). NEVER throws
+ *  (round 4, VAPP-103): an unknown built-in id or an invalid theme file
+ *  paints with the default theme and carries its issues, which the surface
+ *  reports through `HostPlugin.onThemeIssues`. */
+export function resolveThemeInput(input: ThemeInput | undefined): ThemeResolution {
+  if (!input) return { theme: builtinTheme(DEFAULT_THEME_ID), issues: [] }
+  if (typeof input === `string`) return themeOrDefault(input)
+  if (`chain` in input && Array.isArray((input as ResolvedTheme).chain)) return { theme: input as ResolvedTheme, issues: [] }
+  let key: string
+  try {
+    key = JSON.stringify(input)
+  } catch {
+    return { theme: builtinTheme(DEFAULT_THEME_ID), issues: [{ path: `theme`, message: `expected a theme object {id, name, modes, tokens, recipes}` }] }
+  }
   let hit = resolvedCache.get(key)
   if (!hit) {
-    hit = loadTheme(input, { themes: BUILTIN_THEMES })
+    hit = themeOrDefault(input)
     resolvedCache.set(key, hit)
   }
   return hit
@@ -300,7 +314,14 @@ export function ExponentialSurface({
   const reducedMotion = useMediaQuery(`(prefers-reduced-motion: reduce)`)
   const hover = useMediaQuery(`(hover: hover)`, true)
   const mode: ModeName = modeSetting === `system` ? resolveMode(`system`, prefersDark) : modeSetting
-  const baseTheme = useMemo(() => resolveThemeInput(themeProp), [themeProp])
+  const resolution = useMemo(() => resolveThemeInput(themeProp), [themeProp])
+  const baseTheme = resolution.theme
+  // An unusable theme never crashes the host: the surface paints with the
+  // default theme and hands the issues over once per resolution.
+  const onThemeIssues = host?.onThemeIssues
+  useEffect(() => {
+    if (resolution.issues.length > 0) onThemeIssues?.(resolution.issues)
+  }, [resolution, onThemeIssues])
   const theme = surfaceTheme(baseTheme, density, contrast === `high` || (contrast === `system` && prefersContrast))
   const global = useSyncExternalStore(subscribeExtensions, registeredExtensions, registeredExtensions)
   const extensions = useMemo(() => [...global, ...extensionsProp], [global, extensionsProp])
