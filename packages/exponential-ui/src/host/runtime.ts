@@ -503,6 +503,11 @@ export class ExponentialHost {
     for (const k of this.paintErrors) if (k.startsWith(prefix)) this.paintErrors.delete(k)
   }
 
+  /** The media policy every src passes (`policy.media`). */
+  mediaOptions(): MediaOptions | undefined {
+    return this.options.policy?.media
+  }
+
   /** The image loader's request (absolute url + auth headers). */
   mediaRequest(url: string): MediaRequest | null {
     return mediaRequest(url, this.options.policy?.media)

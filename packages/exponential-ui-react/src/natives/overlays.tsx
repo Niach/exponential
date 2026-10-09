@@ -20,7 +20,7 @@ import { absolutePath } from "../data"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
-import { arr, bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
+import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 
 /** An overlay's `open`: local mirror, bound path written, `change {open}`. */
 function useOpenState(node: NativeProps[`node`], scope: string, external: boolean, emit: NativeProps[`emit`]) {
@@ -296,7 +296,7 @@ type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
  *  already, so it renders like a literal one. */
 function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string }) {
   const ctx = useSurfaceContext()
-  const raws = arr<Record<string, unknown>>(rawItems)
+  const raws = objects<Record<string, unknown>>(rawItems)
   const N = ns as typeof MenuPrimitive
   return (
     <>
@@ -319,7 +319,7 @@ function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path }: { 
               </N.SubTrigger>
               <N.Portal container={ctx.portal ?? undefined}>
                 <N.SubContent {...(part(`content`) as Record<string, string>)} sideOffset={2} collisionPadding={OVERLAY_PADDING} data-xui-overlay={`${overlay}.sub`}>
-                  <MenuItems ns={ns} items={arr<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} />
+                  <MenuItems ns={ns} items={objects<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} />
                 </N.SubContent>
               </N.Portal>
             </N.Sub>
@@ -374,7 +374,7 @@ export function MenuNative(p: NativeProps) {
 function PressMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<MenuItem>(props.items)
+  const items = objects<MenuItem>(props.items)
   const label = str(props.label)
   const icon = str(props.icon)
   const [open, setOpen] = useState(false)
@@ -408,7 +408,7 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
 function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<MenuItem>(props.items)
+  const items = objects<MenuItem>(props.items)
   const [open, setOpen] = useState(false)
   return (
     <ContextPrimitive.Root onOpenChange={setOpen} dir={ctx.direction}>

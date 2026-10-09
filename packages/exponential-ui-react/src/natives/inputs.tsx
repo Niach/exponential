@@ -17,7 +17,7 @@ import { useHostOwnedValue } from "../inputs"
 import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useBoundState } from "./bound"
-import { arr, bool, BuiltinIcon, num, str, useParts, TextPart } from "./shared"
+import { bool, BuiltinIcon, num, str, useParts, TextPart, objects } from "./shared"
 import type { SurfaceInputEvent } from "../host"
 
 export function useInputSender(node: NativeProps[`node`], scope: string, prop: string, domId: string = node.id) {
@@ -389,7 +389,7 @@ export function RadioNative({ node, props, rootProps, emit, scope, domId }: Nati
   const part = useParts(node, props)
   const ctx = useSurfaceContext()
   const id = useId()
-  const options = arr<Option>(props.options)
+  const options = objects<Option>(props.options)
   const [value, setValue] = useBoundState(node, scope, `value`, str(props.value))
   const focusRef = useRef<HTMLDivElement | null>(null)
   // Focus goes to the checked item (else the first), the group's tab stop.

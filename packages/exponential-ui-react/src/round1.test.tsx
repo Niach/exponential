@@ -619,7 +619,7 @@ describe(`new natives`, () => {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 0))
       })
-      expect(fetchSpy).toHaveBeenCalledWith(`https://x.test/gone.png`, { headers: { authorization: `Bearer t` } })
+      expect(fetchSpy).toHaveBeenCalledWith(`https://x.test/gone.png`, expect.objectContaining({ headers: { authorization: `Bearer t` } }))
       expect(root.getAttribute(`data-state`)).toBe(`error`)
       expect(root.getAttribute(`aria-label`)).toBe(`Gone`)
       expect(container.querySelector(`.xui-Image-fallback`)).not.toBeNull()

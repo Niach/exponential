@@ -8,7 +8,8 @@ Rust core computes (the geometry fixture holds the browser to taffy's
 frames within a pixel). Published to npm from `release/` (VAPP-91); the
 workspace package.json stays private on the sources.
 
-It depends on `@exponential-at/ui`, React 18 or 19, `radix-ui` and
+It depends on `@exponential-at/ui`, React 19 (React 18 would keep
+`javascript:` hrefs clickable), `radix-ui` and
 `lucide-react` (its own chrome glyphs) — nothing from the Exponential app, no
 TanStack, no Electric, no tRPC. Tailwind is an internal build detail of the
 primitive set (below); the renderer itself ships no stylesheet an embedder

@@ -11,7 +11,8 @@ import { ExponentialSurface, type ExponentialSurfaceProps } from "./surface"
 
 /** The renderer callbacks that route through the host: actions become A2UI
  *  client messages on its transport, host functions pass its policy gate,
- *  urls its URL policy, media its loader. `base` adds the rest (icons,
+ *  every href its URL policy, every src its media policy + loader, paint
+ *  failures become `RENDER_FAILED` errors. `base` adds the rest (icons,
  *  markdown, onInput…) and may observe actions first. */
 export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPlugin {
   return {
@@ -28,7 +29,13 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
     openUrl: (url) => {
       host.openUrl(url)
     },
+    urls: host.urlPolicy(),
+    media: host.mediaOptions(),
     mediaRequest: base.mediaRequest ?? ((src) => host.mediaRequest(src)),
+    onPaintError: (error) => {
+      host.paintError(error)
+      base.onPaintError?.(error)
+    },
   }
 }
 

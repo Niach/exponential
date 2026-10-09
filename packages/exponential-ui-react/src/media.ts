@@ -1,7 +1,10 @@
 // VAPP-91: the media loader. A source resolves through the host's
 // `mediaRequest` (absolute url + headers, the policy hook that adds auth for
-// /api/attachments) or `resolveUrl`; a request with headers is fetched once
-// and shown as a blob url (an <img> cannot send headers).
+// /api/attachments) after `resolveUrl`, always under the media policy
+// (VAPP-103: schemes + hosts, `urls.ts`; a denied src loads nothing); a
+// request with headers is fetched once — under `MEDIA_LIMITS` (bytes,
+// timeout) — and shown as a blob url (an <img> cannot send headers). A
+// direct <img> load is the browser's (its own decode limits).
 //
 // Blob urls pin their bytes until revoked, so the cache is bounded: every
 // mounted consumer holds a reference; an entry nobody holds stays cached
@@ -11,7 +14,9 @@
 // never evicted.
 
 import { useEffect, useState } from "react"
+import { MEDIA_LIMITS, imageDimensions } from "@exponential-at/ui"
 import type { HostPlugin } from "./host"
+import { mediaRequestOf } from "./urls"
 
 /** How many fetched media nobody shows stay cached (their blob urls live). */
 export const MEDIA_CACHE_IDLE_MAX = 64
@@ -89,22 +94,19 @@ export function clearMediaCache(): void {
 
 /** A media source's state: the url to use (undefined while a fetched one
  *  loads or after it failed) and whether the fetch failed (so an Image can
- *  show its fallback; an <img> never sees a failed fetch). */
+ *  show its fallback; an <img> never sees a failed fetch). A src the media
+ *  policy denies has no url and `error`. */
 export function useMediaSource(host: HostPlugin, src: string): { url: string | undefined; error: boolean } {
-  const req = src && host.mediaRequest ? host.mediaRequest(src) : null
+  const req = mediaRequestOf(host, src)
   const headers = req?.headers ?? {}
   const fetched = req !== null && Object.keys(headers).length > 0
-  const direct = !src ? undefined : req ? req.url : host.resolveUrl ? host.resolveUrl(src) : src
+  const direct = req ? req.url : undefined
   const [blob, setBlob] = useState<{ for: string; url?: string; error?: true } | null>(null)
   const k = fetched ? key(req.url, headers) : ``
   useEffect(() => {
     if (!fetched) return
     let live = true
-    const entry = acquire(k, () =>
-      fetch(req.url, { headers })
-        .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((b) => URL.createObjectURL(b))
-    )
+    const entry = acquire(k, () => fetchLimited(req.url, headers).then((b) => URL.createObjectURL(b)))
     entry.promise.then(
       (url) => live && setBlob({ for: k, url }),
       () => live && setBlob({ for: k, error: true })
@@ -116,8 +118,60 @@ export function useMediaSource(host: HostPlugin, src: string): { url: string | u
     // req/headers are derived from k
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetched, k])
-  if (!fetched) return { url: direct, error: false }
+  // A src the media policy denies is a failed load (the fallback paints).
+  if (!fetched) return { url: direct, error: Boolean(src) && req === null }
   return blob?.for === k ? { url: blob.url, error: blob.error === true } : { url: undefined, error: false }
+}
+
+/** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
+ *  body (Content-Length up front, then as it streams) within `maxBytes`, an
+ *  image header's width × height within `maxPixels` (before any decode). */
+export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS): Promise<Blob> {
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${limits.timeoutMs} ms`)), limits.timeoutMs)
+  const over = () => new Error(`media is over ${limits.maxBytes} bytes`)
+  try {
+    const r = await fetch(url, { headers, signal: abort.signal })
+    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    if (Number(r.headers.get(`content-length`) ?? NaN) > limits.maxBytes) throw over()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    if (r.body) {
+      const reader = r.body.getReader()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > limits.maxBytes) {
+          abort.abort()
+          throw over()
+        }
+        chunks.push(value)
+      }
+    } else {
+      const all = new Uint8Array(await r.arrayBuffer())
+      if (all.byteLength > limits.maxBytes) throw over()
+      chunks.push(all)
+    }
+    const head = chunks.length === 1 ? chunks[0]! : concat(chunks, 64 * 1024)
+    const dims = imageDimensions(head)
+    if (dims && dims[0] * dims[1] > limits.maxPixels) throw new Error(`media is ${dims[0]}×${dims[1]}, over ${limits.maxPixels} pixels`)
+    return new Blob(chunks as BlobPart[], { type: r.headers.get(`content-type`) ?? `` })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function concat(chunks: readonly Uint8Array[], max: number): Uint8Array {
+  const out = new Uint8Array(Math.min(max, chunks.reduce((n, c) => n + c.byteLength, 0)))
+  let at = 0
+  for (const c of chunks) {
+    if (at >= out.length) break
+    const part = c.subarray(0, out.length - at)
+    out.set(part, at)
+    at += part.length
+  }
+  return out
 }
 
 /** The src an element should use, or undefined while a fetched one loads

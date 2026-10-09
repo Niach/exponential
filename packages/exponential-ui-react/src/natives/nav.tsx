@@ -10,7 +10,7 @@ import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
-import { arr, bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
+import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 
 interface Tab {
   label: string
@@ -22,7 +22,7 @@ interface Tab {
 export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const tabs = arr<Tab>(props.tabs)
+  const tabs = objects<Tab>(props.tabs)
   const external = str(props.value) || tabs[0]?.value || ``
   const [value, setValue] = useBoundState(node, scope, `value`, external)
   const fill = bool(props.fill)
@@ -87,7 +87,7 @@ const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isA
 export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<Item>(props.items)
+  const items = objects<Item>(props.items)
   const variant = str(props.variant, `segmented`)
   const bar = variant === `bar`
   const multiple = !bar && props.type === `multiple`
@@ -216,7 +216,7 @@ interface AccordionItem {
 export function AccordionNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<AccordionItem>(props.items)
+  const items = objects<AccordionItem>(props.items)
   const multiple = props.type === `multiple`
   const raw = props.value
   const external = multiple ? (Array.isArray(raw) ? raw.map(String) : raw ? String(raw).split(`,`) : []) : str(raw)

@@ -32,7 +32,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
         <>
           <p>
             Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential-at/ui-react</code> (the renderer). React 18 or 19; the renderer ships its own styles,
+            <code>@exponential-at/ui-react</code> (the renderer). React 19; the renderer ships its own styles,
             so there is no stylesheet or Tailwind setup.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-react`}</DocsCode>

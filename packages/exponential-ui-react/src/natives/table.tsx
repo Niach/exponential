@@ -25,7 +25,7 @@ import { NodeView, type NativeProps } from "../node-view"
 import { partClass } from "../theme-css"
 import { useBoundState } from "./bound"
 import { displayString } from "@exponential-at/ui"
-import { arr, bool, BuiltinIcon, num, phrase, str, useParts } from "./shared"
+import { arr, bool, BuiltinIcon, num, phrase, str, useParts, objects } from "./shared"
 
 const CURRENCY_CODE = /^[A-Za-z]{3}$/
 
@@ -78,8 +78,8 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: Sort | 
 export function TableNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const columns = arr<TableColumn>(props.columns)
-  const rows = arr<Record<string, unknown>>(props.rows)
+  const columns = objects<TableColumn>(props.columns)
+  const rows = objects<Record<string, unknown>>(props.rows)
   const rowKey = str(props.rowKey, `id`)
   const selectable = str(props.selectable, `none`)
   const striped = bool(props.striped)
