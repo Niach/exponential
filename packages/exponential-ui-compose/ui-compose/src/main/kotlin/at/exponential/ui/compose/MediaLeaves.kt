@@ -1,8 +1,6 @@
 package at.exponential.ui.compose
 
-import android.content.Context
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -36,7 +34,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -61,6 +58,7 @@ import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
+import at.exponential.ui.host.MediaLimits
 import at.exponential.ui.host.MediaRequest
 import java.net.HttpURLConnection
 import java.net.URL
@@ -69,15 +67,29 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * The media loader the leaves share (no image library): `http(s)`, `file`
- * and `content` URIs decoded with `BitmapFactory` on the IO dispatcher,
- * downsampled to ≤ 2048 px, cached per URL (an LRU of 48 pictures);
- * failures are remembered so a broken URL is not refetched per frame.
+ * The media loader the leaves share (no image library). It loads ONLY a
+ * policed [MediaRequest] (the host's media policy already allowed it):
+ * `http(s)` (its headers sent; redirects followed by hand, each hop passed
+ * through the policy again) and `data:` URIs; never a local file or content
+ * URI. Every load enforces [MediaLimits] (catalog/host.json `media.limits`):
+ * Content-Length up front and the body as it streams, connect + read
+ * timeouts and a deadline over the whole request, width × height read from
+ * the header BEFORE decoding. Decoded with `BitmapFactory` on the IO
+ * dispatcher, downsampled to ≤ 2048 px, cached per URL (an LRU of 48
+ * pictures); failures are remembered so a broken URL is not refetched per
+ * frame.
  */
 object LeafImages {
     private const val MAX_SIDE = 2048
+    private const val MAX_REDIRECTS = 5
     private val cache = LruCache<String, ImageBitmap>(48)
     private val failed = HashSet<String>()
+
+    /** Why a load failed (each paints the fallback, like a 404). */
+    enum class Failure { Denied, Http, TooLarge, Timeout, TooManyPixels, Undecodable }
+
+    /** A failed load and its [reason]. */
+    class LoadFailure(val reason: Failure, message: String) : java.io.IOException(message)
 
     /** A cached picture (null = not loaded yet or failed). */
     fun cached(url: String): ImageBitmap? = cache.get(url)
@@ -91,15 +103,21 @@ object LeafImages {
         synchronized(failed) { failed.clear() }
     }
 
-    /** Load `url` (cache first); null when the scheme is unsupported or the load fails. */
-    suspend fun load(context: Context?, url: String): ImageBitmap? = load(context, MediaRequest(url))
-
-    /** Load a host's media request (its headers go with an http(s) fetch); cached per url. */
-    suspend fun load(context: Context?, request: MediaRequest): ImageBitmap? {
+    /**
+     * Load a policed request (cache first); null when it fails. [police]
+     * re-checks a redirect's target (null = denied).
+     */
+    suspend fun load(
+        request: MediaRequest,
+        limits: MediaLimits = MediaLimits.contract,
+        police: (String) -> MediaRequest? = { null },
+    ): ImageBitmap? {
         val url = request.url
         cache.get(url)?.let { return it }
         if (hasFailed(url)) return null
-        val bitmap = withContext(Dispatchers.IO) { runCatching { decode(context, url, request.headers) }.getOrNull() }
+        val bitmap = withContext(Dispatchers.IO) {
+            runCatching { decode(fetch(request, limits, police), limits) }.getOrNull()
+        }
         if (bitmap == null) {
             synchronized(failed) { failed.add(url) }
             return null
@@ -108,44 +126,127 @@ object LeafImages {
         return bitmap
     }
 
-    private fun open(context: Context?, url: String, headers: Map<String, String>): InputStream? {
-        val uri = Uri.parse(url)
-        return when (uri.scheme?.lowercase()) {
-            "http", "https" -> (URL(url).openConnection() as HttpURLConnection).run {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
-                for ((k, v) in headers) setRequestProperty(k, v)
-                if (responseCode !in 200..299) null else inputStream
+    /** The bytes of a policed request within [limits] (blocking). Throws [LoadFailure]. */
+    fun fetch(request: MediaRequest, limits: MediaLimits = MediaLimits.contract, police: (String) -> MediaRequest? = { null }): ByteArray {
+        val deadline = System.nanoTime() + limits.timeoutMs * 1_000_000
+        var current = request
+        repeat(MAX_REDIRECTS + 1) {
+            val scheme = current.url.substringBefore(':', "").lowercase()
+            when (scheme) {
+                "data" -> return dataBytes(current.url, limits)
+                "http", "https" -> {}
+                else -> throw LoadFailure(Failure.Denied, "scheme $scheme")
             }
-            "file" -> uri.path?.let { java.io.File(it).inputStream() }
-            "content", "android.resource" -> context?.contentResolver?.openInputStream(uri)
-            else -> null
+            val remaining = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val conn = URL(current.url).openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = remaining
+                conn.readTimeout = remaining
+                conn.instanceFollowRedirects = false
+                for ((k, v) in current.headers) conn.setRequestProperty(k, v)
+                val code = try {
+                    conn.responseCode
+                } catch (e: java.net.SocketTimeoutException) {
+                    throw LoadFailure(Failure.Timeout, "timed out")
+                }
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location") ?: throw LoadFailure(Failure.Http, "redirect without Location")
+                    val next = URL(URL(current.url), location).toString()
+                    current = police(next) ?: throw LoadFailure(Failure.Denied, "redirect to $next")
+                    return@repeat
+                }
+                if (code !in 200..299) throw LoadFailure(Failure.Http, "HTTP $code")
+                val length = conn.contentLengthLong
+                if (length > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "Content-Length $length > ${limits.maxBytes}")
+                return conn.inputStream.use { readCapped(it, limits.maxBytes, deadline) }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        throw LoadFailure(Failure.Http, "too many redirects")
+    }
+
+    /** Read [input] to the end: more than [maxBytes] or past [deadline] (nanoTime) fails. */
+    fun readCapped(input: InputStream, maxBytes: Long, deadline: Long = Long.MAX_VALUE): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0L
+        while (true) {
+            val n = try {
+                input.read(buf)
+            } catch (e: java.net.SocketTimeoutException) {
+                throw LoadFailure(Failure.Timeout, "timed out")
+            }
+            if (n < 0) break
+            total += n
+            if (total > maxBytes) throw LoadFailure(Failure.TooLarge, "body over ${maxBytes} bytes")
+            if (System.nanoTime() > deadline) throw LoadFailure(Failure.Timeout, "timed out")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    /** A `data:[mime][;base64],payload` URI's bytes (within the byte cap). */
+    private fun dataBytes(url: String, limits: MediaLimits): ByteArray {
+        val comma = url.indexOf(',')
+        if (comma < 0) throw LoadFailure(Failure.Undecodable, "data uri without a comma")
+        val meta = url.substring(5, comma)
+        val payload = url.substring(comma + 1)
+        val bytes = if (meta.endsWith(";base64", ignoreCase = true)) {
+            if (payload.length / 4L * 3 > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "data uri over ${limits.maxBytes} bytes")
+            runCatching { java.util.Base64.getMimeDecoder().decode(payload) }.getOrElse { throw LoadFailure(Failure.Undecodable, "bad base64") }
+        } else {
+            java.net.URLDecoder.decode(payload.replace("+", "%2B"), "UTF-8").toByteArray(Charsets.ISO_8859_1)
+        }
+        if (bytes.size > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "data uri over ${limits.maxBytes} bytes")
+        return bytes
+    }
+
+    /**
+     * The width × height the image header claims (BitmapFactory
+     * `inJustDecodeBounds`: nothing decoded); null when it is no image.
+     */
+    fun bounds(bytes: ByteArray): Pair<Int, Int>? {
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        return if (opts.outWidth <= 0 || opts.outHeight <= 0) null else opts.outWidth to opts.outHeight
+    }
+
+    /** Check the header's pixel count against [limits] BEFORE any decode. Throws [LoadFailure]. */
+    fun checkPixels(width: Int, height: Int, limits: MediaLimits) {
+        if (width.toLong() * height.toLong() > limits.maxPixels) {
+            throw LoadFailure(Failure.TooManyPixels, "${width}×$height over ${limits.maxPixels} pixels")
         }
     }
 
-    private fun decode(context: Context?, url: String, headers: Map<String, String>): ImageBitmap? {
-        val bytes = open(context, url, headers)?.use { it.readBytes() } ?: return null
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    /** Decode within the limits: the header first (refused over `maxPixels`), then a downsampled decode. */
+    fun decode(bytes: ByteArray, limits: MediaLimits = MediaLimits.contract): ImageBitmap {
+        val (w, h) = bounds(bytes) ?: throw LoadFailure(Failure.Undecodable, "no image header")
+        checkPixels(w, h, limits)
         var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / sample > MAX_SIDE) sample *= 2
+        while (max(w, h) / sample > MAX_SIDE) sample *= 2
         val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: throw LoadFailure(Failure.Undecodable, "decode failed")
+        return bmp.asImageBitmap()
     }
 }
 
-/** The picture at `src` (the host's media request: url + headers), loading in the background; null while loading / without one. */
+/**
+ * The picture at `src`: the surface's policed media request (the host's
+ * `resolveUrl`, then its media policy; denied = null, the fallback paints),
+ * loading in the background; null while loading / without one.
+ */
 @Composable
-internal fun rememberLeafImage(cx: LeafContext, src: String): ImageBitmap? {
+internal fun rememberLeafImage(cx: LeafContext, src: String): ImageBitmap? = rememberPolicedImage(cx.model, src)
+
+/** [rememberLeafImage] for any surface painter (markdown images too). */
+@Composable
+internal fun rememberPolicedImage(model: at.exponential.ui.model.SurfaceModel, src: String): ImageBitmap? {
     if (src.isEmpty()) return null
-    val request = remember(src, cx.model.host) { cx.model.host.mediaRequest(src) } ?: return null
-    val url = request.url
-    val scheme = Uri.parse(url).scheme
-    if (scheme.isNullOrEmpty()) return null
-    val context = LocalContext.current.applicationContext
-    val image by produceState(LeafImages.cached(url), request) { value = LeafImages.load(context, request) }
+    val request = remember(src, model.host) { model.mediaRequest(src) } ?: return null
+    val image by produceState(LeafImages.cached(request.url), request) {
+        value = LeafImages.load(request, police = { model.mediaRequest(it) })
+    }
     return image
 }
 

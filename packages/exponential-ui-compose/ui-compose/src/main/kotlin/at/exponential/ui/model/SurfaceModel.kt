@@ -2,6 +2,7 @@ package at.exponential.ui.model
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
@@ -22,6 +23,10 @@ import at.exponential.ui.ffi.Surface
 import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.host.HostPlugin
+import at.exponential.ui.host.MediaRequest
+import at.exponential.ui.host.PaintError
+import at.exponential.ui.host.policedMediaRequest
+import at.exponential.ui.host.safeHref
 import at.exponential.ui.host.NoHost
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
@@ -462,6 +467,7 @@ class SurfaceModel(
     /** One A2UI message as JSON. Throws `UiException`. */
     fun apply(json: String): FfiApplyOutcome {
         val out = surface.apply(json)
+        if (out.structureChanged) forgetPaintFailures()
         invalidate(out.structureChanged)
         return out
     }
@@ -469,6 +475,7 @@ class SurfaceModel(
     /** The nested authoring form (fixtures, MCP templates). Throws `UiException`. */
     fun setNested(json: String): FfiApplyOutcome {
         val out = surface.setNested(json)
+        forgetPaintFailures()
         invalidate(true)
         return out
     }
@@ -476,8 +483,40 @@ class SurfaceModel(
     /** A flat component list. Throws `UiException`. */
     fun setComponents(json: String): FfiApplyOutcome {
         val out = surface.setComponents(json)
+        forgetPaintFailures()
         invalidate(true)
         return out
+    }
+
+    // Hrefs, media, painter failures (catalog/host.json urls / media / paint)
+
+    /** The href the host's URL policy allows for `url` (resolved), else null: the link paints as plain text. */
+    fun href(url: String): String? = safeHref(host, url)
+
+    /** Open `url` when the URL policy allows it (every Link, markdown link and `openUrl`). */
+    fun openHref(url: String) {
+        href(url)?.let(host::openUrl)
+    }
+
+    /** The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads. */
+    fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(host, src)
+
+    /** Components whose painter failed → the message: they paint an empty box. */
+    val paintFailures = mutableStateMapOf<String, String>()
+    private val reportedPaintErrors = HashSet<Pair<String, String>>()
+
+    /**
+     * Component `componentId`'s painter failed: it paints an empty box from
+     * now on and the host hears `onPaintError` once per component + message.
+     */
+    fun paintFailed(componentId: String, message: String) {
+        if (paintFailures[componentId] != message) paintFailures[componentId] = message
+        if (reportedPaintErrors.add(componentId to message)) host.onPaintError(PaintError(id, componentId, message))
+    }
+
+    private fun forgetPaintFailures() {
+        reportedPaintErrors.clear()
+        if (paintFailures.isNotEmpty()) paintFailures.clear()
     }
 
     /** Write at a JSON pointer (null removes). */
@@ -605,7 +644,7 @@ class SurfaceModel(
         if (nodesDirty) readNodes()
         var measurer: SurfaceMeasurer? = null
         val out: FfiLayout = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf).let {
+            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed).let {
                 measurer = it
                 surface.layout(it)
             }

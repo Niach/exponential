@@ -41,7 +41,7 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
                     payload = v["payload"],
                 ),
             )
-            "openUrl" -> host.openUrl(v["url"]?.string ?: "")
+            "openUrl" -> openHref(v["url"]?.string ?: "")
             "functionCall" -> host.onFunctionCall(
                 SurfaceFunctionCallEvent(
                     surfaceId = id,

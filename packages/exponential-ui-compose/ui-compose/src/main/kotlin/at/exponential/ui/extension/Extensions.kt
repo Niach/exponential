@@ -45,6 +45,16 @@ class ExtensionContext(
     fun emit(event: String, payload: JsonValue? = null) {
         model.fire(node.index, event, payload)
     }
+
+    /**
+     * The painter cannot paint these props: the node paints an empty box
+     * from the next frame on and the host hears `onPaintError` (once per
+     * message). Compose cannot catch a throw inside a composable, so a
+     * painter reports here instead of throwing from [ExtensionPainter.Paint].
+     */
+    fun fail(message: String) {
+        model.paintFailed(node.owner ?: node.id, message)
+    }
 }
 
 /** A painter for one extension native (`extension_kind`). */
@@ -56,7 +66,11 @@ interface ExtensionPainter {
      */
     fun measure(leaf: ExtensionLeaf, wrap: Float?): Size?
 
-    /** The content drawn INSIDE the frame. */
+    /**
+     * The content drawn INSIDE the frame. Must not throw (Compose has no
+     * error boundary): props it cannot paint → [ExtensionContext.fail]. A
+     * throwing [measure] is caught and reported the same way.
+     */
     @Composable
     fun Paint(context: ExtensionContext)
 }

@@ -198,9 +198,13 @@ class MarkdownComposeText(
  * out by [Markdown.layout] at the available width, each block painted at
  * its box (paragraphs, headings, bullet / numbered / task lists, quotes
  * with a bar, fenced code on a rounded background, rules, table grids;
- * inline bold, italic, code, strike, links). Sizes are taken at
- * `fontScale = 1` so the measured layout is the painted one. Links open
- * through [onLink] (null = the platform URI handler).
+ * inline bold, italic, code, strike, links; block images). Sizes are
+ * taken at `fontScale = 1` so the measured layout is the painted one.
+ * [linkPolicy] polices every href (null result = plain text, never
+ * navigates); links open through [onLink] (null = the platform URI
+ * handler). [image] paints a block image inside its box (null = the alt
+ * text); it should load through a media policy and fall back to the alt
+ * text itself.
  */
 @Composable
 fun MarkdownView(
@@ -212,8 +216,13 @@ fun MarkdownView(
     monoFamily: String? = LocalPrimitiveTokens.current.monoFamily,
     fonts: MarkdownFontResolver = MarkdownFontResolver { _, mono -> if (mono) FontFamily.Monospace else null },
     onLink: ((String) -> Unit)? = null,
+    linkPolicy: ((String) -> String?)? = null,
+    image: (@Composable (src: String, alt: String) -> Unit)? = null,
 ) {
-    val blocks = remember(text) { Markdown.parse(text) }
+    val blocks = remember(text, linkPolicy) {
+        val parsed = Markdown.parse(text)
+        if (linkPolicy == null) parsed else Markdown.policeLinks(parsed, linkPolicy)
+    }
     val outer = LocalDensity.current
     val pinned = remember(outer.density) { Density(outer.density, 1f) }
     CompositionLocalProvider(LocalDensity provides pinned) {
@@ -233,7 +242,7 @@ fun MarkdownView(
                             .width(width.dp)
                             .height(box.height.dp),
                     ) {
-                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, onLink)
+                        MarkdownBlockView(block, box, width, styles, colors, codeBlockRadius, shaper, onLink, image)
                     }
                 }
             }
@@ -251,6 +260,7 @@ private fun MarkdownBlockView(
     codeBlockRadius: Dp,
     shaper: MarkdownComposeText,
     onLink: ((String) -> Unit)?,
+    image: (@Composable (src: String, alt: String) -> Unit)?,
 ) {
     val spec = styles.spec(block.kind)
     fun runs(inlines: List<MarkdownInline>, ink: Color, code: Color?, boldFloor: Int? = null) =
@@ -261,7 +271,15 @@ private fun MarkdownBlockView(
             style = shaper.style(spec, colors.ink),
             modifier = Modifier.fillMaxWidth(),
         )
+        is MarkdownBlockKind.Image -> Box(Modifier.width(width.dp).height(box.height.dp)) {
+            if (image != null) {
+                image(kind.src, kind.alt)
+            } else {
+                MarkdownImageAlt(kind.alt, shaper.style(spec, colors.muted))
+            }
+        }
         is MarkdownBlockKind.ListItem -> Row(verticalAlignment = Alignment.Top) {
+            if (kind.depth > 0) Box(Modifier.width((styles.listIndent * kind.depth).dp))
             Box(Modifier.width(styles.listIndent.dp).height(spec.lineHeight.dp), contentAlignment = Alignment.CenterStart) {
                 val task = kind.task
                 if (task != null) {
@@ -273,7 +291,7 @@ private fun MarkdownBlockView(
             BasicText(
                 runs(block.inlines, colors.ink, colors.codeBackground),
                 style = shaper.style(spec, colors.ink),
-                modifier = Modifier.width((width - styles.listIndent).coerceAtLeast(1f).dp),
+                modifier = Modifier.width((width - styles.listInset(kind.depth)).coerceAtLeast(1f).dp),
             )
         }
         is MarkdownBlockKind.Quote -> Row {
@@ -320,6 +338,12 @@ private fun MarkdownBlockView(
             }
         }
     }
+}
+
+/** A block image's alt text (denied, failed, still loading or no image painter): one line, start-aligned. */
+@Composable
+fun MarkdownImageAlt(alt: String, style: TextStyle) {
+    BasicText(alt, style = style, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
 }
 
 /** A GFM task box: a rounded square outline, ticked when [checked]. */
