@@ -280,21 +280,18 @@ function AgentPage() {
           } ${TAB_BAR_CLEARANCE}`}
         >
           {/* EXP-1249: the faint brand mark's TOP HALF above the composer —
-              THIS page only (the composer dialog has none): the column's
-              first row, a clip of half the mark's height with the logo at
-              its top, so the column gap keeps it 24px off the card; the
-              half FADES out toward the box (solid for its top third,
-              transparent at the clip's bottom edge). */}
+              THIS page only (the composer dialog has none) and md+ only
+              (phones draw none): the column's first row, a clip of half the
+              mark's height with the logo at its top, so the column gap
+              keeps it 24px off the card; the half FADES out toward the box
+              (solid for its top third, transparent at the clip's bottom
+              edge). */}
           <div
             aria-hidden
             data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
-            className="pointer-events-none mx-auto h-[min(260px,46vw)] w-[min(520px,92vw)] overflow-hidden text-foreground opacity-[0.025] select-none [mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)]"
+            className="pointer-events-none mx-auto hidden h-[220px] w-[440px] overflow-hidden text-foreground opacity-[0.025] select-none [mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] md:block"
           >
-            <ExponentialLogo
-              variant="light"
-              size={520}
-              className="size-[min(520px,92vw)]"
-            />
+            <ExponentialLogo variant="light" size={440} className="size-[440px]" />
           </div>
           {steerEnabled ? (
             // Keyed by team: the composer's repo pick and seed latches are

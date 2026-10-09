@@ -72,9 +72,6 @@ struct AgentPageView: View {
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        // EXP-1249: the brand mark's TOP HALF above the
-                        // composer (the Agent page only, never the dialog).
-                        brandMark(width: proxy.size.width)
                         if steerEnabled == false {
                             relayOffNote
                         } else if steerEnabled == true {
@@ -308,33 +305,6 @@ struct AgentPageView: View {
         }
     }
 
-    /// EXP-1249: the logo in the foreground colour at ~2.5%, min(520pt, 92%
-    /// of the width), as the column's first row showing its TOP HALF only (a
-    /// clip of half its height, the logo aligned to the clip's top) with a
-    /// 24pt gap to the card; the half fades out toward the box (solid for
-    /// its top third, transparent at the clip's bottom edge). Never
-    /// hit-testable, hidden from VoiceOver.
-    private func brandMark(width: CGFloat) -> some View {
-        let size = min(520, width * 0.92)
-        return ExpLogoMark(size: size, color: .white.opacity(0.025))
-            .frame(width: size, height: size / 2, alignment: .top)
-            .clipped()
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.33),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 12)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .accessibilityIdentifier(ComposerMenu.brandMarkTestId)
-    }
 
     // MARK: - Captions
 

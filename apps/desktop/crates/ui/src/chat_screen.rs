@@ -134,7 +134,7 @@ const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 /// edge, the half of it that shows (a clip of half its height, the logo
 /// aligned to the clip's top, so only the top half peeks over the card) and
 /// its ink (the foreground at ~2.5%). The column gap keeps it off the card.
-const PAGE_MARK_SIZE: f32 = 520.;
+const PAGE_MARK_SIZE: f32 = 440.;
 const PAGE_MARK_ALPHA: f32 = 0.025;
 /// How many slices the half mark's fade is painted in (gpui has no mask).
 const PAGE_MARK_FADE_STEPS: usize = 12;
