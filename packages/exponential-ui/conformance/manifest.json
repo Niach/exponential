@@ -127,7 +127,7 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 57,
+      "cases": 67,
       "check": "Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals `expected`."
     },
     {

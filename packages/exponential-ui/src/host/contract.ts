@@ -11,6 +11,14 @@ export const EXTENSION_MESSAGE_KINDS: readonly string[] = hostJson.messages.exte
 export const MESSAGE_KINDS: readonly string[] = [...hostJson.messages.a2ui, ...hostJson.messages.extensions]
 export const HOST_ERROR_CODES: readonly string[] = hostJson.clientMessages.errorCodes
 export const DEFAULT_URL_SCHEMES: readonly string[] = hostJson.urls.defaultSchemes
+/** The media loader's schemes when the host lists none (no `file`). */
+export const DEFAULT_MEDIA_SCHEMES: readonly string[] = hostJson.media.defaultSchemes
+/** What every image loader enforces (`media.limits`). */
+export const MEDIA_LIMITS: { readonly maxBytes: number; readonly timeoutMs: number; readonly maxPixels: number } = hostJson.media.limits
+/** The renderer → host hook a failed painter calls (`paint.hook`) and the
+ *  A2UI error code the host forwards it with (`paint.errorCode`). */
+export const PAINT_ERROR_HOOK: string = hostJson.paint.hook
+export const RENDER_FAILED = `RENDER_FAILED` as const
 export const MCP_MIME_TYPES: readonly string[] = hostJson.transport.mcpMimeTypes
 export const MCP_ACTION_TOOL: string = hostJson.transport.mcpActionTool
 export const SSE_EVENTS: readonly string[] = hostJson.transport.sseEvents
@@ -28,6 +36,7 @@ export type HostErrorCode =
   | `TEMPLATE_NOT_FOUND`
   | `FUNCTION_NOT_FOUND`
   | `FUNCTION_DENIED`
+  | `RENDER_FAILED`
 
 /** A server → client message: the four A2UI v0.9 kinds plus the two
  *  Exponential UI extensions. */

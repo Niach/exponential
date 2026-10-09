@@ -253,7 +253,7 @@ fn urls_pass_the_url_policy_and_media_gets_its_headers(cx: &mut TestAppContext) 
     let policy = HostPolicy {
         urls: Some(UrlPolicy { schemes: None, hosts: Some(vec!["*.example.com".into()]), base_url: None }),
         open_url: Some(Rc::new(move |url: &str, _: &mut App| o.borrow_mut().push(url.to_string()))),
-        media: Some(MediaOptions { base_url: Some("https://app.example.com/".into()), rules: Some(vec![MediaRule { prefix: "https://app.example.com/api/attachments/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into() }]) }),
+        media: Some(MediaOptions { base_url: Some("https://app.example.com/".into()), rules: Some(vec![MediaRule { prefix: "https://app.example.com/api/attachments/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into() }]), ..Default::default() }),
         ..Default::default()
     };
     let host = host_with(cx, HostOptions { policy, ..Default::default() });

@@ -2,7 +2,7 @@
 // URL open or a media load (`catalog/host.json` functions / urls / media).
 // Pure; `fixtures/host-policy.json` locks them on every platform.
 
-import { DEFAULT_URL_SCHEMES } from "./contract"
+import { DEFAULT_MEDIA_SCHEMES, DEFAULT_URL_SCHEMES } from "./contract"
 import { coreCatalog } from "../catalog"
 
 /** The catalog's built-in client functions: the basic 14 + round 1's 15
@@ -101,6 +101,11 @@ export interface MediaRule {
 export interface MediaOptions {
   baseUrl?: string
   rules?: readonly MediaRule[]
+  /** The schemes a src may use; default `DEFAULT_MEDIA_SCHEMES` (https,
+   *  http, data). `file` only when listed. */
+  schemes?: readonly string[]
+  /** http(s) hosts media may load from: exact or `*.example.com`; unset = any. */
+  hosts?: readonly string[]
 }
 
 export interface MediaRequest {
@@ -110,14 +115,23 @@ export interface MediaRequest {
 
 /** The image / media loader's request: the absolute url plus the headers of
  *  every rule whose prefix it starts with (later rules win per header).
- *  Null when the url does not resolve. */
+ *  Null when the url does not resolve or the media policy (schemes, hosts)
+ *  denies it: nothing loads. */
 export function mediaRequest(url: string, options: MediaOptions = {}): MediaRequest | null {
-  const parsed = absolute(url.trim(), options.baseUrl)
-  if (!parsed) return null
-  const href = parsed.href
+  const d = decideUrl({ baseUrl: options.baseUrl, schemes: options.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: options.hosts }, url)
+  if (!d.allowed || !d.url) return null
+  const href = d.url
   const headers: Record<string, string> = {}
   for (const rule of options.rules ?? []) if (href.startsWith(rule.prefix)) Object.assign(headers, rule.headers)
   return { url: href, headers: sortKeys(headers) }
+}
+
+/** The href a renderer may navigate to (Link, markdown links, FileUpload
+ *  file urls), or undefined when the URL policy denies it. */
+export function safeHref(policy: UrlPolicy | undefined, url: unknown): string | undefined {
+  if (typeof url !== `string` || !url) return undefined
+  const d = decideUrl(policy, url)
+  return d.allowed ? d.url : undefined
 }
 
 export function sortKeys<T>(record: Record<string, T>): Record<string, T> {
