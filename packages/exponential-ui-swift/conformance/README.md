@@ -32,7 +32,7 @@ the count of the cascade they cause, tolerated rewraps and the coverage
 list to fix. A case whose counts exceed the budget fails; one below it asks
 for the budget to be lowered. It also writes the `real-font` suite summary
 (`{renderer, platform, suites: {"real-font": {cases, passed, failed}}}`) to
-`<repo>/.conformance/exponential-ui-swift-real-font.json`
+`packages/exponential-ui-swift/.build/conformance/real-font-report.json` (the repo's `.conformance/` holds only the manifest reports the `conformant` gate checks)
 (`EXPONENTIAL_UI_REAL_FONT_REPORT` overrides), the shape `conformance:check`
 reads once the manifest gains the suite.
 

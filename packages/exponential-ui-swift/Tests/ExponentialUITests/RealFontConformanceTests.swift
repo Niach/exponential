@@ -394,7 +394,9 @@ final class RealFontConformanceTests: XCTestCase {
 
     static func writeReport(cases: [String], failed: [String]) throws {
         let env = ProcessInfo.processInfo.environment
-        let path = env["EXPONENTIAL_UI_REAL_FONT_REPORT"].map { URL(fileURLWithPath: $0) } ?? repo.appendingPathComponent(".conformance/exponential-ui-swift-real-font.json")
+        // Beside the package's build output, like Compose's build/conformance: the repo's .conformance/ holds
+        // ONLY the manifest reports the `conformant` CI gate checks, and this dump is not one.
+        let path = env["EXPONENTIAL_UI_REAL_FONT_REPORT"].map { URL(fileURLWithPath: $0) } ?? repo.appendingPathComponent("packages/exponential-ui-swift/.build/conformance/real-font-report.json")
         let report: JSONValue = .object([
             "renderer": .string(renderer),
             "platform": .string("ios"),
