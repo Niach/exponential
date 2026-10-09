@@ -23,7 +23,9 @@
 #      ws://10.0.2.2:4002 instead. Point it elsewhere with
 #      SCREENGRAB_STEER_RELAY_URL; the rewrite is skipped entirely when
 #      SCREENGRAB_INSTANCE_URL names a non-local backend.
-#   3. An English-locale phone emulator booted (only one device attached).
+#   3. An English-locale phone emulator booted. Several attached (EXP-1267:
+#      lanes in parallel, one emulator each) = set ANDROID_SERIAL; see the
+#      Fastfile header for the concurrent invocation.
 #   4. Both APKs built: bundle exec fastlane screenshots does this for you.
 #   The lane pins the status bar itself (SystemUI demo mode, 9:41, full
 #   battery and signal; Fastfile `with_pinned_status_bar`, EXP-986), so a bare
@@ -54,9 +56,13 @@ clear_previous_screenshots(true)
 # Stable filenames (1_board.png, …) so the Play metadata set stays diffable.
 use_timestamp_suffix(false)
 
-# Reinstall to clear app data between runs — the test drives the full
-# first-launch flow (instance picker → login) and needs a signed-out app.
-reinstall_app(true)
+# EXP-1267: NO reinstall. `install -r` keeps the app's data, so the suite's
+# in-process sign-in (androidTest ScreenshotSession) reuses its cached session
+# and the per-user caches across runs; it drops every other account itself, and
+# falls back to the instance picker → login form only when the backend rejects
+# the session. A failing step fails within seconds (ScreenshotFlow timeouts);
+# screengrab never retries a run.
+reinstall_app(false)
 
 # productionDebug variant, built via `fastlane screenshots` (paths are relative
 # to apps/android, where fastlane runs).

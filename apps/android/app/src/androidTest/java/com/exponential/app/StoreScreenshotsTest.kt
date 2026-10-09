@@ -25,8 +25,9 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (`bundle exec fastlane screenshots` in apps/android — see fastlane/Screengrabfile).
  *
  * Drives the REAL app UI end-to-end against a locally seeded backend
- * (apps/web/scripts/seed-screenshots.ts): instance picker → password login →
- * board → issue detail → live steering → the Agent page composer → PR review →
+ * (apps/web/scripts/seed-screenshots.ts): signed in by [ScreenshotSessionRule]
+ * (a reused session, EXP-1267; instance picker → password login only as the
+ * fallback) → board → issue detail → live steering → the Agent page composer → PR review →
  * actions → inbox. Play caps phone screenshots at 8; EXP-393
  * spent the budget on the surfaces that actually differentiate the product,
  * dropping the comments / agents-list / reviews-list shots for start coding,
@@ -76,16 +77,23 @@ class StoreScreenshotsTest {
 
         private const val NAV_TIMEOUT = ScreenshotFlow.NAV_TIMEOUT
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
+        private const val FIRST_SYNC_TIMEOUT = ScreenshotFlow.FIRST_SYNC_TIMEOUT
+        private const val NETWORK_TIMEOUT = ScreenshotFlow.NETWORK_TIMEOUT
+        private const val SIBLING_TIMEOUT = ScreenshotFlow.SIBLING_TIMEOUT
     }
 
     private val permissionRule: GrantPermissionRule = ScreenshotFlow.permissionRule()
 
     private val composeRule = createAndroidComposeRule<MainActivity>()
 
-    // Permission grant must land before the activity (and its permission
-    // request) launches.
+    // EXP-1267: the demo session (reused across runs) is in place before the
+    // activity launches, so the app opens signed in — no login UI.
+    private val sessionRule = ScreenshotSessionRule(ScreenshotFlow.DEMO_EMAIL, ScreenshotFlow.DEMO_PASSWORD)
+
+    // Permission grant and the session must land before the activity (and its
+    // permission request) launches.
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(permissionRule).around(composeRule)
+    val rules: RuleChain = RuleChain.outerRule(permissionRule).around(sessionRule).around(composeRule)
 
     private val flow by lazy { ScreenshotFlow(composeRule) }
 
@@ -122,9 +130,9 @@ class StoreScreenshotsTest {
 
     @Test
     fun captureStoreScreenshots() {
-        // --- Instance picker + login: the email field only shows once
-        // /api/auth-config resolved.
-        flow.signIn(instanceUrl)
+        // --- Signed in by [sessionRule]; the instance picker + login form only
+        // as the fallback (the email field shows once /api/auth-config resolved).
+        if (!sessionRule.signedIn) flow.signIn(instanceUrl)
         // The app lands on the Agent tab; the board shot starts on Issues.
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag("tab-issues")).performClick()
@@ -133,8 +141,8 @@ class StoreScreenshotsTest {
         // showcase issue row is on screen (in-progress group sits at the top),
         // then until the transient "Syncing…" pill has cleared — it photobombed
         // the board shot once (EXP-348).
-        flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), SYNC_TIMEOUT)
-        flow.waitForGone(hasText("Syncing", substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), FIRST_SYNC_TIMEOUT)
+        flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("1_board", popRects = true)
 
@@ -161,13 +169,13 @@ class StoreScreenshotsTest {
         // on the FEED tag, not the face: it shows "Connecting…" / "Waiting
         // for activity…" placeholders until the first relay frame lands.
         composeRule.onNode(hasTestTag("work-face-run")).performClick()
-        flow.waitFor(hasTestTag("agent-feed"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("agent-feed"), NETWORK_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag
         // alone would happily photograph a blank screen. Gate on real content:
         // the dial goes to ws://10.0.2.2:4002 via the setUp override, whatever
         // the server minted (EXP-812) — see the Screengrabfile prereqs.
-        flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
         // EXP-893: the faces share ONE screen, so a single Back pops the
@@ -184,14 +192,14 @@ class StoreScreenshotsTest {
         // flow waits for the READY circle. The store slide keeps its filename.
         flow.waitFor(hasText(START_CODING_ISSUE_TITLE), NAV_TIMEOUT)
         composeRule.onAllNodes(hasText(START_CODING_ISSUE_TITLE)).onFirst().performClick()
-        flow.waitFor(hasTestTag(START_CODING_READY_TAG), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag(START_CODING_READY_TAG), NETWORK_TIMEOUT)
         composeRule.onNode(hasTestTag(START_CODING_READY_TAG)).performClick()
         flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
         // The chip proves the seed landed, not just the page.
         flow.waitFor(hasTestTag("agent-composer-chip-issue-APP-3"), SYNC_TIMEOUT)
         // The machine pool resolves after the page (steer config + the devices
         // shape); a shot before that reads "No desktop online".
-        flow.waitForGone(hasText("No desktop online", substring = true), SYNC_TIMEOUT)
+        flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("3_start-coding", popRects = true)
         // A pushed detail: back pops to the issue, then Back to the board.
@@ -210,11 +218,13 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
         flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
         // P60: the slide is the catalog's Complete diff page — tap the
         // Guide's "Show complete diff" row (with no report the ONE Changes
         // row already is the whole diff) and photograph the page it opens.
-        if (flow.waitForOptional(hasTestTag("guide-complete-diff"), NAV_TIMEOUT)) {
+        // EXP-1267: the row renders WITH the Changes row, so a short look —
+        // a report-less Guide has none and used to burn the full nav wait.
+        if (flow.waitForOptional(hasTestTag("guide-complete-diff"), SIBLING_TIMEOUT)) {
             composeRule.onNode(hasTestTag("guide-complete-diff")).performClick()
         } else {
             composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()

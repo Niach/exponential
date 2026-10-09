@@ -17,12 +17,202 @@ default_platform(:ios)
 # ./fastlane/, so a bare basename is all that is needed. Unset = "Snapfile",
 # i.e. every other lane is untouched.
 require "snapshot"
-module Snapshot
+module ::Snapshot
   class << self
     def snapfile_name
       ENV["SNAPFILE_NAME"] || "Snapfile"
     end
   end
+end
+
+# ── EXP-1267: fast, fail-fast, parallel-safe capture lanes ───────────────────
+#
+# `screenshots` (store) and `styleguide_screenshots` may run AT THE SAME TIME,
+# next to the Android lanes. Stock snapshot cannot: it kills Simulator.app and
+# shuts down EVERY booted simulator before each run, files every lane's PNGs
+# through ONE cache dir (~/Library/Caches/tools.fastlane/screenshots, which its
+# collector empties), builds into a fresh temp DerivedData every time, and
+# relaunches a failed run up to 20 times when xcodebuild exits non-65. So:
+#
+# - every lane runs on simulators of its OWN, "<model> exp-<tag>" (created on
+#   first use, kept between runs — no erase; the app's DEBUG-only
+#   `-uiTestingReset` seam gives each launch a fresh-install state instead,
+#   and the suites reuse a cached sign-in, see ExponentialUITests/
+#   ScreenshotFlow.swift `ScreenshotSession`). SnapshotHelper strips the
+#   " exp-<tag>" suffix, so the PNGs keep their canonical
+#   "iPhone 17 Pro Max-<shot>.png" names;
+# - only the lane's own simulators are ever shut down, and only when their
+#   locale / appearance prefs actually have to change;
+# - the store lane keeps fastlane's default cache dir (the pop-rect sidecars
+#   live there, `bun run screenshots:pop-sidecars` reads them); the styleguide
+#   lane gets ~/Library/Caches/tools.fastlane/exp-<tag>;
+# - every lane builds into its own persistent DerivedData,
+#   apps/ios/build/shots-dd-<tag> (incremental after the first run);
+# - a failed run is retried at most ONCE (Snapfile `number_of_retries(1)`),
+#   whatever the exit code.
+#
+# Env knobs (all optional):
+#   SNAPSHOT_LANE_TAG       simulator/DerivedData/cache tag, default "store" /
+#                           "styleguide" — set a distinct one per worktree when
+#                           two checkouts run the SAME lane at once.
+#   SNAPSHOT_DERIVED_DATA   override the lane's DerivedData path.
+#   SNAPSHOT_INSTANCE_URL   the backend (see Snapfile).
+#
+# Concurrent invocation (from apps/ios, each in its own process):
+#   LC_ALL=en_US.UTF-8 bundle exec fastlane screenshots
+#   LC_ALL=en_US.UTF-8 bundle exec fastlane styleguide_screenshots
+# The first run of each lane builds the app (minutes); later runs only build
+# what changed.
+require "json"
+require "fileutils"
+
+module ::ExpSnapshotLanes
+  module_function
+
+  def snapshot_root
+    File.expand_path("..", __dir__) # apps/ios
+  end
+
+  def tag(default)
+    raw = ENV["SNAPSHOT_LANE_TAG"].to_s.strip
+    raw = default if raw.empty?
+    raw.gsub(/[^A-Za-z0-9_-]/, "-")
+  end
+
+  def derived_data(tag)
+    ENV["SNAPSHOT_DERIVED_DATA"].to_s.strip.empty? ? File.join(snapshot_root, "build", "shots-dd-#{tag}") : File.expand_path(ENV["SNAPSHOT_DERIVED_DATA"])
+  end
+
+  # The GRDB "Copy Module Map" phase dies on read-only products left behind
+  # by an earlier build; make them writable before every build.
+  def unlock_products(derived_data)
+    products = File.join(derived_data, "Build", "Products")
+    system("chmod", "-R", "u+w", products) if File.directory?(products)
+  end
+
+  def simctl_json(*args)
+    out = `xcrun simctl list -j #{args.join(' ')}`
+    # EXP-644: never parse simctl's JSON in the process locale.
+    JSON.parse(out.force_encoding("UTF-8"))
+  end
+
+  # The iOS runtime the lane's simulators are created on: the Snapfile's
+  # pinned version when it is installed, else the newest iOS runtime.
+  def runtime(preferred_version)
+    runtimes = simctl_json("runtimes")["runtimes"].select do |r|
+      r["isAvailable"] && r["identifier"].to_s.include?("SimRuntime.iOS-")
+    end
+    UI.user_error!("No iOS simulator runtime installed") if runtimes.empty?
+    pinned = runtimes.find { |r| r["version"].to_s.start_with?(preferred_version.to_s) } if preferred_version
+    unless pinned
+      newest = runtimes.max_by { |r| Gem::Version.new(r["version"]) }
+      UI.important("iOS #{preferred_version} runtime not installed, lane simulators use iOS #{newest['version']}") if preferred_version
+      return newest
+    end
+    pinned
+  end
+
+  # "<model> exp-<tag>" on `runtime`, created from the model's device type on
+  # first use. Returns the simulator NAME (what snapshot's `devices` takes).
+  def simulator(model, tag, runtime)
+    name = "#{model} exp-#{tag}"
+    devices = simctl_json("devices", "available")["devices"][runtime["identifier"]] || []
+    return name if devices.any? { |d| d["name"] == name }
+    type = simctl_json("devicetypes")["devicetypes"].find { |t| t["name"] == model }
+    UI.user_error!("No simulator device type named '#{model}'") unless type
+    UI.message("Creating lane simulator '#{name}' (#{runtime['name']})")
+    output = `xcrun simctl create #{name.shellescape} #{type['identifier'].shellescape} #{runtime['identifier'].shellescape} 2>&1`
+    UI.user_error!("simctl create '#{name}' failed: #{output}") unless $?.success?
+    name
+  end
+
+  # Point snapshot's cache dir (language/locale/launch-argument files + the
+  # PNG drop its collector empties) at `dir` for this process, and tell the
+  # UI-test runner (SnapshotHelper `EXP_SNAPSHOT_CACHE_DIR`) the same.
+  def with_cache_dir(dir)
+    return yield if dir.nil?
+    previous = [Snapshot::CACHE_DIR, Snapshot::SCREENSHOTS_DIR]
+    set = lambda do |cache, shots|
+      Snapshot.send(:remove_const, :CACHE_DIR)
+      Snapshot.send(:remove_const, :SCREENSHOTS_DIR)
+      Snapshot.const_set(:CACHE_DIR, cache)
+      Snapshot.const_set(:SCREENSHOTS_DIR, shots)
+    end
+    FileUtils.mkdir_p(dir)
+    set.call(dir, File.join(dir, "screenshots"))
+    ENV["TEST_RUNNER_EXP_SNAPSHOT_CACHE_DIR"] = dir
+    yield
+  ensure
+    if dir
+      set.call(*previous)
+      ENV.delete("TEST_RUNNER_EXP_SNAPSHOT_CACHE_DIR")
+    end
+  end
+
+  def plist_value(path, key)
+    return nil unless File.exist?(path)
+    json = `plutil -extract #{key.shellescape} json -o - #{path.shellescape} 2>/dev/null`
+    $?.success? ? JSON.parse(json) : nil
+  rescue JSON::ParserError
+    nil
+  end
+end
+
+require "snapshot"
+module ::Snapshot
+  class SimulatorLauncherBase
+    # Stock: `killall Simulator` + `simctl shutdown booted` (EVERY simulator,
+    # a parallel lane's included), then rewrite the locale/appearance plists.
+    # Here: touch only this lane's devices, and shut one down only when a plist
+    # it reads at boot actually has to change.
+    def prepare_simulators_for_launch(device_types, language: nil, locale: nil)
+      Fixes::SimulatorZoomFix.patch
+      Fixes::HardwareKeyboardFix.patch
+      Fixes::SharedPasteboardFix.patch
+
+      device_types.each do |type|
+        udid = TestCommandGenerator.device_udid(type)
+        UI.user_error!("No simulator named '#{type}'") unless udid
+        prefs = "#{ENV['HOME']}/Library/Developer/CoreSimulator/Devices/#{udid}/data/Library/Preferences"
+        wanted_locale = locale || language.to_s.sub("-", "_")
+        stale = launcher_config.erase_simulator
+        if launcher_config.localize_simulator
+          global = File.join(prefs, ".GlobalPreferences.plist")
+          stale ||= ExpSnapshotLanes.plist_value(global, "AppleLocale") != wanted_locale ||
+                    Array(ExpSnapshotLanes.plist_value(global, "AppleLanguages")).first != language
+        end
+        unless launcher_config.dark_mode.nil?
+          style = File.join(prefs, "com.apple.uikitservices.userInterfaceStyleMode.plist")
+          stale ||= ExpSnapshotLanes.plist_value(style, "UserInterfaceStyleMode") != (launcher_config.dark_mode ? 2 : 1)
+        end
+        if stale
+          UI.message("Shutting down #{type} to apply its locale/appearance")
+          Helper.backticks("xcrun simctl shutdown #{udid} 2>/dev/null", print: FastlaneCore::Globals.verbose?)
+          erase_simulator(type) if launcher_config.erase_simulator
+          localize_simulator(type, language, locale) if launcher_config.localize_simulator
+          interface_style(type, launcher_config.dark_mode) unless launcher_config.dark_mode.nil?
+        end
+        uninstall_app(type) if launcher_config.reinstall_app && !launcher_config.erase_simulator
+        disable_slide_to_type(type) if launcher_config.disable_slide_to_type
+      end
+
+      unless launcher_config.headless
+        simulator_path = File.join(Helper.xcode_path, "Applications", "Simulator.app")
+        Helper.backticks("open -a #{simulator_path} -g", print: FastlaneCore::Globals.verbose?)
+      end
+    end
+  end
+
+  # Stock relaunches a run whose xcodebuild exited non-65 up to 20 times
+  # ("simulator failure") before `number_of_retries` even applies. Spend that
+  # budget up front: every failure goes straight to the Snapfile's retries.
+  module ExpFailFast
+    def take_screenshots_simultaneously
+      self.current_number_of_retries_due_to_failing_simulator = 19
+      super
+    end
+  end
+  SimulatorLauncher.prepend(ExpFailFast)
 end
 
 WORKSPACE = "Exponential.xcworkspace".freeze
@@ -33,6 +223,12 @@ IPA_PATH = "build/Exponential.ipa".freeze
 STAGING_SCHEME = "Exponential-Staging".freeze
 STAGING_BUNDLE_ID = "at.exponential.staging".freeze
 STAGING_IPA_PATH = "build/Exponential-Staging.ipa".freeze
+
+# The capture lanes' device MODELS (each lane runs on its own "<model>
+# exp-<tag>" clone, see ExpSnapshotLanes). The Snapfiles list the same models
+# for a bare `fastlane snapshot`.
+STORE_DEVICES = ["iPhone 17 Pro Max", "iPad Pro 13-inch (M5)"].freeze
+STYLEGUIDE_DEVICES = ["iPhone 17 Pro Max"].freeze
 
 # EXP-642: `fastlane screenshots shots:01_board,02_issue-detail` narrows a
 # capture run to those shot ids — what the "Refresh app screenshots" automation
@@ -130,8 +326,18 @@ platform :ios do
     # the software keyboard instead of assuming a connected hardware keyboard.
     sh("defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true")
     apply_shot_subset(options)
+    tag = ExpSnapshotLanes.tag("store")
+    runtime = ExpSnapshotLanes.runtime("26.5")
+    derived_data = ExpSnapshotLanes.derived_data(tag)
+    ExpSnapshotLanes.unlock_products(derived_data)
     begin
-      snapshot
+      # The store lane keeps fastlane's default cache dir: PopRects.swift
+      # writes the pop-out sidecars beside it, where screenshots:pop-sidecars
+      # reads them.
+      snapshot(
+        devices: STORE_DEVICES.map { |model| ExpSnapshotLanes.simulator(model, tag, runtime) },
+        derived_data_path: derived_data,
+      )
     ensure
       ENV.delete("TEST_RUNNER_EXP_SHOTS")
     end
@@ -156,16 +362,23 @@ platform :ios do
     # Load fastlane/Snapfile-styleguide instead of fastlane/Snapfile (see the
     # Snapshot.snapfile_name override at the top of this file).
     ENV["SNAPFILE_NAME"] = "Snapfile-styleguide"
+    tag = ExpSnapshotLanes.tag("styleguide")
+    runtime = ExpSnapshotLanes.runtime("26.5")
+    derived_data = ExpSnapshotLanes.derived_data(tag)
+    ExpSnapshotLanes.unlock_products(derived_data)
     begin
       # The three settings that differ from the store lane are ALSO passed
       # explicitly: values given to the action win over the config file, so the
       # run stays correct even if the Snapfile selection above ever regresses
       # and the store Snapfile gets loaded instead.
-      snapshot(
-        devices: ["iPhone 17 Pro Max"],
-        output_directory: "fastlane/screenshots-styleguide",
-        only_testing: ["ExponentialUITests/StyleguideScreenshots"],
-      )
+      ExpSnapshotLanes.with_cache_dir(File.expand_path("~/Library/Caches/tools.fastlane/exp-#{tag}")) do
+        snapshot(
+          devices: STYLEGUIDE_DEVICES.map { |model| ExpSnapshotLanes.simulator(model, tag, runtime) },
+          output_directory: "fastlane/screenshots-styleguide",
+          only_testing: ["ExponentialUITests/StyleguideScreenshots"],
+          derived_data_path: derived_data,
+        )
+      end
     ensure
       ENV.delete("SNAPFILE_NAME")
       ENV.delete("TEST_RUNNER_EXP_SHOTS")
