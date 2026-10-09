@@ -120,18 +120,42 @@ interface HostPlugin {
      */
     fun onFunctionCall(event: SurfaceFunctionCallEvent) {}
 
-    /** `openUrl` and `Link`. Default: the system opener. */
-    fun openUrl(url: String) = systemOpenUrl(url)
+    /**
+     * The URL policy every href passes (`openUrl`, Link, markdown links,
+     * FileUpload file urls) before [openUrl] sees it. null = the contract's
+     * defaults (https, http, mailto, tel; relative urls against the media
+     * `baseUrl`, else denied).
+     */
+    val urlPolicy: UrlPolicy? get() = null
 
-    /** Rewrites media URLs (relative attachment paths, signed URLs). */
+    /**
+     * The media policy every src passes (Image, Avatar, Video + poster,
+     * Audio, markdown images) after [resolveUrl]. null = the contract's
+     * defaults (https, http, data; no `file`).
+     */
+    val mediaOptions: MediaOptions? get() = null
+
+    /**
+     * Opens an href the URL policy ALLOWED (resolved, absolute). Default:
+     * the system opener, through the policy again.
+     */
+    fun openUrl(url: String) {
+        safeHref(this, url)?.let(::systemOpenUrl)
+    }
+
+    /**
+     * Rewrites a media src BEFORE the media policy (relative attachment
+     * paths, signed URLs); its result still passes [mediaOptions], never
+     * around it.
+     */
     fun resolveUrl(src: String): String = src
 
     /**
-     * The request the media loader makes for a picture `src` (images,
-     * avatars, video posters): the absolute url plus headers. null = do not
-     * load. Default: [resolveUrl], no headers.
+     * `onPaintError` (`catalog/host.json` `paint`): a component's painter
+     * failed; it paints an empty box. Called once per surface + component +
+     * message.
      */
-    fun mediaRequest(src: String): MediaRequest? = MediaRequest(resolveUrl(src))
+    fun onPaintError(error: PaintError) {}
 
     /** Called once per node id for each `Unknown` placeholder. */
     fun onUnknown(component: String, catalogId: String?, id: String) {}
@@ -171,8 +195,9 @@ class ClosureHost(
     override fun onAction(event: SurfaceActionEvent) = actions(event)
     override fun onInput(event: SurfaceInputEvent) = inputs(event)
     override fun openUrl(url: String) {
+        val href = safeHref(this, url) ?: return
         val u = urls
-        if (u != null) u(url) else systemOpenUrl(url)
+        if (u != null) u(href) else systemOpenUrl(href)
     }
     override fun onUnknown(component: String, catalogId: String?, id: String) = unknowns(component, catalogId, id)
 }

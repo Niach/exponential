@@ -73,7 +73,7 @@ private fun seriesColor(cx: LeafContext, i: Int): Color =
  */
 @Composable
 internal fun ChartLeaf(cx: LeafContext) {
-    val chart = remember(cx.props) { ChartModel(cx.props) }
+    val chart = rememberPainted(cx, cx.props) { ChartModel(cx.props) } ?: return
     val gap = cx.spacing("xs")
     val axis = cx.part("Chart", "axis")
     val axisColor = axis.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f)

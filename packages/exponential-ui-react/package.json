@@ -32,8 +32,8 @@
     "test:conformance": "vitest run --config vitest.browser.config.ts browser/suites.test.ts"
   },
   "peerDependencies": {
-    "react": "^18.0.0 || ^19.0.0",
-    "react-dom": "^18.0.0 || ^19.0.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "dependencies": {
     "@exponential-at/ui": "workspace:*",

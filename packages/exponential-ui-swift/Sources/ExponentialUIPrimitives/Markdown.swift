@@ -2,8 +2,11 @@ import Foundation
 
 // The read-only GFM subset every Exponential UI renderer paints the same way
 // (the gpui painter's `paint::markdown` and the React renderer's block
-// model): paragraphs, ATX headings, bullet / ordered / task lists, quotes,
-// fenced code, rules, pipe tables; inline bold, italic, strike, code, links.
+// model): paragraphs, ATX headings, bullet / ordered / task lists (nested
+// by marker indentation), quotes, fenced code, rules, pipe tables, images
+// alone on a line; inline bold, italic, strike, code, links (destinations
+// balance parentheses like CommonMark, no whitespace). An image inside a
+// line paints its alt text.
 // No dependency: the parser is ours so the measurer and the painter share
 // ONE block model, and the layout rule below is what both use.
 
@@ -34,6 +37,10 @@ public enum MarkdownBlockKind: Equatable, Sendable {
     case codeBlock
     case table(header: [[MarkdownInline]], rows: [[[MarkdownInline]]])
     case rule
+    /// `![alt](src)` alone on a line: painted through the host's media
+    /// request (a denied src becomes a paragraph of its alt text, see
+    /// `resolveImages`; a failed load paints the alt text in the box).
+    case image(src: String, alt: String)
 }
 
 public struct MarkdownBlock: Equatable, Sendable {
@@ -41,11 +48,15 @@ public struct MarkdownBlock: Equatable, Sendable {
     public var inlines: [MarkdownInline]
     /// Consecutive list items share a group (no paragraph gap inside it).
     public var listGroup: Int?
+    /// A list item's nesting level (0 = top level): indented one
+    /// `listIndent` per level.
+    public var depth: Int
 
-    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil) {
+    public init(kind: MarkdownBlockKind, inlines: [MarkdownInline], listGroup: Int? = nil, depth: Int = 0) {
         self.kind = kind
         self.inlines = inlines
         self.listGroup = listGroup
+        self.depth = depth
     }
 }
 
@@ -63,18 +74,68 @@ public enum Markdown {
         out.append(MarkdownInline(text: String(text), bold: f.bold, italic: f.italic, strike: f.strike, link: link))
     }
 
-    /// `[label](href)` at the start of `s` → (label, href, consumed).
-    private static func linkAt(_ s: Substring) -> (Substring, Substring, Int)? {
+    /// `[label](href)` at the start of `s` → (label, href, consumed
+    /// characters). The label balances brackets; the destination balances
+    /// parentheses (CommonMark: `[a](https://x/A_(b))` → `https://x/A_(b)`),
+    /// takes `\(` / `\)` escapes and holds no whitespace.
+    static func linkAt(_ s: Substring, emptyLabel: Bool = false) -> (label: Substring, href: String, consumed: Int)? {
         guard s.hasPrefix("[") else { return nil }
-        let rest = s.dropFirst()
-        guard let close = rest.range(of: "](") else { return nil }
-        let label = rest[rest.startIndex..<close.lowerBound]
-        let after = rest[close.upperBound...]
-        guard let end = after.firstIndex(of: ")") else { return nil }
-        let href = after[after.startIndex..<end]
-        if href.contains(where: { $0.isWhitespace }) || label.isEmpty { return nil }
-        let consumed = 1 + label.count + 2 + href.count + 1
-        return (label, href, consumed)
+        var i = s.index(after: s.startIndex)
+        var depth = 0
+        var labelEnd: Substring.Index?
+        while i < s.endIndex {
+            let c = s[i]
+            if c == "\\" {
+                i = s.index(after: i)
+                if i < s.endIndex { i = s.index(after: i) }
+                continue
+            }
+            if c == "[" {
+                depth += 1
+            } else if c == "]" {
+                if depth == 0 {
+                    labelEnd = i
+                    break
+                }
+                depth -= 1
+            }
+            i = s.index(after: i)
+        }
+        guard let labelEnd else { return nil }
+        let label = s[s.index(after: s.startIndex)..<labelEnd]
+        var j = s.index(after: labelEnd)
+        guard emptyLabel || !label.isEmpty, j < s.endIndex, s[j] == "(" else { return nil }
+        j = s.index(after: j)
+        var href = ""
+        var parens = 0
+        while j < s.endIndex {
+            let c = s[j]
+            if c.isWhitespace { return nil }
+            if c == "\\", s.index(after: j) < s.endIndex, s[s.index(after: j)].isPunctuation || s[s.index(after: j)].isSymbol {
+                j = s.index(after: j)
+                href.append(s[j])
+            } else if c == "(" {
+                parens += 1
+                href.append(c)
+            } else if c == ")" {
+                if parens == 0 {
+                    return (label, href, s.distance(from: s.startIndex, to: j) + 1)
+                }
+                parens -= 1
+                href.append(c)
+            } else {
+                href.append(c)
+            }
+            j = s.index(after: j)
+        }
+        return nil
+    }
+
+    /// `![alt](src)` filling all of `line` → (src, alt).
+    static func wholeImage(_ line: String) -> (src: String, alt: String)? {
+        let t = Substring(line)
+        guard t.hasPrefix("!["), let (alt, src, n) = linkAt(t.dropFirst(), emptyLabel: true), n + 1 == t.count else { return nil }
+        return (src, plain(parseInline(String(alt))))
     }
 
     /// A delimited run `ddTEXTdd` at the start of `s` → (TEXT, consumed).
@@ -103,7 +164,8 @@ public enum Markdown {
                     handled = body.distance(from: body.startIndex, to: end) + 2
                 }
             } else if c == "!", rest.dropFirst().hasPrefix("[") {
-                if let (alt, _, n) = linkAt(rest.dropFirst()) {
+                if let (alt, _, n) = linkAt(rest.dropFirst(), emptyLabel: true) {
+                    // An image inside a line paints its alt text.
                     push(&out, s[plainStart..<i], f, link)
                     push(&out, alt, f, link)
                     handled = n + 1
@@ -111,7 +173,7 @@ public enum Markdown {
             } else if c == "[" {
                 if let (label, href, n) = linkAt(rest) {
                     push(&out, s[plainStart..<i], f, link)
-                    parseInline(label, f, String(href), &out)
+                    parseInline(label, f, href, &out)
                     handled = n
                 }
             } else if c == "*" || c == "_" || c == "~" {
@@ -175,17 +237,22 @@ public enum Markdown {
         t.count >= 3 && (t.allSatisfy { $0 == "-" } || t.allSatisfy { $0 == "*" } || t.allSatisfy { $0 == "_" })
     }
 
-    /// `- item`, `* item`, `3. item` → (marker, rest).
-    private static func listMarker(_ line: String) -> (String, String)? {
+    /// `- item`, `* item`, `3. item` → (marker, rest, the marker's column;
+    /// a tab advances to the next multiple of 4).
+    private static func listMarker(_ line: String) -> (String, String, Int)? {
+        var column = 0
+        for c in line {
+            if c == " " { column += 1 } else if c == "\t" { column += 4 - column % 4 } else { break }
+        }
         let t = line.drop(while: { $0 == " " || $0 == "\t" })
         if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("+ ") {
-            return ("•", String(t.dropFirst(2)))
+            return ("•", String(t.dropFirst(2)), column)
         }
-        let digits = t.prefix(while: { $0.isNumber })
+        let digits = t.prefix(while: { $0.isASCII && $0.isNumber })
         if !digits.isEmpty, digits.count <= 9 {
             let after = t.dropFirst(digits.count)
             if after.hasPrefix(". ") || after.hasPrefix(") ") {
-                return ("\(digits).", String(after.dropFirst(2)))
+                return ("\(digits).", String(after.dropFirst(2)), column)
             }
         }
         return nil
@@ -247,12 +314,19 @@ public enum Markdown {
             if listMarker(line) != nil {
                 flush()
                 group += 1
-                while i < lines.count, let (marker, rest) = listMarker(lines[i]) {
+                // The marker columns of the open lists, outermost first: an
+                // item indented ≥ 2 columns past the previous item's marker
+                // opens a child list under it; a shallower one closes lists
+                // until it fits.
+                var columns: [Int] = []
+                while i < lines.count, let (marker, rest, column) = listMarker(lines[i]) {
+                    while let last = columns.last, column < last + 2 { columns.removeLast() }
+                    columns.append(column)
                     var task: Bool? = nil
                     var body = rest
-                    if rest.hasPrefix("[ ] ") { task = false; body = String(rest.dropFirst(4)) }
-                    else if rest.hasPrefix("[x] ") || rest.hasPrefix("[X] ") { task = true; body = String(rest.dropFirst(4)) }
-                    blocks.append(MarkdownBlock(kind: .listItem(marker: marker, task: task), inlines: parseInline(body.trimmingCharacters(in: .whitespaces)), listGroup: group))
+                    if rest.hasPrefix("[ ] ") || rest == "[ ]" { task = false; body = String(rest.dropFirst(3)) }
+                    else if rest.hasPrefix("[x] ") || rest.hasPrefix("[X] ") || rest == "[x]" || rest == "[X]" { task = true; body = String(rest.dropFirst(3)) }
+                    blocks.append(MarkdownBlock(kind: .listItem(marker: marker, task: task), inlines: parseInline(body.trimmingCharacters(in: .whitespaces)), listGroup: group, depth: columns.count - 1))
                     i += 1
                 }
                 continue
@@ -269,11 +343,47 @@ public enum Markdown {
                 blocks.append(MarkdownBlock(kind: .table(header: header, rows: rows), inlines: []))
                 continue
             }
+            if let (src, alt) = wholeImage(trimmed) {
+                flush()
+                blocks.append(MarkdownBlock(kind: .image(src: src, alt: alt), inlines: alt.isEmpty ? [] : [MarkdownInline(text: alt)]))
+                i += 1
+                continue
+            }
             if trimmed.isEmpty { flush() } else { para.append(trimmed) }
             i += 1
         }
         flush()
         return blocks
+    }
+
+    /// Image blocks whose src `allowed` refuses become a paragraph of their
+    /// alt text (dropped without one): what the measurer and the painter
+    /// both lay out, so a denied image never reserves a box.
+    public static func resolveImages(_ blocks: [MarkdownBlock], allowed: (String) -> Bool) -> [MarkdownBlock] {
+        blocks.compactMap { b in
+            guard case let .image(src, alt) = b.kind, !allowed(src) else { return b }
+            return alt.isEmpty ? nil : MarkdownBlock(kind: .paragraph, inlines: [MarkdownInline(text: alt)])
+        }
+    }
+
+    /// Every link through `href` (nil = the policy denied it: the span
+    /// stays, as plain text).
+    public static func mapLinks(_ blocks: [MarkdownBlock], _ href: (String) -> String?) -> [MarkdownBlock] {
+        func map(_ spans: [MarkdownInline]) -> [MarkdownInline] {
+            spans.map { span in
+                var s = span
+                if let l = span.link { s.link = href(l) }
+                return s
+            }
+        }
+        return blocks.map { b in
+            var out = b
+            out.inlines = map(b.inlines)
+            if case let .table(header, rows) = b.kind {
+                out.kind = .table(header: header.map(map), rows: rows.map { $0.map(map) })
+            }
+            return out
+        }
     }
 
     /// The plain text of some spans.
@@ -323,6 +433,8 @@ public struct MarkdownStyles: Equatable, Sendable {
     public var listIndent: CGFloat
     public var cellPadH: CGFloat
     public var cellPadV: CGFloat
+    /// An image block's box height (the picture fits inside it).
+    public var imageHeight: CGFloat
 
     public init(body: MarkdownTextSpec) {
         self.body = body
@@ -337,6 +449,13 @@ public struct MarkdownStyles: Equatable, Sendable {
         headingBottom = 4
         cellPadH = 8
         cellPadV = 4
+        imageHeight = 160
+    }
+
+    /// A list item's indent before its body: one `listIndent` per level
+    /// plus the marker column.
+    public func listInset(_ block: MarkdownBlock) -> CGFloat {
+        listIndent * CGFloat(block.depth + 1)
     }
 
     public func spec(of kind: MarkdownBlockKind) -> MarkdownTextSpec {
@@ -396,13 +515,15 @@ public extension Markdown {
             case .paragraph, .heading:
                 height = text.height(b.inlines, spec, width: max(width, 1))
             case .listItem:
-                height = text.height(b.inlines, spec, width: max(width - s.listIndent, 1))
+                height = text.height(b.inlines, spec, width: max(width - s.listInset(b), 1))
             case .quote:
                 height = text.height(b.inlines, spec, width: max(width - s.quoteBorder - s.quotePad, 1))
             case .codeBlock:
                 height = text.height(b.inlines, spec, width: nil) + 2 * s.codePad
             case .rule:
                 height = 1
+            case .image:
+                height = s.imageHeight
             case let .table(header, trs):
                 let cols = max(header.count, trs.map(\.count).max() ?? 0, 1)
                 let cellW = max(width / CGFloat(cols) - 2 * s.cellPadH, 1)
@@ -424,8 +545,9 @@ public extension Markdown {
             let spec = s.spec(of: b.kind)
             switch b.kind {
             case .paragraph, .heading: return text.width(b.inlines, spec)
-            case .listItem: return text.width(b.inlines, spec) + s.listIndent
+            case .listItem: return text.width(b.inlines, spec) + s.listInset(b)
             case .quote: return text.width(b.inlines, spec) + s.quoteBorder + s.quotePad
+            case .image: return (s.imageHeight * 1.5).rounded()
             case .codeBlock:
                 let first = b.inlines.first ?? MarkdownInline(text: "", code: true)
                 return (first.text.components(separatedBy: "\n").map { text.width([MarkdownInline(text: $0, code: true)], spec) }.max() ?? 0) + 2 * s.codePad
@@ -445,7 +567,8 @@ public extension Markdown {
             switch b.kind {
             case .codeBlock: return maxContentWidth([b], s, text: text)
             case let .table(header, _): return CGFloat(max(header.count, 1)) * (2 * s.cellPadH + 16)
-            case .listItem: return text.widestWord(b.inlines, spec) + s.listIndent
+            case .listItem: return text.widestWord(b.inlines, spec) + s.listInset(b)
+            case .image: return 1
             case .quote: return text.widestWord(b.inlines, spec) + s.quoteBorder + s.quotePad
             default: return text.widestWord(b.inlines, spec)
             }

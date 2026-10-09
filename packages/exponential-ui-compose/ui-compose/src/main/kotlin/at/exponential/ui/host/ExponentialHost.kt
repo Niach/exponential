@@ -19,7 +19,6 @@ import at.exponential.ui.ffi.decideUrlJson
 import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.ffi.errorMessageJson
 import at.exponential.ui.ffi.extensionErrors
-import at.exponential.ui.ffi.mediaRequestJson
 import at.exponential.ui.ffi.packagePolicyJson
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.OverlayPresentation
@@ -75,6 +74,9 @@ data class HostOptions(
     val onOp: ((JsonValue) -> Unit)? = null,
 )
 
+/** The A2UI error code of a failed painter (`catalog/host.json` `paint.errorCode`). */
+const val RENDER_FAILED = "RENDER_FAILED"
+
 /**
  * The host runtime: transport → the core's router → ops performed on one
  * [SurfaceModel] per surface; painter events → client messages, gated host
@@ -94,6 +96,7 @@ class ExponentialHost(
     private val packageOf = HashMap<String, String>()
     private val components = HashMap<String, LinkedHashMap<String, JsonValue>>()
     private val subscriptions = HashMap<String, MutableList<() -> Unit>>()
+    private val paintErrors = HashSet<PaintError>()
     private val bridge = Bridge()
 
     /** The core's router (one per connection). */
@@ -261,6 +264,7 @@ class ExponentialHost(
         when (op["op"]?.string) {
             "create" -> {
                 unbind(sid)
+                forgetPaintErrors(sid)
                 surfaces.remove(sid)
                 val opTheme = op["theme"]?.let { t ->
                     t.string?.let { ThemeHandle.builtin(it) } ?: runCatching { ThemeHandle.load(t.json) }.getOrNull()
@@ -284,6 +288,7 @@ class ExponentialHost(
                 surfaces[sid] = model
             }
             "components" -> {
+                forgetPaintErrors(sid)
                 val model = surfaces[sid] ?: return
                 val byId = components.getOrPut(sid) { LinkedHashMap() }
                 for (c in op["components"]?.array ?: emptyList()) byId[c["id"]?.string ?: continue] = c
@@ -304,6 +309,7 @@ class ExponentialHost(
             }
             "delete" -> {
                 unbind(sid)
+                forgetPaintErrors(sid)
                 surfaces.remove(sid)
                 components.remove(sid)
                 packageOf.remove(sid)
@@ -375,10 +381,17 @@ class ExponentialHost(
         }
     }
 
+    /** The URL policy every href passes (relative urls against the urls' or the media `baseUrl`). */
+    val urlPolicy: UrlPolicy
+        get() {
+            val urls = options.policy.urls ?: options.plugin.urlPolicy ?: UrlPolicy()
+            return urls.copy(baseUrl = urls.baseUrl ?: mediaOptions?.baseUrl)
+        }
+
     /** openUrl / Link through the URL policy. True when it opened. */
     fun openUrl(url: String): Boolean {
-        val policy = (options.policy.urls ?: UrlPolicy()).json(options.policy.media?.baseUrl)
-        val d = JsonValue.parse(decideUrlJson(policy, url))
+        if (url.isEmpty()) return false
+        val d = JsonValue.parse(decideUrlJson(urlPolicy.json(null), url))
         val resolved = d["url"]?.string
         if (d["allowed"]?.bool != true || resolved == null) return false
         val open = options.policy.openUrl ?: { u: String -> options.plugin.openUrl(u) }
@@ -386,13 +399,28 @@ class ExponentialHost(
         return true
     }
 
-    /** The media loader's request for `src` (absolute url + auth headers); null when it does not resolve. */
-    fun mediaRequest(src: String): MediaRequest? {
-        val media = options.policy.media ?: return options.plugin.mediaRequest(src)
-        val json = mediaRequestJson(options.plugin.resolveUrl(src), media.json) ?: return null
-        val v = JsonValue.parse(json)
-        val url = v["url"]?.string ?: return null
-        return MediaRequest(url, v["headers"]?.obj?.mapValues { it.value.string ?: "" } ?: emptyMap())
+    /**
+     * The media loader's request for `src` (absolute url + auth headers):
+     * the plugin's `resolveUrl` rewrite, then the media policy (defaults
+     * without one). null = denied or unresolvable: nothing loads.
+     */
+    fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(options.plugin.resolveUrl(src), mediaOptions)
+
+    /** The media policy (the host policy's, else the plugin's; null = the contract defaults). */
+    val mediaOptions: MediaOptions? get() = options.policy.media ?: options.plugin.mediaOptions
+
+    /**
+     * `onPaintError` (catalog/host.json `paint`): a component's painter
+     * failed. Forwarded ONCE per surface + component + message as an A2UI
+     * `RENDER_FAILED` error at `/components/<componentId>` (the host issue).
+     */
+    fun paintError(error: PaintError) {
+        if (!paintErrors.add(error)) return
+        sendError(RENDER_FAILED, error.surfaceId, error.message, "/components/${error.componentId}")
+    }
+
+    private fun forgetPaintErrors(surfaceId: String) {
+        paintErrors.removeAll { it.surfaceId == surfaceId }
     }
 
     /** What the painter's surfaces call: actions, functions, urls and media go through the host, the rest to [HostOptions.plugin]. */
@@ -414,13 +442,20 @@ class ExponentialHost(
             base.onFunctionCall(event)
         }
 
+        override val urlPolicy: UrlPolicy get() = this@ExponentialHost.urlPolicy
+
+        override val mediaOptions: MediaOptions? get() = this@ExponentialHost.mediaOptions
+
         override fun openUrl(url: String) {
             this@ExponentialHost.openUrl(url)
         }
 
         override fun resolveUrl(src: String): String = base.resolveUrl(src)
 
-        override fun mediaRequest(src: String): MediaRequest? = this@ExponentialHost.mediaRequest(src)
+        override fun onPaintError(error: PaintError) {
+            paintError(error)
+            base.onPaintError(error)
+        }
 
         override fun onUnknown(component: String, catalogId: String?, id: String) = base.onUnknown(component, catalogId, id)
 

@@ -424,6 +424,8 @@ private fun SelectMenu(cx: LeafContext) {
         }
         val q = query.trim().lowercase()
         for (option in owner.list("options")) {
+            // A null (or any non-object) entry is skipped, never painted as an empty row.
+            if (option !is JsonValue.Obj) continue
             val v = option["value"] ?: JsonValue.Null
             val text = option["label"]?.displayText ?: v.displayText
             if (q.isNotEmpty() && !text.lowercase().contains(q)) continue

@@ -21,8 +21,8 @@ pub use contract::*;
 pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{client_capabilities, merge_data, supported_catalog_ids, template_messages, validate_package, PackageIssue};
 pub use policy::{
-    combine_decisions, decide_function, decide_url, is_builtin_function, matches_pattern, media_request, package_policy, FunctionDecision,
-    FunctionPolicy, MediaOptions, MediaRequest, MediaRule, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
+    combine_decisions, decide_function, decide_url, image_dimensions, is_builtin_function, matches_pattern, media_request, media_within_limits, package_policy,
+    safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
 pub use sources::{parse_source, ParsedSource};

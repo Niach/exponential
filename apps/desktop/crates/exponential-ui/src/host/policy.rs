@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::contract::DEFAULT_URL_SCHEMES;
+use super::contract::{DEFAULT_MEDIA_SCHEMES, DEFAULT_URL_SCHEMES};
 use super::js_trim;
 
 /// The catalog's built-in client functions: the basic 14 + round 1's 15
@@ -194,6 +194,13 @@ pub struct MediaOptions {
     pub base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<Vec<MediaRule>>,
+    /// The schemes a src may use; default [`DEFAULT_MEDIA_SCHEMES`] (https,
+    /// http, data). `file` only when listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schemes: Option<Vec<String>>,
+    /// http(s) hosts media may load from: exact or `*.example.com`; unset = any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosts: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,10 +212,19 @@ pub struct MediaRequest {
 
 /// The image / media loader's request: the absolute url plus the headers of
 /// every rule whose prefix it starts with (later rules win per header).
-/// `None` when the url does not resolve.
+/// `None` when the url does not resolve or the media policy (schemes, hosts)
+/// denies it: nothing loads.
 pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> {
-    let parsed = absolute(js_trim(url), options.base_url.as_deref())?;
-    let href = parsed.as_str().to_string();
+    let policy = UrlPolicy {
+        schemes: Some(options.schemes.clone().unwrap_or_else(|| DEFAULT_MEDIA_SCHEMES.iter().map(|s| s.to_string()).collect())),
+        hosts: options.hosts.clone(),
+        base_url: options.base_url.clone(),
+    };
+    let decision = decide_url(Some(&policy), url);
+    if !decision.allowed {
+        return None;
+    }
+    let href = decision.url?;
     let mut headers = BTreeMap::new();
     for rule in options.rules.iter().flatten() {
         if href.starts_with(&rule.prefix) {
@@ -216,4 +232,121 @@ pub fn media_request(url: &str, options: &MediaOptions) -> Option<MediaRequest> 
         }
     }
     Some(MediaRequest { url: href, headers })
+}
+
+/// The href a renderer may navigate to (Link, markdown links, FileUpload
+/// file urls), or `None` when the URL policy denies it.
+pub fn safe_href(policy: Option<&UrlPolicy>, url: &str) -> Option<String> {
+    if url.is_empty() {
+        return None;
+    }
+    let d = decide_url(policy, url);
+    if d.allowed {
+        d.url
+    } else {
+        None
+    }
+}
+
+/// Width × height from an image's header (PNG, JPEG, GIF, WebP, BMP)
+/// without decoding it — what a loader checks against
+/// [`super::contract::MEDIA_MAX_PIXELS`] BEFORE decoding. `None` = not a
+/// header this reads (SVG, truncated bytes).
+pub fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let be16 = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_be_bytes([b[0], b[1]]) as u32);
+    let le16 = |i: usize| bytes.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as u32);
+    let be32 = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    let le32 = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let le24 = |i: usize| bytes.get(i..i + 3).map(|b| u32::from_le_bytes([b[0], b[1], b[2], 0]));
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some((be32(16)?, be32(20)?));
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some((le16(6)?, le16(8)?));
+    }
+    if bytes.starts_with(b"BM") {
+        let h = le32(22)? as i32;
+        return Some((le32(18)?, h.unsigned_abs()));
+    }
+    if bytes.len() >= 30 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return match &bytes[12..16] {
+            b"VP8 " => Some((le16(26)? & 0x3fff, le16(28)? & 0x3fff)),
+            b"VP8L" => {
+                let b = le32(21)?;
+                Some(((b & 0x3fff) + 1, ((b >> 14) & 0x3fff) + 1))
+            }
+            b"VP8X" => Some((le24(24)? + 1, le24(27)? + 1)),
+            _ => None,
+        };
+    }
+    if bytes.starts_with(b"\xff\xd8") {
+        let mut i = 2;
+        while i + 4 <= bytes.len() {
+            if bytes[i] != 0xff {
+                i += 1;
+                continue;
+            }
+            let marker = bytes[i + 1];
+            if marker == 0xff {
+                i += 1;
+                continue;
+            }
+            if marker == 0xd8 || marker == 0x01 || (0xd0..=0xd7).contains(&marker) {
+                i += 2;
+                continue;
+            }
+            let len = be16(i + 2)? as usize;
+            // SOF0..SOF15 except DHT (c4), JPG (c8), DAC (cc).
+            if (0xc0..=0xcf).contains(&marker) && marker != 0xc4 && marker != 0xc8 && marker != 0xcc {
+                return Some((be16(i + 7)?, be16(i + 5)?));
+            }
+            i += 2 + len;
+        }
+        return None;
+    }
+    None
+}
+
+/// Whether a load fits `media.limits`: `bytes` read so far (or the
+/// Content-Length) and, once the header is in, the image's pixels.
+pub fn media_within_limits(bytes: u64, dimensions: Option<(u32, u32)>) -> Result<(), String> {
+    use super::contract::{MEDIA_MAX_BYTES, MEDIA_MAX_PIXELS};
+    if bytes > MEDIA_MAX_BYTES {
+        return Err(format!("media is over {MEDIA_MAX_BYTES} bytes"));
+    }
+    if let Some((w, h)) = dimensions {
+        if w as u64 * h as u64 > MEDIA_MAX_PIXELS {
+            return Err(format!("media is {w}×{h}, over {MEDIA_MAX_PIXELS} pixels"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_headers_give_dimensions_without_decoding() {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend_from_slice(&40_000u32.to_be_bytes());
+        png.extend_from_slice(&30_000u32.to_be_bytes());
+        assert_eq!(image_dimensions(&png), Some((40_000, 30_000)));
+        assert!(media_within_limits(1024, image_dimensions(&png)).is_err());
+        assert_eq!(image_dimensions(b"GIF89a\x10\0\x20\0"), Some((16, 32)));
+        // JPEG: SOI, an APP0 segment, then SOF0 (height 0x0100, width 0x0200).
+        let jpeg = b"\xff\xd8\xff\xe0\0\x04ab\xff\xc0\0\x11\x08\x01\x00\x02\x00\x03";
+        assert_eq!(image_dimensions(jpeg), Some((512, 256)));
+        assert_eq!(image_dimensions(b"<svg/>"), None);
+        assert!(media_within_limits(crate::host::MEDIA_MAX_BYTES + 1, None).is_err());
+        assert!(media_within_limits(10, Some((100, 100))).is_ok());
+    }
+
+    #[test]
+    fn hrefs_pass_the_url_policy() {
+        assert_eq!(safe_href(None, "javascript:alert(1)"), None);
+        assert_eq!(safe_href(None, "https://exponential.at/x").as_deref(), Some("https://exponential.at/x"));
+        let hosts = UrlPolicy { hosts: Some(vec!["exponential.at".into()]), ..Default::default() };
+        assert_eq!(safe_href(Some(&hosts), "https://evil.example/"), None);
+    }
 }

@@ -9,7 +9,7 @@ import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
-import { actionMessage, errorMessage } from "./contract"
+import { RENDER_FAILED, actionMessage, errorMessage } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
 import { clientCapabilities } from "./package"
 import type { PackageIssue, VappPackage } from "./package"
@@ -219,6 +219,7 @@ export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
   private subscriptions = new Map<string, (() => void)[]>()
+  private paintErrors = new Set<string>()
   private listeners = new Set<Listener>()
   private functions: Record<string, HostFunction>
   private sources: SourceResolvers
@@ -353,6 +354,7 @@ export class ExponentialHost {
     switch (op.op) {
       case `create`: {
         this.unbind(op.surfaceId)
+        this.forgetPaintErrors(op.surfaceId)
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
         store.packageId = this.router.surface(op.surfaceId)?.packageId
@@ -366,6 +368,7 @@ export class ExponentialHost {
         return
       }
       case `components`:
+        this.forgetPaintErrors(op.surfaceId)
         this.stores.get(op.surfaceId)?.setComponents(op.components)
         return
       case `data`:
@@ -386,6 +389,7 @@ export class ExponentialHost {
       }
       case `delete`:
         this.unbind(op.surfaceId)
+        this.forgetPaintErrors(op.surfaceId)
         this.stores.delete(op.surfaceId)
         this.notify()
         return
@@ -469,13 +473,39 @@ export class ExponentialHost {
     }
   }
 
+  /** The URL policy every href passes (relative urls against the urls' or
+   *  the media `baseUrl`). */
+  urlPolicy(): UrlPolicy {
+    return { baseUrl: this.options.policy?.media?.baseUrl, ...this.options.policy?.urls }
+  }
+
   /** openUrl / Link through the URL policy. True when it opened. */
   openUrl(url: string): boolean {
-    const d = decideUrl({ baseUrl: this.options.policy?.media?.baseUrl, ...this.options.policy?.urls }, url)
+    const d = decideUrl(this.urlPolicy(), url)
     if (!d.allowed || !d.url) return false
     const open = this.options.policy?.openUrl ?? ((u: string) => globalThis.window?.open(u, `_blank`, `noopener`))
     open(d.url)
     return true
+  }
+
+  /** `onPaintError` (catalog/host.json `paint`): a component's painter
+   *  failed. Forwarded ONCE per surface + component + message as an A2UI
+   *  `RENDER_FAILED` error (and so a host issue). */
+  paintError(error: { surfaceId: string; componentId: string; message: string }): void {
+    const key = `${error.surfaceId}\u0000${error.componentId}\u0000${error.message}`
+    if (this.paintErrors.has(key)) return
+    this.paintErrors.add(key)
+    this.send(errorMessage(RENDER_FAILED, error.surfaceId, error.message, `/components/${error.componentId}`))
+  }
+
+  private forgetPaintErrors(surfaceId: string): void {
+    const prefix = `${surfaceId}\u0000`
+    for (const k of this.paintErrors) if (k.startsWith(prefix)) this.paintErrors.delete(k)
+  }
+
+  /** The media policy every src passes (`policy.media`). */
+  mediaOptions(): MediaOptions | undefined {
+    return this.options.policy?.media
   }
 
   /** The image loader's request (absolute url + auth headers). */

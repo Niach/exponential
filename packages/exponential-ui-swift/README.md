@@ -50,7 +50,14 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   = the catalog's registry concepts → your views (nil = the placeholder
   circle); `onAction` = every A2UI action; `onInput` = host-owned text
   edits (`change` debounced 150 ms with a revision, `commit` on blur /
-  Enter); `openUrl`; `resolveUrl`; `onUnknown`; `fontFamily`; `markdown`;
+  Enter); `openUrl` (only hrefs `urlPolicy` allows reach it: Link, markdown links,
+  the openUrl function; a denied href paints as text); `resolveUrl` (a
+  rewrite BEFORE the media policy, never a bypass); `mediaRequest` /
+  `mediaOptions` (every Image, Avatar, Video poster and markdown image src;
+  default schemes https/http/data, the loader enforces the contract's
+  `media.limits`); `onPaintError` (a failed painter paints an empty box,
+  reported once per component + message; `ExponentialHost` sends it as
+  `RENDER_FAILED`); `onUnknown`; `fontFamily`; `markdown`;
   `onUpload` = the files a FileUpload got (name, size, MIME type, URL,
   bytes; the surface already fired `upload`); `pickFiles` = `true` when
   the host shows its own picker (then `model.filesPicked(componentId:urls:)`),

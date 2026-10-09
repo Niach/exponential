@@ -37,6 +37,7 @@ import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribe
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
+import { openAllowed } from "./urls"
 import { compiledTheme } from "./theme-css"
 import type { SurfaceState } from "./use-surface"
 
@@ -185,10 +186,6 @@ export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoi
     .map(queryToken)
     .join(` `)
   return { breakpoint, xq }
-}
-
-function defaultOpenUrl(url: string) {
-  if (typeof window !== `undefined`) window.open(url, `_blank`, `noopener,noreferrer`)
 }
 
 const FOCUSABLE = `input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]`
@@ -410,8 +407,9 @@ export function ExponentialSurface({
       if (scrollers.current.get(id) === scroll) scrollers.current.delete(id)
     }
   }, [])
-  const openUrl = host?.openUrl ?? defaultOpenUrl
   const hostValue = host ?? EMPTY_HOST
+  // Every open passes the URL policy (the host's opener or a new tab).
+  const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
 
   const ctx: SurfaceContextValue = useMemo(
     () => ({

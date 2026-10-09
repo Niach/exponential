@@ -201,14 +201,21 @@ painters through the facade); `catalog/host.json` is the contract and
   emit lands at the bound path.
 - **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
   A2UI basic, then the registered extensions; `clientCapabilities`.
-- **Policy**: `decideUrl` (schemes `https http mailto tel`, optional host
-  allowlist, relative urls against `baseUrl`) for `openUrl`/`Link`;
-  `mediaRequest(url, {baseUrl, rules})` = the image loader's url + headers
-  (auth for `/api/attachments`).
+- **Policy** (every renderer, every href and src): `decideUrl` (schemes
+  `https http mailto tel`, optional host allowlist, relative urls against
+  `baseUrl`) for `openUrl`, `Link`, markdown links and FileUpload file urls
+  (`safeHref`; denied = plain text); `mediaRequest(url, {baseUrl, rules,
+  schemes, hosts})` = the image loader's url + headers (auth for
+  `/api/attachments`), null when the media policy (default `https http
+  data`, `file` only when listed) denies it; `MEDIA_LIMITS` (20 MiB, 30 s,
+  32 Mpx read from the header by `imageDimensions` before decoding) bound
+  every image load.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
-  `openUrl(url)`, `mediaRequest(src)`, `status` / `hasTransport` /
+  `openUrl(url)`, `mediaRequest(src)`, `paintError({surfaceId,
+  componentId, message})` (a renderer's `onPaintError` → ONE A2UI
+  `RENDER_FAILED` error per surface + component + message), `status` / `hasTransport` /
   `unsupportedCatalog` (the `host_offline` state and the catalog-update
   banner), `issues` + `onIssue` (invalid packages, the errors it answered,
   an unusable `createSurface.theme`; a package in `packages` that fails

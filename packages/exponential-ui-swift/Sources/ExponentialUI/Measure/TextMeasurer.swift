@@ -480,6 +480,54 @@ public enum TextShaper {
         }
     }
 
+    /// The attribute a markdown link's (policy-allowed) href rides on.
+    static let linkKey = NSAttributedString.Key("ExponentialUI.link")
+
+    static func hasLinks(_ a: NSAttributedString) -> Bool {
+        var found = false
+        a.enumerateAttribute(linkKey, in: NSRange(location: 0, length: a.length)) { v, _, stop in
+            if v != nil {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+
+    /// The link href under `point` of `a` laid out as the label lays it out
+    /// (CoreText lines at `wrap`, each `lineHeight` tall).
+    static func link(in a: NSAttributedString, lineHeight: CGFloat, wrap: CGFloat, at point: CGPoint) -> String? {
+        guard a.length > 0, point.y >= 0 else { return nil }
+        let target = Int(point.y / max(lineHeight, 1))
+        let ns = a.string as NSString
+        let typesetter = CTTypesetterCreateWithAttributedString(a)
+        var line = 0
+        var start = 0
+        while start <= ns.length {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            var pos = start
+            repeat {
+                let n = end > pos ? max(CTTypesetterSuggestLineBreak(typesetter, pos, Double(max(wrap, 1) + 0.5)), 1) : 0
+                if line == target {
+                    guard n > 0 else { return nil }
+                    let ct = CTTypesetterCreateLine(typesetter, CFRange(location: pos, length: n))
+                    let idx = CTLineGetStringIndexForPosition(ct, CGPoint(x: point.x, y: 0))
+                    let i = min(max(idx == kCFNotFound ? pos : idx, pos), pos + n - 1)
+                    // The glyph left of the caret position when the tap sits on its right half.
+                    let probe = i > pos && CTLineGetOffsetForStringIndex(ct, i, nil) > point.x ? i - 1 : i
+                    guard point.x <= CTLineGetTypographicBounds(ct, nil, nil, nil) else { return nil }
+                    return a.attribute(linkKey, at: probe, effectiveRange: nil) as? String
+                }
+                pos += n
+                line += 1
+            } while pos < end
+            if nl.location == NSNotFound { break }
+            start = end + 1
+        }
+        return nil
+    }
+
     /// The runs of some markdown spans in a base spec (bold/italic/code/link).
     public static func runs(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec, mono: String?, ink: PlatformColor, link: PlatformColor, codeBackground: PlatformColor?, align: NSTextAlignment = .natural) -> NSAttributedString {
         let out = NSMutableAttributedString()
@@ -491,7 +539,10 @@ public enum TextShaper {
             var attrs = attributes(ts, italic: span.italic, family: family, align: align)
             attrs[.foregroundColor] = span.link != nil ? link : ink
             if span.strike { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if span.link != nil { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if let href = span.link {
+                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                attrs[Self.linkKey] = href
+            }
             if span.code, let codeBackground { attrs[.backgroundColor] = codeBackground }
             out.append(NSAttributedString(string: span.text, attributes: attrs))
         }

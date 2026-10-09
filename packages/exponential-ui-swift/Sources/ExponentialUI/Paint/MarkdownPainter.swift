@@ -5,6 +5,13 @@ import ExponentialUIPrimitives
 /// `MarkdownStyles` (shared with the measurer) and paints the blocks the
 /// layout placed, each through the same TextKit label the measurer shaped.
 enum MarkdownPainter {
+    /// The parsed document with its image blocks resolved against the media
+    /// policy: ONE rule for the measurer and the painter.
+    @MainActor
+    static func blocks(_ text: String, model: SurfaceModel) -> [MarkdownBlock] {
+        Markdown.resolveImages(Markdown.parse(text)) { model.mediaRequest($0) != nil }
+    }
+
     /// From the theme's `Markdown/*` recipes (the root's own text style is
     /// the body); plain metrics in geometry mode.
     static func styles(theme: ThemeHandle?, mode: Mode, body: TextStyle, props: Props) -> MarkdownStyles {
@@ -44,7 +51,12 @@ struct MarkdownView: View {
     let model: SurfaceModel
     let props: Props
 
-    private var blocks: [MarkdownBlock] { Markdown.parse(text) }
+    /// The blocks as painted: images the media policy denies become their
+    /// alt text (as the measurer saw them), links the URL policy denies
+    /// plain text.
+    private var blocks: [MarkdownBlock] {
+        Markdown.mapLinks(MarkdownPainter.blocks(text, model: model), model.linkHref)
+    }
 
     var body: some View {
         let blocks = self.blocks
@@ -67,6 +79,21 @@ struct MarkdownView: View {
         .frame(width: width, height: layout.height, alignment: .topLeading)
     }
 
+    /// A text block whose allowed links open on a tap (through the URL
+    /// policy again in `openLink`); hit-tested with the measurer's
+    /// typesetter at the block's wrap width.
+    @ViewBuilder
+    private func linked(_ runs: NSAttributedString, spec: MarkdownTextSpec, width: CGFloat) -> some View {
+        let label = TextLabel(attributed: runs, lineHeight: spec.lineHeight)
+        if TextShaper.hasLinks(runs) {
+            label.contentShape(Rectangle()).onTapGesture(coordinateSpace: .local) { point in
+                if let href = TextShaper.link(in: runs, lineHeight: spec.lineHeight, wrap: width, at: point) { model.openLink(href) }
+            }
+        } else {
+            label
+        }
+    }
+
     private func platform(_ c: Color) -> PlatformColor {
         #if canImport(UIKit)
         UIColor(c)
@@ -81,7 +108,15 @@ struct MarkdownView: View {
         let mono = model.theme?.monoFamily
         switch block.kind {
         case .paragraph, .heading:
-            TextLabel(attributed: TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), lineHeight: spec.lineHeight)
+            linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: width)
+        case let .image(src, alt):
+            MediaImage(request: model.mediaRequest(src)) { image in
+                image.resizable().scaledToFit().frame(maxWidth: width, maxHeight: box.height, alignment: .topLeading)
+            } placeholder: {
+                Text(alt).font(.system(size: spec.size)).foregroundStyle(muted).lineLimit(2)
+            }
+            .frame(width: width, height: box.height, alignment: .topLeading)
+            .accessibilityLabel(alt)
         case let .listItem(marker, task):
             HStack(alignment: .top, spacing: 0) {
                 Group {
@@ -92,13 +127,14 @@ struct MarkdownView: View {
                     }
                 }
                 .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .leading)
-                TextLabel(attributed: TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), lineHeight: spec.lineHeight)
+                linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: max(width - styles.listInset(block), 1))
             }
+            .padding(.leading, styles.listIndent * CGFloat(block.depth))
         case .quote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle().fill(quoteBorder).frame(width: styles.quoteBorder)
                 Color.clear.frame(width: styles.quotePad)
-                TextLabel(attributed: TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(muted), link: platform(link), codeBackground: nil), lineHeight: spec.lineHeight)
+                linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(muted), link: platform(link), codeBackground: nil), spec: spec, width: max(width - styles.quoteBorder - styles.quotePad, 1))
             }
         case .codeBlock:
             TextLabel(attributed: TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: nil), lineHeight: spec.lineHeight, wraps: false)

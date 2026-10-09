@@ -19,7 +19,7 @@ import type { NativeProps } from "../node-view"
 import { mergeStyle } from "../node-view"
 import { useElementSize } from "../platform"
 import { tokenVar } from "../theme-css"
-import { arr, bool, num, str, useParts } from "./shared"
+import { arr, bool, num, str, useParts, objects } from "./shared"
 
 interface Series {
   name: string
@@ -37,7 +37,7 @@ export function ChartNative({ node, props, rootProps }: NativeProps) {
   const kind = str(props.kind, `bar`)
   const sparkline = kind === `sparkline`
   const round = kind === `pie` || kind === `donut`
-  const series = arr<Series>(props.series).map((s) => ({ name: str(s?.name), tone: s?.tone, values: arr<unknown>(s?.values).map((v) => num(v, NaN)) }))
+  const series = objects<Series>(props.series).map((s) => ({ name: str(s?.name), tone: s?.tone, values: arr<unknown>(s?.values).map((v) => num(v, NaN)) }))
   const longest = Math.max(0, ...series.map((s) => s.values.length))
   const categories = arr<unknown>(props.categories).map(String)
   const n = Math.max(categories.length, longest)

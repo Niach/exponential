@@ -30,6 +30,8 @@ import {
   FORMATTER_METHODS,
   SURFACE_COMMANDS,
   SURFACE_SETTING_KEYS,
+  imageDimensions,
+  MEDIA_LIMITS,
 } from "."
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, VappPackage } from "."
 import { neutralTheme } from "../themes"
@@ -208,6 +210,29 @@ describe(`ExponentialHost`, () => {
   test(`media requests carry the auth rules`, () => {
     const host = new ExponentialHost({ policy: { media: { baseUrl: `https://app.exponential.at`, rules: [{ prefix: `https://app.exponential.at/api/attachments/`, headers: { authorization: `Bearer k` } }] } } })
     expect(host.mediaRequest(`/api/attachments/a`)).toEqual({ url: `https://app.exponential.at/api/attachments/a`, headers: { authorization: `Bearer k` } })
+  })
+
+  test(`VAPP-103: a src the media policy denies builds no request`, () => {
+    const host = new ExponentialHost({ policy: { media: { baseUrl: `file:///Users/me/` } } })
+    expect(host.mediaRequest(`/etc/passwd`)).toBeNull()
+    expect(host.mediaRequest(`javascript:alert(1)`)).toBeNull()
+    expect(imageDimensions(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x10, 0, 0x20, 0]))).toEqual([16, 32])
+    expect(MEDIA_LIMITS).toEqual(hostContract.media.limits)
+  })
+
+  test(`VAPP-103: paintError → ONE RENDER_FAILED error per surface + component + message, reset by new components`, () => {
+    const transport = new MemoryTransport()
+    const host = new ExponentialHost({ transport })
+    host.connect()
+    transport.feed({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    const e = { surfaceId: `s`, componentId: `c`, message: `boom` }
+    host.paintError(e)
+    host.paintError(e)
+    expect(transport.sent).toEqual([{ version: `v0.9`, error: { code: `RENDER_FAILED`, surfaceId: `s`, message: `boom`, path: `/components/c` } }])
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `x` }] } })
+    host.paintError(e)
+    expect(transport.sent).toHaveLength(2)
+    expect(host.issues.at(-1)?.code).toBe(`RENDER_FAILED`)
   })
 })
 

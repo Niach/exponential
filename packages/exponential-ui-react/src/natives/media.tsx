@@ -1,6 +1,6 @@
 // VAPP-87: Image, Video, AudioPlayer, Avatar, Carousel.
 
-import { useEffect, useRef, useState, version as reactVersion } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useBoundState } from "./bound"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
@@ -19,9 +19,8 @@ function MediaSizer() {
 import { bool, BuiltinIcon, num, str, useParts } from "./shared"
 import { useMediaSource, useMediaSrc } from "../media"
 
-/** `inert` on an inactive page: React 19 takes a boolean, React 18 (the
- *  peer range) passes attributes through as strings and drops `true`. */
-const INERT: Record<string, unknown> = Number(reactVersion.split(`.`)[0]) >= 19 ? { inert: true } : { inert: `` }
+/** `inert` on an inactive page (React 19, the peer range, takes a boolean). */
+const INERT: Record<string, unknown> = { inert: true }
 
 /** Image (contract §3): `loading` lazy|eager, `focalX/focalY` (0..1, the
  *  point kept when the picture is cropped → `object-position`), and the

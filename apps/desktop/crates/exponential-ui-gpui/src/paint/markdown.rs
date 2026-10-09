@@ -1,7 +1,11 @@
 //! The built-in `Markdown` painter: a small GFM subset (paragraphs, headings,
-//! bullet / numbered / task lists, block quotes, fenced code, tables, rules;
-//! bold / italic / strike / code / links inline) laid out as absolutely
-//! placed blocks. The SAME block layout answers the measurer and places the
+//! bullet / numbered / task lists nested by marker indentation, block quotes,
+//! fenced code, tables, rules, block images; bold / italic / strike / code /
+//! links inline) laid out as absolutely placed blocks. VAPP-103: link and
+//! image destinations parse balanced parentheses (CommonMark); a link the
+//! URL policy denies paints as text, an image the media policy denies as
+//! its alt text ([`resolve_images`]); an image inside a line paints its alt
+//! text. The SAME block layout answers the measurer and places the
 //! painted blocks, so the height taffy reserves is the height painted
 //! (the spike's markdown estimate was 7 px short until it counted a gap per
 //! block). No HTML passthrough: tags are text.
@@ -35,12 +39,17 @@ pub struct Inline {
 pub enum BlockKind {
     Paragraph,
     Heading(u8),
-    /// `marker` = "•" or "3."; `task` = a GFM task box state.
-    ListItem { marker: String, task: Option<bool> },
+    /// `marker` = "•" or "3."; `task` = a GFM task box state; `depth` =
+    /// the nesting level (0 = top).
+    ListItem { marker: String, task: Option<bool>, depth: u8 },
     Quote,
     CodeBlock,
     Table { header: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
     Rule,
+    /// A paragraph that is one `![alt](src)`: painted through the host's
+    /// media policy and loader in an `image_height` box (the alt text there
+    /// while it loads or when it fails).
+    Image { src: String, alt: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,18 +84,130 @@ fn push_text(out: &mut Vec<Inline>, text: &str, f: Flags, link: Option<&str>) {
     out.push(Inline { text: text.to_string(), bold: f.bold, italic: f.italic, code: false, strike: f.strike, link: link.map(str::to_string) });
 }
 
-/// `[label](href)` at the start of `s` → (label, href, consumed bytes).
-fn link_at(s: &str) -> Option<(&str, &str, usize)> {
-    let rest = s.strip_prefix('[')?;
-    let close = rest.find("](")?;
-    let label = &rest[..close];
-    let after = &rest[close + 2..];
-    let end = after.find(')')?;
-    let href = &after[..end];
-    if href.contains(char::is_whitespace) || label.is_empty() {
+/// `[label](dest)` at the start of `s` → (label, dest, consumed bytes): the
+/// label's brackets balance, the destination is `<…>` or a run without
+/// whitespace whose parentheses balance (CommonMark), an optional quoted
+/// title is skipped.
+pub fn link_at(s: &str) -> Option<(&str, String, usize)> {
+    let b = s.as_bytes();
+    if b.first() != Some(&b'[') {
         return None;
     }
-    Some((label, href, 1 + close + 2 + end + 1))
+    let mut depth = 0i32;
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'\\' => i += 1,
+            b'[' => depth += 1,
+            b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if i >= b.len() || b.get(i + 1) != Some(&b'(') {
+        return None;
+    }
+    let label = &s[1..i];
+    let mut j = i + 2;
+    let dest = if b.get(j) == Some(&b'<') {
+        let close = s[j..].find('>')? + j;
+        let inner = &s[j + 1..close];
+        if inner.contains(['\n', '<']) {
+            return None;
+        }
+        j = close + 1;
+        inner.to_string()
+    } else {
+        let start = j;
+        let mut parens = 0i32;
+        while j < b.len() {
+            let c = b[j];
+            if c == b'\\' && j + 1 < b.len() {
+                j += 2;
+                continue;
+            }
+            if c.is_ascii_whitespace() {
+                break;
+            }
+            if c == b'(' {
+                parens += 1;
+            } else if c == b')' {
+                if parens == 0 {
+                    break;
+                }
+                parens -= 1;
+            }
+            j += 1;
+        }
+        if parens != 0 {
+            return None;
+        }
+        s[start..j].replace("\\(", "(").replace("\\)", ")")
+    };
+    let rest = &s[j..];
+    let ws = rest.len() - rest.trim_start().len();
+    if ws > 0 {
+        let t = &rest[ws..];
+        if let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') {
+            if let Some(end) = t[1..].find(q) {
+                j += ws + end + 2;
+            }
+        }
+    }
+    while b.get(j) == Some(&b' ') {
+        j += 1;
+    }
+    if b.get(j) != Some(&b')') {
+        return None;
+    }
+    Some((label, dest, j + 1))
+}
+
+/// A whole line that is exactly one image `![alt](src)` → (alt, src).
+fn whole_image(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix('!')?;
+    let (alt, src, n) = link_at(rest)?;
+    (n == rest.len()).then(|| (alt.to_string(), src))
+}
+
+/// The host's policy over parsed blocks: an image block whose src the
+/// media policy refuses becomes a paragraph of its alt text (the measurer
+/// and the painter both resolve, so a denied image never reserves a box);
+/// a link the URL policy refuses loses its href (plain text, not pressable).
+pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, image_allowed: impl Fn(&str) -> bool) -> Vec<Block> {
+    let strip = |inlines: &mut Vec<Inline>| {
+        for span in inlines.iter_mut() {
+            if span.link.as_deref().is_some_and(|h| !link_allowed(h)) {
+                span.link = None;
+            }
+        }
+    };
+    blocks
+        .into_iter()
+        .map(|mut b| {
+            if let BlockKind::Image { src, alt } = &b.kind {
+                if !image_allowed(src) {
+                    b = Block { kind: BlockKind::Paragraph, inlines: parse_inline(alt), list_group: None };
+                }
+            }
+            strip(&mut b.inlines);
+            if let BlockKind::Table { header, rows } = &mut b.kind {
+                header.iter_mut().chain(rows.iter_mut().flatten()).for_each(&strip);
+            }
+            b
+        })
+        .collect()
+}
+
+/// The blocks of `text` under the host's URL and media policies.
+pub fn parse_for(host: &dyn crate::host::HostPlugin, text: &str) -> Vec<Block> {
+    let urls = host.url_policy();
+    resolve_urls(parse(text), |h| exponential_ui::host::safe_href(urls.as_ref(), h).is_some(), |src| crate::media::allowed_request(host, src).is_some())
 }
 
 /// A delimited run `ddTEXTdd` at the start of `s` → (TEXT, consumed).
@@ -123,6 +244,7 @@ fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline
                 handled = Some(end + 2);
             }
         } else if c == b'!' && rest[1..].starts_with('[') {
+            // An image inside a line paints its alt text.
             if let Some((alt, _src, n)) = link_at(&rest[1..]) {
                 push_text(out, &s[plain_start..i], f, link);
                 push_text(out, alt, f, link);
@@ -131,7 +253,7 @@ fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline
         } else if c == b'[' {
             if let Some((label, href, n)) = link_at(rest) {
                 push_text(out, &s[plain_start..i], f, link);
-                parse_inline_into(label, f, Some(href), out);
+                parse_inline_into(label, f, Some(href.as_str()), out);
                 handled = Some(n);
             }
         } else if (c == b'*' || c == b'_' || c == b'~') && !(c == b'_' && s[..i].chars().next_back().is_some_and(char::is_alphanumeric)) {
@@ -204,8 +326,15 @@ fn cells(line: &str) -> Vec<String> {
     out
 }
 
-fn list_marker(line: &str) -> Option<(String, &str)> {
+/// A list item line → (marker indent in columns, marker, the rest).
+fn list_marker(line: &str) -> Option<(usize, String, &str)> {
     let t = line.trim_start();
+    let indent = line[..line.len() - t.len()].chars().map(|c| if c == '\t' { 4 } else { 1 }).sum();
+    let (marker, rest) = list_marker_of(t)?;
+    Some((indent, marker, rest))
+}
+
+fn list_marker_of(t: &str) -> Option<(String, &str)> {
     for bullet in ["- ", "* ", "+ "] {
         if let Some(rest) = t.strip_prefix(bullet) {
             return Some(("•".to_string(), rest));
@@ -235,7 +364,11 @@ pub fn parse(text: &str) -> Vec<Block> {
     let mut group = 0usize;
     let flush = |para: &mut Vec<&str>, blocks: &mut Vec<Block>| {
         if !para.is_empty() {
-            blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&para.join(" ")), list_group: None });
+            let joined = para.join(" ");
+            match whole_image(joined.trim()) {
+                Some((alt, src)) => blocks.push(Block { kind: BlockKind::Image { src, alt: alt.clone() }, inlines: parse_inline(&alt), list_group: None }),
+                None => blocks.push(Block { kind: BlockKind::Paragraph, inlines: parse_inline(&joined), list_group: None }),
+            }
             para.clear();
         }
     };
@@ -279,11 +412,23 @@ pub fn parse(text: &str) -> Vec<Block> {
             i += 1;
             continue;
         }
-        if let Some((_, _)) = list_marker(line) {
+        if list_marker(line).is_some() {
             flush(&mut para, &mut blocks);
             group += 1;
+            // The indents of the open lists, outermost first: an item 2+
+            // columns past its list's nests under the previous item.
+            let mut lists: Vec<usize> = Vec::new();
             while i < lines.len() {
-                let Some((marker, rest)) = list_marker(lines[i]) else { break };
+                let Some((indent, marker, rest)) = list_marker(lines[i]) else { break };
+                while lists.len() > 1 && indent < *lists.last().unwrap() {
+                    lists.pop();
+                }
+                match lists.last() {
+                    None => lists.push(indent),
+                    Some(&top) if indent >= top + 2 => lists.push(indent),
+                    _ => {}
+                }
+                let depth = (lists.len() - 1).min(u8::MAX as usize) as u8;
                 let (task, body) = match rest.strip_prefix("[ ] ") {
                     Some(b) => (Some(false), b),
                     None => match rest.strip_prefix("[x] ").or_else(|| rest.strip_prefix("[X] ")) {
@@ -291,7 +436,7 @@ pub fn parse(text: &str) -> Vec<Block> {
                         None => (None, rest),
                     },
                 };
-                blocks.push(Block { kind: BlockKind::ListItem { marker, task }, inlines: parse_inline(body.trim()), list_group: Some(group) });
+                blocks.push(Block { kind: BlockKind::ListItem { marker, task, depth }, inlines: parse_inline(body.trim()), list_group: Some(group) });
                 i += 1;
             }
             continue;
@@ -352,6 +497,8 @@ pub struct MdStyles {
     pub heading_top: f32,
     pub heading_bottom: f32,
     pub list_indent: f32,
+    /// A block image's box height (loaded or not, so measure = paint).
+    pub image_height: f32,
     pub cell_pad_h: f32,
     pub cell_pad_v: f32,
 }
@@ -363,6 +510,7 @@ impl MdStyles {
             heading: TextSpec { size: body.size + 4.0, line_height: body.line_height + 8.0, weight: 600, family: body.family.clone() },
             code: TextSpec { size: (body.size - 2.0).max(10.0), line_height: body.line_height, weight: 400, family: None },
             list_indent: (body.size * 1.4).round(),
+            image_height: 160.0,
             body,
             code_pad: 12.0,
             quote_border: 2.0,
@@ -477,7 +625,8 @@ pub fn layout(blocks: &[Block], s: &MdStyles, width: f32, text: &mut dyn MdText)
         let spec = s.spec_of(&b.kind);
         let (height, rows) = match &b.kind {
             BlockKind::Paragraph | BlockKind::Heading(_) => (text.height(&b.inlines, spec, Some(width.max(1.0))), Vec::new()),
-            BlockKind::ListItem { .. } => (text.height(&b.inlines, spec, Some((width - s.list_indent).max(1.0))), Vec::new()),
+            BlockKind::ListItem { depth, .. } => (text.height(&b.inlines, spec, Some((width - s.list_indent * (*depth as f32 + 1.0)).max(1.0))), Vec::new()),
+            BlockKind::Image { .. } => (s.image_height, Vec::new()),
             BlockKind::Quote => (text.height(&b.inlines, spec, Some((width - s.quote_border - s.quote_pad).max(1.0))), Vec::new()),
             BlockKind::CodeBlock => (text.height(&b.inlines, spec, None) + 2.0 * s.code_pad, Vec::new()),
             BlockKind::Rule => (1.0, Vec::new()),
@@ -506,7 +655,8 @@ pub fn max_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
             let spec = s.spec_of(&b.kind);
             match &b.kind {
                 BlockKind::Paragraph | BlockKind::Heading(_) => text.width(&b.inlines, spec),
-                BlockKind::ListItem { .. } => text.width(&b.inlines, spec) + s.list_indent,
+                BlockKind::ListItem { depth, .. } => text.width(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
+                BlockKind::Image { .. } => (s.image_height * 1.5).round(),
                 BlockKind::Quote => text.width(&b.inlines, spec) + s.quote_border + s.quote_pad,
                 BlockKind::CodeBlock => b.inlines[0].text.lines().map(|l| text.width(&[Inline { text: l.to_string(), ..b.inlines[0].clone() }], spec)).fold(0.0, f32::max) + 2.0 * s.code_pad,
                 BlockKind::Rule => 0.0,
@@ -530,7 +680,8 @@ pub fn min_content_width(blocks: &[Block], s: &MdStyles, text: &mut dyn MdText) 
             match &b.kind {
                 BlockKind::CodeBlock => max_content_width(std::slice::from_ref(b), s, text),
                 BlockKind::Table { header, .. } => header.len().max(1) as f32 * (2.0 * s.cell_pad_h + 16.0),
-                BlockKind::ListItem { .. } => text.widest_word(&b.inlines, spec) + s.list_indent,
+                BlockKind::ListItem { depth, .. } => text.widest_word(&b.inlines, spec) + s.list_indent * (*depth as f32 + 1.0),
+                BlockKind::Image { .. } => 1.0,
                 BlockKind::Quote => text.widest_word(&b.inlines, spec) + s.quote_border + s.quote_pad,
                 _ => text.widest_word(&b.inlines, spec),
             }
@@ -678,6 +829,9 @@ pub struct MdPaint {
     /// Right-to-left: list markers and the quote bar sit on the right.
     pub rtl: bool,
     pub on_link: LinkHandler,
+    /// A block image's source through the host's media policy (`None` =
+    /// denied: the alt text paints).
+    pub image: ImageResolver,
     /// The leaf's node index, the unit registry, the selection to paint.
     pub node: u32,
     pub units: Option<MdUnits>,
@@ -687,6 +841,8 @@ pub struct MdPaint {
 
 /// What a markdown link press calls (the href).
 pub type LinkHandler = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+/// A block image's src → what `img()` paints (`None` = denied).
+pub type ImageResolver = Rc<dyn Fn(&str) -> Option<gpui::ImageSource>>;
 
 impl MdPaint {
     /// Colours from the theme (`Markdown/link`, `code`, `codeBlock`, `quote`).
@@ -762,17 +918,38 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
         let el: AnyElement = match &b.kind {
             BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
             BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
-            BlockKind::ListItem { marker, task } => {
+            BlockKind::ListItem { marker, task, depth } => {
                 let marker = match task {
                     Some(true) => "☑".to_string(),
                     Some(false) => "☐".to_string(),
+                    None if *depth > 0 && marker == "•" => "◦".to_string(),
                     None => marker.clone(),
                 };
-                let (marker_x, body_x) = if p.rtl { (width - s.list_indent, 0.0) } else { (0.0, s.list_indent) };
+                let lead = s.list_indent * *depth as f32;
+                let body_w = (width - lead - s.list_indent).max(1.0);
+                let (marker_x, body_x) = if p.rtl { (width - lead - s.list_indent, 0.0) } else { (lead, lead + s.list_indent) };
                 placed
                     .child(div().absolute().left(px(marker_x)).top_0().w(px(s.list_indent)).text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker)))
-                    .child(div().absolute().left(px(body_x)).top_0().w(px((width - s.list_indent).max(1.0))).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
+                    .child(div().absolute().left(px(body_x)).top_0().w(px(body_w)).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
                     .into_any_element()
+            }
+            BlockKind::Image { src, alt } => {
+                let alt_el = text_block(bid.clone(), &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors });
+                match (p.image)(src) {
+                    Some(source) => {
+                        let fallback_alt: SharedString = alt.clone().into();
+                        let muted = p.muted;
+                        placed
+                            .child(
+                                gpui::img(source)
+                                    .size_full()
+                                    .object_fit(gpui::ObjectFit::Contain)
+                                    .with_fallback(move || div().text_color(muted).child(fallback_alt.clone()).into_any_element()),
+                            )
+                            .into_any_element()
+                    }
+                    None => placed.child(alt_el).into_any_element(),
+                }
             }
             BlockKind::Quote => placed
                 .child(div().absolute().left(px(if p.rtl { width - s.quote_border } else { 0.0 })).top_0().h_full().w(px(s.quote_border)).bg(p.border))
@@ -931,17 +1108,59 @@ mod tests {
                 BlockKind::CodeBlock => "code",
                 BlockKind::Table { .. } => "table",
                 BlockKind::Rule => "hr",
+                BlockKind::Image { .. } => "img",
             })
             .collect();
         assert_eq!(kinds, ["h", "p", "li", "li", "li", "q", "code", "table", "hr"]);
         assert_eq!(plain(&blocks[1].inlines), "Para one continues.");
-        assert_eq!(blocks[3].kind, BlockKind::ListItem { marker: "•".into(), task: Some(true) });
+        assert_eq!(blocks[3].kind, BlockKind::ListItem { marker: "•".into(), task: Some(true), depth: 0 });
         assert_eq!(blocks[2].list_group, blocks[4].list_group);
         if let BlockKind::Table { rows, .. } = &blocks[7].kind {
             assert_eq!(plain(&rows[0][1]), "2 | 3");
         } else {
             panic!("table");
         }
+    }
+
+    #[test]
+    fn destinations_balance_parentheses_like_commonmark() {
+        assert_eq!(link_at("[a](https://x/A_(b))"), Some(("a", "https://x/A_(b)".to_string(), 20)));
+        assert_eq!(link_at("[a](a(b)) rest").map(|l| l.1), Some("a(b)".to_string()));
+        assert_eq!(link_at("[i](javascript:alert(3))").map(|l| l.1), Some("javascript:alert(3)".to_string()));
+        assert_eq!(link_at("[a](x \"title\")").map(|l| l.1), Some("x".to_string()));
+        assert_eq!(link_at("[a](<x y>)").map(|l| l.1), Some("x y".to_string()));
+        assert!(link_at("[a](x y)").is_none());
+        assert!(link_at("[a](x(").is_none());
+        let spans = parse_inline("see [w](https://en.wikipedia.org/wiki/A_(b)) end");
+        assert!(spans.iter().any(|s| s.link.as_deref() == Some("https://en.wikipedia.org/wiki/A_(b)") && s.text == "w"));
+        assert_eq!(plain(&spans), "see w end");
+    }
+
+    #[test]
+    fn lists_nest_by_marker_indentation() {
+        let blocks = parse("- a\n  - a1\n    1. deep\n  - a2\n- b");
+        let depths: Vec<u8> = blocks.iter().map(|b| if let BlockKind::ListItem { depth, .. } = b.kind { depth } else { 99 }).collect();
+        assert_eq!(depths, [0, 1, 2, 1, 0]);
+        assert_eq!(blocks[2].kind, BlockKind::ListItem { marker: "1.".into(), task: None, depth: 2 });
+        let s = MdStyles::plain(body());
+        // A nested item wraps narrower: "a1" fits, its indent counts.
+        assert_eq!(max_content_width(&parse("- a\n  - ab"), &s, &mut Fixed), 16.0 + 2.0 * s.list_indent);
+    }
+
+    #[test]
+    fn whole_line_images_are_blocks_and_the_policy_resolves_them() {
+        let blocks = parse("![chart](https://exponential.at/c.png)\n\ntext ![inline](https://x/y.png) [bad](javascript:alert(1)) [ok](https://exponential.at)");
+        assert_eq!(blocks[0].kind, BlockKind::Image { src: "https://exponential.at/c.png".into(), alt: "chart".into() });
+        assert_eq!(plain(&blocks[1].inlines), "text inline bad ok", "an inline image is its alt text");
+        let s = MdStyles::plain(body());
+        assert_eq!(layout(&blocks[..1], &s, 300.0, &mut Fixed).height, s.image_height);
+        let resolved = resolve_urls(blocks, |h| h.starts_with("https:"), |_| false);
+        assert_eq!(resolved[0].kind, BlockKind::Paragraph, "a denied image is its alt text");
+        assert_eq!(plain(&resolved[0].inlines), "chart");
+        let links: Vec<Option<&str>> = resolved[1].inlines.iter().map(|s| s.link.as_deref()).filter(Option::is_some).collect();
+        assert_eq!(links, [Some("https://exponential.at")], "a denied link is plain text");
+        let denied = parse("![x](javascript:alert(3))");
+        assert_eq!(resolve_urls(denied, |_| true, |src| !src.starts_with("javascript:"))[0].kind, BlockKind::Paragraph);
     }
 
     #[test]

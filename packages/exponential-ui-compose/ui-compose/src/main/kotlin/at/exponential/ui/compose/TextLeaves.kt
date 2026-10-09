@@ -40,6 +40,7 @@ import at.exponential.ui.model.press
 import at.exponential.ui.paint.MarkdownPainter
 import at.exponential.ui.primitives.MarkdownColors
 import at.exponential.ui.primitives.MarkdownFontResolver
+import at.exponential.ui.primitives.MarkdownImageAlt
 import at.exponential.ui.primitives.MarkdownView
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlin.math.max
@@ -260,17 +261,23 @@ internal fun IconOrGlyph(name: String, glyph: Glyph, size: Float, cx: LeafContex
     if (cx.model.host.icon(name, size) != null) IconView(name, size, color, cx.model, rtl = cx.rtl) else GlyphView(glyph, size, color)
 }
 
-/** A `Link`: the underlined label (else the href), centred; a tap presses it (the core opens the URL). */
+/**
+ * A `Link`: the underlined label (else the href), centred; a tap presses it
+ * (the core opens the URL through the host's URL policy). An href the
+ * policy denies paints as plain text (no underline) and never navigates.
+ */
 @Composable
 internal fun LinkLeaf(cx: LeafContext) {
-    val label = cx.props.shownText("label").ifEmpty { cx.props.str("href") }
+    val href = cx.props.str("href")
+    val label = cx.props.shownText("label").ifEmpty { href }
     val model = cx.model
     val index = cx.index
+    val denied = href.isNotEmpty() && remember(href, model.host) { model.href(href) == null }
     InnerBox(cx, Alignment.Center) {
         BasicText(
             cx.shown(label),
             modifier = Modifier.textSlack(0f).pointerInput(index) { detectTapGestures { model.press(index) } },
-            style = cx.composeTextStyle().copy(textDecoration = TextDecoration.Underline),
+            style = if (denied) cx.composeTextStyle() else cx.composeTextStyle().copy(textDecoration = TextDecoration.Underline),
             softWrap = false,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -297,8 +304,10 @@ internal fun UnknownLeaf(cx: LeafContext) {
 /**
  * `Markdown`: the host's renderer when it has one, else the primitives'
  * `MarkdownView` with the measurer's [MarkdownPainter.styles] and fonts,
- * so the painted document is the measured height. Links open through the
- * host.
+ * so the painted document is the measured height. Every link href passes
+ * the host's URL policy (denied = plain text) and opens through the host;
+ * block images load through its media policy (denied / failed = the alt
+ * text).
  */
 @Composable
 internal fun MarkdownLeaf(cx: LeafContext) {
@@ -334,7 +343,22 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             codeBlockRadius = (theme?.radius("md") ?: 6f).dp,
             monoFamily = theme?.monoFamily,
             fonts = fonts,
-            onLink = { model.host.openUrl(it) },
+            onLink = { model.openHref(it) },
+            linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
+            image = { src, alt ->
+                val picture = rememberPolicedImage(model, src)
+                if (picture != null) {
+                    androidx.compose.foundation.Image(
+                        picture,
+                        alt,
+                        Modifier.fillMaxSize(),
+                        alignment = if (cx.rtl) Alignment.CenterEnd else Alignment.CenterStart,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
+                } else {
+                    MarkdownImageAlt(alt, cx.composeTextStyle(color = muted))
+                }
+            },
         )
     }
 }

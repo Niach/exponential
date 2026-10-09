@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use super::state::{a11y_description, a11y_label, is_text_field, role_of, NodeFlags};
 use super::SurfaceView;
 use crate::extension::PaintContext;
+use crate::host::PaintError;
 use crate::measure::{display_text, text_chrome, Shaper};
 use crate::paint::icons;
 use crate::paint::markdown::{self, MdPaint, MdStyles, TextSpec};
@@ -226,8 +227,13 @@ impl SurfaceView {
             return Some(self.paint_extension(el, index, n, w, h, place, abs, window, cx));
         }
         if leaf {
-            if let Some(content) = self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx) {
-                el = el.child(content);
+            // A painter that panics (a prop it cannot paint) leaves an empty
+            // box and reaches the host (`onPaintError`); the surface stays.
+            let painted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx)));
+            match painted {
+                Ok(Some(content)) => el = el.child(content),
+                Ok(None) => {}
+                Err(panic) => self.paint_failed(n, &panic_message(panic.as_ref()), cx),
             }
         }
         // Children: the content origin shifts by the scroll offset.
@@ -601,8 +607,20 @@ impl SurfaceView {
                 }
             }),
         };
-        let painted = painter.paint(ctx, window, cx);
-        el.child(painted).into_any_element()
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| painter.paint(ctx, window, cx))) {
+            Ok(painted) => el.child(painted).into_any_element(),
+            Err(panic) => {
+                self.paint_failed(n, &panic_message(panic.as_ref()), cx);
+                el.into_any_element()
+            }
+        }
+    }
+
+    /// `onPaintError` (`catalog/host.json` paint), deferred out of render.
+    pub(crate) fn paint_failed(&self, n: &PlacedNode, why: &str, cx: &mut gpui::App) {
+        let host = self.host.clone();
+        let error = PaintError { surface_id: self.surface.id.clone(), component_id: n.id.clone(), message: format!("{} failed to paint: {why}", n.component) };
+        cx.defer(move |cx| host.on_paint_error(&error, cx));
     }
 
     /// The content of a measured leaf.
@@ -864,7 +882,7 @@ impl SurfaceView {
             match cache.get(&index) {
                 Some((t, b)) if *t == text => b.clone(),
                 _ => {
-                    let b = Rc::new(markdown::parse(&text));
+                    let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text));
                     cache.insert(index, (text.clone(), b.clone()));
                     b
                 }
@@ -887,7 +905,11 @@ impl SurfaceView {
             border,
             code_block_bg,
             rtl: lcx.rtl,
-            on_link: Rc::new(move |href, _window, cx| host.open_url(&host.resolve_url(href), cx)),
+            on_link: Rc::new({
+                let host = host.clone();
+                move |href, _window, cx| host.open_url(href, cx)
+            }),
+            image: Rc::new(move |src| crate::media::image_source(host.as_ref(), src)),
             node: index,
             units: (!self.ghosting.get()).then(|| self.md_pending.clone()),
             selection: self.md_selection,
@@ -1256,4 +1278,9 @@ mod tests {
         let (at, _) = thumb_geometry(100.0, 400.0, 300.0, 96.0).unwrap();
         assert_eq!(at, 72.0);
     }
+}
+
+/// A caught panic's message (`&str` / `String` payloads).
+pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panicked".into())
 }

@@ -7,8 +7,10 @@ import kotlin.math.max
 // The read-only GFM subset every Exponential UI renderer paints the same way
 // (the gpui painter's `paint::markdown`, the SwiftUI painter's `Markdown` and
 // the React renderer's block model): paragraphs, ATX headings, bullet /
-// ordered / task lists, quotes, fenced code, rules, pipe tables; inline bold,
-// italic, strike, code, links. No dependency: the parser is ours so the
+// ordered / task lists (nested by marker indent), quotes, fenced code,
+// rules, pipe tables, block images (a paragraph that is one `![alt](src)`);
+// inline bold, italic, strike, code, links (CommonMark destinations:
+// balanced parentheses, no whitespace). No dependency: the parser is ours so the
 // measurer and the painter share ONE block model, and the layout rule below
 // is what both use. A verbatim port of Markdown.swift.
 
@@ -30,8 +32,18 @@ sealed class MarkdownBlockKind {
     /** An ATX heading of `level` 1…6. */
     data class Heading(val level: Int) : MarkdownBlockKind()
 
-    /** `marker` = "•" or "3."; `task` = a GFM task box state. */
-    data class ListItem(val marker: String, val task: Boolean?) : MarkdownBlockKind()
+    /**
+     * `marker` = "•" or "3."; `task` = a GFM task box state; `depth` = the
+     * nesting level (0 = top; a child list indents one `listIndent` more).
+     */
+    data class ListItem(val marker: String, val task: Boolean?, val depth: Int = 0) : MarkdownBlockKind()
+
+    /**
+     * A paragraph that is one image `![alt](src)`: painted through the
+     * host's media policy at `imageHeight`, the alt text when it is denied
+     * or fails. `inlines` = the alt text.
+     */
+    data class Image(val src: String, val alt: String) : MarkdownBlockKind()
 
     /** A block quote (its lines joined). */
     data object Quote : MarkdownBlockKind()
@@ -82,7 +94,12 @@ data class MarkdownStyles(
     var listIndent: Float = roundHalfAway(body.size * 1.4f),
     var cellPadH: Float = 8f,
     var cellPadV: Float = 4f,
+    /** The height of a block image (loaded or not, so measure = paint). */
+    var imageHeight: Float = 160f,
 ) {
+    /** The leading indent of a list item at [depth] (its marker column + the body inset). */
+    fun listInset(depth: Int): Float = listIndent * (depth + 1)
+
     /** The typography of a block kind. */
     fun spec(kind: MarkdownBlockKind): MarkdownTextSpec = when (kind) {
         is MarkdownBlockKind.Heading -> heading
@@ -140,19 +157,43 @@ object Markdown {
 
     private data class LinkMatch(val label: String, val href: String, val consumed: Int)
 
-    /** `[label](href)` at the start of `s` → (label, href, consumed). */
-    private fun linkAt(s: String): LinkMatch? {
+    /**
+     * `[label](href)` at the start of `s` → (label, href, consumed). The
+     * destination follows CommonMark: balanced parentheses (`A_(b)`), `\`
+     * escapes, no whitespace, never empty.
+     */
+    private fun linkAt(s: String, image: Boolean = false): LinkMatch? {
         if (!s.startsWith("[")) return null
-        val rest = s.substring(1)
-        val close = rest.indexOf("](")
+        val close = s.indexOf("](", 1)
         if (close < 0) return null
-        val label = rest.substring(0, close)
-        val after = rest.substring(close + 2)
-        val end = after.indexOf(')')
-        if (end < 0) return null
-        val href = after.substring(0, end)
-        if (href.any { it.isWhitespace() } || label.isEmpty()) return null
-        return LinkMatch(label, href, 1 + label.length + 2 + href.length + 1)
+        val label = s.substring(1, close)
+        val start = close + 2
+        var i = start
+        var depth = 0
+        while (i < s.length) {
+            val c = s[i]
+            when {
+                c == '\\' && i + 1 < s.length -> i += 1
+                c.isWhitespace() || c.isISOControl() -> return null
+                c == '(' -> depth += 1
+                c == ')' -> {
+                    if (depth == 0) break
+                    depth -= 1
+                }
+            }
+            i += 1
+        }
+        if (i >= s.length) return null
+        val href = s.substring(start, i).replace(Regex("""\\([!-/:-@\[-`{-~])"""), "$1")
+        if (href.isEmpty() || (label.isEmpty() && !image)) return null
+        return LinkMatch(label, href, i + 1)
+    }
+
+    /** `![alt](src)` = the WHOLE of `s` → (alt, src). */
+    private fun imageOnly(s: String): Pair<String, String>? {
+        if (!s.startsWith("![")) return null
+        val m = linkAt(s.substring(1), image = true) ?: return null
+        return if (m.consumed + 1 == s.length) m.label to m.href else null
     }
 
     private fun isAlnum(c: Char): Boolean = c.isLetter() || c.isDigit()
@@ -187,7 +228,7 @@ object Markdown {
                     handled = end - (i + 1) + 2
                 }
             } else if (c == '!' && rest.length > 1 && rest[1] == '[') {
-                val m = linkAt(rest.substring(1))
+                val m = linkAt(rest.substring(1), image = true)
                 if (m != null) {
                     push(out, s.substring(plainStart, i), f, link)
                     push(out, m.label, f, link)
@@ -257,14 +298,18 @@ object Markdown {
     private fun isRule(t: String): Boolean =
         t.length >= 3 && (t.all { it == '-' } || t.all { it == '*' } || t.all { it == '_' })
 
-    /** `- item`, `* item`, `3. item` → (marker, rest). */
-    private fun listMarker(line: String): Pair<String, String>? {
-        val t = line.trimStart(' ', '\t')
-        if (t.startsWith("- ") || t.startsWith("* ") || t.startsWith("+ ")) return "•" to t.substring(2)
+    private data class ListLine(val marker: String, val rest: String, val column: Int)
+
+    /** `- item`, `* item`, `3. item` → (marker, rest, the marker's column; a tab = 4). */
+    private fun listMarker(line: String): ListLine? {
+        val lead = line.takeWhile { it == ' ' || it == '\t' }
+        val column = lead.sumOf { if (it == '\t') 4 else 1 }
+        val t = line.substring(lead.length)
+        if (t.startsWith("- ") || t.startsWith("* ") || t.startsWith("+ ")) return ListLine("•", t.substring(2), column)
         val digits = t.takeWhile { it.isDigit() }
         if (digits.isNotEmpty() && digits.length <= 9) {
             val after = t.substring(digits.length)
-            if (after.startsWith(". ") || after.startsWith(") ")) return "$digits." to after.substring(2)
+            if (after.startsWith(". ") || after.startsWith(") ")) return ListLine("$digits.", after.substring(2), column)
         }
         return null
     }
@@ -278,7 +323,13 @@ object Markdown {
         var group = 0
         fun flush() {
             if (para.isNotEmpty()) {
-                blocks.add(MarkdownBlock(MarkdownBlockKind.Paragraph, parseInline(para.joinToString(" "))))
+                val joined = para.joinToString(" ")
+                val image = imageOnly(joined)
+                if (image != null) {
+                    blocks.add(MarkdownBlock(MarkdownBlockKind.Image(image.second, image.first), listOf(MarkdownInline(text = image.first))))
+                } else {
+                    blocks.add(MarkdownBlock(MarkdownBlockKind.Paragraph, parseInline(joined)))
+                }
                 para.clear()
             }
         }
@@ -326,8 +377,14 @@ object Markdown {
             if (listMarker(line) != null) {
                 flush()
                 group += 1
+                // The marker columns of the open lists, outermost first: a
+                // marker ≥ 2 columns right of the previous level's nests.
+                val columns = ArrayList<Int>()
                 while (i < lines.size) {
-                    val (marker, rest) = listMarker(lines[i]) ?: break
+                    val (marker, rest, column) = listMarker(lines[i]) ?: break
+                    while (columns.size > 1 && column < columns.last()) columns.removeAt(columns.size - 1)
+                    if (columns.isEmpty() || column >= columns.last() + 2) columns.add(column)
+                    val depth = columns.size - 1
                     var task: Boolean? = null
                     var body = rest
                     if (rest.startsWith("[ ] ")) {
@@ -337,7 +394,7 @@ object Markdown {
                         task = true
                         body = rest.substring(4)
                     }
-                    blocks.add(MarkdownBlock(MarkdownBlockKind.ListItem(marker, task), parseInline(body.trim()), group))
+                    blocks.add(MarkdownBlock(MarkdownBlockKind.ListItem(marker, task, depth), parseInline(body.trim()), group))
                     i += 1
                 }
                 continue
@@ -359,6 +416,26 @@ object Markdown {
         }
         flush()
         return blocks
+    }
+
+    /**
+     * Every link href through [policy]: its result (the resolved href), or
+     * null = the span paints as plain text and never navigates. Only the
+     * marks change, so the layout is the same.
+     */
+    fun policeLinks(blocks: List<MarkdownBlock>, policy: (String) -> String?): List<MarkdownBlock> {
+        val memo = HashMap<String, String?>()
+        fun spans(list: List<MarkdownInline>): List<MarkdownInline> = list.map { span ->
+            val href = span.link ?: return@map span
+            span.copy(link = memo.getOrPut(href) { policy(href) })
+        }
+        return blocks.map { b ->
+            val kind = b.kind
+            b.copy(
+                kind = if (kind is MarkdownBlockKind.Table) kind.copy(header = kind.header.map(::spans), rows = kind.rows.map { r -> r.map(::spans) }) else kind,
+                inlines = spans(b.inlines),
+            )
+        }
     }
 
     /** The plain text of some spans. */
@@ -387,7 +464,8 @@ object Markdown {
             val rows = ArrayList<Float>()
             val height: Float = when (val k = b.kind) {
                 MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.height(b.inlines, spec, max(width, 1f))
-                is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listIndent, 1f))
+                is MarkdownBlockKind.ListItem -> text.height(b.inlines, spec, max(width - s.listInset(k.depth), 1f))
+                is MarkdownBlockKind.Image -> s.imageHeight
                 MarkdownBlockKind.Quote -> text.height(b.inlines, spec, max(width - s.quoteBorder - s.quotePad, 1f))
                 MarkdownBlockKind.CodeBlock -> text.height(b.inlines, spec, null) + 2 * s.codePad
                 MarkdownBlockKind.Rule -> 1f
@@ -413,7 +491,8 @@ object Markdown {
             val spec = s.spec(b.kind)
             when (val k = b.kind) {
                 MarkdownBlockKind.Paragraph, is MarkdownBlockKind.Heading -> text.width(b.inlines, spec)
-                is MarkdownBlockKind.ListItem -> text.width(b.inlines, spec) + s.listIndent
+                is MarkdownBlockKind.ListItem -> text.width(b.inlines, spec) + s.listInset(k.depth)
+                is MarkdownBlockKind.Image -> s.imageHeight
                 MarkdownBlockKind.Quote -> text.width(b.inlines, spec) + s.quoteBorder + s.quotePad
                 MarkdownBlockKind.CodeBlock -> {
                     val first = b.inlines.firstOrNull() ?: MarkdownInline(text = "", code = true)
@@ -437,7 +516,8 @@ object Markdown {
             when (val k = b.kind) {
                 MarkdownBlockKind.CodeBlock -> maxContentWidth(listOf(b), s, text)
                 is MarkdownBlockKind.Table -> max(k.header.size, 1) * (2 * s.cellPadH + 16)
-                is MarkdownBlockKind.ListItem -> text.widestWord(b.inlines, spec) + s.listIndent
+                is MarkdownBlockKind.ListItem -> text.widestWord(b.inlines, spec) + s.listInset(k.depth)
+                is MarkdownBlockKind.Image -> 0f
                 MarkdownBlockKind.Quote -> text.widestWord(b.inlines, spec) + s.quoteBorder + s.quotePad
                 else -> text.widestWord(b.inlines, spec)
             }

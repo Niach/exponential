@@ -55,7 +55,7 @@ fn the_contract_constants_match_catalog_host_json() {
     let all: Vec<&str> = messages["a2ui"].as_array().unwrap().iter().chain(messages["extensions"].as_array().unwrap()).map(|v| v.as_str().unwrap()).collect();
     assert_eq!(host::MESSAGE_KINDS, all.as_slice());
     for code in HOST_ERROR_CODES {
-        assert!([host::VALIDATION_FAILED, host::INVALID_MESSAGE, host::UNSUPPORTED_CATALOG, host::SURFACE_NOT_FOUND, host::TEMPLATE_NOT_FOUND, host::FUNCTION_NOT_FOUND, host::FUNCTION_DENIED].contains(code));
+        assert!([host::VALIDATION_FAILED, host::INVALID_MESSAGE, host::UNSUPPORTED_CATALOG, host::SURFACE_NOT_FOUND, host::TEMPLATE_NOT_FOUND, host::FUNCTION_NOT_FOUND, host::FUNCTION_DENIED, host::RENDER_FAILED].contains(code));
     }
     assert_eq!(contract["a2uiVersion"], json!(exponential_ui::catalog::A2UI_VERSION));
 }

@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import at.exponential.ui.extension.ExtensionContext
@@ -20,6 +22,8 @@ import kotlin.math.min
 fun LeafContent(context: LeafContext) {
     val cx = context
     val n = cx.node
+    // catalog/host.json `paint`: a component whose painter failed paints an empty box.
+    if (cx.model.paintFailures.containsKey(n.owner ?: n.id)) return
     when (n.component) {
         "Extension" -> ExtensionLeaf(cx)
         "Text" -> TextPart(cx)
@@ -87,4 +91,23 @@ private fun ExtensionLeaf(cx: LeafContext) {
             )
         }
     }
+}
+
+/**
+ * A painter's NON-composable preparation (a chart model, parsed props),
+ * remembered by [keys]: its value, or null when it threw. A throw is a
+ * painting failure (catalog/host.json `paint`): the component reports
+ * `onPaintError` and paints an empty box. Compose cannot catch a throw
+ * inside a composable, so every painter keeps its failure-prone work here.
+ */
+@Composable
+internal fun <T : Any> rememberPainted(cx: LeafContext, vararg keys: Any?, build: () -> T): T? {
+    val result = remember(*keys) { runCatching(build) }
+    val error = result.exceptionOrNull()
+    if (error != null) {
+        val id = cx.node.owner ?: cx.node.id
+        val message = "${cx.node.component}: ${error.message ?: error.toString()}"
+        SideEffect { cx.model.paintFailed(id, message) }
+    }
+    return result.getOrNull()
 }

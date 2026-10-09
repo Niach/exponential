@@ -21,7 +21,7 @@ import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
 import { useListNavigation } from "./listbox"
-import { arr, bool, BuiltinIcon, str, useParts, TextPart } from "./shared"
+import { bool, BuiltinIcon, str, useParts, TextPart, objects } from "./shared"
 
 export interface SelectOption {
   label: string
@@ -59,7 +59,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     const mine = ++request.current
     const r = ctx.host.optionSource(source, q)
     const take = (list: SelectOption[] | null | undefined) => {
-      if (mine === request.current) setSourced(list ?? [])
+      if (mine === request.current) setSourced(objects<SelectOption>(list))
     }
     if (r && typeof (r as Promise<SelectOption[]>).then === `function`) void (r as Promise<SelectOption[]>).then(take, () => undefined)
     else take(r as SelectOption[])
@@ -70,7 +70,7 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
     },
     []
   )
-  const inline = arr<SelectOption>(props.options)
+  const inline = objects<SelectOption>(props.options)
   const options = sourced ?? inline
   const commit = (next: string | string[]) => {
     const out = multiple && !rawIsArray && typeof raw === `string` ? (next as string[]).join(`,`) : next

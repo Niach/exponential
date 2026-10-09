@@ -15,9 +15,10 @@ import { useSurfaceContext } from "../context"
 import { FieldErrors, joinIds, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
+import { linkHref } from "../urls"
 import { useListNavigation } from "./listbox"
 import { partClass } from "../theme-css"
-import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart } from "./shared"
+import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart, objects } from "./shared"
 
 export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
   const part = useParts(node, props)
@@ -32,7 +33,7 @@ export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: 
   const f = useField({ node, domId, props, value: values, focusRef: inputRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
   const max = props.max === undefined ? Infinity : num(props.max, Infinity)
-  const suggestions = arr<{ label: string; value: string; disabled?: boolean }>(props.suggestions)
+  const suggestions = objects<{ label: string; value: string; disabled?: boolean }>(props.suggestions)
   const shown = useMemo(() => (text ? suggestions.filter((s) => !values.includes(s.value) && str(s.label).toLowerCase().includes(text.toLowerCase())) : []), [suggestions, text, values])
   const update = (next: string[]) => {
     setValues(next)
@@ -182,7 +183,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
   const part = useParts(node, props)
   const ctx = useSurfaceContext()
   const id = useId()
-  const external = arr<FileMeta>(props.files)
+  const external = objects<FileMeta>(props.files)
   const [files, setFiles] = useBoundState<FileMeta[]>(node, scope, `files`, external)
   const zoneRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -286,7 +287,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
               <span {...(part.at(`fileIcon`, i) as Record<string, string>)}>
                 <BuiltinIcon slot="FileUpload.file" />
               </span>
-              <span {...(part.at(`fileName`, i) as Record<string, string>)}>{file.url ? <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
+              <span {...(part.at(`fileName`, i) as Record<string, string>)}>{linkHref(ctx.host, file.url) ? <a href={linkHref(ctx.host, file.url)} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
               {file.size !== undefined ? <span {...(part.at(`fileMeta`, i) as Record<string, string>)}>{size(file.size)}</span> : null}
               {disabled ? null : (
                 <button type="button" {...(part.at(`remove`, i) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: file.name }, () => `${ctx.t(`remove`)} ${file.name}`)} onClick={() => remove(file.name)}>

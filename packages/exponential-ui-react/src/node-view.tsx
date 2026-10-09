@@ -270,8 +270,12 @@ const UNGUARDED = new Set([`Box`, `Text`])
 
 /** One node's painter that throws (a bad agent-written prop, a host
  *  override's bug) paints an EMPTY box in its place; the rest of the
- *  surface and the host stay mounted. A new node (a re-reduce) retries. */
+ *  surface and the host stay mounted, and the host hears it through
+ *  `onPaintError` (catalog/host.json paint). A new node (a re-reduce)
+ *  retries. */
 class PaintBoundary extends Component<{ node: UiNode; domId: string; children: ReactNode }, { node: UiNode; failed: boolean }> {
+  static contextType = SurfaceContext
+  declare context: SurfaceContextValue | null
   constructor(props: { node: UiNode; domId: string; children: ReactNode }) {
     super(props)
     this.state = { node: props.node, failed: false }
@@ -283,7 +287,16 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
     return { failed: true }
   }
   componentDidCatch(error: unknown): void {
-    console.error(`[exponential-ui] ${this.props.node.component} "${this.props.node.id}" failed to paint`, error)
+    const { node } = this.props
+    const message = `${node.component} failed to paint: ${error instanceof Error ? error.message : String(error)}`
+    const report = this.context?.host.onPaintError
+    if (report) {
+      try {
+        report({ surfaceId: this.context!.surfaceId, componentId: node.id, message })
+      } catch (e) {
+        console.error(`[exponential-ui] onPaintError threw`, e)
+      }
+    } else console.error(`[exponential-ui] ${node.component} "${node.id}" failed to paint`, error)
   }
   render(): ReactNode {
     const { node, domId, children } = this.props

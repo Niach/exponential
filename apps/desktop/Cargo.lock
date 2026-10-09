@@ -2984,6 +2984,7 @@ dependencies = [
  "tokio-tungstenite",
  "unicode-bidi",
  "unicode-linebreak",
+ "url",
 ]
 
 [[package]]

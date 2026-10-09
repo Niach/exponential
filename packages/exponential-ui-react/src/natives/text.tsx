@@ -31,7 +31,7 @@ export function MarkdownNative({ props, rootProps }: NativeProps) {
   const lines = num(props.lines, 0)
   return (
     <div {...(rootProps as Record<string, unknown>)} data-lines={lines > 0 ? lines : undefined} style={mergeStyle(rootProps, lines > 0 ? ({ WebkitLineClamp: lines } as React.CSSProperties) : undefined)}>
-      {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} link={ctx.host.resolveUrl} />}
+      {Host ? <Host text={text} className="xui-md" /> : <BuiltinMarkdown text={text} host={ctx.host} />}
     </div>
   )
 }
