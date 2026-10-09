@@ -127,11 +127,17 @@ view.update(cx, |v, cx| {
 - **Host** (`HostPlugin`, every method defaulted):
   - `on_action` gets every A2UI `action` (with `surface_id`).
   - `on_input` gets host-owned text edits (below).
-  - `open_url` handles `openUrl` and `Link`; `resolve_url` maps image,
-    video and avatar sources.
+  - `open_url` handles `openUrl` and `Link`; the default opens only what
+    `url_policy()` allows (a denied `Link` or markdown link paints as
+    text). `resolve_url` rewrites a media src BEFORE the media policy.
   - `on_function_call` gets host functions (a `functionCall` to a
     non-built-in name; the runtime gates them).
-  - `media_request` maps a media source to a url plus headers.
+  - `media_request` maps a media source to a url plus headers (default:
+    `resolve_url` then `media_options()`: https/http/data, `file` only when
+    listed; `None` = denied). Whatever it returns is re-checked against
+    `media_options()`'s schemes and hosts.
+  - `on_paint_error` hears a painter that panicked (it paints an empty
+    box); the host runtime forwards it as an A2UI `RENDER_FAILED` error.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The
     painter also exposes the latest announcement as a `status` a11y node;
     gpui has no live-region API.
@@ -392,8 +398,10 @@ host.update(cx, |h, cx| h.connect(cx));
   - `on_function_call` (`OutEvent::FunctionCall`) runs `call_function`:
     `not_found` sends `FUNCTION_NOT_FOUND`, `ask` asks the consent hook,
     `deny` sends `FUNCTION_DENIED`, `allow` runs the handler;
-  - `open_url` goes through the URL policy;
-  - `media_request` applies the media rules.
+  - `open_url` goes through the URL policy (`url_policy()` = the host's);
+  - `media_request` applies the media policy + rules;
+  - `on_paint_error` → `ExponentialHost::paint_error` (once per surface +
+    component + message, reset by new components).
 
   Everything else comes from `base`. A plain `SurfaceView` (no host) gets
   `HostPlugin::on_function_call` (a default no-op).
@@ -415,12 +423,16 @@ host.update(cx, |h, cx| h.connect(cx));
   All decoding is the core's (`JsonlDecoder`, `SseDecoder`,
   `messages_from_mcp_result`). A stream's `close` stops delivery at once;
   its blocked read returns at the next chunk.
-- **Media** (`media`). `Image`, `Avatar` and `Video` posters load through
-  `HostPlugin::media_request`: the absolute url plus the media rules'
-  headers, fetched by `media::MediaLoader` (a gpui `Asset`, cached per url +
-  headers). gpui's own `img(url)` needs an app-installed `http_client` (the
-  IDE has none) and cannot carry headers. Without a `media_request` the
-  painter keeps `img(resolve_url(src))`.
+- **Media** (`media`). `Image`, `Avatar`, `Video` posters and markdown
+  block images load through `HostPlugin::media_request` (the media policy:
+  no local file unless the host lists `file`): the absolute url plus the
+  media rules' headers, fetched by `media::MediaLoader` (a gpui `Asset`,
+  cached per url + headers) under the contract's `media.limits`: the whole
+  request within `MEDIA_TIMEOUT_MS`, Content-Length and the body within
+  `MEDIA_MAX_BYTES`, the header's width × height within `MEDIA_MAX_PIXELS`
+  before any decode; every redirect hop passes the policy again. gpui's own
+  `img(url)` needs an app-installed `http_client` (the IDE has none) and
+  cannot carry headers.
 - **Tests.** `tests/host.rs` covers ops through the host, sources and
   cancel, the gate, consent and package narrowing, the URL policy, media
   headers, a MemoryTransport round trip, presses becoming client messages

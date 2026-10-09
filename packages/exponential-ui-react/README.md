@@ -125,10 +125,14 @@ interface HostPlugin {
   icons?: IconMap                                   // registry name → component (the app passes its Lucide map)
   onAction?(e: SurfaceActionEvent): void | Promise<void>   // on.<event> = {event: {name, context}}; a promise keeps the Button pending
   onInput?(e: SurfaceInputEvent): void | Promise<void>     // host-owned edits: {name, path?, value, revision, kind: change|commit}
-  openUrl?(url: string): void
+  openUrl?(url: string): void                       // opens an href the URL policy allowed
+  urls?: UrlPolicy                                  // EVERY href (Link, markdown, FileUpload, openUrl); denied = text
+  media?: MediaOptions                              // EVERY src without a mediaRequest (schemes, hosts, rules)
+  mediaRequest?(src: string): MediaRequest | null   // null = denied; re-checked against media's schemes/hosts
+  onPaintError?(e: { surfaceId, componentId, message }): void   // a painter threw (it paints an empty box)
   functions?: Record<string, ClientFunction>        // adds to / overrides the catalog functions
   Markdown?: ComponentType<{ text: string }>       // a richer renderer than the built-in GFM subset
-  resolveUrl?(src: string): string
+  resolveUrl?(src: string): string                 // rewrites a media src BEFORE the media policy
   onUnknown?(node: UiNode): void
   onUpload?(files: File[], target: { nodeId, name }): void | Promise<void>   // FileUpload bytes (the event carries metadata only)
   optionSource?(source: string, query: string): Option[] | Promise<Option[]> // Select `source` (a host list)
@@ -186,8 +190,10 @@ An `ExponentialHost` from `@exponential-at/ui` (transport, router, sources,
 functions, policy; see that package's README) feeds `<HostSurface host
 surfaceId plugin? …ExponentialSurface props>`; `hostPlugin(host, base)`
 routes actions to A2UI client messages, `functionCall`s to
-`host.callFunction` (the gate + consent), `openUrl` to the URL policy and
-media to `host.mediaRequest`. `useHostSurfaceIds(host)` and
+`host.callFunction` (the gate + consent), every href to the URL policy,
+every src to `host.mediaRequest` (fetched under the contract's
+`media.limits`: bytes, timeout, header pixels) and `onPaintError` to
+`host.paintError` (an A2UI `RENDER_FAILED` error). `useHostSurfaceIds(host)` and
 `useHostStatus(host)` (`status`, `unsupportedCatalog`) drive a host's own
 chrome (`host_offline`, the catalog-update banner). Two plugin members
 joined: `onFunctionCall(call)` and `mediaRequest(src)` (a request with

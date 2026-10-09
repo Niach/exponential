@@ -2,8 +2,18 @@
 //! sinks, URL handling, font mapping and an optional richer markdown view.
 //! Every method has a default, so [`NoHost`] is a working (if silent) host.
 
+use exponential_ui::host::{media_request, safe_href, MediaOptions, MediaRequest, UrlPolicy};
 use exponential_ui::measure::TextStyle;
 use exponential_ui::surface::PlacedNode;
+
+/// A painter that failed (`catalog/host.json` paint): it paints an empty
+/// box; [`HostPlugin::on_paint_error`] hears it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaintError {
+    pub surface_id: String,
+    pub component_id: String,
+    pub message: String,
+}
 
 /// A server event (A2UI `action`) the surface fired.
 #[derive(Debug, Clone, PartialEq)]
@@ -71,26 +81,50 @@ pub trait HostPlugin: 'static {
     /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
     fn on_function_call(&self, _event: &FunctionCallEvent, _cx: &mut gpui::App) {}
 
-    /// Map an `Image`/`Video`/`Avatar` `src` to the request the image loader
-    /// makes (absolute url + headers, e.g. auth for `/api/attachments`).
-    /// `None` = the default: `resolve_url(src)` with no headers.
-    fn media_request(&self, _src: &str) -> Option<exponential_ui::host::MediaRequest> {
+    /// The URL policy EVERY href passes (Link, markdown links, `openUrl`):
+    /// `catalog/host.json` urls. `None` = the default schemes, no base.
+    fn url_policy(&self) -> Option<UrlPolicy> {
         None
+    }
+
+    /// The media policy every src passes (schemes, hosts, base, header
+    /// rules): `catalog/host.json` media. Default = https/http/data, no
+    /// local files.
+    fn media_options(&self) -> MediaOptions {
+        MediaOptions::default()
+    }
+
+    /// Map an `Image`/`Video`/`Avatar`/markdown image `src` to the request
+    /// the image loader makes (absolute url + headers, e.g. auth for
+    /// `/api/attachments`). `None` = denied: nothing loads. The default:
+    /// `resolve_url(src)` through [`Self::media_options`]. Whatever this
+    /// returns is re-checked against `media_options()`'s schemes and hosts.
+    fn media_request(&self, src: &str) -> Option<MediaRequest> {
+        media_request(&self.resolve_url(src), &self.media_options())
     }
 
     /// A host-owned text edit: `Change` debounced 150 ms with a monotonically
     /// increasing revision, `Commit` on blur / Enter.
     fn on_input(&self, _event: &InputEvent, _cx: &mut gpui::App) {}
 
-    /// `openUrl` or a `Link` press.
+    /// `openUrl` or a `Link` press. The default opens only what
+    /// [`Self::url_policy`] allows; an override must apply it too.
     fn open_url(&self, url: &str, cx: &mut gpui::App) {
-        cx.open_url(url)
+        if let Some(href) = safe_href(self.url_policy().as_ref(), url) {
+            cx.open_url(&href)
+        }
     }
+
+    /// `onPaintError` (`catalog/host.json` paint): a component's painter
+    /// failed (it panicked) and painted an empty box.
+    /// [`crate::runtime::host_plugin`] forwards it to the agent as an A2UI
+    /// `RENDER_FAILED` error.
+    fn on_paint_error(&self, _error: &PaintError, _cx: &mut gpui::App) {}
 
     /// An `Unknown` placeholder was painted (once per structure version).
     fn on_unknown(&self, _node: &PlacedNode) {}
 
-    /// Map an `Image`/`Video`/`Avatar` `src` before loading it.
+    /// Rewrite a media `src` BEFORE the media policy (signed URLs).
     fn resolve_url(&self, src: &str) -> String {
         src.to_string()
     }

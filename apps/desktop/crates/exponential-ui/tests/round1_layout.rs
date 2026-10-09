@@ -449,6 +449,33 @@ fn select_opens_a_layer_under_its_trigger_filters_and_writes_its_value() {
 }
 
 #[test]
+fn select_and_radio_group_skip_options_that_are_not_objects() {
+    // VAPP-103: `options: [null]` is a validation issue for the agent, and
+    // the field still paints its real options (never an empty row, never a
+    // crash).
+    let lenient = |field: Value| {
+        let tree: NestedNode = serde_json::from_value(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [field]})).unwrap();
+        let mut s = Surface::new("t", SurfaceOptions::default());
+        let outcome = s.set_nested(tree);
+        assert!(outcome.issues.iter().any(|i| i.message.contains("expected an object")), "{:?}", outcome.issues);
+        s.set_viewport(390.0, 844.0, None);
+        s
+    };
+    let mut s = lenient(json!({"id": "sel", "component": "Select", "props": {"label": "Fruit", "name": "fruit", "value": {"path": "/fruit"},
+        "options": [null, {"label": "Apple", "value": "apple"}, 3, {"label": "Banana", "value": "banana"}]}}));
+    let mut m = fixed();
+    s.layout(&mut m);
+    press(&mut s, "sel.trigger");
+    s.layout(&mut m);
+    assert!(s.index_of("sel.item.1").is_some() && s.index_of("sel.item.2").is_none(), "two rows, not four");
+    let events = press(&mut s, "sel.item.1");
+    assert_eq!(data_changed(&events, "/fruit"), Some(json!("banana")));
+    let mut r = lenient(json!({"id": "r", "component": "Radio", "props": {"label": "Size", "name": "size", "options": [null, {"label": "S", "value": "s"}]}}));
+    r.layout(&mut m);
+    assert!(r.nodes().iter().all(|n| !n.id.starts_with("r.") || n.props.get("text") != Some(&json!(""))), "no empty option row");
+}
+
+#[test]
 fn a_popup_near_the_bottom_flips_above_its_trigger() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "justifyContent": "flex-end", "height": 400, "width": "100%"},
         "children": [{"id": "t", "component": "TimePicker", "props": {"label": "At", "name": "at", "step": 60}}]}));

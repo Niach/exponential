@@ -19,7 +19,7 @@ use std::sync::Arc;
 use exponential_ui::host::{
     action_message, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source,
     FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, FUNCTION_DENIED, FUNCTION_NOT_FOUND,
-    UNSUPPORTED_CATALOG, VALIDATION_FAILED,
+    RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use exponential_ui::measure::TextStyle;
 use exponential_ui::surface::PlacedNode;
@@ -30,7 +30,7 @@ use gpui::{App, AppContext as _, Context, Entity, Task, WeakEntity};
 use serde_json::Value;
 
 use crate::extension::ExtensionPainter;
-use crate::host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent, NoHost};
+use crate::host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent, NoHost, PaintError};
 use crate::transport::{Transport, TransportEvent, TransportSink, TransportStatus};
 use crate::view::{SurfaceView, SurfaceViewOptions};
 
@@ -244,6 +244,11 @@ pub struct ExponentialHost {
     policy: HostPolicy,
     /// Shared with every view's plugin adapter (it needs no `cx`).
     media: Rc<RefCell<MediaOptions>>,
+    /// The effective URL policy (the media `baseUrl` when it names none),
+    /// shared like `media`.
+    urls: Rc<RefCell<UrlPolicy>>,
+    /// `onPaintError` dedupe: surface \0 component \0 message.
+    paint_errors: std::collections::HashSet<String>,
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
     formatter: Option<Arc<dyn exponential_ui::format::Formatter>>,
@@ -285,6 +290,8 @@ impl ExponentialHost {
             extensions: options.extensions,
             painters: options.painters,
             media: Rc::new(RefCell::new(options.policy.media.clone().unwrap_or_default())),
+            urls: Rc::new(RefCell::new(effective_urls(&options.policy))),
+            paint_errors: Default::default(),
             policy: options.policy,
             theme: options.theme,
             mode: options.mode,
@@ -416,6 +423,7 @@ impl ExponentialHost {
 
     pub fn set_policy(&mut self, policy: HostPolicy) {
         *self.media.borrow_mut() = policy.media.clone().unwrap_or_default();
+        *self.urls.borrow_mut() = effective_urls(&policy);
         self.policy = policy;
     }
 
@@ -564,6 +572,7 @@ impl ExponentialHost {
         match op["op"].as_str().unwrap_or("") {
             "create" => {
                 self.unbind(&sid);
+                self.forget_paint_errors(&sid);
                 self.surfaces.retain(|s| s.id != sid);
                 let catalog_id = op["catalogId"].as_str().unwrap_or("").to_string();
                 let surface_theme = match op.get("theme").filter(|t| !t.is_null()).map(resolve_surface_theme) {
@@ -575,7 +584,7 @@ impl ExponentialHost {
                     }
                     None => None,
                 };
-                let plugin = host_plugin_with(self.this.clone(), self.base.clone(), self.media.clone());
+                let plugin = host_plugin_with(self.this.clone(), self.base.clone(), self.media.clone(), self.urls.clone());
                 let options = SurfaceViewOptions {
                     surface_id: sid.clone(),
                     catalog_id: catalog_id.clone(),
@@ -600,6 +609,7 @@ impl ExponentialHost {
                 cx.notify();
             }
             "components" => {
+                self.forget_paint_errors(&sid);
                 let Some(entry) = self.surfaces.iter_mut().find(|s| s.id == sid) else { return };
                 let incoming: Vec<FlatComponent> = match serde_json::from_value(op["components"].clone()) {
                     Ok(c) => c,
@@ -652,6 +662,7 @@ impl ExponentialHost {
                 self.subscriptions.entry(sid).or_default().push((alive, cancel));
             }
             "delete" => {
+                self.forget_paint_errors(&sid);
                 self.unbind(&sid);
                 self.surfaces.retain(|s| s.id != sid);
                 cx.notify();
@@ -742,11 +753,7 @@ impl ExponentialHost {
     /// `openUrl` / `Link` through the URL policy (relative urls against the
     /// policy's or the media `baseUrl`). True when it opened.
     pub fn open_url(&mut self, url: &str, cx: &mut App) -> bool {
-        let mut policy = self.policy.urls.clone().unwrap_or_default();
-        if policy.base_url.is_none() {
-            policy.base_url = self.policy.media.as_ref().and_then(|m| m.base_url.clone());
-        }
-        let d = decide_url(Some(&policy), url);
+        let d = decide_url(Some(&self.urls.borrow()), url);
         let (true, Some(abs)) = (d.allowed, d.url) else { return false };
         match &self.policy.open_url {
             Some(open) => open(&abs, cx),
@@ -760,10 +767,37 @@ impl ExponentialHost {
         media_request(url, &self.media.borrow())
     }
 
+    /// `onPaintError` (`catalog/host.json` paint): a component's painter
+    /// failed. Forwarded ONCE per surface + component + message as an A2UI
+    /// `RENDER_FAILED` error (and so a host issue).
+    pub fn paint_error(&mut self, error: &PaintError) {
+        let key = format!("{}\0{}\0{}", error.surface_id, error.component_id, error.message);
+        if !self.paint_errors.insert(key) {
+            return;
+        }
+        let path = format!("/components/{}", error.component_id);
+        self.send(error_message(RENDER_FAILED, &error.surface_id, &error.message, Some(&path)));
+    }
+
+    fn forget_paint_errors(&mut self, surface_id: &str) {
+        let prefix = format!("{surface_id}\0");
+        self.paint_errors.retain(|k| !k.starts_with(&prefix));
+    }
+
     /// The painter callbacks routed through this host, over `base`.
     pub fn plugin(&self, base: Rc<dyn HostPlugin>) -> Rc<dyn HostPlugin> {
-        host_plugin_with(self.this.clone(), base, self.media.clone())
+        host_plugin_with(self.this.clone(), base, self.media.clone(), self.urls.clone())
     }
+}
+
+/// The URL policy every href passes: the host's `urls`, relative urls
+/// against its `baseUrl`, else the media `baseUrl`.
+fn effective_urls(policy: &HostPolicy) -> UrlPolicy {
+    let mut urls = policy.urls.clone().unwrap_or_default();
+    if urls.base_url.is_none() {
+        urls.base_url = policy.media.as_ref().and_then(|m| m.base_url.clone());
+    }
+    urls
 }
 
 async fn run_function(this: WeakEntity<ExponentialHost>, call: FunctionCallInfo, cx: &mut gpui::AsyncApp) -> FunctionOutcome {
@@ -785,14 +819,15 @@ pub fn host_plugin(host: &Entity<ExponentialHost>, base: Rc<dyn HostPlugin>, cx:
     host.read(cx).plugin(base)
 }
 
-fn host_plugin_with(host: WeakEntity<ExponentialHost>, base: Rc<dyn HostPlugin>, media: Rc<RefCell<MediaOptions>>) -> Rc<dyn HostPlugin> {
-    Rc::new(HostAdapter { host, base, media })
+fn host_plugin_with(host: WeakEntity<ExponentialHost>, base: Rc<dyn HostPlugin>, media: Rc<RefCell<MediaOptions>>, urls: Rc<RefCell<UrlPolicy>>) -> Rc<dyn HostPlugin> {
+    Rc::new(HostAdapter { host, base, media, urls })
 }
 
 struct HostAdapter {
     host: WeakEntity<ExponentialHost>,
     base: Rc<dyn HostPlugin>,
     media: Rc<RefCell<MediaOptions>>,
+    urls: Rc<RefCell<UrlPolicy>>,
 }
 
 impl HostPlugin for HostAdapter {
@@ -816,8 +851,24 @@ impl HostPlugin for HostAdapter {
         self.base.on_function_call(event, cx)
     }
 
+    fn url_policy(&self) -> Option<UrlPolicy> {
+        Some(self.urls.borrow().clone())
+    }
+
+    fn media_options(&self) -> MediaOptions {
+        self.media.borrow().clone()
+    }
+
+    /// The host's media policy + rules over `base.resolve_url(src)`.
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
-        self.base.media_request(src).or_else(|| media_request(&self.base.resolve_url(src), &self.media.borrow()))
+        media_request(&self.base.resolve_url(src), &self.media.borrow())
+    }
+
+    fn on_paint_error(&self, error: &PaintError, cx: &mut App) {
+        if let Some(host) = self.host.upgrade() {
+            host.update(cx, |h, _| h.paint_error(error));
+        }
+        self.base.on_paint_error(error, cx)
     }
 
     fn on_input(&self, event: &InputEvent, cx: &mut App) {
