@@ -941,6 +941,13 @@
       }
     },
     "exponential-ui-chip": {
+      "android": {
+        "file": "shots/exponential-ui-chip/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 17408,
+        "sha256": "795fa8b459ef3b72b6ef89d3cb05dc078fa1d1d470b9c8488dda9f49b5886904"
+      },
       "desktop": {
         "file": "shots/exponential-ui-chip/desktop.webp",
         "width": 1800,
@@ -1148,8 +1155,8 @@
         "file": "shots/exponential-ui-demo/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 23336,
-        "sha256": "29d52d5574afb3e071dcb3cf8256c36b041e77e477343b09acfcd686c51c86b5"
+        "bytes": 23614,
+        "sha256": "3649a0e0dd26902bf89e09dfafd880e7154b7c7004ab546df880779761960750"
       },
       "desktop": {
         "file": "shots/exponential-ui-demo/desktop.webp",
@@ -1561,8 +1568,8 @@
         "file": "shots/exponential-ui-kitchen-sink/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 36580,
-        "sha256": "3df4c7dfaac9d49c4c9845028f050f5975227a0020d92887aebdf0cb56cfb774"
+        "bytes": 39852,
+        "sha256": "69532a5c59454cf12e67788bb195f7a734440a2ea70003f6a4360d323fb2ff71"
       },
       "desktop": {
         "file": "shots/exponential-ui-kitchen-sink/desktop.webp",
@@ -1714,6 +1721,13 @@
       }
     },
     "exponential-ui-menu": {
+      "android": {
+        "file": "shots/exponential-ui-menu/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 9526,
+        "sha256": "5171a0bb44ae526f805c6a5bbee3cb5e357fe39ccb2a3f01b2d31e1fb379f3c6"
+      },
       "desktop": {
         "file": "shots/exponential-ui-menu/desktop.webp",
         "width": 1800,
@@ -2007,6 +2021,13 @@
       }
     },
     "exponential-ui-row": {
+      "android": {
+        "file": "shots/exponential-ui-row/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 24338,
+        "sha256": "9e983ee210195de63621d8982bd3dea2bf50f83f304cff68383a05c9ae42893a"
+      },
       "desktop": {
         "file": "shots/exponential-ui-row/desktop.webp",
         "width": 1800,
@@ -2060,6 +2081,13 @@
       }
     },
     "exponential-ui-section": {
+      "android": {
+        "file": "shots/exponential-ui-section/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 17116,
+        "sha256": "92f1f6600094b60ac13f52b2b615a236164feda045d83424ef2662bfc465f6d9"
+      },
       "desktop": {
         "file": "shots/exponential-ui-section/desktop.webp",
         "width": 1800,
@@ -2083,6 +2111,13 @@
       }
     },
     "exponential-ui-segmented": {
+      "android": {
+        "file": "shots/exponential-ui-segmented/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 16854,
+        "sha256": "04ec9f31886e8e296e46f4d3ee06d0cabb4ded369dd75b58384fe3e290442c3d"
+      },
       "desktop": {
         "file": "shots/exponential-ui-segmented/desktop.webp",
         "width": 1800,
