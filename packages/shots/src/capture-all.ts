@@ -1332,6 +1332,22 @@ function laneViewIds(
     .map((view) => view.id)
 }
 
+let iosGenerated: Promise<void> | undefined
+
+/** `tuist generate` ONCE for both iOS fastlane lanes (they skip their own). */
+function generateIos(): Promise<void> {
+  iosGenerated ??= run({
+    cmd: [`tuist`, `generate`, `--no-open`],
+    cwd: join(repoRoot(), `apps/ios`),
+    stream: true,
+    label: `[ios:generate]`,
+    timeoutMs: 10 * 60_000,
+  }).then((result) => {
+    if (result.code !== 0) throw new Error(`tuist generate exited ${result.code}`)
+  })
+  return iosGenerated
+}
+
 async function captureFastlane(
   platform: `ios` | `android`,
   lane: `store` | `styleguide`,
@@ -1364,7 +1380,9 @@ async function captureFastlane(
     // parsing; the gem swallows that and returns a bare identifier string,
     // which fastlane calls `.name` on and crashes with a NoMethodError that
     // looks nothing like an encoding issue (EXP-644).
-    env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8` } : undefined,
+    // SNAPSHOT_SKIP_GENERATE: `generateIos` already ran `tuist generate` once;
+    // two lanes regenerating the same workspace side by side would race.
+    env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8`, SNAPSHOT_SKIP_GENERATE: `1` } : undefined,
     stream: true,
     label: `[${platform}:${lane}]`,
     timeoutMs: 90 * 60_000,
@@ -1867,11 +1885,14 @@ function buildLanes(
       const views = laneViewIds(scope, platform, lane)
       if (views.length === 0) continue
       const device: ResourceClaim =
-        platform === `ios` ? { key: `ios-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
+        platform === `ios` ? { key: `ios-${lane}-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
       add(`${platform}:${lane}`, count(views, `${platform} fastlane ${FASTLANE_LANES[lane]}`), new Map([[platform, views]]),
         [device, ...fleetClaim(views)], true,
         async (outcomes) => {
-          if (platform === `ios`) return captureFastlane(platform, lane, outcomes, scope, scoped)
+          if (platform === `ios`) {
+            await generateIos()
+            return captureFastlane(platform, lane, outcomes, scope, scoped)
+          }
           let autofill: string | undefined
           let demoMode = false
           try {

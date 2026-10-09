@@ -53,12 +53,14 @@ export const RESOURCE_REASONS = {
    */
   "capture-views": `capture:views owns one results file, .shots-raw/capture-views.json`,
   /**
-   * The iOS lanes share ONE simulator (the package app and both Snapfiles
-   * name `iPhone 17 Pro Max`, and snapshot ERASES it), plus `tuist generate`
-   * and the default DerivedData of apps/ios. Split this key per lane once each
-   * fastlane lane has its own simulator and derived data.
+   * The package example app drives the stock `iPhone 17 Pro Max`. The two
+   * fastlane lanes each own a `<model> exp-<tag>` simulator and DerivedData
+   * (Snapfiles), and `tuist generate` runs once before them (`generateIos`),
+   * so store and styleguide run side by side.
    */
-  "ios-simulator": `the iOS lanes share one simulator (erased by snapshot), tuist generate and DerivedData`,
+  "ios-simulator": `the iOS package app drives the stock simulator`,
+  "ios-store-simulator": `the store lane owns its simulator, DerivedData and fastlane's default cache dir (pop-rect sidecars)`,
+  "ios-styleguide-simulator": `the styleguide lane owns its simulator and DerivedData`,
   /**
    * Preflight insists on exactly ONE attached adb device, and the package app,
    * screengrab, demo mode and the autofill toggle all drive it.
