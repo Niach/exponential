@@ -13,9 +13,12 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.domain.IssueStatus
-import com.exponential.app.domain.issueStatusOrder
-import com.exponential.app.domain.sortIssuesForGroup
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.issueStatusCategoryDisplayOrder
+import com.exponential.app.domain.sortIssuesForCategory
 import com.exponential.app.ui.issue.IssueWithLabels
 import com.exponential.app.ui.issue.nestListRows
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,10 +37,41 @@ import kotlinx.coroutines.launch
 // status like the board board. No new column, no new shape, no filter
 // machinery — pure client work over the already-synced issues shape.
 
-// My Issues spans TEAMS, so it keeps ANCHOR-enum grouping (EXP-314): status
-// ROWS are team-scoped, and grouping by row id would split "In Progress" into
-// one group per team. Row glyphs stay anchor-based here for the same reason.
-data class MyIssuesGroup(val status: IssueStatus, val issues: List<IssueWithLabels>)
+// P14: groups are the issues' RESOLVED team status rows (statusId, then the
+// anchor — IssueStatusResolver), named and drawn like the board lists, so a
+// custom "In QA" gets its own group and the started clocks follow the team's
+// own count. My Issues spans TEAMS, so rows that read the same (category +
+// name, e.g. every team's builtin "In Progress") share ONE group rather than
+// splitting per team; the first issue's row lends the group its glyph.
+data class MyIssuesGroup(
+    val key: String,
+    val status: ResolvedIssueStatus,
+    val issues: List<IssueWithLabels>,
+)
+
+/** The group a resolved row lands in: same category + same name = one group. */
+internal fun myIssuesGroupKey(status: ResolvedIssueStatus): String =
+    "${status.category.wire}|${status.name}"
+
+/**
+ * Group my issues by their resolved team status rows. [resolved] pairs each
+ * issue with its row and that row's index in its team's ordered list; groups
+ * order by category (contract display order), then that index.
+ */
+internal fun <T> groupByResolvedStatus(
+    resolved: List<Triple<T, ResolvedIssueStatus, Int>>,
+): List<Pair<ResolvedIssueStatus, List<T>>> =
+    resolved
+        .groupBy { myIssuesGroupKey(it.second) }
+        .values
+        .sortedWith(
+            compareBy<List<Triple<T, ResolvedIssueStatus, Int>>> { group ->
+                issueStatusCategoryDisplayOrder.indexOf(group.first().second.category)
+                    .takeIf { it >= 0 } ?: issueStatusCategoryDisplayOrder.size
+            }.thenBy { group -> group.minOf { it.third } }
+                .thenBy { group -> group.first().second.name },
+        )
+        .map { group -> group.first().second to group.map { it.first } }
 
 data class MyIssuesState(
     val groups: List<MyIssuesGroup> = emptyList(),
@@ -78,11 +112,14 @@ class MyIssuesViewModel @Inject constructor(
                     combine(
                         db.issueDao().observeByAssignee(userId),
                         db.boardDao().observeAll(),
-                        db.labelDao().observeAll(),
-                        db.issueLabelDao().observeAllJoins(),
+                        combine(db.labelDao().observeAll(), db.issueLabelDao().observeAllJoins()) { l, j -> l to j },
+                        db.issueStatusDao().observeAll(),
                         combine(relations, allIssues) { rows, synced -> rows to synced },
-                    ) { issues, boards, labels, joins, graph ->
-                        buildState(issues, boards, labels, joins, graph.first, graph.second)
+                    ) { issues, boards, labelJoins, statuses, graph ->
+                        buildState(
+                            issues, boards, labelJoins.first, labelJoins.second,
+                            statuses, graph.first, graph.second,
+                        )
                     }
                 }
             }
@@ -93,6 +130,7 @@ class MyIssuesViewModel @Inject constructor(
         boards: List<BoardEntity>,
         labels: List<LabelEntity>,
         joins: List<IssueLabelEntity>,
+        statusRows: List<IssueStatusEntity>,
         relations: List<IssueRelationEntity>,
         syncedIssues: List<IssueEntity>,
     ): MyIssuesState {
@@ -115,15 +153,22 @@ class MyIssuesViewModel @Inject constructor(
 
         // Canonical in-group order (EXP-38) — shared with the board board and
         // the other clients; see sortIssuesForGroup in domain/IssueDomain.kt.
-        val groups = issueStatusOrder.map { status ->
+        val statusesByTeam = statusRows
+            .groupBy { it.teamId }
+            .mapValues { (_, rows) -> IssueStatusResolver.teamStatuses(rows) }
+        val resolved = decorated.map { entry ->
+            val team = boardsById[entry.issue.boardId]?.teamId?.let { statusesByTeam[it] }.orEmpty()
+            val status = IssueStatusResolver.resolve(entry.issue, team)
+            val index = team.indexOfFirst { it.id == status.id }.takeIf { it >= 0 } ?: Int.MAX_VALUE
+            Triple(entry, status, index)
+        }
+        val groups = groupByResolvedStatus(resolved).map { (status, entries) ->
             MyIssuesGroup(
+                key = myIssuesGroupKey(status),
                 status = status,
-                issues = sortIssuesForGroup(
-                    status = status,
-                    issues = decorated.filter { IssueStatus.fromWire(it.issue.status) == status },
-                ) { it.issue },
+                issues = sortIssuesForCategory(category = status.category, issues = entries) { it.issue },
             )
-        }.filter { it.issues.isNotEmpty() }
+        }
 
         // EXP-980: the same nesting + blocks badges the board list runs, over
         // ALL groups at once — the root decides the group here too.

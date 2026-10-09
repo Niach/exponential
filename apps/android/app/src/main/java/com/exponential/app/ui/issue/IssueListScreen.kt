@@ -803,8 +803,7 @@ private fun IssueListContent(
                     // rows passing underneath, since Compose has no cheap
                     // backdrop blur — and EXP-593 then washed the status colour
                     // over it. Scrolling with its rows, the header needs
-                    // neither: it reads as plain text on AppBackground, like
-                    // the My Issues headers. Web desktop keeps the tint.
+                    // neither. P35: it is THE filled group band ×3 phones.
                     item(key = "header-${group.status.id}") {
                         // EXP-523: headers ride the same reflow as their rows.
                         Box(
@@ -821,8 +820,8 @@ private fun IssueListContent(
                                 collapsed = isCollapsed,
                                 onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
                                 // The list carries no horizontal contentPadding
-                                // (EXP-614): the band carries the gutter + 8dp.
-                                horizontalInset = ListGutter + 8.dp,
+                                // (EXP-614): the band carries the gutter.
+                                gutter = ListGutter,
                             )
                         }
                     }
@@ -1235,7 +1234,7 @@ private fun SelectionBar(
                     StatusIcon(sharedStatus, size = 18.dp)
                 } else {
                     Icon(
-                        ExpIcons.statusBacklog,
+                        ExpIcons.uiChecklist,
                         contentDescription = "Status",
                         modifier = Modifier.size(18.dp),
                         tint = neutral,

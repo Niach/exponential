@@ -25,6 +25,7 @@ import { ChangelogSheet } from "@/components/whats-new"
 import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
 import { RecentRunsList } from "@/components/team/recent-runs-nav"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
+import { useIssueSearch } from "@/hooks/use-issue-search"
 import {
   resolveBoardTarget,
   useMobileChromeVisible,
@@ -39,6 +40,7 @@ const NavReportBugIcon = conceptIcon(`nav-report-bug`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
+const NavSearchIcon = conceptIcon(`nav-search`)
 // EXP-923: the run-history glyph, the same concept the IDE's toggle wears.
 const RecentRunsIcon = conceptIcon(`settings-sessions`)
 
@@ -75,6 +77,7 @@ export function TeamMobileTopbar({
   // EXP-1186: Recent reads every member team on the phone.
   const scope = useCrossTeamScope(team)
   const feedbackAvailable = useFeedbackWidgetAvailable()
+  const issueSearch = useIssueSearch()
 
   // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
   // (composer over Running/Recent), not a detail, so it wears this bar like the
@@ -125,6 +128,19 @@ export function TeamMobileTopbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {/* EXP-686 → polish: on a board, Search sits in the header cluster
+            (the natives' Issues header), not on a row of its own. */}
+        {!sectionTitle && boardSlug && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground"
+            aria-label="Search"
+            onClick={issueSearch.open}
+          >
+            <NavSearchIcon className="size-4" />
+          </Button>
+        )}
         {onAgent && (
           <Button
             variant="ghost"

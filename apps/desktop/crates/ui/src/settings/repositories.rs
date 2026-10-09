@@ -1202,9 +1202,20 @@ impl RepositoriesPane {
     ) -> gpui::AnyElement {
         use gpui::{ElementId, InteractiveElement as _, StatefulInteractiveElement as _};
 
+        // Web `DefaultBranchMenu` trigger: the branch in MONO, a trailing
+        // chevron-down (the chip opens a dropdown, it is not a picker row).
         let button = crate::surface::glass_pill_button(("repo-branch", index), crate::surface::PillSize::Sm, cx)
             .max_w(px(240.))
-            .label(SharedString::from(repo.default_branch.clone()))
+            .font_family(theme::terminal::FONT_FAMILY)
+            .child(crate::surface::picker_value_label(SharedString::from(
+                repo.default_branch.clone(),
+            )))
+            .child(
+                Icon::new(registry::UI_CHEVRON_DOWN)
+                    .size_3()
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground),
+            )
             .disabled(self.busy);
 
         let pane = cx.entity().clone();

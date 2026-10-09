@@ -410,7 +410,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Board".into()),
         Screen::Inbox { tab } => match tab {
             crate::sidebar::InboxTab::Inbox => "Inbox".into(),
-            crate::sidebar::InboxTab::MyIssues => "My Issues".into(),
+            crate::sidebar::InboxTab::MyIssues => "My issues".into(),
         },
         Screen::Files => "Files".into(),
         Screen::SourceControl => "Source Control".into(),

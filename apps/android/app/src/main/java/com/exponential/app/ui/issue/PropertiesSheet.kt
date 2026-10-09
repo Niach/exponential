@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.ui.components.UserAvatar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -118,12 +119,21 @@ fun PropertiesSheet(
                 if (!hideAssignee) {
                     GroupDivider()
                     MetaRow(label = "Assignee", enabled = true, onClick = onOpenAssignee) {
-                        Icon(
-                            if (issue.assigneeId != null) ExpIcons.uiAssignee else ExpIcons.uiUnassigned,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
+                        // P55: a set assignee shows their avatar, as every chip does.
+                        if (issue.assigneeId != null) {
+                            UserAvatar(
+                                user = assignee,
+                                nameOrEmail = userDisplayName(assignee, issue.assigneeId),
+                                size = 16.dp,
+                            )
+                        } else {
+                            Icon(
+                                ExpIcons.uiUnassigned,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                         Spacer(Modifier.width(6.dp))
                         Text(
                             if (issue.assigneeId != null) {

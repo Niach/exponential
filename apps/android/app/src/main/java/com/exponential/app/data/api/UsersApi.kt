@@ -78,8 +78,22 @@ fun canUnlink(methods: SignInMethodsDto, provider: SignInProviderDto): Boolean =
 /** Removing a passkey follows the same last-way-in rule as unlinking. */
 fun canRemovePasskey(methods: SignInMethodsDto): Boolean = methods.waysIn > 1
 
+// `users.timezone` — the caller's stored IANA zone (null = never set).
+@Serializable
+data class TimezoneDto(val timezone: String? = null)
+
 @Singleton
 class UsersApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /** The account's stored timezone (null = unset, read as "UTC" — web parity). */
+    suspend fun timezone(accountId: String): String? =
+        trpc.query(
+            accountId,
+            path = "users.timezone",
+            input = SignInMethodsEmptyInput,
+            inputSerializer = SignInMethodsEmptyInput.serializer(),
+            outputSerializer = TimezoneDto.serializer(),
+        ).timezone
 
     /**
      * EXP-452: claim the device's IANA timezone for the account. With

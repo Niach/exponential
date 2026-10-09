@@ -50,6 +50,7 @@ class OnboardingViewModel @Inject constructor(
 
     val instanceUrl: StateFlow<String?> = auth.instanceUrl
     val accountId: StateFlow<String?> = auth.activeAccountId
+    val userEmail: StateFlow<String?> = auth.userEmail
 
     private val _teamId = MutableStateFlow<String?>(null)
     val teamId: StateFlow<String?> = _teamId.asStateFlow()

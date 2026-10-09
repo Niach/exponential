@@ -15,6 +15,7 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import { cn } from "@/lib/utils"
+import { compactRelativeTime as relativeTime } from "@/lib/relative-time"
 
 // EXP-273: derived from the shared registry rather than hand-listed, so the
 // inbox can't drift from the other three clients (it had: `issue_mention`
@@ -29,16 +30,6 @@ const typeIcon = Object.fromEntries(
   ])
 ) as Record<NotificationType, typeof Bell>
 
-function relativeTime(value: Date | string): string {
-  const d = value instanceof Date ? value : new Date(value)
-  const diff = Date.now() - d.getTime()
-  const mins = Math.round(diff / 60000)
-  if (mins < 1) return `just now`
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.round(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.round(hrs / 24)}d`
-}
 
 // EXP-862: the sidebar arm runs at the COMPACT density — 28px rows, no
 // avatar circle (the bare glyph leads), one line, the title truncating —

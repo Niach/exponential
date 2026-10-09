@@ -21,7 +21,7 @@ import com.exponential.app.domain.DraftRow
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
@@ -62,7 +62,7 @@ fun DraftListRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${row.board.name} · ${relativeTime(row.draft.updatedAt)}",
+                "${row.board.name} · ${compactRelativeTime(row.draft.updatedAt)}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 maxLines = 1,

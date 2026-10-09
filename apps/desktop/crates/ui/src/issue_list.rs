@@ -914,7 +914,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             Button::new("bulk-status")
                 .ghost()
                 .web_sm()
-                .icon(Icon::from(ExpIcon::ListTodo)),
+                .icon(Icon::new(registry::UI_CHECKLIST)),
             "Status",
         )
         .tooltip("Status")
@@ -978,7 +978,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             Button::new("bulk-priority")
                 .ghost()
                 .web_sm()
-                .icon(Icon::from(ExpIcon::SignalHigh)),
+                .icon(Icon::new(registry::PRIORITY_HIGH)),
             "Priority",
         )
         .tooltip("Priority")
@@ -1089,7 +1089,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             Button::new("bulk-labels")
                 .ghost()
                 .web_sm()
-                .icon(Icon::from(ExpIcon::Tag)),
+                .icon(Icon::new(registry::SETTINGS_LABELS)),
             "Labels",
         )
         .tooltip("Labels")
@@ -2563,6 +2563,16 @@ fn due_tone(due: &str, today: &str) -> DueTone {
         DueTone::Overdue
     } else {
         DueTone::Upcoming
+    }
+}
+
+/// The due chip's GLYPH colour ×4 (the urgency tints the glyph only, never
+/// the date): overdue red, today orange, else muted. `None` = no date.
+pub(crate) fn due_glyph_color(due: Option<&str>, cx: &App) -> gpui::Hsla {
+    match due.map(|due| due_tone(due, &queries::today_local())) {
+        Some(DueTone::Overdue) => t::RED.to_hsla(),
+        Some(DueTone::Today) => t::ORANGE.to_hsla(),
+        Some(DueTone::Upcoming) | None => cx.theme().muted_foreground,
     }
 }
 

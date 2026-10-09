@@ -1161,14 +1161,24 @@ pub(crate) fn danger_zone(
     // EXP-818: the group row IS the card here — not a card inside `section`.
     v_flex()
         .w_full()
-        .gap_3()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().danger)
-                .child("Danger zone"),
-        )
+        .gap_0()
+        // The group band with the label in the danger colour — the web
+        // `GlassSectionHeader` + `[&>span]:text-destructive` twin (the band
+        // recipe paints its label foreground, so the red label rides the
+        // leading slot and the label slot stays empty).
+        .child(crate::surface::glass_section_band(
+            Some(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(cx.theme().danger)
+                    .child("Danger zone")
+                    .into_any_element(),
+            ),
+            "",
+            None,
+            cx,
+        ))
         .child(
             crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
                 .justify_between()

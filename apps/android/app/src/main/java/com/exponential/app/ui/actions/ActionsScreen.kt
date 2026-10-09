@@ -1,5 +1,7 @@
 package com.exponential.app.ui.actions
 
+import com.exponential.app.ui.components.GroupDivider
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -358,9 +360,12 @@ private fun SuggestionsContent(onUse: (ActionSuggestion) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items(ACTION_SUGGESTIONS, key = { it.id }) { suggestion ->
+        // P73: ONE "Suggestions" band over flat hairline-divided rows ×4 —
+        // no per-row fill, no gaps, no trailing chevron.
+        item(key = "__suggestions_band__") { SectionHeader("Suggestions") }
+        itemsIndexed(ACTION_SUGGESTIONS, key = { _, it -> it.id }) { index, suggestion ->
+            if (index > 0) GroupDivider()
             SuggestionRow(suggestion = suggestion, onUse = { onUse(suggestion) })
         }
     }
@@ -372,7 +377,7 @@ private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag("suggestion-row")
-            .glassRow()
+            .flatRow()
             .clickable(onClick = onUse)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,

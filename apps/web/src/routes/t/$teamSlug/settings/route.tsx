@@ -1,4 +1,10 @@
-import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  redirect,
+  useRouterState,
+} from "@tanstack/react-router"
 import { Fragment, useEffect, useRef, useState } from "react"
 import { Separator, SEGMENTED_ITEM, SEGMENTED_LIST, conceptIcon, BoardGlyph } from "@exp/ui"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -52,11 +58,14 @@ function SettingsLayout() {
   // could still be off-screen when the nav items settled first.
   const navRef = useRef<HTMLElement | null>(null)
   const boardRows = showBoards ? boards.length : 0
+  // The layout stays mounted across sections, so every section change
+  // re-centres the strip on the new active pill as well.
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
   useEffect(() => {
     navRef.current
       ?.querySelector(`[aria-current="page"]`)
       ?.scrollIntoView({ inline: `nearest`, block: `nearest` })
-  }, [navItems.length, boardRows])
+  }, [navItems.length, boardRows, pathname])
 
   return (
     <div

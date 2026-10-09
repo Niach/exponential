@@ -219,20 +219,7 @@ internal fun LaunchOptionsSection(
             optionLabel = ::modelLabel,
             onSelect = onModelChange,
         )
-        GroupDivider()
-        PickerRow(
-            label = when (agent) {
-                "codex" -> "Reasoning"
-                else -> "Effort"
-            },
-            value = effortLabel(effort),
-            options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
-            selected = effort,
-            optionLabel = ::effortLabel,
-            // Ultracode IS `--effort ultracode` — it owns the row.
-            enabled = binding || !ultracode,
-            onSelect = onEffortChange,
-        )
+        // P25: Model · Subagent model · Effort ×4.
         // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
         // in the machine's launch defaults. Offered only where the caller
         // edits it (the device sheet today); every other agent has none.
@@ -247,6 +234,20 @@ internal fun LaunchOptionsSection(
                 onSelect = onSubagentModelChange,
             )
         }
+        GroupDivider()
+        PickerRow(
+            label = when (agent) {
+                "codex" -> "Reasoning"
+                else -> "Effort"
+            },
+            value = effortLabel(effort),
+            options = listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(agent),
+            selected = effort,
+            optionLabel = ::effortLabel,
+            // Ultracode IS `--effort ultracode` — it owns the row.
+            enabled = binding || !ultracode,
+            onSelect = onEffortChange,
+        )
 
         // ── Toggles ──────────────────────────────────────────────────────────
         // claude gets Ultracode + Plan mode, codex neither (EXP-849 dropped

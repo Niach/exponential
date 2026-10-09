@@ -218,8 +218,8 @@ pub(crate) fn attachment_label(attachment: &Attachment) -> String {
         .to_string()
 }
 
-/// Human-readable byte size (`0 B`, `812.0 KB`, `1.5 MB`). Mirrors the
-/// settings pane's `format_size`; a missing/negative size reads `0 B`.
+/// Human-readable byte size (`0 B`, `94 KB`, `4.2 MB`): ×2 (web), ONE
+/// decimal only below 10 of a unit. A missing/negative size reads `0 B`.
 pub(crate) fn format_bytes(bytes: i64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     if bytes <= 0 {
@@ -234,7 +234,11 @@ pub(crate) fn format_bytes(bytes: i64) -> String {
         size /= 1024.0;
         unit += 1;
     }
-    format!("{size:.1} {}", UNITS[unit])
+    if size < 10.0 {
+        format!("{size:.1} {}", UNITS[unit])
+    } else {
+        format!("{size:.0} {}", UNITS[unit])
+    }
 }
 
 /// A per-type-family glyph for the row's leading icon. Everything comes from
@@ -780,7 +784,9 @@ mod tests {
         assert_eq!(format_bytes(1023), "1023 B");
         assert_eq!(format_bytes(1024), "1.0 KB");
         assert_eq!(format_bytes(1_572_864), "1.5 MB");
-        assert_eq!(format_bytes(50 * 1024 * 1024), "50.0 MB");
+        // ×2: one decimal only below 10.
+        assert_eq!(format_bytes(94 * 1024 + 200), "94 KB");
+        assert_eq!(format_bytes(50 * 1024 * 1024), "50 MB");
         assert_eq!(format_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
     }
 

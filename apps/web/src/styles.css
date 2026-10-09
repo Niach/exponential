@@ -156,11 +156,7 @@
   accent-color: var(--primary);
 }
 
-/* Mute completed task items (keeps the - [x] markdown round-trip) */
-.tiptap-content ul[data-type="taskList"] li[data-checked="true"] > div {
-  opacity: 0.55;
-  text-decoration: line-through;
-}
+/* A checked task item differs ONLY by its checkbox ×4 (no strike, no fade). */
 
 .tiptap-content blockquote {
   border-left: 2px solid var(--border);

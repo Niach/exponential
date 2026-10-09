@@ -52,7 +52,7 @@ import com.exponential.app.ui.components.LocalDetailHazeSourceActive
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.session.PastRunRow
 
 // EXP-1150: the Work screen's face TABS — the ONE segmented strip (the Inbox /
@@ -254,7 +254,7 @@ private fun RunMenuRow(run: PastRunRow, shown: Boolean, onClick: () -> Unit) {
                     deviceLabel = run.device.displayLabel,
                     timeLabel = issueRunWhen(
                         run.session,
-                        endedRelative = relativeTime(run.session.endedAt ?: run.session.updatedAt),
+                        endedRelative = compactRelativeTime(run.session.endedAt ?: run.session.updatedAt),
                     ),
                 ),
             )

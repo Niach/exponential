@@ -26,7 +26,7 @@ use gpui::{
     IntoElement, ParentElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::{
-    button::ButtonVariant,
+    button::{Button, ButtonVariant},
     h_flex,
     input::InputState,
     v_flex, ActiveTheme as _, Disableable as _,
@@ -507,26 +507,23 @@ impl ApiKeysPane {
         } else {
             display_name(row)
         };
-        let start: Option<SharedString> = (!device_row).then(|| {
-            row.start
-                .clone()
-                .map(|start| format!("{start}…").into())
-                .unwrap_or_else(|| "expu_…".into())
-        });
-        let created = row
-            .created_at
-            .as_deref()
-            .map(format_created_date)
-            .unwrap_or_else(|| "—".to_string());
-        let last_used = row
-            .last_request
-            .as_deref()
-            .map(format_created_date)
-            .unwrap_or_else(|| "Never".to_string());
-        // FEED-76: "All teams" / "Scoped to …" under an API key's name; a
+        // Web parity: ONE subline instead of fixed columns —
+        // "Signed in … · last active …" / "<prefix>… · created … · last used …".
+        let subline: SharedString = row_subline(row, device_row).into();
+        // FEED-76: "All teams" / "Scoped to …" under an API key's subline; a
         // login session's hidden key is always unscoped, so it wears none.
         let scope: Option<SharedString> =
             (!device_row).then(|| api::users::scope_caption(row.scope.as_ref()).into());
+        let caption = |text: SharedString| {
+            div()
+                .min_w_0()
+                .text_xs()
+                .text_color(muted)
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(text)
+        };
 
         // EXP-862: a FLAT list row (web `ListRow`) — no card, no hairline
         // group; the rows stack straight under the section band.
@@ -539,86 +536,77 @@ impl ApiKeysPane {
             .px_3()
             .py_2p5()
             .child(
-                h_flex()
+                v_flex()
                     .flex_1()
                     .min_w_0()
-                    .items_center()
-                    .gap_2()
                     .child(
-                        v_flex()
+                        h_flex()
                             .min_w_0()
+                            .items_center()
+                            .gap_2()
                             .child(
                                 div()
                                     .min_w_0()
                                     .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
                                     .whitespace_nowrap()
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .child(SharedString::from(name)),
                             )
-                            .children(scope.map(|scope| {
-                                div()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .whitespace_nowrap()
-                                    .overflow_hidden()
-                                    .text_ellipsis()
-                                    .child(scope)
-                            })),
+                            .when(this_device, |this| {
+                                this.child(
+                                    crate::surface::glass_pill(
+                                        SharedString::from(format!("api-key-this-device-{}", row.id)),
+                                        PillSize::Sm,
+                                        crate::surface::PillMode::Readonly,
+                                        cx,
+                                    )
+                                    .child("This device"),
+                                )
+                            }),
                     )
-                    .when(this_device, |this| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .px_1p5()
-                                .py_0p5()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(super::row_stroke(cx))
-                                .text_xs()
-                                .text_color(muted)
-                                .child("This device"),
-                        )
-                    }),
-            )
-            .children(start.map(|start| {
-                div()
-                    .w_24()
-                    .flex_shrink_0()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_xs()
-                    .text_color(muted)
-                    .child(start)
-            }))
-            .child(
-                div()
-                    .w_24()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(created)),
+                    .child(caption(subline))
+                    .children(scope.map(caption)),
             )
             .child(
-                div()
-                    .w_24()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(last_used)),
-            )
-            .child(
-                glass_pill_button(
-                    SharedString::from(format!("api-key-revoke-{}", row.id)),
-                    PillSize::Sm,
-                    cx,
-                )
+                // Web: a radius-10 OUTLINE button, Revoke in the danger tint.
+                Button::new(SharedString::from(format!("api-key-revoke-{}", row.id)))
+                    .outline()
+                    .cursor_pointer()
+                    .web_sm()
+                    .when(!device_row, |button| button.text_color(cx.theme().danger))
                     .label(if device_row { "Disconnect" } else { "Revoke" })
                     .disabled(self.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.confirm_revoke(&row_for_revoke, this_device, window, cx);
                     })),
             )
+    }
+}
+
+/// The row's subline (web `api-keys-section.tsx`, string for string): a
+/// login session reads "Signed in Mar 4, 2026 · last active …", an API key
+/// "expu_ab… · created … · last used …"; a missing date reads "never".
+fn row_subline(row: &PersonalKeyMeta, device_row: bool) -> String {
+    let date = |at: Option<&str>| at.map(format_created_date).unwrap_or_else(|| "–".to_string());
+    let last = row
+        .last_request
+        .as_deref()
+        .map(format_created_date)
+        .unwrap_or_else(|| "never".to_string());
+    if device_row {
+        format!("Signed in {} · last active {last}", date(row.created_at.as_deref()))
+    } else {
+        // Web `keyPreview`: the visible start, else the static prefix.
+        let preview = row
+            .start
+            .clone()
+            .or_else(|| row.prefix.clone())
+            .filter(|start| !start.is_empty())
+            .map(|start| format!("{start}…"))
+            .unwrap_or_else(|| "expu_…".to_string());
+        format!("{preview} · created {} · last used {last}", date(row.created_at.as_deref()))
     }
 }
 
@@ -749,6 +737,28 @@ fn local_store(cx: &App) -> Option<(TokenStore, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn row_subline_matches_the_web() {
+        let mut key = PersonalKeyMeta {
+            id: "k".into(),
+            name: None,
+            start: Some("expu_ab".into()),
+            prefix: None,
+            created_at: Some("2026-03-04T10:00:00Z".into()),
+            last_request: None,
+            scope: None,
+        };
+        assert_eq!(
+            row_subline(&key, false),
+            "expu_ab… · created Mar 4, 2026 · last used never"
+        );
+        key.last_request = Some("2026-04-01T00:00:00Z".into());
+        assert_eq!(
+            row_subline(&key, true),
+            "Signed in Mar 4, 2026 · last active Apr 1, 2026"
+        );
+    }
 
     fn meta(name: Option<&str>) -> PersonalKeyMeta {
         PersonalKeyMeta {

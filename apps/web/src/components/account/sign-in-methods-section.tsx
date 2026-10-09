@@ -77,6 +77,12 @@ function ProviderMark({ provider }: { provider: SignInProvider }) {
 // password row while one is set. Passkeys keep their own band right below
 // (PasskeysSection). Removals go through tRPC so the last-way-in rule is
 // enforced in one place (lib/auth/sign-in-methods.ts).
+/** The Email code row's caption ×4: the address, plus "Off on this server"
+ *  while the server has no mail transport. */
+export function emailCodeCaption(email: string, enabled: boolean): string {
+  return enabled ? email : `${email} · Off on this server`
+}
+
 export function SignInMethodsSection({
   initialMethods,
   teamSlug,
@@ -201,10 +207,7 @@ export function SignInMethodsSection({
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">Email code</div>
               <div className="truncate text-xs text-muted-foreground">
-                {methods.email}
-                {methods.emailOtpEnabled
-                  ? ``
-                  : ` · sign-in codes are off on this instance (no mail transport)`}
+                {emailCodeCaption(methods.email, methods.emailOtpEnabled)}
               </div>
             </div>
           </div>

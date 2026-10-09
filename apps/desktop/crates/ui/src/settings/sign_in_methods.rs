@@ -381,7 +381,8 @@ impl SignInMethodsSection {
         let subtitle: SharedString = if methods.email_otp_enabled {
             methods.email.clone().into()
         } else {
-            format!("{} · sign-in codes are off on this instance", methods.email).into()
+            // ONE wording ×4: "{email} · Off on this server".
+            format!("{} · Off on this server", methods.email).into()
         };
         let trailing = methods.email_otp_enabled.then(|| {
             Button::new("sign-in-email-change")

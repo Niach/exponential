@@ -108,7 +108,8 @@ describe(`TeamMcpServersSection`, () => {
     await screen.findByText(`linear`)
 
     expect(rowOf(`linear`).textContent).toContain(`Connected`)
-    expect(rowOf(`linear`).textContent).toContain(`1 of 3 connected`)
+    // ×2 anatomy: name · Default pill · host — no connection counts.
+    expect(rowOf(`linear`).textContent).not.toContain(`of 3 connected`)
     expect(rowOf(`sentry`).textContent).toContain(`Connect`)
     expect(rowOf(`stripe`).textContent).toContain(`Set key`)
     expect(rowOf(`notion`).textContent).toContain(`Reconnect`)
@@ -285,24 +286,21 @@ describe(`TeamMcpServersSection`, () => {
     )
   })
 
-  // FEED-73: sharing a connection with the team, like a shared device.
-  it(`counts shared connections and pills the viewer's own shared one`, async () => {
+  // FEED-73: sharing stays in the Connected menu; the row carries no
+  // "Shared" pill or "K shared" count (name · Default pill · host only).
+  it(`keeps share state off the row`, async () => {
     mockState.list.mockResolvedValue([
       server(`linear`, `oauth`, `connected`, {
         connection: { status: `connected`, expiresAt: null, error: null, shared: true },
         connectedCount: 2,
         sharedCount: 1,
       }),
-      server(`sentry`, `oauth`, `connected`),
     ])
     render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
     await screen.findByText(`linear`)
 
-    expect(rowOf(`linear`).textContent).toContain(`2 of 3 connected · 1 shared`)
-    expect(rowOf(`linear`).textContent).toContain(`Shared`)
-    expect(rowOf(`sentry`).textContent).toContain(`1 of 3 connected`)
-    expect(rowOf(`sentry`).textContent).not.toContain(`shared`)
-    expect(rowOf(`sentry`).textContent).not.toContain(`Shared`)
+    expect(rowOf(`linear`).textContent).not.toContain(`shared`)
+    expect(rowOf(`linear`).textContent).not.toContain(`Shared`)
   })
 
   it(`flips the Connected menu's share item and sends it`, async () => {
@@ -332,7 +330,7 @@ describe(`TeamMcpServersSection`, () => {
       )
     )
     await waitFor(() =>
-      expect(rowOf(`sentry`).textContent).toContain(`1 shared`)
+      expect(mockState.toastSuccess).toHaveBeenCalled()
     )
     expect(mockState.toastSuccess).toHaveBeenCalledWith(
       `Shared sentry with the team: action runs on teammates' machines use your connection`

@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Github, Lock, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import {
   BranchPicker,
   Input,
   Label,
-  GLASS_PICKER_ROW,
   GlassGroup,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
+  Picker,
+  PickerTrigger,
+  conceptIcon,
+  type PickerItem,
 } from "@exp/ui"
 import {
   GithubRepoPicker,
@@ -23,7 +19,6 @@ import {
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 export type ConnectedRepo = RepoList[number]
 
-const NONE = `none`
 const CONNECT = `connect`
 const INLINE = `inline`
 
@@ -37,6 +32,10 @@ const INLINE = `inline`
 // only once a repo is chosen, the branch coding sessions start from — the
 // repo's default unless the board pins another. Nothing here mutates: the
 // host owns persistence (create saves on submit, settings mutates per change).
+const GithubGlyph = conceptIcon(`ui-github`)
+const PrivateGlyph = conceptIcon(`ui-private`)
+const AddGlyph = conceptIcon(`ui-add`)
+
 export function BoardRepoField({
   teamId,
   repositoryId,
@@ -117,17 +116,12 @@ export function BoardRepoField({
       setReloadingForId((cur) => (cur === repositoryId ? null : cur))
     )
   }, [repositoryId, repos, selectedRepo, reload])
-  const value = inlineRepo
-    ? INLINE
-    : repositoryId
-      ? repositoryId
-      : NONE
+  const value = inlineRepo ? INLINE : repositoryId
   const loading = repos === null
   const hasRepos = (repos?.length ?? 0) > 0 || Boolean(inlineRepo)
 
-  // The trigger's label, rendered EXPLICITLY (Radix's SelectValue otherwise
-  // echoes the matching item's text — and shows nothing when no item matches
-  // the value). Never blank: an unknown id reads "Loading repository…" while
+  // The trigger's label, rendered EXPLICITLY (a value with no matching item
+  // would otherwise read as nothing). Never blank: an unknown id reads "Loading repository…" while
   // the one-shot re-list above is in flight and "Repository unavailable" once
   // it came back without the id.
   const labelRepo = inlineRepo ?? selectedRepo ?? null
@@ -148,82 +142,68 @@ export function BoardRepoField({
     ? inlineRepo.defaultBranch
     : (selectedRepo?.defaultBranch ?? null)
 
+  const repoItem = (repo: {
+    id: string
+    fullName: string
+    private: boolean
+  }): PickerItem => ({
+    value: repo.id,
+    label: repo.fullName,
+    icon: GithubGlyph,
+    hint: repo.private ? <PrivateGlyph className="size-3.5" /> : undefined,
+  })
+  const repoItems: PickerItem[] = [
+    ...(repos ?? []).map(repoItem),
+    ...(inlineRepo
+      ? [{ ...repoItem({ ...inlineRepo, id: INLINE }) }]
+      : []),
+    {
+      value: CONNECT,
+      label: hasRepos
+        ? `Connect another repository…`
+        : `Connect a GitHub repository…`,
+      icon: AddGlyph,
+    },
+  ]
+
   return (
     <div className="space-y-2">
       <GlassGroup>
-        <Select
+        {/* Picker is the only picker: the Repository row and the Branch
+            row below share ONE row trigger (label leading, value trailing,
+            chevron-right). */}
+        <Picker
+          mode="single"
+          mobileTitle="Repository"
+          width="md"
           value={value}
           disabled={disabled || loading}
-          onValueChange={(next) => {
+          items={repoItems}
+          noneLabel="No repository"
+          onNone={() => {
+            setPickerOpen(false)
+            onSelectRegistry(null)
+          }}
+          onChange={(next) => {
             if (next === CONNECT) {
               setPickerOpen(true)
               return
             }
             setPickerOpen(false)
-            if (next === NONE) {
-              onSelectRegistry(null)
-              return
-            }
             if (next === INLINE) return
             const repo = repos?.find((r) => r.id === next)
             if (repo) onSelectRegistry(repo)
           }}
-        >
-          {/* EXP-862: the field IS a row of the form's glass group — the
-              label leads it, the repo sits at the trailing edge. The
-              explicit `aria-label` keeps the control's accessible name the
-              field's name now that the label is part of the row's text. */}
-          <SelectTrigger
-            id="board-repository"
-            aria-label="Repository"
-            className={GLASS_PICKER_ROW}
-          >
-            <span className="shrink-0 text-sm text-foreground">Repository</span>
-            <span className="ml-auto min-w-0 truncate text-sm text-foreground/70">
-              <SelectValue placeholder={triggerLabel}>
-                {labelRepo ? (
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{labelRepo.fullName}</span>
-                    {labelRepo.private && (
-                      <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                  </span>
-                ) : (
-                  triggerLabel
-                )}
-              </SelectValue>
-            </span>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>No repository</SelectItem>
-            {repos?.map((repo) => (
-              <SelectItem key={repo.id} value={repo.id}>
-                <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{repo.fullName}</span>
-                {repo.private && (
-                  <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-              </SelectItem>
-            ))}
-            {inlineRepo && (
-              <SelectItem value={INLINE}>
-                <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{inlineRepo.fullName}</span>
-                {inlineRepo.private && (
-                  <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-              </SelectItem>
-            )}
-            <SelectSeparator />
-            <SelectItem value={CONNECT}>
-              <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {hasRepos
-                ? `Connect another repository…`
-                : `Connect a GitHub repository…`}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+          trigger={
+            <PickerTrigger
+              id="board-repository"
+              variant="row"
+              label="Repository"
+              aria-label="Repository"
+              value={triggerLabel}
+            />
+          }
+        />
 
         {repoDefault &&
           (inlineRepo || !selectedRepo ? (

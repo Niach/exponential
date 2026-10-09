@@ -69,6 +69,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
+import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -573,19 +574,19 @@ private fun MachineRow(
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
+                            // P30: the owner of a team device rides the
+                            // accessibility label only, never an inline caption.
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .then(
+                                    device.owner?.let { owner ->
+                                        Modifier.semantics {
+                                            contentDescription = "${device.displayLabel}, shared by ${owner.name}"
+                                        }
+                                    } ?: Modifier,
+                                ),
                         )
-                        val owner = device.owner
-                        if (owner != null) {
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "shared by ${owner.name}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        } else if (device.version != null) {
+                        if (device.owner == null && device.version != null) {
                             Spacer(Modifier.width(6.dp))
                             Text(
                                 "v${device.version}",
@@ -662,7 +663,7 @@ private fun MachineRow(
                                 device.updateRequested -> "Updating…"
                                 blockedCaption != null -> blockedCaption
                                 online -> "Online"
-                                device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
+                                device.lastSeenAt != null -> "Last seen ${compactRelativeTime(device.lastSeenAt)}"
                                 else -> "Offline"
                             },
                             style = MaterialTheme.typography.bodySmall,

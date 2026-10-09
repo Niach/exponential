@@ -26,13 +26,9 @@ import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { trpc } from "@/lib/trpc-client"
 import { pageTitle } from "@/lib/page-title"
 
-// EXP-525: the tab segments carry the same registry glyphs the mobile My Work
-// segments and the desktop rail use.
-const InboxTabIcon = conceptIcon(`nav-inbox`)
-const MyIssuesTabIcon = conceptIcon(`ui-assignee`)
-// EXP-878: below md there is no Drafts route — the drafts list is a third
-// segment here, present only while the caller actually has one.
-const DraftsTabIcon = conceptIcon(`nav-drafts`)
+// The phone segments ×3 = label + a plain trailing count (unread, drafts), no
+// icons. EXP-878: below md there is no Drafts route — the drafts list is a
+// third segment here, present only while the caller actually has one.
 const MarkReadIcon = conceptIcon(`notification-mark-read`)
 
 // The merged personal surface (EXP-186): ONE sidebar entry ("Inbox") with two
@@ -59,7 +55,7 @@ export const Route = createFileRoute(`/t/$teamSlug/inbox/`)({
       {
         title: pageTitle(
           match.search.tab === `my-issues`
-            ? `My Issues`
+            ? `My issues`
             : match.search.tab === `drafts`
               ? `Drafts`
               : `Inbox`
@@ -100,18 +96,16 @@ function MarkAllReadButton() {
   const unread = useUnreadNotificationCount()
   if (unread === 0) return null
   return (
-    // EXP-878: on a phone the strip can hold three segments (Inbox, My
-    // Issues, Drafts), which leaves no room for the label — the button
-    // collapses to its glyph there and keeps the text for readers.
+    // The phone strip's trailing ghost glyph (md+ = the sidebar strip's
+    // `MarkAllReadGlyph`, list-nav.tsx).
     <Button
       variant="ghost"
-      size="sm"
+      size="icon-sm"
       className="shrink-0"
       aria-label="Mark all read"
       onClick={() => void trpc.notifications.markAllRead.mutate()}
     >
-      <MarkReadIcon className="md:hidden" />
-      <span className="max-md:sr-only">Mark all read</span>
+      <MarkReadIcon />
     </Button>
   )
 }
@@ -177,9 +171,7 @@ function InboxPage() {
 
   if (!isMobile) {
     return (
-      <ListDetailEmpty tab={tab === `my-issues` ? `my-issues` : `inbox`}>
-        {tab !== `my-issues` && <MarkAllReadButton />}
-      </ListDetailEmpty>
+      <ListDetailEmpty tab={tab === `my-issues` ? `my-issues` : `inbox`} />
     )
   }
 
@@ -201,17 +193,14 @@ function InboxPage() {
           >
             <TabsList>
               <TabsTrigger value="inbox" className={SEGMENTED_TAB}>
-                <InboxTabIcon />
                 Inbox
                 <UnreadTabCount />
               </TabsTrigger>
               <TabsTrigger value="my-issues" className={SEGMENTED_TAB}>
-                <MyIssuesTabIcon />
-                My Issues
+                My issues
               </TabsTrigger>
               {draftsTabAvailable && (
                 <TabsTrigger value="drafts" className={SEGMENTED_TAB}>
-                  <DraftsTabIcon />
                   Drafts
                   {draftCount > 0 && (
                     <span className="text-xs text-foreground/50 tabular-nums">

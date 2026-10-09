@@ -421,8 +421,9 @@ impl IssueHeader {
         let selected = self.selected_label_ids(&issue.id, cx);
         let issue_id = issue.id.clone();
 
+        // ×4: the empty chip reads "Label" (the New issue page's too).
         let trigger_label = if selected.is_empty() {
-            "Labels".to_string()
+            "Label".to_string()
         } else {
             let names: Vec<&str> = labels
                 .iter()
@@ -482,7 +483,7 @@ impl IssueHeader {
             .icon(
                 Icon::from(ExpIcon::CalendarDays)
                     .xsmall()
-                    .text_color(cx.theme().muted_foreground),
+                    .text_color(crate::issue_list::due_glyph_color(due.as_deref(), cx)),
             )
             .child(crate::pickers::chip_label(label, !has_due, cx));
 

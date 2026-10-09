@@ -20,7 +20,7 @@ import { DevicesStep } from "@/components/onboarding/devices-step"
 import { WizardFrame } from "@/components/onboarding/wizard"
 
 export const Route = createFileRoute(`/invite/$token`)({
-  head: () => ({ meta: [{ title: pageTitle(`Team Invite`) }] }),
+  head: () => ({ meta: [{ title: pageTitle(`Team invite`) }] }),
   component: InviteAcceptPage,
   ssr: false,
 })
@@ -163,7 +163,7 @@ function InviteAcceptPage() {
         <div className="grid gap-2 px-6 text-center">
           <IconDisc icon={Users} className="mx-auto mb-4" />
           <div className="leading-none font-semibold">
-            {error && !invite ? `Invalid Invite` : `Team Invite`}
+            {error && !invite ? `Invalid invite` : `Team invite`}
           </div>
           <div className="text-sm text-muted-foreground">
             {error && !invite
@@ -211,7 +211,7 @@ function InviteAcceptPage() {
                     {accepting && (
                       <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                     )}
-                    Accept Invite
+                    Accept invite
                   </Button>
                 </>
               ) : (

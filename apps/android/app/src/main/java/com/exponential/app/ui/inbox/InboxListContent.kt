@@ -39,7 +39,7 @@ import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
@@ -152,7 +152,7 @@ private fun InboxRow(group: InboxGroup, onClick: () -> Unit) {
                 )
             },
             trailingGap = 8.dp,
-            trailing = { TrailingTimeAndDot(time = relativeTime(group.latest.createdAt), unread = group.unread) },
+            trailing = { TrailingTimeAndDot(time = compactRelativeTime(group.latest.createdAt), unread = group.unread) },
         )
     }
 }
@@ -215,7 +215,7 @@ private fun MessageInboxRow(
                 }
             },
             trailingGap = 8.dp,
-            trailing = { TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = unread) },
+            trailing = { TrailingTimeAndDot(time = compactRelativeTime(n.createdAt), unread = unread) },
         )
     }
 }

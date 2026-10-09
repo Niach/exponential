@@ -16,6 +16,7 @@ import {
   type StatusRowOption,
 } from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
+import { dueDateTone, dueDateToneClass } from "@/lib/issue-due-date"
 import {
   estimateShortLabel,
   parseEstimatePick,
@@ -64,6 +65,9 @@ export interface IssuePropertiesPanelProps {
   source?: IssueSource
   boardColor: string
   boardPrefix: string
+  /** The read-only board chip's label ×4 (board NAME); falls back to the
+   *  prefix. */
+  boardName?: string
   // Board glyph inputs for the read-only chip (EXP-449: icon+color instead
   // of the anonymous dot).
   boardIcon?: string | null
@@ -145,7 +149,15 @@ function DueDateControl({
       align="start"
       renderTrigger={({ label }) => (
         <Pill mode="action" disabled={disabled}>
-          <DueDateGlyph className="size-3" />
+          {/* Urgency tints the GLYPH only ×4 (overdue red, today orange). */}
+          <DueDateGlyph
+            className={cn(
+              `size-3`,
+              dueDate &&
+                dueDateTone(dueDate) !== `upcoming` &&
+                dueDateToneClass(dueDate)
+            )}
+          />
           {label}
         </Pill>
       )}
@@ -156,11 +168,12 @@ function DueDateControl({
 function BoardChip({
   boardColor,
   boardPrefix,
+  boardName,
   boardIcon,
   boardRepositoryId,
 }: Pick<
   IssuePropertiesPanelProps,
-  `boardColor` | `boardPrefix` | `boardIcon` | `boardRepositoryId`
+  `boardColor` | `boardPrefix` | `boardName` | `boardIcon` | `boardRepositoryId`
 >) {
   return (
     <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-foreground">
@@ -172,7 +185,7 @@ function BoardChip({
         }}
         className="size-3.5"
       />
-      {boardPrefix}
+      {boardName || boardPrefix}
     </div>
   )
 }
@@ -322,6 +335,7 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
       <BoardChip
         boardColor={props.boardColor}
         boardPrefix={props.boardPrefix}
+        boardName={props.boardName}
         boardIcon={props.boardIcon}
         boardRepositoryId={props.boardRepositoryId}
       />

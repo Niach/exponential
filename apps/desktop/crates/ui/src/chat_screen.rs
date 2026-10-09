@@ -399,14 +399,48 @@ pub(crate) fn fix_conflicts_pr_row(
         .size_3p5()
         .text_color(theme.foreground.opacity(0.5));
     let content = match pr {
+        // P32 ×4 (`@exp/ui` FixConflictsPrRow): the emerald pr-open glyph,
+        // the mono `#n`, then the branch glyph + the mono `branch → base`,
+        // the chevron trailing. No fixed identifier column.
         Some(pr) => {
-            let mut spec = crate::pr_rows::PrRowSpec::open(
-                "chat-fix-conflicts-pr-row",
-                pr.branch_line(),
-            );
-            spec.identifier = pr.pr_number.map(|number| SharedString::from(format!("#{number}")));
-            spec.trailing = Some(div().flex_shrink_0().child(chevron).into_any_element());
-            crate::pr_rows::pr_row(spec, cx)
+            let line = pr.branch_line();
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_3()
+                .px_3()
+                .py_2()
+                .text_sm()
+                .child(
+                    Icon::new(registry::PR_OPEN)
+                        .size_4()
+                        .flex_shrink_0()
+                        .text_color(theme::tokens::GREEN.to_hsla()),
+                )
+                .when_some(pr.pr_number, |row, number| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(theme.foreground)
+                            .child(SharedString::from(format!("#{number}"))),
+                    )
+                })
+                .when(!line.is_empty(), |row| {
+                    row.child(
+                        h_flex()
+                            .min_w_0()
+                            .items_center()
+                            .gap_1p5()
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .text_color(theme.foreground.opacity(0.7))
+                            .child(Icon::new(registry::UI_BRANCH).size_3p5().flex_shrink_0())
+                            .child(div().min_w_0().truncate().child(SharedString::from(line))),
+                    )
+                })
+                .child(div().ml_auto().flex_shrink_0().child(chevron))
+                .into_any_element()
         }
         None => h_flex()
             .w_full()
@@ -3692,7 +3726,7 @@ pub(crate) fn plus_menu(
                         for (label, choice) in crate::coding_selects::SUBAGENT_MODEL_CHOICES.iter() {
                             let view = view.clone();
                             let choice = (*choice).to_string();
-                            let label = if choice.is_empty() { launch_options::CLI_DEFAULT_LABEL } else { *label };
+                            let label = if choice.is_empty() { launch_options::SUBAGENT_DEFAULT_LABEL } else { *label };
                             sub = sub.item(pointer_check_item(label, picked == choice, move |window, cx| {
                                 if let Some(view) = view.upgrade() {
                                     view.update(cx, |this, cx| {

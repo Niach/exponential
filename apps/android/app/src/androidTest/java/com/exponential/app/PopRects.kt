@@ -63,7 +63,7 @@ object PopRects {
         "2_issue-detail" to listOf("issue-description"),
         "3_start-coding" to listOf("agent-composer-headline", "agent-composer", "agent-options-row"),
         "4_steering" to listOf("agent-feed-question"),
-        "5_review" to listOf("work-merge-pr"),
+        "5_review" to listOf("work-merge-pr-section"),
         "6_actions" to listOf("action-row"),
         "7_inbox" to listOf("notification-row"),
         "8_support" to listOf("support-thread-row"),

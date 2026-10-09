@@ -9,8 +9,15 @@
 // `todo` is gone from the vocabulary, but old events still name it); iOS
 // EventPhrases, Android labelFor and desktop timeline.rs mirror this map.
 import { estimateEventPhrase } from "@/lib/issue-estimate"
+import { issueStatusOptions } from "@/lib/domain"
 
 export const RETIRED_STATUS_LABELS: Record<string, string> = { todo: `Todo` }
+
+// A name-less legacy row reads as the builtin status row's display name ("In
+// Progress"), the name the app shows for it ×4 — never a lowercase munge.
+const BUILTIN_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  issueStatusOptions.map((option) => [option.value, option.label])
+)
 
 export function statusLabel(
   payload: Record<string, unknown>,
@@ -19,7 +26,11 @@ export function statusLabel(
   const name = payload[side === `to` ? `toName` : `fromName`]
   if (typeof name === `string` && name.length > 0) return name
   const token = String(payload[side] ?? ``)
-  return RETIRED_STATUS_LABELS[token] ?? token.replace(/_/g, ` `)
+  return (
+    RETIRED_STATUS_LABELS[token] ??
+    BUILTIN_STATUS_LABELS[token] ??
+    token.replace(/_/g, ` `)
+  )
 }
 
 // Priority wire values render capitalized ("urgent" → "Urgent"); anything
@@ -41,8 +52,11 @@ export function issueEventPhrase(
     case `created`:
       return `created`
     case `status_changed`: {
+      // ×4: `changed status from {from} to {to}`.
       const to = statusLabel(p, `to`)
-      return to ? `changed status to ${to}` : `changed status`
+      const from = statusLabel(p, `from`)
+      if (!to) return `changed status`
+      return from ? `changed status from ${from} to ${to}` : `changed status to ${to}`
     }
     case `assignee_changed`:
       return p.to ? `changed the assignee` : `removed the assignee`

@@ -1814,6 +1814,33 @@ fn status_label(wire: &str) -> String {
         .unwrap_or_else(|| wire.replace('_', " "))
 }
 
+/// A `status_changed` side's display name ×4: the payload's row NAME, else
+/// the team row its id / enum anchor resolves to (its display name, "In
+/// Progress"), else the retired-label / munge fallback for a wire value no
+/// row answers to. `None` = the side is absent.
+fn status_display_name(
+    name: Option<String>,
+    status_id: Option<String>,
+    wire: Option<String>,
+    statuses: &[domain::rows::IssueStatusRow],
+) -> Option<String> {
+    if let Some(name) = name.filter(|name| !name.is_empty()) {
+        return Some(name);
+    }
+    if let Some(status_id) = status_id.as_deref() {
+        if statuses.iter().any(|row| row.id == status_id) {
+            let anchor = domain::IssueStatus::from_wire(wire.as_deref().unwrap_or_default());
+            return Some(crate::queries::resolve_status_ref(Some(status_id), anchor, statuses).name);
+        }
+    }
+    let wire = wire?;
+    let anchor = domain::IssueStatus::from_wire(&wire);
+    if anchor == domain::IssueStatus::Unknown {
+        return Some(status_label(&wire));
+    }
+    Some(crate::queries::resolve_status_ref(None, anchor, statuses).name)
+}
+
 /// Web `priorityLabel`: the wire value capitalized (`urgent` → `Urgent`);
 /// an absent/empty side reads `None` (EXP-530 — a priority can be cleared).
 fn priority_label(value: Option<String>) -> String {
@@ -1882,12 +1909,22 @@ fn event_phrase(
             // rows (`fromName`/`toName`) alongside the legacy enum anchors.
             // Prefer them — a custom status has no enum value to munge — and
             // fall back to the anchor munge for rows written before EXP-314.
-            let to = payload_str("toName")
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| status_label(&payload_str("to").unwrap_or_default()));
-            let from = payload_str("fromName")
-                .filter(|name| !name.is_empty())
-                .or_else(|| payload_str("from").map(|from| status_label(&from)));
+            // ×4: the rows' DISPLAY names ("In Progress"), never the munged
+            // enum — a pre-EXP-314 row resolves its anchor (or status id)
+            // against the team's rows.
+            let to = status_display_name(
+                payload_str("toName"),
+                payload_str("toStatusId"),
+                payload_str("to"),
+                statuses,
+            )
+            .unwrap_or_default();
+            let from = status_display_name(
+                payload_str("fromName"),
+                payload_str("fromStatusId"),
+                payload_str("from"),
+                statuses,
+            );
             let phrase = match from {
                 Some(from) if !from.is_empty() && !to.is_empty() => {
                     format!("changed status from {from} to {to}")
@@ -2221,7 +2258,7 @@ mod tests {
             "fibonacci",
         )
         .unwrap();
-        assert_eq!(phrase, "changed status to in progress");
+        assert_eq!(phrase, "changed status to In Progress", "the row display name, not the munge");
 
         // The server payload carries from+to (issues.ts) — show both (EXP-33).
         let (_, phrase, _) = event_phrase(
@@ -2235,7 +2272,7 @@ mod tests {
             "fibonacci",
         )
         .unwrap();
-        assert_eq!(phrase, "changed status from Todo to in progress");
+        assert_eq!(phrase, "changed status from Todo to In Progress");
 
         // EXP-314: a status-row payload renders the ROW NAMES (a custom status
         // has no enum value to munge), and a missing `fromName` still falls
@@ -2709,7 +2746,7 @@ mod tests {
             "fibonacci",
         )
         .unwrap();
-        assert_eq!(phrase, "changed status from Todo to in progress");
+        assert_eq!(phrase, "changed status from Todo to In Progress");
 
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);

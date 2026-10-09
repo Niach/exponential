@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
-import {
-  Check,
-  CodeXml,
-  Copy,
-  LoaderCircle,
-  Pencil,
-  Sparkles,
-  Trash2,
-} from "lucide-react"
+import { Check, Copy, LoaderCircle, Sparkles } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useBillingPlan } from "@/hooks/use-billing"
@@ -32,6 +24,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Menu,
   Prompt,
   Switch,
   conceptIcon,
@@ -39,6 +32,9 @@ import {
 import type { Team } from "@/db/schema"
 
 const WidgetIcon = conceptIcon(`settings-widget`)
+const MoreIcon = conceptIcon(`ui-more`)
+const SnippetIcon = conceptIcon(`ui-copy`)
+const DeleteIcon = conceptIcon(`ui-delete`)
 
 function buildSnippet(publicKey: string): string {
   return buildWidgetSnippet(publicKey, window.location.origin)
@@ -138,15 +134,6 @@ export function TeamWidgetSection({ team }: { team: Team }) {
             </Pill>
           }
         />
-        {/* SLOP-4: ONE path — a submission is an issue; the reporter's
-            address is the thread back to them. */}
-        <p className="px-1 pb-2 text-xs text-foreground/50">
-          Embed the widget on your own site: visitors capture a screenshot,
-          describe the problem, and it lands as an issue on the board, with
-          page context attached. A reporter who leaves an address keeps a
-          conversation through the emailed link, and your replies to them go
-          out from the issue&apos;s comments.
-        </p>
         <div className="space-y-4">
           <div className={SETTINGS_LIST_CLASS}>
             {loading ? (
@@ -164,9 +151,14 @@ export function TeamWidgetSection({ team }: { team: Team }) {
               </ListRow>
             ) : (
               widgets.map((widget) => (
+                // The row opens the editor; the enable switch and ONE ⋯ Menu
+                // (snippet, delete) stay trailing at every width.
                 <ListRow
                   key={widget.id}
-                  className="flex-col items-stretch gap-3 overflow-hidden px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                  interactive
+                  onClick={() => openEdit(widget)}
+                  aria-label={`Edit ${widget.name}`}
+                  className="items-center justify-between gap-3 overflow-hidden px-3 py-2"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -201,39 +193,51 @@ export function TeamWidgetSection({ team }: { team: Team }) {
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  {/* Clicks here (and in the menu's portal) never reach
+                      the row's open-the-editor handler. */}
+                  <div
+                    className="flex shrink-0 items-center gap-1"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
                     <Switch
                       checked={widget.enabled}
                       disabled={busyId === widget.id}
                       onCheckedChange={(next) => toggleEnabled(widget, next)}
                       aria-label={`Enable ${widget.name}`}
                     />
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => setSnippetTarget(widget)}
-                      aria-label={`Show snippet for ${widget.name}`}
-                    >
-                      <CodeXml />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => openEdit(widget)}
-                      aria-label={`Edit ${widget.name}`}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-destructive"
-                      onClick={() => setDeleteTarget(widget)}
-                      disabled={busyId === widget.id}
-                      aria-label={`Delete ${widget.name}`}
-                    >
-                      <Trash2 />
-                    </Button>
+                    <Menu
+                      align="end"
+                      aria-label={`${widget.name} actions`}
+                      title={widget.name}
+                      entries={[
+                        {
+                          kind: `item`,
+                          id: `snippet`,
+                          label: `Embed snippet`,
+                          icon: SnippetIcon,
+                          onSelect: () => setSnippetTarget(widget),
+                        },
+                        {
+                          kind: `item`,
+                          id: `delete`,
+                          label: `Delete`,
+                          icon: DeleteIcon,
+                          destructive: true,
+                          disabled: busyId === widget.id,
+                          onSelect: () => setDeleteTarget(widget),
+                        },
+                      ]}
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`${widget.name} actions`}
+                        >
+                          <MoreIcon />
+                        </Button>
+                      }
+                    />
                   </div>
                 </ListRow>
               ))

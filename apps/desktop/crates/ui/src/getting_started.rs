@@ -1130,12 +1130,15 @@ impl Render for GettingStartedView {
                 // the rail entry is permanent now, so leaving on the last
                 // check would strand the user mid-read.
 
-                // The progress bar belongs to the checklist, not to the page.
-                let progress: gpui::AnyElement = if loading
+                // The progress bar belongs to the checklist, not to the page:
+                // a row of its own UNDER the tabs (web parity), First steps
+                // only.
+                let progress: Option<gpui::AnyElement> = if loading
                     || tab != GettingStartedTab::FirstSteps
                 {
-                    div().into_any_element()
+                    None
                 } else {
+                    Some(
                     h_flex()
                         .items_center()
                         .gap_3()
@@ -1160,7 +1163,7 @@ impl Render for GettingStartedView {
                                         .bg(cx.theme().primary),
                                 ),
                         )
-                        .into_any_element()
+                        .into_any_element())
                 };
 
                 let body: gpui::AnyElement = match tab {
@@ -1178,17 +1181,21 @@ impl Render for GettingStartedView {
                         let rows: Vec<gpui::AnyElement> =
                             crate::action_suggestions::ACTION_SUGGESTIONS
                                 .iter()
-                                .map(|suggestion| {
-                                    render_suggestion_row(suggestion, team_id.clone(), cx)
+                                .enumerate()
+                                .map(|(ix, suggestion)| {
+                                    crate::surface::list_row(
+                                        render_suggestion_row(suggestion, team_id.clone(), cx),
+                                        ix,
+                                    )
+                                    .into_any_element()
                                 })
                                 .collect();
-                        // NO gap on the headed section (EXP-697): the
-                        // header's `pb_2` IS the 8px to the list, so the
-                        // rows carry their own gapped column.
+                        // ×4: ONE "Suggestions" band over FLAT rows split by
+                        // hairlines — no per-row fill, no gap, no chevron.
                         v_flex()
                             .min_w_0()
                             .child(glass_section_header("Suggestions", None, cx))
-                            .child(v_flex().min_w_0().gap_2().children(rows))
+                            .child(v_flex().min_w_0().children(rows))
                             .into_any_element()
                     }
                 };
@@ -1202,27 +1209,21 @@ impl Render for GettingStartedView {
                     .min_w_0()
                     .gap_4()
                     .child(
-                        h_flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_4()
+                        v_flex()
+                            .gap_1()
                             .child(
-                                v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_xl()
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Getting started"),
-                                    )
-                                    .child(div().text_sm().text_color(muted).child(
-                                        "Set up the coding loop, collect feedback from your \
-                                         site, and connect your tools.",
-                                    )),
+                                div()
+                                    .text_xl()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Getting started"),
                             )
-                            .child(progress),
+                            .child(div().text_sm().text_color(muted).child(
+                                "Set up the coding loop, collect feedback from your \
+                                 site, and connect your tools.",
+                            )),
                     )
                     .child(segments)
+                    .children(progress)
                     .child(body)
                     .into_any_element()
             }

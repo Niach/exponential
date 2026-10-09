@@ -242,7 +242,11 @@ class StyleguideScreenshotsTest {
         // first card's title keeps the shot off a half-drawn sheet.
         composeRule.onNode(hasTestTag("board-switcher-new-team")).performClick()
         flow.waitFor(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Create a team"), NAV_TIMEOUT)
+        // P3: the sheet opens on the choice page; "Create a team" pushes the
+        // create page, which is what this view photographs.
+        flow.waitFor(hasTestTag("team-setup-create"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("team-setup-create")).performClick()
+        flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-create-team")
         // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
@@ -345,8 +349,8 @@ class StyleguideScreenshotsTest {
         // --- My Issues: the Inbox tab opens on the Inbox segment (EXP-58);
         // the segmented control's label is the only handle on it.
         composeRule.onNode(hasTestTag("tab-mywork")).performClick()
-        flow.waitFor(hasText("My Issues"), NAV_TIMEOUT)
-        composeRule.onAllNodes(hasText("My Issues")).onFirst().performClick()
+        flow.waitFor(hasText("My issues"), NAV_TIMEOUT)
+        composeRule.onAllNodes(hasText("My issues")).onFirst().performClick()
         flow.waitFor(hasText(MY_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_my-issues")
@@ -690,11 +694,10 @@ class StyleguideScreenshotsTest {
         flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
         flow.waitFor(hasText("Get started"), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
-        flow.waitFor(hasText("Set up your team"), NAV_TIMEOUT)
-        // The mobile wizard shows the Create and Join cards on ONE step — this
-        // single shot is the whole `onboarding` view on Android/iOS (there is no
-        // separate create-team / join screen to photograph).
-        flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
+        // P3: the team step is web's choice page — the mark, "Welcome to
+        // Exponential", Create a team / Join a team.
+        flow.waitFor(hasText("Welcome to Exponential"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding")
 

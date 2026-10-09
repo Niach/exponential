@@ -2,15 +2,18 @@ import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   EmptyState,
-  Button,
   GlassSectionHeader,
   ListRow,
+  Menu,
+  MenuGestureHost,
   conceptIcon,
+  menuProps,
   BoardGlyph,
   toast,
 } from "@exp/ui"
+import type { MenuSessionProps } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { relativeTime } from "@/components/comment-rows/format"
+import { compactRelativeTime } from "@/lib/relative-time"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { issueDraftCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -18,12 +21,14 @@ import { openDraftNavigation } from "@/lib/issue-draft-page"
 
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const DeleteIcon = conceptIcon(`ui-delete`)
+const DRAFT_MENU_KIND = `draft`
 
 // EXP-878: the Drafts list — an issue list in everything but what it points
 // at. A band over flat rows (`GlassSectionHeader` + `ListRow`, EXP-818), the
-// status glyph a draft would file with, its board, when it was last touched,
-// and a hover-revealed delete at the trailing end. Clicking a row reopens the
-// draft on the New issue page (EXP-1170), which is the only way back into one.
+// status glyph a draft would file with, its board and when it was last
+// touched. Rows carry no buttons: Discard lives in the row's context Menu
+// (right-click / long-press). Clicking a row reopens the draft on the New
+// issue page (EXP-1170), which is the only way back into one.
 export function DraftsList({
   teamId,
   teamSlug,
@@ -67,61 +72,70 @@ export function DraftsList({
     )
   }
 
+  const draftMenu = ({ target, open, onOpenChange }: MenuSessionProps) => (
+    <Menu
+      mode="pointer"
+      anchor={target.anchor}
+      open={open}
+      onOpenChange={onOpenChange}
+      returnFocus={target.origin}
+      aria-label="Draft actions"
+      title="Draft"
+      entries={[
+        {
+          kind: `item`,
+          id: `discard`,
+          label: `Discard draft`,
+          icon: DeleteIcon,
+          destructive: true,
+          disabled: deletingId === target.id,
+          onSelect: () => void handleDelete(target.id),
+        },
+      ]}
+    />
+  )
+
   return (
-    <div className={className} data-testid="drafts-list">
-      <GlassSectionHeader label="Drafts" count={entries.length} />
-      {entries.map((entry) => (
-        <ListRow
-          key={entry.draft.id}
-          interactive
-          className="group"
-          onClick={() =>
-            void navigate(
-              openDraftNavigation({
-                teamSlug,
-                draftId: entry.draft.id,
-                boardId: entry.board.id,
-                from,
-              })
-            )
-          }
-        >
-          <IssueStatusIcon
-            issue={{ status: `backlog`, statusId: entry.draft.statusId }}
-            className="size-4 shrink-0"
-          />
-          <span
-            className={`min-w-0 flex-1 truncate text-sm ${
-              entry.untitled ? `text-muted-foreground italic` : ``
-            }`}
+    <MenuGestureHost menus={{ [DRAFT_MENU_KIND]: draftMenu }}>
+      <div className={className} data-testid="drafts-list">
+        <GlassSectionHeader label="Drafts" />
+        {entries.map((entry) => (
+          <ListRow
+            key={entry.draft.id}
+            interactive
+            {...menuProps(DRAFT_MENU_KIND, entry.draft.id)}
+            onClick={() =>
+              void navigate(
+                openDraftNavigation({
+                  teamSlug,
+                  draftId: entry.draft.id,
+                  boardId: entry.board.id,
+                  from,
+                })
+              )
+            }
           >
-            {entry.title}
-          </span>
-          <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-            <BoardGlyph board={entry.board} className="size-3" />
-            {entry.board.name}
-          </span>
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            {relativeTime(entry.draft.updatedAt)}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Discard draft`}
-            disabled={deletingId === entry.draft.id}
-            // Touch surfaces have no hover to reveal it (EXP-858's rule for
-            // row-level controls), so the phone list shows it outright.
-            className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-            onClick={(event) => {
-              event.stopPropagation()
-              void handleDelete(entry.draft.id)
-            }}
-          >
-            <DeleteIcon className="size-3.5" />
-          </Button>
-        </ListRow>
-      ))}
-    </div>
+            <IssueStatusIcon
+              issue={{ status: `backlog`, statusId: entry.draft.statusId }}
+              className="size-4 shrink-0"
+            />
+            <span
+              className={`min-w-0 flex-1 truncate text-sm ${
+                entry.untitled ? `text-muted-foreground italic` : ``
+              }`}
+            >
+              {entry.title}
+            </span>
+            <span className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+              <BoardGlyph board={entry.board} className="size-3" />
+              {entry.board.name}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {compactRelativeTime(entry.draft.updatedAt)}
+            </span>
+          </ListRow>
+        ))}
+      </div>
+    </MenuGestureHost>
   )
 }

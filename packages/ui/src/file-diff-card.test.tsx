@@ -34,8 +34,14 @@ describe(`FileDiffCard`, () => {
     render(<FileDiffCard file={TWO_HUNKS} />)
     // `unchangedBefore` of the first hunk (newStart 10) = 9 lines above it…
     const before = screen.getByText(`9 unchanged lines`)
-    expect(before.tagName).toBe(`DIV`)
+    expect(before.closest(`[data-diff-row="gap"]`)?.tagName).toBe(`DIV`)
     expect(before.closest(`button`)).toBeNull()
+    // The label pins to the visible left edge, never centred across the
+    // horizontal scroll width (a phone clipped it).
+    expect(before.className).toContain(`sticky`)
+    expect(before.closest(`[data-diff-row="gap"]`)?.className).not.toContain(
+      `text-center`
+    )
     // …and `unchangedBetween` the two hunks: 40 - (10 + 3) = 27.
     const between = screen.getByText(`27 unchanged lines`)
     expect(between.closest(`button`)).toBeNull()

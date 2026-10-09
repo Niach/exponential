@@ -18,7 +18,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.DeviceSetup
 import com.exponential.app.ui.components.DeviceSetupViewModel
-import com.exponential.app.ui.components.GlassSubmitButton
 
 /**
  * "Set up your devices" (EXP-725): the [OnboardingCopy] header, the shared
@@ -61,9 +60,6 @@ fun OnboardingDevicesStep(
         Spacer(Modifier.height(28.dp))
         // A machine of one's own is what this step is for; until one shows up
         // the only honest label is "skip".
-        GlassSubmitButton(
-            label = if (devices.orEmpty().isEmpty()) OnboardingCopy.SKIP else OnboardingCopy.CONTINUE,
-            onClick = onContinue,
-        )
+        SkipOrContinueButton(done = devices.orEmpty().isNotEmpty(), onClick = onContinue)
     }
 }

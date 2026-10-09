@@ -273,7 +273,7 @@ impl IssuesPane {
         ); 2] = [
             (
                 "pr-automation-opened",
-                "When a pull request opens, move issues to",
+                "When a PR opens, move issues to",
                 api::statuses::PrAutomationEvent::Opened,
                 team.pr_opened_status_id.clone(),
                 team.pr_opened_automation,
@@ -281,7 +281,7 @@ impl IssuesPane {
             ),
             (
                 "pr-automation-merged",
-                "When a pull request merges, move issues to",
+                "When a PR merges, move issues to",
                 api::statuses::PrAutomationEvent::Merged,
                 team.pr_merged_status_id.clone(),
                 team.pr_merged_automation,
@@ -409,7 +409,7 @@ impl IssuesPane {
 
         // EXP-711: merge ends the PR's live coding sessions by default
         // (EXP-498); the switch turns that off team-wide. Web parity: the
-        // third row of the same card, sub-hint included.
+        // third row of the same card, label only.
         let ends_sessions = team.ends_sessions_on_merge();
         let team_id = team.id.clone();
         let switch_pane = pane.clone();
@@ -419,21 +419,11 @@ impl IssuesPane {
                 .items_center()
                 .justify_between()
                 .child(
-                    v_flex()
+                    // Label + state only — no explanatory sub-hint.
+                    div()
                         .min_w_0()
-                        .child(
-                            div()
-                                .text_sm()
-                                .child("When a pull request merges, end its runs"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    "The run that merged its own pull request always keeps running.",
-                                ),
-                        ),
+                        .text_sm()
+                        .child("When a PR merges, end its runs"),
                 )
                 .child(
                     crate::controls::web_switch("pr-automation-end-sessions")

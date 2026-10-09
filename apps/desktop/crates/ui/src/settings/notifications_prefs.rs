@@ -35,7 +35,7 @@ use gpui_component::{
 };
 
 use crate::surface::{
-    glass_group_rows, glass_picker_row, glass_row_shell, glass_toggle_row, picker_value_label,
+    glass_group_rows, glass_picker_row, glass_toggle_row, picker_value_label,
 };
 
 use api::notifications::{EmailPrefs, UpdateEmailPrefsInput};
@@ -51,6 +51,34 @@ use crate::coding_flow::CodingHub;
 use crate::queries;
 
 use super::{error_notice, section, spawn_trpc};
+
+/// The "Email sending is not configured" alert (web
+/// `email-notifications-card.tsx`): the sentence wraps word by word so the
+/// two env-var names can sit inline as code chips.
+fn no_transport_alert(cx: &gpui::App) -> gpui::Div {
+    let code = |name: &'static str| {
+        div()
+            .rounded(px(4.))
+            .px_1()
+            .bg(cx.theme().muted)
+            .text_xs()
+            .font_family(theme::terminal::FONT_FAMILY)
+            .child(name)
+    };
+    let words = |text: &'static str| text.split(' ').map(|word| div().child(word));
+    let line = h_flex()
+        .flex_1()
+        .min_w_0()
+        .flex_wrap()
+        .items_center()
+        .gap_x(px(4.))
+        .children(words("Email sending is not configured on this server. Set"))
+        .child(code("AWS_SES_REGION"))
+        .child(div().child("or"))
+        .child(code("SMTP_HOST"))
+        .children(words("to enable it."));
+    crate::controls::alert(crate::controls::AlertVariant::Default, None, cx).child(line)
+}
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
 const TYPE_ROWS: [(&str, &str, &str); 9] = [
@@ -326,28 +354,13 @@ impl Render for NotificationsPrefsPane {
                 cx,
             ),
         ];
-        // EXP-698: the "no mail transport" caption is a ROW of the list,
-        // hairline-divided under the switch it explains. Only once the prefs
-        // are loaded: `transport` is false while they are still in flight.
-        if have_prefs && !transport {
-            rows.push(
-                glass_row_shell().child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        // EXP-771: the web's wording — it names the two env
-                        // vars that turn mail on, so the notice is actionable
-                        // instead of just saying no mail goes out.
-                        .child(
-                            "Email sending is not configured on this server. Set \
-                             AWS_SES_REGION or SMTP_HOST to enable it.",
-                        ),
-                ),
-            );
-        }
+        // The "no mail transport" notice = the shared alert ABOVE the group
+        // (web `Alert`), the two env vars as inline code. Only once the
+        // prefs are loaded: `transport` is false while they are in flight.
         let mut body = section(cx);
+        if have_prefs && !transport {
+            body = body.child(no_transport_alert(cx));
+        }
 
         match &self.load {
             Load::Idle | Load::Loading => {
@@ -445,11 +458,11 @@ impl Render for NotificationsPrefsPane {
                         .px_0()
                         .py_0()
                         .text_color(value_color)
-                        .dropdown_caret(true)
                         .disabled(digest_disabled)
                         // EXP-697: NOT `.label()` — upstream draws that in a
                         // `flex_none` box that neither shrinks nor truncates.
                         .child(picker_value_label(digest_label))
+                        .child(crate::surface::picker_row_chevron(cx))
                         .dropdown_menu({
                             let entity = cx.entity();
                             let current = digest.clone();
@@ -491,9 +504,9 @@ impl Render for NotificationsPrefsPane {
                             .px_0()
                             .py_0()
                             .text_color(value_color)
-                            .dropdown_caret(true)
                             .disabled(digest_disabled)
                             .child(picker_value_label(SharedString::from(format!("{hour}:00"))))
+                            .child(crate::surface::picker_row_chevron(cx))
                             .dropdown_menu({
                                 let entity = cx.entity();
                                 move |mut menu, _, _| {

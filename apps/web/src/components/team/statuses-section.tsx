@@ -2,14 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { useLiveQuery, eq, inArray } from "@tanstack/react-db"
 import {
-  ChevronDown,
-  ChevronUp,
-  Lock,
-  Ellipsis,
-  Plus,
-  Trash2,
-} from "lucide-react"
-import {
   issueCollection,
   issueStatusCollection,
   teamCollection,
@@ -35,16 +27,21 @@ import {
   SETTINGS_LIST_CLASS,
   GlassSectionHeader,
   Prompt,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  Menu,
+  conceptIcon,
   Input,
   ColorPicker,
   LABEL_COLORS,
   STATUS_COLORS,
   ColorSwatchGrid,
 } from "@exp/ui"
+
+const MoreIcon = conceptIcon(`ui-more`)
+const LockIcon = conceptIcon(`ui-private`)
+const AddIcon = conceptIcon(`ui-add`)
+const MoveUpIcon = conceptIcon(`ui-chevron-up`)
+const MoveDownIcon = conceptIcon(`ui-chevron-down`)
+const DeleteIcon = conceptIcon(`ui-delete`)
 
 const CATEGORY_LABEL: Record<IssueStatusCategory, string> = {
   backlog: `Backlog`,
@@ -251,50 +248,59 @@ function StatusRow({
         {isBuiltin ? (
           <IconTooltip label="Built-in status: reorderable, but not renamable, recolorable or deletable.">
             <span className="flex h-7 w-7 items-center justify-center text-muted-foreground">
-              <Lock className="h-3.5 w-3.5" />
+              <LockIcon className="h-3.5 w-3.5" />
             </span>
           </IconTooltip>
         ) : (
           <span aria-hidden className="h-7 w-7 shrink-0" />
         )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        {/* THE Menu (×2 with the IDE): Move up · Move down · Delete. */}
+        <Menu
+          align="end"
+          aria-label={`Status actions for ${option.name}`}
+          title={option.name}
+          entries={[
+            {
+              kind: `item`,
+              id: `move-up`,
+              label: `Move up`,
+              icon: MoveUpIcon,
+              disabled: isFirst,
+              onSelect: () => void move(`up`),
+            },
+            {
+              kind: `item`,
+              id: `move-down`,
+              label: `Move down`,
+              icon: MoveDownIcon,
+              disabled: isLast,
+              onSelect: () => void move(`down`),
+            },
+            ...(isBuiltin
+              ? []
+              : [
+                  {
+                    kind: `item` as const,
+                    id: `delete`,
+                    label: `Delete`,
+                    icon: DeleteIcon,
+                    destructive: true,
+                    onSelect: () => onRequestDelete(option, count),
+                  },
+                ]),
+          ]}
+          trigger={
             <Button
               variant="ghost"
               size="icon-sm"
               disabled={busy}
               aria-label={`Status actions for ${option.name}`}
             >
-              <Ellipsis />
+              <MoreIcon />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              disabled={isFirst}
-              onSelect={() => void move(`up`)}
-            >
-              <ChevronUp className="h-4 w-4" />
-              Move up
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={isLast}
-              onSelect={() => void move(`down`)}
-            >
-              <ChevronDown className="h-4 w-4" />
-              Move down
-            </DropdownMenuItem>
-            {!isBuiltin && (
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => onRequestDelete(option, count)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          }
+        />
       </div>
       {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
     </ListRow>
@@ -605,17 +611,17 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                         label={`A team can have at most ${ISSUE_STATUS_STARTED_MAX} started statuses.`}
                       >
                         <Button
-                          variant="glass"
+                          variant="ghost"
                           size="icon-sm"
                           disabled
                           aria-label={`Add ${CATEGORY_LABEL[category]} status`}
                         >
-                          <Plus />
+                          <AddIcon />
                         </Button>
                       </IconTooltip>
                     ) : (
                       <Button
-                        variant="glass"
+                        variant="ghost"
                         size="icon-sm"
                         onClick={() =>
                           setCreatingIn(
@@ -624,7 +630,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                         }
                         aria-label={`Add ${CATEGORY_LABEL[category]} status`}
                       >
-                        <Plus />
+                        <AddIcon />
                       </Button>
                     ))
                   }

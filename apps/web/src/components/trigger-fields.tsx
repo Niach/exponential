@@ -46,7 +46,6 @@ import {
   TabsTrigger,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
-  GlassInputRow,
   GlassTabsRow,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
@@ -246,13 +245,9 @@ export function TriggerWhenFields({
               }))}
             />
           )}
-          <GlassInputRow
-            id="trigger-time"
-            label="Time"
-            type="time"
-            inputClassName="ml-auto w-auto flex-none"
-            value={draft.time}
-            onChange={(e) => set({ time: e.target.value })}
+          <TriggerTimeRow
+            time={draft.time}
+            onChange={(time) => set({ time })}
           />
         </>
       )}
@@ -278,6 +273,62 @@ export function TriggerWhenFields({
         </>
       )}
     </GlassGroup>
+  )
+}
+
+const pad2 = (value: number) => String(value).padStart(2, `0`)
+const HOUR_ITEMS = Array.from({ length: 24 }, (_, hour) => ({
+  value: pad2(hour),
+  label: pad2(hour),
+}))
+const MINUTE_ITEMS = Array.from({ length: 60 }, (_, minute) => ({
+  value: pad2(minute),
+  label: pad2(minute),
+}))
+
+/** The Time row ×4: the 24h `HH:mm` value, its hour and its minute each a
+ *  Picker with the natives' choices (every hour, every minute) — never the
+ *  locale-dependent browser time control. */
+function TriggerTimeRow({
+  time,
+  onChange,
+}: {
+  time: string
+  onChange: (time: string) => void
+}) {
+  const [hour = `09`, minute = `00`] = time.split(`:`)
+  return (
+    <div
+      className="flex w-full items-center gap-3 px-4 py-3 text-sm"
+      data-testid="trigger-time"
+    >
+      <span className="shrink-0 text-foreground">Time</span>
+      <span className="ml-auto flex items-center gap-0.5 text-foreground/70 tabular-nums">
+        <Picker
+          mode="single"
+          triggerVariant="inline"
+          mobileTitle="Hour"
+          width="sm"
+          value={pad2(Number(hour) || 0)}
+          items={HOUR_ITEMS}
+          onChange={(value) => {
+            if (value !== null) onChange(`${value}:${pad2(Number(minute) || 0)}`)
+          }}
+        />
+        <span aria-hidden>:</span>
+        <Picker
+          mode="single"
+          triggerVariant="inline"
+          mobileTitle="Minute"
+          width="sm"
+          value={pad2(Number(minute) || 0)}
+          items={MINUTE_ITEMS}
+          onChange={(value) => {
+            if (value !== null) onChange(`${pad2(Number(hour) || 0)}:${value}`)
+          }}
+        />
+      </span>
+    </div>
   )
 }
 

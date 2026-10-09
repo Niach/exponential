@@ -58,13 +58,6 @@ use super::invite_form::{
 use super::{section, error_notice, is_owner, is_plan_limit, spawn_trpc};
 use crate::icons::registry;
 
-/// The web's helper line under "Invite members" — an invite by email is a
-/// ROSTER action now (EXP-630), and the copy says so. Byte-identical to
-/// `members-section.tsx`.
-const INVITE_HELP: &str = "Send an invite by email — they join the team right \
-     away and can be assigned work before they sign in — or generate a link to \
-     share yourself";
-
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
     member: TeamMember,
@@ -141,11 +134,7 @@ impl MembersPane {
                 user: users.get(&member.user_id).cloned(),
             })
             .collect();
-        rows.sort_by(|a, b| {
-            display_name(a)
-                .to_lowercase()
-                .cmp(&display_name(b).to_lowercase())
-        });
+        sort_join_order(&mut rows);
         rows
     }
 
@@ -260,14 +249,23 @@ impl MembersPane {
                 .gap_3()
                 .items_center()
                 .child(
-                    div()
+                    h_flex()
+                        .gap_1()
+                        .items_center()
                         .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(SharedString::from(if is_self {
-                            format!("{name} (you)")
-                        } else {
-                            name.clone()
-                        })),
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(SharedString::from(name.clone())),
+                        )
+                        // "(you)" is a MUTED span after the name (web/iOS).
+                        .when(is_self, |name_el| {
+                            name_el.child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("(you)"),
+                            )
+                        }),
                 )
                 .child(role_chip(
                     row_id("member-role", &member.id),
@@ -591,27 +589,12 @@ impl Render for MembersPane {
             // generated link, the "Generate invite link" button, the pending
             // list. The heading is SENTENCE case here — the web's "Invite
             // Members" is the last title-cased heading in the settings pages.
+            // The heading is the group BAND every settings list wears (the
+            // "Pending invites" twin below), no helper sentence under it.
             let mut invite_section = v_flex()
                 .gap_3()
                 .pt_3()
-                .border_t_1()
-                .border_color(super::row_stroke(cx))
-                .child(
-                    v_flex()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Invite members"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(INVITE_HELP),
-                        ),
-                );
+                .child(crate::surface::glass_section_header("Invite members", None, cx));
 
             // EXP-630: THE shared form (name + address + "Send invite") — it
             // owns its own spinner, notices and fallback link.
@@ -671,9 +654,15 @@ impl Render for MembersPane {
                         .map(|at| format!("Expires {}", format_short_date(at)))
                         .unwrap_or_else(|| "No expiry".to_string())
                         .into();
-                    // Emailed invites show who they went to as the primary
-                    // text; link-only invites keep the chip-first row.
-                    let mut invite_identity = h_flex().gap_2().items_center();
+                    // ONE anatomy (web parity): the address or "Link
+                    // invite" · the role pill (mail glyph, link glyph for a
+                    // link invite) · "Expires Mon D".
+                    let pill_icon = if invite.email.is_some() {
+                        registry::UI_MAIL
+                    } else {
+                        registry::UI_LINK
+                    };
+                    let mut invite_identity = h_flex().gap_3().items_center();
                     match invite.email.clone() {
                         Some(email) => {
                             invite_identity = invite_identity.child(
@@ -699,7 +688,7 @@ impl Render for MembersPane {
                     invite_identity = invite_identity
                         .child(role_chip(
                             row_id("invite-role", &invite.id),
-                            registry::UI_MEMBER,
+                            pill_icon,
                             role,
                             cx,
                         ))
@@ -760,6 +749,16 @@ impl Render for MembersPane {
     }
 }
 
+/// Join order (web `useTeamUsers`): the member row's `created_at`, then its
+/// id — never the name, so the roster reads the same on every client.
+fn sort_join_order(rows: &mut [MemberRow]) {
+    rows.sort_by(|a, b| join_order_key(&a.member).cmp(&join_order_key(&b.member)));
+}
+
+fn join_order_key(member: &TeamMember) -> (&str, &str) {
+    (member.created_at.as_deref().unwrap_or(""), member.id.as_str())
+}
+
 fn display_name(row: &MemberRow) -> String {
     // Mirror `comments::author_label`: name (non-empty), else email
     // (non-empty), else the `Member <LAST4>` fallback. A blank name is the
@@ -808,4 +807,35 @@ fn placeholder_chip(
 
 fn row_id(kind: &str, id: &str) -> ElementId {
     ElementId::Name(SharedString::from(format!("{kind}-{id}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn member(id: &str, created_at: Option<&str>) -> MemberRow {
+        MemberRow {
+            member: TeamMember {
+                id: id.to_string(),
+                team_id: "t".to_string(),
+                user_id: format!("u-{id}"),
+                role: None,
+                created_at: created_at.map(str::to_string),
+                updated_at: None,
+            },
+            user: None,
+        }
+    }
+
+    #[test]
+    fn roster_is_join_order_then_id() {
+        let mut rows = vec![
+            member("b", Some("2026-03-01T00:00:00Z")),
+            member("c", Some("2026-01-01T00:00:00Z")),
+            member("a", Some("2026-03-01T00:00:00Z")),
+        ];
+        sort_join_order(&mut rows);
+        let ids: Vec<&str> = rows.iter().map(|row| row.member.id.as_str()).collect();
+        assert_eq!(ids, ["c", "a", "b"]);
+    }
 }

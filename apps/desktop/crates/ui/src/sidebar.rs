@@ -2730,7 +2730,7 @@ impl ListPanel {
             .tool_tab(
                 "inbox-tab-my-issues",
                 Icon::new(registry::UI_ASSIGNEE),
-                "My Issues",
+                "My issues",
                 tab == InboxTab::MyIssues,
                 cx,
             )
@@ -2824,7 +2824,6 @@ impl ListPanel {
         group: &queries::InboxGroup,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let theme = cx.theme();
         let unread = group.unread > 0;
         let selected = matches!(
             resolved_screen(&self.nav, cx),
@@ -2841,64 +2840,25 @@ impl ListPanel {
         let opens_results = group.opens_results();
         // Items are newest first — `first()` IS the latest.
         let latest = group.items.first();
-        let time: SharedString = latest
-            .and_then(|n| n.created_at.as_deref())
-            .map(crate::inbox::relative_time)
-            .unwrap_or_default()
-            .into();
-        // Notification titles are full human sentences ("Danny
-        // merged the pull request for …") — shown verbatim.
-        let sentence: SharedString = latest
-            .and_then(|n| n.title.clone())
-            .unwrap_or_default()
-            .into();
         let type_icon = notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
-        // Wave D: THE issue row shell, two-line: the circular type badge
+        // ONE line ×2 (web md+ compact row, EXP-862): the bare type glyph
         // (the latest item's kind) · identifier · title (medium while
-        // unread, dimmed once read) over the sentence · time + unread dot.
+        // unread) · the unread dot; a read row dims.
         let mut slots = crate::issue_relations::IssueRowSlots::new(SharedString::from(
             group.issue.title.clone(),
         ));
-        slots.lead = Some(
-            h_flex()
-                .size_6()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .rounded_full()
-                .bg(theme.muted)
-                .child(type_icon.xsmall().text_color(theme.muted_foreground))
-                .into_any_element(),
-        );
+        slots.lead = Some(inbox_glyph(type_icon, cx));
         slots.identifier = Some(SharedString::from(group.issue.identifier.clone()));
         slots.title_medium = unread;
-        slots.title_color = Some(if unread {
-            theme.foreground
-        } else {
-            theme.muted_foreground
-        });
-        slots.sub_line = Some(sentence);
-        slots.trailing = vec![h_flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap_1p5()
-            .pt_0p5()
-            .child(div().text_xs().text_color(theme.muted_foreground).child(time))
-            .child(
-                div()
-                    .size_2()
-                    .flex_shrink_0()
-                    .rounded_full()
-                    .when(unread, |this| this.bg(theme.primary)),
-            )
-            .into_any_element()];
+        slots.trailing = vec![inbox_unread_dot(unread, cx)];
         crate::issue_relations::issue_row_shell(
             SharedString::from(format!("mini-inbox-{}", group.issue.id)),
             slots,
-            crate::issue_relations::IssueRowDensity::TwoLine,
+            crate::issue_relations::IssueRowDensity::Compact,
             selected,
             cx,
         )
+        .when(!unread && !selected, |row| row.opacity(INBOX_READ_OPACITY))
         .on_click(cx.listener(move |this, _, window, cx| {
             // Web `markGroupRead`: clear the group's unreads
             // (the Electric echo removes the dot), then open.
@@ -2921,141 +2881,49 @@ impl ListPanel {
         .into_any_element()
     }
 
-    /// One agent message row (EXP-801): the bot badge, the sentence ("Ada's
-    /// agent: Build finished") as the headline, the team name when synced,
-    /// the body underneath. Click marks the row read — the row IS the
-    /// content, there is nowhere to go.
+    /// One agent message row (EXP-801): the bot glyph and the sentence
+    /// ("Ada's agent: Build finished"), the team name when synced. Click
+    /// marks the row read — the row IS the content, there is nowhere to go.
+    /// ONE line (web's compact sidebar row): no body, no stamp.
     fn inbox_message_row(
         &self,
         entry: &queries::MessageInboxEntry,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let theme_radius = theme.radius;
         let unread = entry.unread() > 0;
         let unread_ids: Vec<String> = if unread {
             vec![entry.item.id.clone()]
         } else {
             Vec::new()
         };
-        let time: SharedString = entry
-            .item
-            .created_at
-            .as_deref()
-            .map(crate::inbox::relative_time)
-            .unwrap_or_default()
-            .into();
         let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
-        let body: Option<SharedString> = entry
-            .item
-            .body
-            .clone()
-            .filter(|body| !body.trim().is_empty())
-            .map(Into::into);
         let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
         let type_icon =
             notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE));
-        h_flex()
-            .id(SharedString::from(format!("mini-inbox-message-{}", entry.item.id)))
-            .w_full()
-            .items_start()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .rounded(theme_radius)
-            .hover(|this| this.bg(theme.list_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |_, _, _, cx| {
-                mark_group_read(&unread_ids, cx);
-            }))
-            // EXP-862: the compact inbox drops the avatar circle (web parity):
-            // the type glyph alone leads the row.
-            .child(
-                h_flex()
-                    .size_4()
-                    .flex_shrink_0()
-                    .items_center()
-                    .justify_center()
-                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .truncate()
-                                    .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
-                                    .text_color(if unread {
-                                        theme.foreground
-                                    } else {
-                                        theme.muted_foreground
-                                    })
-                                    .child(sentence),
-                            )
-                            .when_some(team_name, |this, name| {
-                                this.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(name),
-                                )
-                            }),
-                    )
-                    .when_some(body, |this, body| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .text_xs()
-                                .truncate()
-                                .text_color(theme.muted_foreground)
-                                .child(body),
-                        )
-                    }),
-            )
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1p5()
-                    .pt_0p5()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(time),
-                    )
-                    .child(
-                        div()
-                            .size_2()
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .when(unread, |this| this.bg(theme.primary)),
-                    ),
-            )
-            .into_any_element()
+        inbox_line_row(
+            SharedString::from(format!("mini-inbox-message-{}", entry.item.id)),
+            type_icon,
+            sentence,
+            team_name,
+            unread,
+            false,
+            cx,
+        )
+        .on_click(cx.listener(move |_, _, _, cx| {
+            mark_group_read(&unread_ids, cx);
+        }))
+        .into_any_element()
     }
 
-    /// One blocked-run row (EXP-980): the waiting badge, the title ("EXP-12
-    /// hit a rate limit"), the team name when synced and the reason
-    /// underneath. Click marks it read and opens the run — a pruned run
-    /// (`session_id` NULL) only marks read.
+    /// One blocked-run row (EXP-980): the waiting glyph and the title
+    /// ("EXP-12 hit a rate limit"), the team name when synced. Click marks it
+    /// read and opens the run — a pruned run (`session_id` NULL) only marks
+    /// read. ONE line, like every compact inbox row.
     fn inbox_session_row(
         &self,
         entry: &queries::SessionInboxEntry,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let theme_radius = theme.radius;
         let unread = entry.unread() > 0;
         let unread_ids: Vec<String> = if unread {
             vec![entry.item.id.clone()]
@@ -3071,125 +2939,38 @@ impl ListPanel {
                 Some(Screen::Session { session_id }) if session_id == id
             )
         });
-        let time: SharedString = entry
-            .item
-            .created_at
-            .as_deref()
-            .map(crate::inbox::relative_time)
-            .unwrap_or_default()
-            .into();
         let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
-        let body: Option<SharedString> = entry
-            .item
-            .body
-            .clone()
-            .filter(|body| !body.trim().is_empty())
-            .map(Into::into);
         let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
         let type_icon =
             notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED));
-        h_flex()
-            .id(SharedString::from(format!("mini-inbox-session-{}", entry.item.id)))
-            .w_full()
-            .items_start()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .rounded(theme_radius)
-            .when(selected, |this| this.bg(theme.list_active))
-            .hover(|this| this.bg(theme.list_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| {
-                // Web `markGroupRead`, then open the run itself, pinned to
-                // this list so the Inbox stays beside it (EXP-1192). EXP-1250:
-                // a cross-team row opens WITHOUT switching the window's team
-                // (a switch would swap the whole strip away mid-step). A
-                // pruned run leads nowhere.
-                mark_group_read(&unread_ids, cx);
-                let Some(session_id) = session_id.clone() else {
-                    return;
-                };
-                let origin = this.row_origin(cx);
-                crate::session_screen::open_session_with_origin(
-                    &session_id,
-                    origin,
-                    window,
-                    cx,
-                );
-            }))
-            .child(
-                h_flex()
-                    .size_4()
-                    .flex_shrink_0()
-                    .items_center()
-                    .justify_center()
-                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
-            )
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .items_center()
-                            .gap_1p5()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_xs()
-                                    .truncate()
-                                    .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
-                                    .text_color(if unread {
-                                        theme.foreground
-                                    } else {
-                                        theme.muted_foreground
-                                    })
-                                    .child(sentence),
-                            )
-                            .when_some(team_name, |this, name| {
-                                this.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(name),
-                                )
-                            }),
-                    )
-                    .when_some(body, |this, body| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .text_xs()
-                                .truncate()
-                                .text_color(theme.muted_foreground)
-                                .child(body),
-                        )
-                    }),
-            )
-            .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1p5()
-                    .pt_0p5()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(time),
-                    )
-                    .child(
-                        div()
-                            .size_2()
-                            .flex_shrink_0()
-                            .rounded_full()
-                            .when(unread, |this| this.bg(theme.primary)),
-                    ),
-            )
-            .into_any_element()
+        inbox_line_row(
+            SharedString::from(format!("mini-inbox-session-{}", entry.item.id)),
+            type_icon,
+            sentence,
+            team_name,
+            unread,
+            selected,
+            cx,
+        )
+        .on_click(cx.listener(move |this, _, window, cx| {
+            // Web `markGroupRead`, then open the run itself, pinned to
+            // this list so the Inbox stays beside it (EXP-1192). EXP-1250:
+            // a cross-team row opens WITHOUT switching the window's team
+            // (a switch would swap the whole strip away mid-step). A
+            // pruned run leads nowhere.
+            mark_group_read(&unread_ids, cx);
+            let Some(session_id) = session_id.clone() else {
+                return;
+            };
+            let origin = this.row_origin(cx);
+            crate::session_screen::open_session_with_origin(
+                &session_id,
+                origin,
+                window,
+                cx,
+            );
+        }))
+        .into_any_element()
     }
 
     /// Switch the Inbox tab (EXP-186). On the Inbox SCREEN the tab is the
@@ -3744,6 +3525,76 @@ impl Render for ListPanel {
             .child(body)
             .into_any_element()
     }
+}
+
+
+/// A read inbox row's dim (web `opacity-60`).
+const INBOX_READ_OPACITY: f32 = 0.6;
+
+/// The compact inbox row's lead: the bare type glyph, no disc (web
+/// `RowGlyph compact`).
+fn inbox_glyph(icon: Icon, cx: &App) -> gpui::AnyElement {
+    h_flex()
+        .size_4()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .child(icon.xsmall().text_color(cx.theme().muted_foreground))
+        .into_any_element()
+}
+
+/// The trailing unread dot slot (kept while read, so titles line up).
+fn inbox_unread_dot(unread: bool, cx: &App) -> gpui::AnyElement {
+    div()
+        .ml_auto()
+        .size_2()
+        .flex_shrink_0()
+        .rounded_full()
+        .when(unread, |this| this.bg(cx.theme().primary))
+        .into_any_element()
+}
+
+/// One issue-less compact inbox row (agent message, blocked run): glyph ·
+/// sentence (medium while unread) · team name · unread dot, ONE line.
+fn inbox_line_row(
+    id: SharedString,
+    icon: Icon,
+    sentence: SharedString,
+    team_name: Option<SharedString>,
+    unread: bool,
+    selected: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    let theme = cx.theme();
+    crate::surface::flat_row_compact()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .flex_shrink_0()
+        .items_center()
+        .cursor_pointer()
+        .when(selected, |row| row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .when(!unread && !selected, |row| row.opacity(INBOX_READ_OPACITY))
+        .child(inbox_glyph(icon, cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
+                .child(sentence),
+        )
+        .when_some(team_name, |row, name| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(name),
+            )
+        })
+        .child(inbox_unread_dot(unread, cx))
 }
 
 #[cfg(test)]

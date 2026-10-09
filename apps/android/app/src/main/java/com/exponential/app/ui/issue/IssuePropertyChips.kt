@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
@@ -17,7 +18,11 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.estimateShortLabel
+import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillMode
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.size
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PriorityIcon
@@ -83,9 +88,11 @@ fun IssuePropertyChips(
     onOpenEstimate: () -> Unit,
     onOpenLabels: () -> Unit,
     onOpenProperties: (() -> Unit)?,
-    /** EXP-1170: the board chip, LAST in the box (the New issue page only). */
+    /** EXP-1170: the board chip, LAST in the box: its NAME (P46: on the face too). */
     board: String? = null,
     onOpenBoard: (() -> Unit)? = null,
+    /** P44: the board itself, so the chip draws ITS glyph in ITS colour. */
+    boardEntity: BoardEntity? = null,
 ) {
     val priority = subject.priority
     val pageMode = onOpenProperties == null
@@ -127,7 +134,7 @@ fun IssuePropertyChips(
         if (!hideAssignee) {
             val assigneeName = subject.assigneeId?.let { userDisplayName(assignee, it) }
             GlassPill(
-                assigneeName ?: "Unassigned",
+                assigneeName ?: IssuePropertyChipCopy.EMPTY_ASSIGNEE,
                 size = PillSize.Sm,
                 enabled = isModerator,
                 onClick = onOpenAssignee,
@@ -147,30 +154,31 @@ fun IssuePropertyChips(
                 icon = if (assigneeName == null) ExpIcons.uiUnassigned else null,
             )
         }
-        if (pageMode) {
-            LabelChips(issueLabels, isModerator, onOpenLabels, showEmpty = true)
-            DueDateChip(subject.dueDate, isModerator, onOpenDueDate, showEmpty = true)
-        } else {
-            DueDateChip(subject.dueDate, isModerator, onOpenDueDate, showEmpty = false)
-            if (estimatesOn) {
-                GlassPill(
-                    subject.estimate?.let { estimateShortLabel(it, estimationType!!) } ?: "Estimate",
-                    size = PillSize.Sm,
-                    enabled = isModerator,
-                    onClick = onOpenEstimate,
-                    icon = ExpIcons.uiEstimate,
-                    maxLines = 1,
-                )
-            }
-            LabelChips(issueLabels, isModerator, onOpenLabels, showEmpty = false)
+        // P46: ONE order ×4 — status · priority · assignee · labels · due
+        // date · board (the estimate, where the team keeps one, after the
+        // due date). The face shows no empty Labels / Due date chips.
+        LabelChips(issueLabels, isModerator, onOpenLabels, showEmpty = pageMode)
+        DueDateChip(subject.dueDate, isModerator, onOpenDueDate, showEmpty = pageMode)
+        if (!pageMode && estimatesOn) {
+            GlassPill(
+                subject.estimate?.let { estimateShortLabel(it, estimationType!!) } ?: "Estimate",
+                size = PillSize.Sm,
+                enabled = isModerator,
+                onClick = onOpenEstimate,
+                icon = ExpIcons.uiEstimate,
+                maxLines = 1,
+            )
         }
         if (board != null) {
+            // P44: the board's own glyph in its colour + its NAME, no chevron.
             GlassPill(
                 board,
                 size = PillSize.Sm,
                 enabled = onOpenBoard != null,
                 onClick = onOpenBoard,
-                icon = ExpIcons.navBoards,
+                mode = if (onOpenBoard != null) PillMode.Action else PillMode.Readonly,
+                leading = boardEntity?.let { b -> { BoardIcon(b, size = GlassPillDefaults.SmGlyphSize) } },
+                icon = if (boardEntity == null) ExpIcons.navBoards else null,
                 maxLines = 1,
                 modifier = Modifier.testTag("issue-board-chip"),
             )
@@ -191,15 +199,23 @@ fun IssuePropertyChips(
 @Composable
 private fun DueDateChip(dueDate: String?, isModerator: Boolean, onClick: () -> Unit, showEmpty: Boolean) {
     if (dueDate != null) {
+        // P48: the urgency tints the GLYPH only ×4; the label keeps the
+        // pill's own colour, so a not-yet-due date never reads as disabled.
+        val tint = dueDateColor(dueDate)
         GlassPill(
             formatDueDate(dueDate),
             size = PillSize.Sm,
             enabled = isModerator,
             onClick = onClick,
-            icon = ExpIcons.uiDueDate,
+            leading = {
+                Icon(
+                    ExpIcons.uiDueDate,
+                    contentDescription = null,
+                    tint = tint,
+                    modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                )
+            },
             maxLines = 1,
-            // Overdue/soon tints the whole pill, glyph and label alike.
-            contentColor = dueDateColor(dueDate),
         )
     } else if (showEmpty) {
         GlassPill(
@@ -226,11 +242,17 @@ private fun LabelChips(labels: List<LabelEntity>, isModerator: Boolean, onClick:
     }
     if (labels.isEmpty() && showEmpty) {
         GlassPill(
-            "Labels",
+            IssuePropertyChipCopy.EMPTY_LABEL,
             size = PillSize.Sm,
             enabled = isModerator,
             onClick = onClick,
             icon = ExpIcons.settingsLabels,
         )
     }
+}
+
+/** The empty chips' copy ×4 (P45, web `assignee-picker` / `label-picker`). */
+object IssuePropertyChipCopy {
+    const val EMPTY_ASSIGNEE = "Assignee"
+    const val EMPTY_LABEL = "Label"
 }

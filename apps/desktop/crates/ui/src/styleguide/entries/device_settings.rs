@@ -164,7 +164,7 @@ impl DeviceSettingsDemo {
                 surface::glass_picker_row(
                     "Computer use model",
                     None,
-                    surface::glass_picker_select(Select::new(&self.computer_use_model))
+                    surface::glass_picker_select(Select::new(&self.computer_use_model), cx)
                         .into_any_element(),
                     cx,
                 )

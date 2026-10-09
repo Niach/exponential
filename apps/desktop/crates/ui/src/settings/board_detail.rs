@@ -403,7 +403,9 @@ impl BoardDetailPane {
             .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
-            .child(crate::surface::picker_value_label(label));
+            .child(crate::surface::picker_value_label(label))
+            // A grouped picker row ends in chevron-right ×4.
+            .child(crate::surface::picker_row_chevron(cx));
 
         let board_id = board.id.clone();
         let pane = cx.entity().clone();

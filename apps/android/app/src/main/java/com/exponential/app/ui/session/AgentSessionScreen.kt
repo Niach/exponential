@@ -2576,7 +2576,9 @@ private fun RunThread(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().detailHazeSource(),
-                verticalArrangement = Arrangement.Bottom,
+                // P34: a short thread TOP-aligns under its status row (iOS,
+                // web); follow-scroll still pins a long one to its end.
+                verticalArrangement = Arrangement.Top,
                 contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + bottomInset),
             ) {
                 item(key = "thread-header") { header() }

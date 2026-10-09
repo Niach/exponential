@@ -1246,8 +1246,40 @@ impl Render for LoginView {
             // whose page gradient already sits behind it. EXP-1176: no card
             // either; the form sits on the gradient under the brand head.
             .text_color(cx.theme().foreground)
-            .child(v_flex().gap_6().items_center().child(brand).child(form))
+            .child(
+                v_flex()
+                    .gap_6()
+                    .items_center()
+                    .child(brand)
+                    .child(form)
+                    .child(legal_footer(cx)),
+            )
     }
+}
+
+/// The web `AuthFormShell` legal pair ×4: a muted "Privacy · Terms" line
+/// under the sign-in list, each word a link to the marketing page.
+pub(crate) const PRIVACY_URL: &str = "https://exponential.at/privacy/";
+pub(crate) const TERMS_URL: &str = "https://exponential.at/terms/";
+
+pub(crate) fn legal_footer(cx: &App) -> impl IntoElement {
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    let link = move |id: &'static str, label: &'static str, url: &'static str| {
+        div()
+            .id(id)
+            .cursor_pointer()
+            .hover(move |style| style.text_color(foreground).text_decoration_1())
+            .child(label)
+            .on_click(move |_, _, cx| crate::settings::open_url(cx, url.to_string()))
+    };
+    h_flex()
+        .justify_center()
+        .text_xs()
+        .text_color(muted)
+        .child(link("login-privacy", "Privacy", PRIVACY_URL))
+        .child(div().child("\u{a0}·\u{a0}"))
+        .child(link("login-terms", "Terms", TERMS_URL))
 }
 
 /// The pre-fetch defaults (mirror `AuthConfig`'s serde defaults: password on,

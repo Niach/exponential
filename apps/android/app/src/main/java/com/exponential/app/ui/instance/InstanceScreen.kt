@@ -6,19 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -34,24 +26,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.AppConstants
 import com.exponential.app.R
+import com.exponential.app.ui.auth.AuthShell
+import com.exponential.app.ui.auth.PendingLoginMethod
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassCard
 
 @Composable
 fun InstanceScreen(
@@ -83,6 +74,8 @@ fun InstanceScreen(
     // probe hides a button.
     val directGoogle = cloudConfig?.googleLoginEnabled != false
     val directApple = cloudConfig?.appleLoginEnabled != false
+    val directEmail = cloudConfig == null || cloudConfig.emailOtpEnabled || cloudConfig.passwordEnabled
+    val directPasskey = cloudConfig?.passkeyEnabled != false
 
     // Set the instance to the cloud, then hand off to a Custom Tab preselecting
     // the provider (mobile-oauth-start honors ?provider=). onContinue also
@@ -94,37 +87,19 @@ fun InstanceScreen(
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
 
-    // iOS InstanceView parity (EXP-577): the wordmark + "Connect to
-    // Exponential" lead-in above ONE glass card holding the provider buttons,
-    // the self-host link / URL field and Cancel — same texts, same order.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 32.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.Start,
-    ) {
-        Text(
-            "Exponential",
-            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp, fontWeight = FontWeight.Bold),
-            color = Color.White,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Connect to Exponential",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.height(32.dp))
+    fun continueOnCloud(method: String) {
+        PendingLoginMethod.value = method
+        onContinue(AppConstants.PUBLIC_CLOUD_URL)
+    }
 
+    // The cloud chooser IS the login page (P1): web's AuthFormShell — the
+    // mark over "Continue to Exponential", no subtitle, no card, the same
+    // Continue list (Apple, Google, email, passkey per the cloud's config),
+    // "Use a self-hosted instance" under it, Privacy · Terms closing it.
+    AuthShell(title = "Continue to Exponential") {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (!cloudAlreadyAdded) {
                 if (AppConstants.IS_STAGING) {
@@ -132,8 +107,8 @@ fun InstanceScreen(
                     // (iOS keeps the same line).
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                     ) {
                         Icon(
                             ExpIcons.uiStaging,
@@ -179,6 +154,36 @@ fun InstanceScreen(
                         )
                     }
                 }
+                // Email and passkey run on the cloud's login screen: pick the
+                // cloud, and that screen opens the chosen method at once.
+                if (directEmail) {
+                    GlassOAuthButton(
+                        label = "Continue with email",
+                        onClick = { continueOnCloud(PendingLoginMethod.EMAIL) },
+                        modifier = Modifier.testTag("instance-continue-with-email"),
+                    ) {
+                        Icon(
+                            imageVector = ExpIcons.uiMail,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                    }
+                }
+                if (directPasskey) {
+                    GlassOAuthButton(
+                        label = "Login with passkey",
+                        onClick = { continueOnCloud(PendingLoginMethod.PASSKEY) },
+                        modifier = Modifier.testTag("instance-passkey-button"),
+                    ) {
+                        Icon(
+                            imageVector = ExpIcons.authPasskey,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = LocalContentColor.current,
+                        )
+                    }
+                }
                 if (!showSelfHost) {
                     Text(
                         "Use a self-hosted instance",
@@ -188,13 +193,16 @@ fun InstanceScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { showSelfHost = true }
-                            .padding(vertical = 4.dp),
+                            .padding(vertical = 8.dp),
                     )
                 }
             }
 
             if (showSelfHost) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = if (cloudAlreadyAdded) 0.dp else 8.dp),
+                ) {
                     Text(
                         "Server URL",
                         style = MaterialTheme.typography.labelSmall,
@@ -216,11 +224,6 @@ fun InstanceScreen(
                     label = "Continue",
                     enabled = canSubmit,
                     onClick = { if (canSubmit) onContinue(input.text) },
-                )
-                Text(
-                    "Self-hosted? Enter the full URL of your server.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
 

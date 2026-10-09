@@ -136,7 +136,7 @@ internal fun eventGlyph(
 // (issueEventTypeValues in the domain contract); anything else degrades to the
 // type name with underscores spaced out.
 internal fun eventVerb(type: String): String = when (type) {
-    "status_changed" -> "changed the status"
+    "status_changed" -> "changed status"
     "assignee_changed" -> "changed the assignee"
     "label_added" -> "added a label"
     "label_removed" -> "removed a label"
@@ -175,8 +175,8 @@ internal fun eventPhrase(
             val from = field("fromName") ?: field("from")?.let { IssueStatus.labelFor(it) }
             when {
                 to == null -> eventVerb(event.type)
-                from != null -> "changed the status from $from to $to"
-                else -> "changed the status to $to"
+                from != null -> "changed status from $from to $to"
+                else -> "changed status to $to"
             }
         }
         "assignee_changed" -> {

@@ -175,26 +175,43 @@ fn card_shell() -> gpui::Div {
     crate::surface::glass_row_card().p_3().flex().flex_col().gap_3()
 }
 
-/// The desktop download card: header, description, the download button.
+/// The desktop card's secondary button (web `device-setup.tsx`).
+pub(crate) const ALL_PLATFORMS: &str = "All platforms";
+
+/// The desktop download card: header, description, the download buttons.
 pub(crate) fn desktop_card(cx: &App) -> impl IntoElement {
     use crate::getting_started::copy as gs;
     card_shell()
         .child(card_header(registry::UI_DEVICE, gs::DESKTOP_TITLE))
         .child(card_description(gs::DESKTOP_DESCRIPTION, cx))
         .child(
-            h_flex().child(
-                Button::new("device-setup-download")
-                    .outline()
-                    .web_sm()
-                    .icon(Icon::new(registry::UI_DOWNLOAD))
-                    .label(gs::DESKTOP_ACTION)
-                    .on_click(|_, _, cx| {
-                        crate::settings::open_url(
-                            cx,
-                            crate::machines::DESKTOP_RELEASES_URL.to_string(),
-                        );
-                    }),
-            ),
+            // The web card ×4: the primary download for THIS OS, then the
+            // outline "All platforms" (the releases page).
+            h_flex()
+                .flex_wrap()
+                .gap_2()
+                .child(
+                    Button::new("device-setup-download")
+                        .primary()
+                        .web_sm()
+                        .icon(Icon::new(registry::UI_DOWNLOAD))
+                        .label(gs::DESKTOP_ACTION)
+                        .on_click(|_, _, cx| {
+                            crate::settings::open_url(cx, crate::machines::desktop_download_url());
+                        }),
+                )
+                .child(
+                    Button::new("device-setup-all-platforms")
+                        .outline()
+                        .web_sm()
+                        .label(ALL_PLATFORMS)
+                        .on_click(|_, _, cx| {
+                            crate::settings::open_url(
+                                cx,
+                                crate::machines::DESKTOP_RELEASES_URL.to_string(),
+                            );
+                        }),
+                ),
         )
 }
 

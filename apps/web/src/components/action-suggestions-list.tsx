@@ -9,8 +9,9 @@ import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 import { formatTriggerBlock } from "@/lib/action-triggers"
 import {
   conceptIcon,
-  GlassRow,
   GlassSectionHeader,
+  ListRow,
+  SETTINGS_LIST_CLASS,
   BOARD_ICON_COMPONENTS,
 } from "@exp/ui"
 import { triggerDevices } from "@/components/trigger-fields"
@@ -55,7 +56,7 @@ function SuggestionRow({
     BOARD_ICON_COMPONENTS[suggestion.icon as BoardIcon] ?? ActionSuggestionIcon
   const clickable = canUse && !disabled
   return (
-    <GlassRow
+    <ListRow
       interactive={clickable}
       onClick={clickable ? onUse : undefined}
       className={canUse && disabled ? `opacity-60` : undefined}
@@ -77,7 +78,7 @@ function SuggestionRow({
           {suggestion.description}
         </div>
       </div>
-    </GlassRow>
+    </ListRow>
   )
 }
 
@@ -130,7 +131,9 @@ export function ActionSuggestionsPanel({ team }: { team: Team }) {
   return (
     <>
       <GlassSectionHeader label="Suggestions" />
-      <div className="flex flex-col gap-2">
+      {/* ×4: ONE "Suggestions" band over flat hairline-divided rows (no
+          per-row fill, no chevron). */}
+      <div className={SETTINGS_LIST_CLASS}>
         {suggestions.map((suggestion) => (
           <SuggestionRow
             key={suggestion.id}

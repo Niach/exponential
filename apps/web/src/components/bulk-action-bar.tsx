@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import { Flag, Trash2, X } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import {
@@ -39,12 +38,14 @@ import {
   statusUpdatePayload,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { toStatusPickerStatuses } from "@/components/issue-properties/status-dropdown"
+import {
+  IssueStatusIcon,
+  toStatusPickerStatuses,
+} from "@/components/issue-properties/status-dropdown"
 import { displayUserName } from "@/lib/user-display"
 
-// Bulk action bar: rendered by the board / My Issues views as an in-flow row
-// at the top of the list (in the header region) while the issue list has a
-// multi-selection. Property edits (status/priority/assignee/labels)
+// Bulk action bar: floats bottom-centre over the board / My Issues lists at
+// every width (×4) while the issue list has a multi-selection. Property edits (status/priority/assignee/labels)
 // keep the selection alive — only delete clears it (Linear semantics; the
 // desktop bar mirrors this). Every mutation goes through the bulk tRPC
 // procedures, chunked at the server's 200-id cap, awaiting the LAST txId so
@@ -315,7 +316,7 @@ export function BulkActionBar({
 
   return (
     // POSITIONING ONLY. On md+ this wrapper is `display: contents`, so the bar
-    // stays a direct child of the filter row exactly as before; below md it is
+    // sits in its host's floating strip (board page, sidebar list); below md it is
     // the fixed, centered box. The split exists because EXP-523's enter
     // animation writes `transform` (tw-animate-css's keyframes replace it
     // wholesale), which would cancel the `-translate-x-1/2` centering and snap
@@ -342,7 +343,7 @@ export function BulkActionBar({
         // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
         // longer count or a translated label scrolls instead of pushing the
         // destructive button off the screen edge (EXP-698 r5 shot review).
-        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto max-md:shadow-lg max-md:shadow-black/40${
+        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40${
           // EXP-1048: a column too narrow for one line folds instead of
           // clipping — the IDE's `wrap` arm.
           wrap ? ` max-w-full flex-wrap justify-center max-md:h-auto` : ``
@@ -356,7 +357,7 @@ export function BulkActionBar({
           aria-label="Clear selection"
           onClick={onClear}
         >
-          <X className="size-4" />
+          <CloseIcon className="size-4" />
         </Button>
         <span className="shrink-0 px-1 text-sm font-semibold whitespace-nowrap">
           {issues.length}
@@ -384,7 +385,13 @@ export function BulkActionBar({
               disabled={busy}
               aria-label="Set status"
             >
-              <StatusIcon className="size-4" />
+              {/* The selection's shared status glyph, else the checklist
+                  fallback ×4. */}
+              {!sharedStatus.mixed && issues[0] ? (
+                <IssueStatusIcon issue={issues[0]} className="size-4" />
+              ) : (
+                <StatusIcon className="size-4" />
+              )}
               {!iconOnly && <span className="hidden md:inline">Status</span>}
             </Button>
           }
@@ -417,7 +424,7 @@ export function BulkActionBar({
               disabled={busy}
               aria-label="Set priority"
             >
-              <Flag className="size-4" />
+              <PriorityIcon className="size-4" />
               {!iconOnly && <span className="hidden md:inline">Priority</span>}
             </Button>
           }
@@ -527,7 +534,7 @@ export function BulkActionBar({
           data-testid="bulk-delete"
           onClick={() => setDeleteOpen(true)}
         >
-          <Trash2 className="size-4" />
+          <DeleteIcon className="size-4" />
           {!iconOnly && <span className="hidden md:inline">Delete</span>}
         </Button>
         <Prompt
@@ -552,8 +559,12 @@ export function BulkActionBar({
 
 const StartCodingIcon = conceptIcon(`action-run`)
 const START_CODING_LABEL = READINESS_COPY.start
-// ×4 concepts (iOS `IssueListView` bulk bar): status, assignee, labels.
+// ×4 concepts (iOS `IssueListView` bulk bar): status fallback, priority (the
+// shared priority glyph), assignee, labels, close, delete.
 const StatusIcon = conceptIcon(`ui-checklist`)
+const PriorityIcon = conceptIcon(`priority-high`)
+const CloseIcon = conceptIcon(`ui-close`)
+const DeleteIcon = conceptIcon(`ui-delete`)
 const AssigneeIcon = conceptIcon(`ui-assignee`)
 const LabelsIcon = conceptIcon(`settings-labels`)
 

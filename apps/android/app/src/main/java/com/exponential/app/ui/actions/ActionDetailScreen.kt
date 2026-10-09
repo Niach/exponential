@@ -297,9 +297,9 @@ private fun TriggersTab(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
+                    // P68: no leading glyph ×4.
                     GlassPill(
                         "Add trigger",
-                        icon = ExpIcons.uiAdd,
                         enabled = !busy,
                         onClick = onAdd,
                         modifier = Modifier.testTag("add-trigger"),
@@ -423,8 +423,9 @@ private fun TriggerRow(
                 )
                 val launchLabel = triggerLaunchLabel(trigger)
                 if (launchLabel.isNotEmpty()) {
+                    // P67: "{device} · {agent}" ×4.
                     Text(
-                        launchLabel,
+                        "· $launchLabel",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,

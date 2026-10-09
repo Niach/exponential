@@ -3,13 +3,13 @@
 // holds the credential, encrypted, per member — it then works on every
 // device, remote starts and triggers); owners add, edit and remove.
 //
-// A row = name, where it lives, "N of M connected" and ONE action for the
+// A row = name · Default pill · host (×2 with the IDE) and ONE action for the
 // viewer: Connect (OAuth: `mcpServers.connect` → the provider's consent page
 // → the server-side callback → back here with `?mcp=connected|failed`), Set
 // key (an API-key server), or Connected (menu: Test connection, Share with
 // team / Stop sharing, Disconnect). FEED-73: a member may SHARE their own
-// connection with the team (like a shared device) — the row then counts
-// "K shared" and wears a "Shared" pill for the viewer whose connection it is.
+// connection with the team (like a shared device); the Connected menu says
+// which way it stands.
 // Adding a server starts from a catalog tile or a pasted URL; the server
 // probes it to detect the sign-in kind, so the owner only confirms a name.
 // Everything technical (auth override, transport, header/env names, scopes)
@@ -64,7 +64,6 @@ import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   draftFromServer,
-  sharedSummary,
   EMPTY_MCP_SERVER_DRAFT,
   isNavigableAuthorizeUrl,
   UNSAFE_AUTHORIZE_URL_MESSAGE,
@@ -694,7 +693,6 @@ function ServerRow({
 }) {
   const target = mcpServerTarget(server)
   const Glyph = getMcpServerIcon(server)
-  const needsSignIn = server.auth !== `none`
   return (
     <ListRow className="gap-3 px-3 py-2" data-testid="mcp-server-row">
       <Glyph className="size-4 shrink-0 text-foreground/70" />
@@ -708,25 +706,11 @@ function ServerRow({
               Default
             </Pill>
           )}
-          {server.connection.shared && <Pill size="sm">Shared</Pill>}
         </div>
-        {/* Phones drop the host beside the count; the name identifies it. */}
         <div className="flex min-w-0 text-xs text-muted-foreground">
-          <span
-            className={cn(
-              `min-w-0 truncate`,
-              needsSignIn && `max-sm:hidden`
-            )}
-            title={server.url ?? target}
-          >
+          <span className="min-w-0 truncate" title={server.url ?? target}>
             {target}
           </span>
-          {needsSignIn && (
-            <span className="shrink-0 whitespace-pre">
-              <span className="max-sm:hidden">{` · `}</span>
-              {sharedSummary(server)}
-            </span>
-          )}
         </div>
       </div>
       <ConnectionAction
@@ -975,7 +959,6 @@ function BuiltinToolsGroup() {
     <div className="mt-6">
       <GlassSectionHeader
         label="Built-in Exponential tools"
-        count={tools.length}
         expanded={expanded}
         onToggle={() => setExpanded((open) => !open)}
       />

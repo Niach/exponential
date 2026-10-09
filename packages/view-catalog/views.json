@@ -378,7 +378,7 @@
       "web": {
         "route": "/invite/$inviteToken",
         "anchor": {
-          "text": "Team Invite",
+          "text": "Team invite",
           "timeoutMs": 30000
         },
         "auth": "newcomer",
@@ -741,7 +741,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My Issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
+        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
       }
     },
     {
@@ -774,7 +774,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: no full-width page — My Issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My Issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
+        "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
       }
     },
     {
@@ -1173,7 +1173,7 @@
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
         "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
         "ios": "EXP-1251: 05_review opens the issue from Reviews on its Guide, then taps the Changes row (else Show complete diff) and waits for guide-section-page + changes-file-row before the shot.",
-        "android": "EXP-1251: 5_review shoots the GUIDE face (work-guide + guide-changes-row; the pop-out stays on the bare work-merge-pr capsule), not a section page."
+        "android": "EXP-1251: 5_review opens the issue from Reviews on its Guide, taps Show complete diff (or the single Changes row without a report) and shoots that page; the pop-out is the page capsule work-merge-pr-section."
       }
     },
     {

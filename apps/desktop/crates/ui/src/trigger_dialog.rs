@@ -16,8 +16,10 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _,
 };
+use std::cell::Cell;
+use std::rc::Rc;
 
 use coding::automations::ActionTrigger;
 
@@ -61,7 +63,10 @@ fn open_inner(
         return;
     };
     let editing = existing.is_some();
-    let height = (window.viewport_size().height * 0.85).min(px(480.));
+    // The window opens at the cap and then FITS its form (P66): no slack
+    // under a short schedule form, the form's own scroll past the cap.
+    let max_height = window.viewport_size().height * 0.85;
+    let height = max_height.min(px(480.));
     let spec = DialogSpec::new(
         if editing { "Edit trigger" } else { "New trigger" },
         size(px(520.), height),
@@ -69,7 +74,10 @@ fn open_inner(
     .resizable(size(px(420.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            TriggerDialogView::new(team_id.clone(), action_id.clone(), existing.clone(), window, cx)
+            let mut view =
+                TriggerDialogView::new(team_id.clone(), action_id.clone(), existing.clone(), window, cx);
+            view.max_height = max_height;
+            view
         });
         let busy = view.clone();
         DialogContent::new(view)
@@ -89,6 +97,14 @@ struct TriggerDialogView {
     submitting: bool,
     error: Option<SharedString>,
     scroll: ScrollHandle,
+    /// The window-height cap (85% of the opener's viewport).
+    max_height: gpui::Pixels,
+    /// The form's natural height and the scroll body's box, last frame (the
+    /// window viewport minus the body = the chrome around it).
+    content_h: Rc<Cell<gpui::Pixels>>,
+    body_h: Rc<Cell<gpui::Pixels>>,
+    /// The content height the window was last fitted to.
+    fitted: Option<gpui::Pixels>,
     /// EXP-721: the `devices` shape can land AFTER the dialog opened — the
     /// seeds re-run on every delta so the runner and the account row are
     /// never left empty by a race.
@@ -147,6 +163,10 @@ impl TriggerDialogView {
             submitting: false,
             error: None,
             scroll: ScrollHandle::new(),
+            max_height: px(480.),
+            content_h: Rc::default(),
+            body_h: Rc::default(),
+            fitted: None,
             _subscriptions: subscriptions,
         }
     }
@@ -218,8 +238,36 @@ impl TriggerDialogView {
     }
 }
 
+impl TriggerDialogView {
+    /// Size the WINDOW to the form (the chat dialog's EXP-1155 fit): its
+    /// measured content plus the chrome around the scroll body, capped at
+    /// [`Self::max_height`]. Refits only when the content height moved, so a
+    /// manual drag holds; never touches a maximized or fullscreen window.
+    fn fit_window(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let content = self.content_h.get();
+        let body = self.body_h.get();
+        if content <= px(0.) || body <= px(0.) || self.fitted == Some(content) {
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        self.fitted = Some(content);
+        let current = window.viewport_size();
+        let chrome = (current.height - body).max(px(0.));
+        let target = (content + chrome).min(self.max_height.max(px(360.)));
+        if (target - current.height).abs() <= px(1.) {
+            return;
+        }
+        native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+    }
+}
+
 impl Render for TriggerDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        self.fit_window(window, cx);
+        let view_id = cx.entity_id();
+        let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let danger = cx.theme().danger;
         let form = self
             .editor
@@ -262,11 +310,30 @@ impl Render for TriggerDialogView {
             // `Display::Block`, so an intermediate wrapper ignores the pane's
             // `flex_1` and its `size_full` scroll area resolves against an
             // indefinite height — the whole form collapses to nothing.
-            .child(crate::scroll_pane::v_scroll_pane(
-                "trigger-dialog-scroll",
-                &self.scroll,
-                v_flex().child(form).pr_2().pb_2(),
-            ))
+            .child(
+                crate::scroll_pane::v_scroll_pane(
+                    "trigger-dialog-scroll",
+                    &self.scroll,
+                    v_flex()
+                        .w_full()
+                        .flex_shrink_0()
+                        .child(form)
+                        .pr_2()
+                        .pb_2()
+                        .on_prepaint(move |bounds, _, cx| {
+                            if content_slot.get() != bounds.size.height {
+                                content_slot.set(bounds.size.height);
+                                cx.notify(view_id);
+                            }
+                        }),
+                )
+                .on_prepaint(move |bounds, _, cx| {
+                    if body_slot.get() != bounds.size.height {
+                        body_slot.set(bounds.size.height);
+                        cx.notify(view_id);
+                    }
+                }),
+            )
             .when_some(self.error.clone(), |this, error| {
                 this.child(div().text_sm().text_color(danger).child(error))
             })

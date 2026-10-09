@@ -466,17 +466,45 @@ internal fun TimelineGutter(
     }
 }
 
-// Relative timestamp ("3h ago"). Internal so the extracted EventRow /
-// RegularCommentRow can reuse it. Parses via WireTimestamps — Instant.parse
-// alone rejected Electric's Postgres text encoding, blanking every synced
-// row's time (EXP-169).
+// The two relative-time wordings ×4 (pinned): ACTIVITY and comments say the
+// LONG form ("5 minutes ago", web's date-fns `formatDistanceToNowStrict`);
+// LIST captions (inbox rows, device "Last seen", run rows) say the COMPACT
+// form ("5m", web's inbox formatter / desktop `inbox::relative_time`).
+// Both parse via WireTimestamps — Instant.parse alone rejected Electric's
+// Postgres text encoding, blanking every synced row's time (EXP-169).
+
+/** The long form: "5 seconds ago", "1 minute ago", "2 hours ago", "3 days ago", "2 months ago", "1 year ago". */
 internal fun relativeTime(wire: String, nowMs: Long = System.currentTimeMillis()): String {
     val thenMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(wire) ?: return ""
-    val seconds = ((nowMs - thenMs) / 1000).coerceAtLeast(0)
-    return when {
-        seconds < 60 -> "just now"
-        seconds < 3600 -> "${seconds / 60}m ago"
-        seconds < 86400 -> "${seconds / 3600}h ago"
-        else -> "${seconds / 86400}d ago"
-    }
+    return longRelativeTime(nowMs - thenMs)
+}
+
+/** The compact list caption: "just now", "5m", "2h", "3d". */
+internal fun compactRelativeTime(wire: String, nowMs: Long = System.currentTimeMillis()): String {
+    val thenMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(wire) ?: return ""
+    return compactRelativeTime(nowMs - thenMs)
+}
+
+internal fun longRelativeTime(diffMs: Long): String {
+    val seconds = Math.round(diffMs.coerceAtLeast(0) / 1000.0)
+    fun unit(n: Long, name: String) = "$n $name${if (n == 1L) "" else "s"} ago"
+    if (seconds < 60) return unit(seconds, "second")
+    val minutes = Math.round(seconds / 60.0)
+    if (minutes < 60) return unit(minutes, "minute")
+    val hours = Math.round(minutes / 60.0)
+    if (hours < 24) return unit(hours, "hour")
+    val days = Math.round(hours / 24.0)
+    if (days < 30) return unit(days, "day")
+    val months = Math.round(days / 30.0)
+    if (months < 12) return unit(months, "month")
+    return unit(Math.round(months / 12.0), "year")
+}
+
+internal fun compactRelativeTime(diffMs: Long): String {
+    val minutes = Math.round(diffMs.coerceAtLeast(0) / 60_000.0)
+    if (minutes < 1) return "just now"
+    if (minutes < 60) return "${minutes}m"
+    val hours = Math.round(minutes / 60.0)
+    if (hours < 24) return "${hours}h"
+    return "${Math.round(hours / 24.0)}d"
 }

@@ -1,6 +1,12 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
-import { Picker, GlassGroup, GlassToggleRow } from "@exp/ui"
+import {
+  Alert,
+  AlertDescription,
+  Picker,
+  GlassGroup,
+  GlassToggleRow,
+} from "@exp/ui"
 import type { NotificationType } from "@/lib/domain"
 import type { DigestCadence } from "@/lib/notification-email-policy"
 
@@ -123,17 +129,23 @@ export function EmailNotificationsCard({
   return (
     <div className="space-y-3">
       {!transportConfigured && (
-        <div className="rounded-md border bg-muted p-3 text-sm text-muted-foreground">
-          Email sending is not configured on this server. Set
-          <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
-            AWS_SES_REGION
-          </code>
-          or
-          <code className="mx-1 rounded bg-background px-1 py-0.5 text-xs">
-            SMTP_HOST
-          </code>
-          to enable it.
-        </div>
+        // The shared Alert above the group (×2 with the IDE's
+        // `controls::alert`), the env var names as inline code.
+        <Alert>
+          <AlertDescription>
+            <p>
+              Email sending is not configured on this server. Set{` `}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                AWS_SES_REGION
+              </code>
+              {` `}or{` `}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                SMTP_HOST
+              </code>
+              {` `}to enable it.
+            </p>
+          </AlertDescription>
+        </Alert>
       )}
 
       <GlassGroup>

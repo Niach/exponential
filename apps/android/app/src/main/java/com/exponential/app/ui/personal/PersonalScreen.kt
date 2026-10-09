@@ -3,6 +3,8 @@ package com.exponential.app.ui.personal
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import com.exponential.app.ui.theme.TextEmphasis
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -108,14 +110,34 @@ fun PersonalScreen(
                 selected = effective,
                 label = {
                     when (it) {
-                        SECTION_MY_ISSUES -> "My Issues"
+                        SECTION_MY_ISSUES -> "My issues"
                         SECTION_DRAFTS -> "Drafts"
                         else -> "Inbox"
                     }
                 },
                 onSelect = { section = it },
                 modifier = Modifier.padding(horizontal = 16.dp),
-                badge = { if (it == SECTION_INBOX) inboxState.totalUnread else 0 },
+                // P17: label + a PLAIN trailing count (unread, drafts), no
+                // icons, no capsule badge — one segment anatomy ×3 phones.
+                trailing = { option ->
+                    val count = when (option) {
+                        SECTION_INBOX -> inboxState.totalUnread
+                        SECTION_DRAFTS -> drafts.size
+                        else -> 0
+                    }
+                    if (count > 0) {
+                        {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                count.toString(),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                    } else {
+                        null
+                    }
+                },
             )
             Spacer(Modifier.height(8.dp))
             // EXP-1190: the sections page with a horizontal swipe (the Work

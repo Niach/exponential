@@ -258,10 +258,6 @@ export function ActionPromptForm({
               }))}
             />
           </GlassGroup>
-          <p className="px-1 text-xs text-muted-foreground">
-            With a repository the run clones it first; without one the agent
-            works in a scratch directory.
-          </p>
 
           {teamMcps.length > 0 && (
             <GlassGroup>

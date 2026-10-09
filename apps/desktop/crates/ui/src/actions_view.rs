@@ -164,16 +164,13 @@ impl ActionsDerived {
             return Self { ready: true, ..Self::default() };
         };
         let (mut actions, ready) = queries::team_actions(cx, team);
-        // EXP-431/686: NEITHER builtin is a row here. Creation lives behind
-        // the header's "New action" button, and "Fix merge conflicts" is
-        // launched from Reviews (or MCP), never picked off this list.
+        // EXP-431/686: NO builtin is a row here (×4). Creation lives behind
+        // the header's "New action" button, "Fix merge conflicts" is
+        // launched from Reviews (or MCP), "Tidy up" from the composer.
         // Filtered HERE, not in `queries::team_actions`: that pool must keep
-        // both — the Reviews entry point and the Start-coding dialog's
+        // them — the Reviews entry point and the Start-coding dialog's
         // preselect dead-end in `select_action` without them.
-        actions.retain(|action| {
-            action.id != api::actions::BUILTIN_CREATE_ACTION_ID
-                && action.id != api::actions::BUILTIN_FIX_CONFLICTS_ID
-        });
+        actions.retain(|action| !api::actions::is_builtin_action_id(&action.id));
         // SLOP-2: an action carries its triggers — the row wears a glyph
         // per KIND it has (the triggers themselves live on its page).
         let trigger_badges = actions

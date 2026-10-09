@@ -211,9 +211,22 @@ class StoreScreenshotsTest {
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
         flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
-        flow.waitForOptional(hasTestTag("work-merge-pr"), NAV_TIMEOUT)
+        // P60: the slide is the catalog's Complete diff page — tap the
+        // Guide's "Show complete diff" row (with no report the ONE Changes
+        // row already is the whole diff) and photograph the page it opens.
+        if (flow.waitForOptional(hasTestTag("guide-complete-diff"), NAV_TIMEOUT)) {
+            composeRule.onNode(hasTestTag("guide-complete-diff")).performClick()
+        } else {
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+        }
+        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+        // The section page's own capsule (the Guide's stays composed below).
+        flow.waitForOptional(hasTestTag("work-merge-pr-section"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("5_review", popRects = true)
+        // Back to the Guide, so the Back below still leaves the Work screen.
+        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+        flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
 
         // --- Actions (EXP-253): a bottom-bar tab again since EXP-1187; the
         // seed inserts three team actions (no client builtins are listed).

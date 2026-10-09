@@ -1005,9 +1005,27 @@ impl Render for LocalReposPane {
             this.run_prune_all(window, cx);
         }))
         .into_any_element();
+        // EXP-862: Refresh rides the band's trailing slot too (a ghost glyph
+        // beside the broom) — a disk scan has no mutation to refetch it.
+        let refresh = crate::controls::ghost_icon_button(
+            "local-repos-refresh",
+            Icon::new(registry::UI_REFRESH),
+            cx,
+        )
+        .loading(self.scanning)
+        .tooltip("Refresh")
+        .on_click(cx.listener(|this, _, _, cx| this.refresh(cx)))
+        .into_any_element();
         let mut body = section(cx).child(crate::surface::glass_section_header(
             "Worktrees",
-            Some(prune_all),
+            Some(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(refresh)
+                    .child(prune_all)
+                    .into_any_element(),
+            ),
             cx,
         ));
 
@@ -1148,15 +1166,6 @@ impl Render for LocalReposPane {
                     );
             }
         }
-
-        body = body.child(
-            h_flex().gap_2().child(
-                crate::surface::glass_pill_button("local-repos-refresh", crate::surface::PillSize::Sm, cx)
-                    .label("Refresh")
-                    .loading(self.scanning)
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
-            ),
-        );
 
         v_flex().child(body)
     }

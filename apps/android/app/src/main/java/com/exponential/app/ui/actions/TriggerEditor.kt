@@ -421,20 +421,9 @@ internal fun TriggerBindingFields(
             null
         } else {
             {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Account",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Primary,
-                        ),
-                    )
-                    Spacer(Modifier.weight(1f))
+                // P65: a plain picker ROW (label left, value + chevron-right),
+                // like every other row of the form — not a capsule.
+                run {
                     // The pin's own key; an unpinned draft shows its agent's
                     // last used login (that agent's first option), and a pin
                     // this machine no longer reports falls back to the first.
@@ -468,9 +457,10 @@ internal fun TriggerBindingFields(
                             }
                         },
                         trigger = { open ->
-                            AccountPickerPillTrigger(
-                                option = current.toPickerAccount(),
-                                onOpen = if (accountOptions.size > 1) open else null,
+                            PickerValueRow(
+                                label = "Account",
+                                value = current.toPickerAccount().email,
+                                onClick = { if (accountOptions.size > 1) open() },
                                 modifier = Modifier.testTag("trigger-account-pill"),
                             )
                         },

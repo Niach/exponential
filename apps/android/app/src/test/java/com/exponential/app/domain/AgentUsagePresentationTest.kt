@@ -504,12 +504,12 @@ class AgentUsagePresentationTest {
         assertNull(AgentUsagePresentation.usageAge(fresh, nowMs))
         // The machine's own flag wins over the age — a failed refresh left
         // these as the last good numbers.
-        assertEquals("as of 2m ago", AgentUsagePresentation.usageAge(fresh.copy(stale = true), nowMs))
+        assertEquals("as of 2 minutes ago", AgentUsagePresentation.usageAge(fresh.copy(stale = true), nowMs))
         // …and so does simply ageing past the freshness window.
         val old = AgentUsagePresentation.parseUsage(
             """{"fetchedAt": "2026-08-28T09:00:00Z", "stale": false, "windows": []}""",
         )!!
-        assertEquals("as of 1h ago", AgentUsagePresentation.usageAge(old, nowMs))
+        assertEquals("as of 1 hour ago", AgentUsagePresentation.usageAge(old, nowMs))
         // Nothing to date it by = no line at all.
         assertNull(AgentUsagePresentation.usageAge(null, nowMs))
         assertNull(

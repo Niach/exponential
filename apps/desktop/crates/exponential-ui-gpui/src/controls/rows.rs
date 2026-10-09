@@ -293,8 +293,9 @@ const PICKER_CONTROL_MIN_W: f32 = 200.;
 /// A picker row: the label leading at full foreground (with an optional muted
 /// second line), the value trailing at 70% with its own chevron, and NO field
 /// chrome — the group IS the field. Pass the trailing control through
-/// [`glass_picker_select`] (a [`Select`]) or build it as a `dropdown_caret`
-/// button; either way it must arrive stripped of background/border.
+/// [`glass_picker_select`] (a [`Select`]) or build it as a `dropdown_menu`
+/// button ending in [`picker_row_chevron`]; either way it must arrive
+/// stripped of background/border.
 pub fn glass_picker_row(
     label: impl Into<SharedString>,
     description: Option<SharedString>,
@@ -355,13 +356,22 @@ pub fn picker_value_label(label: impl Into<SharedString>) -> Div {
         .child(label.into())
 }
 
+/// The trailing glyph of a grouped picker row: `ui-chevron-right` ×4, never
+/// a dropdown caret (the polish round's picker rule). A `dropdown_menu`
+/// trigger appends it as its LAST child instead of `dropdown_caret(true)`.
+pub fn picker_row_chevron(cx: &App) -> Icon {
+    Icon::empty()
+        .path(Chrome::global(cx).icons.chevron_right.clone())
+        .size_4()
+}
+
 /// Strip a [`Select`]'s field chrome so it reads as the trailing VALUE of a
 /// [`glass_picker_row`]: no fill, no border, no focus ring box
 /// (`appearance(false)`), no box padding or height of its own (the row's
-/// 16/12 is the padding), and the title right-aligned against the caret the
-/// component already draws. The web twin is the `GLASS_PICKER_ROW` trigger
-/// (`bg-transparent border-0 h-auto`).
-pub fn glass_picker_select<D>(select: Select<D>) -> Select<D>
+/// 16/12 is the padding), the title right-aligned, and the component's caret
+/// swapped for the row's [`picker_row_chevron`]. The web twin is the
+/// `GLASS_PICKER_ROW` trigger (`bg-transparent border-0 h-auto`).
+pub fn glass_picker_select<D>(select: Select<D>, cx: &App) -> Select<D>
 where
     D: SearchableListDelegate + 'static,
     <D::Item as SearchableListItem>::Value: PartialEq + Clone,
@@ -372,6 +382,7 @@ where
         .px_0()
         .py_0()
         .text_right()
+        .icon(picker_row_chevron(cx))
 }
 
 /// A TEXT-FIELD row: the label leading, the value typed trailing, and no

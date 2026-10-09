@@ -185,7 +185,6 @@ fun SettingsScreen(
                             SettingsRow(
                                 icon = ExpIcons.settingsSync,
                                 title = "Sync diagnostics",
-                                subtitle = "Live Electric shape status",
                                 onClick = onOpenSyncDiagnostics,
                             )
                             GroupDivider()
@@ -195,7 +194,6 @@ fun SettingsScreen(
                         SettingsRow(
                             icon = ExpIcons.settingsRate,
                             title = "Rate our app",
-                            subtitle = "Leave a review on Google Play",
                             trailingIcon = ExpIcons.uiExternalLink,
                             onClick = {
                                 // Neither Play nor a browser: say so rather
@@ -210,7 +208,6 @@ fun SettingsScreen(
                         SettingsRow(
                             icon = ExpIcons.settingsAbout,
                             title = "About",
-                            subtitle = "Version ${AppConstants.VERSION_NAME}",
                             onClick = onOpenAbout,
                         )
                     }

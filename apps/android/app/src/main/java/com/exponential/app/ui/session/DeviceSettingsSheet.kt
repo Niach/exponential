@@ -1,5 +1,7 @@
 package com.exponential.app.ui.session
 
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -233,7 +235,7 @@ fun DeviceSettingsSheet(
                 // pick writes straight through and is drawn optimistically until
                 // the devices shape echoes it back; a failure reverts and captions
                 // this row, exactly where a failed rename lands.
-                SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
+                // P27: no "Name" header — the identity row needs none (web).
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -549,17 +551,22 @@ fun DeviceSettingsSheet(
                 // EXP-1043: a plain row of the same shell — a whole section band
                 // over one destructive control read like a second settings page.
                 Spacer(Modifier.height(8.dp))
-                GlassPill(
-                    "Remove device",
-                    icon = ExpIcons.uiDelete,
-                    onClick = { confirmRemove = true },
-                    enabled = !deviceMutating,
-                    contentColor = DesignTokens.Semantic.Red,
+                // Pinned ×4: a full-width destructive ROW (iOS), not a capsule.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
+                        .glassGroup()
+                        .clickable(enabled = !deviceMutating) { confirmRemove = true }
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                         .testTag("remove-device-button"),
-                )
+                ) {
+                    val red = DesignTokens.Semantic.Red.copy(alpha = if (deviceMutating) 0.5f else 1f)
+                    Icon(ExpIcons.uiDelete, contentDescription = null, tint = red, modifier = Modifier.size(18.dp))
+                    Text("Remove device", style = MaterialTheme.typography.bodyLarge, color = red)
+                }
                 Spacer(Modifier.height(24.dp))
             }
         }

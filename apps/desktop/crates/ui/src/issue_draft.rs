@@ -369,9 +369,14 @@ impl IssueDraft {
             SharedString::from(format!("{prefix}-due-popover")),
             chip_button(SharedString::from(format!("{prefix}-due-chip")), cx)
                 .icon(
-                    Icon::from(ExpIcon::CalendarDays)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
+                    Icon::from(ExpIcon::CalendarDays).xsmall().text_color(
+                        crate::issue_list::due_glyph_color(
+                            self.due_date
+                                .map(|date| date.format("%Y-%m-%d").to_string())
+                                .as_deref(),
+                            cx,
+                        ),
+                    ),
                 )
                 .child(crate::pickers::chip_label(
                     label,
@@ -388,7 +393,7 @@ impl IssueDraft {
 impl IssueDraft {
     /// EXP-1170: the board chip of the New issue page (lifted from the
     /// retired dialog's titlebar select, EXP-449): the board's own glyph
-    /// tinted with its color plus its prefix, opening THE searchable board
+    /// tinted with its color plus its name, opening THE searchable board
     /// picker over the team's boards. `None` when there is nowhere else to
     /// go (the EXP-57 `move_target_boards` rule) — a single-board team gets
     /// no chip at all. A pick lands at once, no confirm: nothing else resets
@@ -409,15 +414,11 @@ impl IssueDraft {
             .and_then(crate::issue_header::parse_hex_color)
             .unwrap_or(cx.theme().muted_foreground);
         let icon = crate::icons::board_icon(board).xsmall().text_color(tint);
-        let label = SharedString::from(board.prefix.clone().unwrap_or_default());
+        // ×4: the board NAME, no chevron (the issue face's board chip).
+        let label = SharedString::from(board.name.clone());
         let trigger = chip_button(SharedString::from(format!("{prefix}-board-chip")), cx)
             .icon(icon)
             .child(crate::pickers::chip_label(label, false, cx))
-            .child(
-                Icon::new(registry::UI_CHEVRON_DOWN)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
             .into_any_element();
         let current_id = board.id.clone();
         let team_id = board.team_id.clone();

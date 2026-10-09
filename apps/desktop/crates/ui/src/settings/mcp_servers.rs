@@ -53,50 +53,37 @@ const MCP_DESCRIPTION: &str =
 const CONNECT_POLL: Duration = Duration::from_secs(2);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// The transport chip (web `MCP_TRANSPORT_LABELS`).
-fn transport_label(transport: &str) -> &'static str {
-    match transport {
-        "stdio" => "Command",
-        _ => "HTTP",
-    }
-}
-
-/// The auth chip (web `MCP_AUTH_LABELS`).
-fn auth_label(auth: &str) -> &'static str {
-    match auth {
-        "oauth" => "OAuth",
-        "secret" => "API key",
-        _ => "No sign-in",
-    }
-}
-
-/// The row's second line: where the server lives, then (for a server that
-/// takes a credential) how many members connected — web `ServerRow`'s
-/// `detail`.
+/// The row's second line — web `mcpServerTarget`: an HTTP server's HOST,
+/// a command server's command line. Nothing else (no member counts, no
+/// transport/auth qualifiers): the row reads name · Default · host.
 fn row_detail(entry: &McpServerListEntry) -> String {
     let config = &entry.config;
-    let target = if config.is_http() {
-        config.url.clone().unwrap_or_default()
+    if config.is_http() {
+        url_host(config.url.as_deref().unwrap_or_default())
     } else {
         let mut parts = vec![config.command.clone().unwrap_or_default()];
         parts.extend(config.args.iter().cloned());
-        parts.join(" ").trim().to_string()
-    };
-    let mut detail = vec![target].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>();
-    if config.auth != "none" {
-        detail.push(shared_summary(entry));
+        parts
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
-    detail.join(" · ")
 }
 
-/// FEED-73 — the row's count segment (web `sharedSummary`, string for
-/// string): `N of M connected · K shared`, the shared part omitted at 0.
-pub(crate) fn shared_summary(entry: &McpServerListEntry) -> String {
-    let connected = format!("{} of {} connected", entry.connected_count, entry.member_count);
-    if entry.shared_count > 0 {
-        format!("{connected} · {} shared", entry.shared_count)
+/// Web `new URL(url).host` (port included, userinfo dropped); a string with
+/// no scheme echoes back verbatim, like the web's catch.
+fn url_host(url: &str) -> String {
+    let url = url.trim();
+    let Some((_, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    if host.is_empty() {
+        url.to_string()
     } else {
-        connected
+        host.to_ascii_lowercase()
     }
 }
 
@@ -766,13 +753,25 @@ impl McpServersPane {
         let tools = steer::exp_tool::builtin_tools();
         let muted = cx.theme().muted_foreground;
         let collapsed = !self.builtins_expanded;
-        let band = crate::surface::glass_section_band_fold(
-            "mcp-builtin-tools",
+        // The foldable band WITHOUT a count (list bands carry none): the
+        // leading chevron is the only fold affordance.
+        let chevron = Icon::new(if collapsed {
+            registry::UI_CHEVRON_RIGHT
+        } else {
+            registry::UI_CHEVRON_DOWN
+        })
+        .xsmall()
+        .flex_shrink_0()
+        .text_color(cx.theme().foreground.opacity(0.7))
+        .into_any_element();
+        let band = crate::surface::glass_section_band(
+            Some(chevron),
             "Built-in Exponential tools",
-            tools.len(),
-            collapsed,
+            None,
             cx,
         )
+        .id("mcp-builtin-tools")
+        .cursor_pointer()
         .on_click(cx.listener(|this, _, _, cx| {
             this.builtins_expanded = !this.builtins_expanded;
             cx.notify();
@@ -984,29 +983,12 @@ impl McpServersPane {
         let muted = cx.theme().muted_foreground;
         let detail = row_detail(entry);
 
+        // Web `ServerRow`: the Default pill is the row's ONLY chip.
         let mut chips = h_flex().gap_1().items_center().flex_wrap();
-        chips = chips.child(self.chip(
-            format!("mcp-transport-{}", config.id),
-            transport_label(&config.transport).to_string(),
-            cx,
-        ));
-        chips = chips.child(self.chip(
-            format!("mcp-auth-{}", config.id),
-            auth_label(&config.auth).to_string(),
-            cx,
-        ));
         if config.enabled_by_default {
             chips = chips.child(self.chip(
                 format!("mcp-default-{}", config.id),
                 "Default".to_string(),
-                cx,
-            ));
-        }
-        // FEED-73: the viewer's own connection is shared with the team.
-        if entry.shared {
-            chips = chips.child(self.chip(
-                format!("mcp-shared-{}", config.id),
-                "Shared".to_string(),
                 cx,
             ));
         }
@@ -1252,16 +1234,6 @@ mod tests {
         }
     }
 
-    /// FEED-73 — web `sharedSummary`, string for string.
-    #[test]
-    fn shared_summary_omits_a_zero_share_count() {
-        let mut row = entry("oauth", "connected");
-        assert_eq!(shared_summary(&row), "2 of 5 connected");
-        row.shared_count = 3;
-        assert_eq!(shared_summary(&row), "2 of 5 connected · 3 shared");
-        assert_eq!(row_detail(&row), "https://mcp.linear.app/mcp · 2 of 5 connected · 3 shared");
-    }
-
     /// FEED-73 — the Connected menu item and its toasts, web copy verbatim.
     #[test]
     fn share_copy_matches_the_web() {
@@ -1292,19 +1264,6 @@ mod tests {
         assert!(share_menu_offered(false, true));
     }
 
-    /// The web `MCP_TRANSPORT_LABELS` / `MCP_AUTH_LABELS` vocabularies, and
-    /// the tolerant fallbacks a newer contract value lands on.
-    #[test]
-    fn chip_labels_match_the_web_vocabulary() {
-        assert_eq!(transport_label("http"), "HTTP");
-        assert_eq!(transport_label("stdio"), "Command");
-        assert_eq!(transport_label("future"), "HTTP");
-        assert_eq!(auth_label("none"), "No sign-in");
-        assert_eq!(auth_label("oauth"), "OAuth");
-        assert_eq!(auth_label("secret"), "API key");
-        assert_eq!(auth_label("future"), "No sign-in");
-    }
-
     /// Web `ConnectionAction`: one action per row, from the person's own
     /// connection.
     #[test]
@@ -1320,17 +1279,16 @@ mod tests {
     }
 
     #[test]
-    fn row_detail_names_the_target_and_the_member_count() {
-        assert_eq!(
-            row_detail(&entry("oauth", "connected")),
-            "https://mcp.linear.app/mcp · 2 of 5 connected"
-        );
-        assert_eq!(row_detail(&entry("none", "not_needed")), "https://mcp.linear.app/mcp");
+    fn row_detail_is_the_host_or_the_command_only() {
+        assert_eq!(row_detail(&entry("oauth", "connected")), "mcp.linear.app");
+        assert_eq!(row_detail(&entry("none", "not_needed")), "mcp.linear.app");
         let mut stdio = entry("secret", "connected");
         stdio.config.transport = "stdio".into();
         stdio.config.command = Some("npx".into());
         stdio.config.args = vec!["-y".into(), "@acme/mcp".into()];
-        assert_eq!(row_detail(&stdio), "npx -y @acme/mcp · 2 of 5 connected");
+        assert_eq!(row_detail(&stdio), "npx -y @acme/mcp");
+        assert_eq!(url_host("https://u:p@Example.com:8443/mcp?x=1"), "example.com:8443");
+        assert_eq!(url_host("not a url"), "not a url");
     }
 
     #[test]

@@ -49,11 +49,12 @@ pub const MODEL_CHOICES: [(&str, &str); 3] =
     [("Fable", "fable"), ("Opus", "opus"), ("Sonnet", "sonnet")];
 
 /// EXP-981: the claude SUBAGENT model picks — the same aliases as
-/// [`MODEL_CHOICES`], with the blank "CLI default" in front (a subagent pin
-/// is optional, unlike claude's explicit-always `--model`). The labels are
-/// the Model picker's own, so the two rows read alike.
+/// [`MODEL_CHOICES`], with the blank "Default" in front (a subagent pin
+/// is optional, unlike claude's explicit-always `--model`; "Default" ×4, the
+/// web `CLI_DEFAULT_MODEL`). The labels are the Model picker's own, so the
+/// two rows read alike.
 pub const SUBAGENT_MODEL_CHOICES: [(&str, &str); 4] = [
-    (crate::launch_options::CLI_DEFAULT_LABEL, ""),
+    (crate::launch_options::SUBAGENT_DEFAULT_LABEL, ""),
     ("Fable", "fable"),
     ("Opus", "opus"),
     ("Sonnet", "sonnet"),
@@ -642,8 +643,9 @@ mod tests {
         assert_eq!(SUBAGENT_MODEL_CHOICES[0].1, "");
         assert_eq!(
             SUBAGENT_MODEL_CHOICES[0].0,
-            crate::launch_options::CLI_DEFAULT_LABEL
+            crate::launch_options::SUBAGENT_DEFAULT_LABEL
         );
+        assert_eq!(SUBAGENT_MODEL_CHOICES[0].0, "Default", "×4: the unset subagent reads Default");
         assert_eq!(&SUBAGENT_MODEL_CHOICES[1..], &MODEL_CHOICES[..]);
     }
 

@@ -40,7 +40,6 @@ import { InviteStep } from "@/components/onboarding/invite-step"
 import { DevicesStep } from "@/components/onboarding/devices-step"
 
 const BoardsIcon = conceptIcon(`nav-boards`)
-const SignOutIcon = conceptIcon(`nav-sign-out`)
 
 // Onboarding (EXP-188): signups get no team anymore, so the wizard is a
 // step machine. EXP-725 made it the SAME four steps on every client:
@@ -163,17 +162,18 @@ function SignedInFooter() {
   if (!email) return null
   return (
     <div className="mt-4 flex items-center justify-center gap-1 text-xs text-muted-foreground">
+      {/* ×4: muted "Signed in as {email} · Sign out". */}
       <span className="min-w-0 truncate" data-testid="onboarding-signed-in-as">
         Signed in as {email}
       </span>
+      <span aria-hidden>·</span>
       <Button
         type="button"
-        variant="ghost"
+        variant="link"
         size="sm"
-        className="h-7 px-2 text-xs text-muted-foreground"
+        className="h-auto p-0 text-xs font-normal text-muted-foreground hover:text-foreground"
         onClick={() => void handleSignOut()}
       >
-        <SignOutIcon className="mr-1.5 h-3.5 w-3.5" />
         Sign out
       </Button>
     </div>
@@ -249,7 +249,6 @@ function CreateTeamStep({
     <StepCard
       icon={Users}
       title="Create a team"
-      subtitle="Name your team. You can rename it and invite teammates later."
     >
       <div className="p-6">
         <form onSubmit={handleCreate} className="space-y-4">
@@ -316,7 +315,6 @@ function JoinStep({ onBack }: { onBack: () => void }) {
     <StepCard
       icon={LinkIcon}
       title="Join a team"
-      subtitle="Ask a teammate for an invite link (team settings → Members), then paste it below."
     >
       <div className="p-6">
         <form onSubmit={handleContinue} className="space-y-4">
@@ -329,7 +327,7 @@ function JoinStep({ onBack }: { onBack: () => void }) {
                 setLink(e.target.value)
                 setError(null)
               }}
-              placeholder={`${window.location.origin}/invite/…`}
+              placeholder="Paste an invite link"
               autoFocus
             />
           </div>

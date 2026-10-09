@@ -50,7 +50,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 // EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
 // servers and the new per-run Computer use live in the composer's ONE "+"
 // menu (`composer-plus-menu.tsx`). The line is Device · Account · Model ·
-// Repository · Plan · Resume and nothing else.
+// Plan · Resume · Repository ×4 (composer-menu.json) and nothing else.
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   const { launch, candidateDevices, subject } = model
@@ -127,21 +127,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
           }
         />
-        {subject === null && model.repoOptions.length > 1 && (
-          /* EXP-993: a choice only when there IS one — several repos. One
-             repo is the chat's anchor without a word said, and repo-less is
-             not on offer. */
-          <RepositoryPicker
-            triggerVariant="inline"
-            width="sm"
-            value={model.repoId || null}
-            repositories={model.repoOptions.map((option) => ({
-              id: option.value,
-              fullName: option.label,
-            }))}
-            onChange={model.setRepoId}
-          />
-        )}
         {agentSupportsPlanMode(agent) && !model.resumeActive && (
           <Label className="cursor-pointer gap-1.5 font-normal">
             <span>Plan</span>
@@ -168,6 +153,21 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               aria-label="Resume previous run"
             />
           </Label>
+        )}
+        {subject === null && model.repoOptions.length > 1 && (
+          /* EXP-993: a choice only when there IS one — several repos. One
+             repo is the chat's anchor without a word said, and repo-less is
+             not on offer. */
+          <RepositoryPicker
+            triggerVariant="inline"
+            width="sm"
+            value={model.repoId || null}
+            repositories={model.repoOptions.map((option) => ({
+              id: option.value,
+              fullName: option.label,
+            }))}
+            onChange={model.setRepoId}
+          />
         )}
         {/* EXP-773: a not-ready combination cannot start at all — the
             submit is disabled on the same predicate. EXP-1196: with a doctor
