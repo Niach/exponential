@@ -633,10 +633,12 @@ impl Surface {
                 }
             }
             out.extend(self.fire(owner_id, "select", Some(json!({"value": value, "checked": checked}))));
+            // A checkbox entry toggles and the menu STAYS open (a11y.json,
+            // the React renderer); an action closes it.
         } else {
             out.extend(self.fire(owner_id, "select", Some(json!({"value": value}))));
+            out.extend(self.set_open(owner_id, false));
         }
-        out.extend(self.set_open(owner_id, false));
         out
     }
 
