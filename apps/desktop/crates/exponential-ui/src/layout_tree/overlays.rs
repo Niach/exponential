@@ -29,14 +29,25 @@ impl Builder<'_, '_> {
         let owner = self.nodes[index as usize].clone();
         let layer_parent = owner.layer;
         let kind = owner.component.clone();
+        // Round 2 §7: the overlay is LAYOUT-TRANSPARENT, its frame is the
+        // trigger's. A control trigger (Button, Toggle) keeps its own size;
+        // any other trigger (a Link, a Box) is the flex item: the wrapper
+        // takes the parent's alignment and the trigger fills it.
+        let slot_trigger = node.slots.as_ref().and_then(|s| s.get("trigger"));
+        let fills = slot_trigger.is_some_and(|t| !matches!(t.component.as_str(), "Button" | "Toggle"));
         if kind == "ContextMenu" {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
+        } else if fills {
+            self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("stretch"))]);
         } else {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignSelf", json!("flex-start"))]);
         }
         let mut anchor: Option<u32> = None;
-        if let Some(trigger) = node.slots.as_ref().and_then(|s| s.get("trigger")) {
+        if let Some(trigger) = slot_trigger {
             anchor = self.add(trigger, Some(index), layer_parent, scope, false);
+            if let Some(a) = anchor.filter(|_| fills) {
+                self.style_default(a, &[("flexGrow", json!(1)), ("minWidth", json!(0))]);
+            }
         } else if kind == "DropdownMenu" {
             let label = owner.props.get("label").cloned().unwrap_or_else(|| Value::String(self.string("menu")));
             let mut props = json!({"label": label, "variant": "outline"});
@@ -94,6 +105,11 @@ impl Builder<'_, '_> {
             _ => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.md", "borderRadius": "$radius.md"}),
         };
         let (layer, root) = self.layer_root(&owner, "content", content_style);
+        if matches!(kind.as_str(), "Dialog" | "Drawer") {
+            // Round 2: the dialog's name — its title, else `$string.dialog`.
+            let label = str_prop(&owner.props, "title").map(str::to_string).unwrap_or_else(|| self.string("dialog"));
+            self.default_a11y(root, "label", json!(label));
+        }
         let owner_now = self.nodes[index as usize].clone();
         let mut scroll_body = None;
         let dismissible = owner.props.get("dismissible").and_then(Value::as_bool).unwrap_or(true);

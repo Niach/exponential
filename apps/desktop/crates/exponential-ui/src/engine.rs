@@ -137,8 +137,15 @@ impl taffy::LayoutPartialTree for View<'_, '_> {
                     let View { engine, measure } = view;
                     let n = &engine.nodes[slot(node)];
                     let measured = n.measured;
+                    let ratio = n.style.aspect_ratio.filter(|r| r.is_finite() && *r > 0.0);
                     let mut baseline = None;
                     let mut output = compute_leaf_layout(inputs, &n.style, |_, _| 0.0, |known, available| {
+                        // Round 2 §7: an aspect-ratio box whose width is known
+                        // (stretched, flexed) takes height = width / ratio, as
+                        // CSS transfers it (taffy only does for SIZED axes).
+                        if let (Some(r), Some(w), None) = (ratio, known.width, known.height) {
+                            return Size { width: w, height: w / r };
+                        }
                         if !measured {
                             return Size::ZERO;
                         }

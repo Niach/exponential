@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 
 use crate::catalog::A2UI_VERSION;
 
-pub const HOST_CONTRACT_VERSION: u32 = 1;
+pub const HOST_CONTRACT_VERSION: u32 = 2;
 /// The four A2UI v0.9 server messages.
 pub const A2UI_MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updateDataModel", "deleteSurface"];
 /// The two Exponential UI extensions.
@@ -35,6 +35,11 @@ pub const MCP_MIME_TYPES: &[&str] = &["application/json+a2ui", "application/a2ui
 pub const MCP_ACTION_TOOL: &str = "a2ui_event";
 pub const SSE_EVENTS: &[&str] = &["message", "a2ui"];
 pub const PACKAGE_REQUIRED: &[&str] = &["id", "name", "version", "catalogId", "templates"];
+/// Round 2: what a host hands each surface besides messages — the
+/// `SurfaceSettings` keys, the host formatter's methods, the commands.
+pub const SURFACE_SETTINGS: &[&str] = &["locale", "timeZone", "strings", "mode", "density", "contrast", "theme"];
+pub const SURFACE_FORMATTER: &[&str] = &["number", "currency", "percent", "date", "relativeTime", "plural"];
+pub const SURFACE_COMMANDS: &[&str] = &["focus", "announce", "scrollIntoView", "scrollToIndex"];
 
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
@@ -51,6 +56,7 @@ pub fn host_contract() -> Value {
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {},
         "package": {"required": PACKAGE_REQUIRED},
+        "surface": {"settings": SURFACE_SETTINGS, "formatter": SURFACE_FORMATTER, "commands": SURFACE_COMMANDS},
     })
 }
 

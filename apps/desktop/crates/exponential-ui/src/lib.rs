@@ -25,6 +25,16 @@
 //! `strings`, `code`, `chart`, `a11y`), surface settings (mode incl.
 //! `system`, density, contrast, font scale, safe-area insets).
 //!
+//! Round 2 (`docs/round-2-contract.md`): templates LIFTED out of the tree
+//! (`ReduceResult::templates`), `#<index>` keys and accumulated instance
+//! suffixes, a host [`format::Formatter`] (default: the English fallback),
+//! display strings, per-node direction and physical text alignment
+//! (`direction`), keyframe animations (`animation`), the Resizable
+//! arithmetic (`resizable`) and native, one-axis windowing with sections,
+//! sticky headers, unbounded lists and `scrollToIndex` (`list`),
+//! `position: sticky`, `backdropBlur` and the shared layout numbers
+//! (`layout`).
+//!
 //! The TypeScript reference implementation lives in `packages/exponential-ui`
 //! (`@exponential-at/ui`); both replay the same fixtures byte for byte, and
 //! the catalog, macro table and built-in themes are embedded here from the
@@ -37,6 +47,7 @@
 pub mod generated;
 
 pub mod a11y;
+pub mod animation;
 pub mod basic_map;
 pub mod bench;
 pub mod catalog;
@@ -44,12 +55,15 @@ pub mod chart;
 pub mod code;
 pub mod conditions;
 pub mod data;
+pub mod direction;
 pub mod engine;
 pub mod expr;
 pub mod extension;
+pub mod format;
 pub mod geometry;
 pub mod host;
 pub mod json;
+pub mod layout;
 pub mod layout_tree;
 pub mod list;
 pub mod locale;
@@ -58,6 +72,7 @@ pub mod measure;
 pub mod overlay;
 pub mod recipes;
 pub mod reducer;
+pub mod resizable;
 pub mod style;
 pub mod strings;
 pub mod style_check;

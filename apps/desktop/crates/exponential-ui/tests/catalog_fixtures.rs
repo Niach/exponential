@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 452);
+    assert_eq!(cases.len(), 459);
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);
@@ -161,7 +161,7 @@ fn catalog_macros_every_macro_case_expands_byte_for_byte() {
     let cases = macro_cases();
     assert!(!cases.is_empty());
     for c in &cases {
-        let ReduceResult { root, issues } = reduce_nested(&c.input, &core());
+        let ReduceResult { root, issues, .. } = reduce_nested(&c.input, &core());
         assert_eq!(issues, vec![], "{}", c.name);
         assert_same(&c.name, &root, &c.expected);
     }

@@ -184,6 +184,18 @@ z-index) and stay inside the safe-area insets; anchored popups flip and
 shift (`place_overlay`), `start`/`end` alignment and submenus follow the
 direction.
 
+## Round 2 (`docs/round-2-contract.md`)
+
+| area | API |
+|---|---|
+| templates | `ReduceResult::templates`: template nodes are LIFTED out of the tree; items instantiate them. Keys `#<index>` for missing / empty / duplicate (`list::template_item_keys`, `table_row_keys`); instance suffixes accumulate (`issue.title.ops.1`; `.`/`~` in keys escape as `~1`/`~0`); a template that would instantiate itself stays in place with an issue |
+| props | layout resolves props along their schema (`data::resolve_node_props`: a literal Table `rows` holding `{path}` is data); a bound number or boolean in a text prop shows its `format::display_string` |
+| formatting | `format::Formatter` (number, currency, percent, date, relative time, plural, `bytes`); `EnglishFormatter` default (UTC), `ZonedEnglishFormatter::new(offset)` = the fallback at the host's UTC offset per instant; `Surface::set_formatter`, `set_clock`, `tick`, `uses_clock` (tick once a minute while true); the zone reaches the core ONLY through the formatter (no zone database, no `time_zone` setting). The core parses and decides; the formatter localizes. Table cells, NumberField (display and typed text: `format::parse_number`), chart `tickLabels` + `valueLabels`, picker text, calendar names and day labels, FileUpload sizes go through it |
+| style | `position: sticky` (`LayoutOutput::sticky` = `{index, dx, dy}` paint offsets inside the nearest scroller, else the host viewport), `backdropBlur` (`Visual::backdrop_blur`), `animation` + `animationDuration` (`Visual::animation` = name + resolved timing; sample with `animation::frame_with_timing`), `direction` on any node (`Visual::direction` + physical `text_align` on leaves) |
+| Resizable | parts `panel` / `handle` / `grip`; `event(handle, "drag", {phase: start\|move\|end, delta})` from the start sizes, `event(handle, "key", {key})` (`resizable::RESIZE_KEYS`; others are ignored); a bound `sizes` writes and `change {sizes}` fires on a drag end or key that changed the sizes. Arithmetic: `resizable::*` |
+| lists | `direction: horizontal` windows on x; `divided` = gap + hairline at every boundary (`<list>.divider.<item>` between items); `sectionBy` + slot `section` (`<list>.section.<i>`, a level-3 heading) + `stickyHeaders` (`list::scroll_offset_for_item`); an unbounded list windows against its scrolling ancestor or the host viewport (`Surface::set_surface_scroll`); `scroll_to_index(id, index, align)` / `SurfaceCommand::ScrollToIndex` (the host viewport case emits `OutEvent::ScrollSurface`); window past 50 items |
+| strings | `$string.invalidValue`, `dialog`, `codeBlock`, `table`, `carousel` / `slide`, `resize` on the nodes' `accessibility` |
+
 ## Host API (`host`, VAPP-91)
 
 The pure half of the host API, JSON-equal to the TS reference
@@ -205,6 +217,7 @@ facade exposes all of it as JSON-string functions and a `HostRouter` object.
 |---|---|
 | `catalog-components/macros/basic-map/extension.json`, `kitchen-sink*.json` | `tests/catalog_fixtures.rs` (the TS test names; 189 macro cases incl. `bound:*` / `responsive:*`) |
 | `bind-time.json`, `style-conditions.json`, `code-tokens.json` | `tests/round1_fixtures.rs` |
+| `format`, `template-items`, `text-direction`, `resizable`, `virtual-list`, `animations.json`, `bench-list.json` | `tests/round2_fixtures.rs` (cases in `tests/support/round2.rs`, shared with the conformance runner); `tests/round2_surface.rs` covers the surface side |
 | `theme-resolved/recipes/extends/invalid.json`, `control-geometry.json` | `tests/theme_fixtures.rs` |
 | `layout-geometry.json` (900/390, LTR/RTL, EXACT frames), `overlay-geometry.json` | `tests/layout_fixtures.rs` (+ layers flipping at the four edges, a 10,000-row list, the A2UI message flow, extension leaves, a theme switch) |
 | `layout-geometry-round1.json` (WRITTEN here: the kitchen sink's responsive section at 390/600/700/768/900/1280, LTR/RTL, theme neutral, fixed measures per case; replayed by gpui, not yet by React) | `tests/round1_geometry.rs` (`EXP_UI_WRITE_FIXTURES=1` regenerates) |
@@ -227,13 +240,17 @@ collisions, per-node direction, `%` font sizes, snapshots mid-pass).
 
 ## Numbers
 
-Release build, x86-64 Linux desktop (`cargo run --release -p exponential-ui --example bench`):
+Release build, x86-64 Linux desktop, `FixedMeasure` (`cargo run --release -p exponential-ui --example bench`):
 
 | pass | time |
 |---|---|
 | 205-node card grid, `FixedMeasure`, warm width change (390 ↔ 900) | ~0.13 ms |
 | 2,000-row windowed list (215 live nodes), one scroll step (re-window, ~40 nodes restyled, 2 upcalls) | ~1.0 ms |
 | the same list, a hover (one node restyled, no rebuild, no upcall) | ~0.05 ms |
+| `bench-list.json`: 100,000 `ListRow`s, 390×800, neutral: first paint (data + reduce + bind + layout) | ~70 ms |
+| the same list: one viewport scroll step (mean of 100) | ~3.2 ms |
+| the same list: `scrollToIndex(50000, start)` + layout | ~5.4 ms |
+| the same list: items alive after the jump | 30 |
 | through the Kotlin/JNA binding on the JVM incl. `nodes()` (205 nodes) | ~0.4 ms (layout alone ~0.16 ms) |
 
 The Android emulator and iPhone figures are recorded by the painter runs

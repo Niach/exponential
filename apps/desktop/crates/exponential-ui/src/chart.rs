@@ -125,8 +125,8 @@ pub fn series_color(index: usize, tone: Option<&str>) -> String {
 
 /// The donut's hole as a share of its radius (pie = 0).
 pub const DONUT_HOLE: f64 = 0.6;
-/// Rows past which Table (and the React List) window their children.
-pub const WINDOW_THRESHOLD: usize = 50;
+/// Rows past which Table and List window their children (`layout.json`).
+pub const WINDOW_THRESHOLD: usize = crate::list::WINDOW_THRESHOLD;
 
 #[cfg(test)]
 mod tests {

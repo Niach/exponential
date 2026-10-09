@@ -312,6 +312,106 @@ fun main(args: Array<String>) {
     if (fnCall != null) equal(fnCall.json, mapOf("kind" to "functionCall", "componentId" to "b", "name" to "harness.toast", "args" to mapOf("message" to "hi")), "functionCall json")
     println("host fixtures: $checks checks so far")
 
+    // Round 2 (docs/round-2-contract.md): format calls through the English
+    // fallback and a Kotlin HostFormatter, display strings, the Resizable
+    // and list arithmetic, row slots, section headers, scrollToIndex.
+    val format = load("format.json")
+    for (c in list(format["calls"]).map(::obj)) equal(formatCallJson(Json.write(c["call"]), null, null) ?: "null", c["expected"], "format ${c["name"]}")
+    for (c in list(format["zoned"]).map(::obj)) equal(formatCallJson(Json.write(c["call"]), null, null, (c["offsetMinutes"] as Double).toInt()) ?: "null", c["expected"], "zoned ${c["name"]}")
+    for (d in list(format["display"]).map(::obj)) check(displayStringJson(Json.write(d["value"])) == d["expected"]) { "display ${d["name"]}" }
+    val resizable = load("resizable.json")
+    for ((op, key) in listOf("normalize" to "normalize", "resize" to "resize", "key" to "keys", "extents" to "extents")) {
+        for (c in list(resizable[key]).map(::obj)) {
+            val got = list(Json.parse(resizableJson(Json.write(c + ("op" to op))))).map { (it as Double) }
+            val want = list(c["expected"]).map { (it as Double) }
+            check(got.size == want.size && got.zip(want).all { (a, b) -> Math.abs(a - b) <= 1e-6 }) { "resizable $op ${c["name"]}: $got / $want" }
+        }
+    }
+    val vlist = load("virtual-list.json")
+    for (c in list(vlist["scrollTo"]).map(::obj)) {
+        val ext = c["extents"]
+        val extents = if (ext is List<*>) ext else List(((ext as Map<*, *>)["count"] as Double).toInt()) { ext["extent"] }
+        val req = mapOf("op" to "scrollTo", "extents" to extents, "gap" to c["gap"], "index" to c["index"], "viewport" to c["viewport"], "scroll" to c["scroll"], "align" to c["align"], "inset" to (c["inset"] ?: 0.0))
+        equal(listJson(Json.write(req)), c["expected"], "scrollTo ${c["name"]}")
+    }
+    val items = load("template-items.json")
+    for (c in list(items["reduce"]).map(::obj)) {
+        val got = if (c["nested"] != null) reduceNestedJson(Json.write(c["nested"]), c["catalogId"] as String, null) else reduceSurfaceJson(Json.write(c["components"]), c["catalogId"] as String, null)
+        equal(got, c["expected"], "reduce ${c["name"]}")
+    }
+    class Loud : HostFormatter {
+        override fun locale() = "x-loud"
+        override fun number(value: Double, decimals: UInt?, grouping: Boolean) = "#$value"
+        override fun currency(value: Double, code: String, decimals: UInt?, grouping: Boolean) = "$code$value"
+        override fun percent(value: Double, decimals: UInt?) = "${value}pc"
+        override fun date(epochMs: Double, dateOnly: Boolean, format: String?, style: String?, time: Boolean) = "d$dateOnly"
+        override fun relativeTime(value: Long, unit: String) = "$value $unit"
+        override fun plural(value: Double) = "other"
+        override fun bytes(value: Double, unit: String) = "$value~$unit"
+    }
+    check(formatCallJson(Json.write(mapOf("call" to "formatRelativeTime", "args" to mapOf("value" to 0.0))), Loud(), 7_200_000.0) == "\"-2 hour\"") { "kotlin formatter: relative" }
+    check(formatCallJson(Json.write(mapOf("call" to "formatDate", "args" to mapOf("value" to "2026-10-14"))), Loud(), null) == "\"dtrue\"") { "kotlin formatter: date" }
+    val up = Surface("u", coreCatalogId(), null, "light")
+    up.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "f", "component" to "FileUpload", "props" to mapOf("files" to listOf(mapOf("name" to "a.png", "size" to 48213.0))))))))
+    up.setFormatter(Loud())
+    up.setViewport(390f, 0f, null)
+    up.layoutFixed(null, true)
+    val meta = up.nodes().firstOrNull { it.id == "f.fileMeta.0" }
+    check(meta != null && obj(Json.parse(meta.propsJson))["text"] == "47.1~kilobyte") { "kotlin formatter: bytes ${meta?.propsJson}" }
+    val header = mapOf("id" to "h", "component" to "Text", "props" to mapOf("text" to mapOf("call" to "concat", "args" to mapOf("values" to listOf(mapOf("path" to "value"), " · ", mapOf("path" to "count"))))))
+    val bound = obj(Json.parse(bindSectionHeaderJson(Json.write(header), Json.write(mapOf("value" to "Today", "count" to 2.0)), 0u, "{}", null)!!))
+    check(obj(bound["props"])["text"] == "Today · 2") { "section header ${bound["props"]}" }
+    val rowSlot = bindRowSlotJson(Json.write(mapOf("id" to "c", "component" to "Text", "props" to mapOf("text" to mapOf("path" to "name")))), "[]", Json.write(listOf(mapOf("name" to "Ada"))), 0u, "{}", null)
+    check(rowSlot != null && obj(obj(Json.parse(rowSlot))["props"])["text"] == "Ada") { "row slot $rowSlot" }
+    val lst = Surface("l", coreCatalogId(), null, "light")
+    lst.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(mapOf("id" to "l", "component" to "List", "style" to mapOf("height" to 400.0), "children" to List(1000) { mapOf("id" to "r$it", "component" to "Box", "style" to mapOf("height" to 40.0, "flexShrink" to 0.0)) })))))
+    lst.setViewport(390f, 800f, null)
+    lst.layoutFixed(null, true)
+    lst.setFormatter(Loud())
+    check(lst.scrollToIndex("l", 500u, "start").any { it.kind == "relayout" }) { "scrollToIndex relayout" }
+    lst.layoutFixed(null, true)
+    check(lst.indexOf("r500") != null) { "scrollToIndex renders the item" }
+    println("round 2: $checks checks so far")
+
+    // --- the native painters' asks (VAPP-100) ---------------------------------
+    class Recording : Measurer {
+        val leaves = ArrayList<FfiLeaf>()
+        override fun measureId(): ULong = 12u
+        override fun measureIntrinsics(leaves: List<FfiLeaf>): List<FfiIntrinsics> {
+            this.leaves.addAll(leaves)
+            return leaves.map { l -> val w = l.control.width ?: (8f * l.text.length); FfiIntrinsics(w, w, l.control.height ?: l.textStyle.lineHeight) }
+        }
+        override fun measureHeights(leaves: List<FfiLeaf>, requests: List<FfiHeightRequest>): List<Float> = requests.map { r -> leaves.first { it.index == r.index }.textStyle.lineHeight }
+    }
+    val caps = Theme.load("""{"id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}""", null)
+    val asks = Surface.withTheme("a", coreCatalogId(), caps, "light")
+    asks.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(
+        mapOf("id" to "cap", "component" to "Text", "props" to mapOf("text" to "Overline", "variant" to "caption")),
+        mapOf("id" to "steps", "component" to "Stepper", "props" to mapOf("steps" to listOf(mapOf("label" to "One"), mapOf("label" to "Two")), "current" to 1.0)),
+        mapOf("id" to "pill", "component" to "Pill", "props" to mapOf("label" to "All", "pressable" to true)),
+        mapOf("id" to "n", "component" to "Text", "props" to mapOf("text" to mapOf("path" to "/n"))),
+        mapOf("id" to "hov", "component" to "Box", "style" to mapOf("width" to 10.0, "height" to 10.0, ":hover" to mapOf("opacity" to 0.5)))))))
+    asks.setData("/n", "412")
+    asks.setViewport(390f, 0f, null)
+    val rec = Recording()
+    asks.layout(rec)
+    val capStyle = asks.textStyle(asks.indexOf("cap")!!)!!
+    check(capStyle.letterSpacing == 0.5f && capStyle.textTransform == "uppercase" && capStyle.fontStyle == "italic") { "text style $capStyle" }
+    check(rec.leaves.first { it.id == "steps.step.1.marker.number" }.ownerComponent == "Stepper") { "macro part owner" }
+    check(rec.leaves.first { it.id == "n" }.text == "412") { "a bound number as text" }
+    asks.setSettings(asks.settings().copy(density = "compact"))
+    val eff = asks.effectiveTheme()!!
+    check(eff.resolvedJson() == asks.effectiveThemeJson() && eff.control("input")!! < caps.control("input")!!) { "effective theme" }
+    val pill = asks.indexOf("pill")!!
+    check(asks.setHover("pill", true)) { "hover set" }
+    asks.layout(rec)
+    check(asks.nodesAt(listOf(pill))[0].hovered && asks.visual(pill)!!.backgroundColor == eff.color("accent", "light")) { "hover resolves the recipe" }
+    check(asks.setHovered(listOf()) && !asks.nodesAt(listOf(pill))[0].hovered) { "hover cleared" }
+    val styled = asks.nodes().associate { it.id to it.hoverStyled }
+    check(styled["hov"] == true && styled["pill"] == true) { "hoverStyled: a :hover block and a hover recipe ($styled)" }
+    check(styled["cap"] == false && styled["root"] == false) { "hoverStyled: plain nodes ($styled)" }
+    println("asks: $checks checks so far")
+
     println("kotlin binding suite: $checks checks, $failures failures")
     exitProcess(if (failures == 0) 0 else 1)
 }

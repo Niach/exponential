@@ -602,3 +602,453 @@ fn a_host_function_call_crosses_the_facade_as_a_function_call_event() {
     let call = events.iter().find(|e| e.kind == "functionCall").expect("functionCall");
     eq(&call.json, &json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi"}}), "functionCall");
 }
+
+// ---------------------------------------------------------------------------
+// Round 2 (docs/round-2-contract.md): the round-2 fixtures through the free
+// functions, the foreign formatter, rows/sections, scrollToIndex.
+// ---------------------------------------------------------------------------
+
+struct Loud;
+
+impl HostFormatter for Loud {
+    fn locale(&self) -> String {
+        "x-loud".into()
+    }
+    fn number(&self, value: f64, decimals: Option<u32>, _grouping: bool) -> String {
+        format!("#{value}/{}", decimals.map(|d| d.to_string()).unwrap_or_default())
+    }
+    fn currency(&self, value: f64, code: String, _: Option<u32>, _: bool) -> String {
+        format!("{code}{value}")
+    }
+    fn percent(&self, value: f64, _: Option<u32>) -> String {
+        format!("{value}pc")
+    }
+    fn date(&self, epoch_ms: f64, date_only: bool, format: Option<String>, style: Option<String>, time: bool) -> String {
+        format!("{epoch_ms}|{date_only}|{}|{}|{time}", format.unwrap_or_default(), style.unwrap_or_default())
+    }
+    fn relative_time(&self, value: i64, unit: String) -> String {
+        format!("{value} {unit}")
+    }
+    fn plural(&self, value: f64) -> String {
+        if value == 2.0 { "two".into() } else { "other".into() }
+    }
+    fn bytes(&self, value: f64, unit: String) -> String {
+        format!("{value}~{unit}")
+    }
+}
+
+#[test]
+fn the_round_2_fixtures_replay_through_the_free_functions() {
+    let format = fixture("format.json");
+    for c in format["calls"].as_array().unwrap() {
+        let got = format_call_json(c["call"].to_string(), None, None, None).unwrap().unwrap_or_else(|| "null".into());
+        eq(&got, &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in format["zoned"].as_array().unwrap() {
+        let got = format_call_json(c["call"].to_string(), None, None, Some(c["offsetMinutes"].as_i64().unwrap() as i32)).unwrap().unwrap_or_else(|| "null".into());
+        eq(&got, &c["expected"], c["name"].as_str().unwrap());
+    }
+    for d in format["display"].as_array().unwrap() {
+        assert_eq!(display_string_json(d["value"].to_string()).unwrap(), d["expected"].as_str().unwrap(), "{}", d["name"]);
+    }
+    let resizable = fixture("resizable.json");
+    let near = |got: &str, want: &Value, label: &str| {
+        let g: Value = serde_json::from_str(got).unwrap();
+        let (g, w) = (g.as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap()).collect::<Vec<_>>()).unwrap_or_else(|| vec![g.as_f64().unwrap()]), want.as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap()).collect::<Vec<_>>()).unwrap_or_else(|| vec![want.as_f64().unwrap()]));
+        assert!(g.len() == w.len() && g.iter().zip(&w).all(|(a, b)| (a - b).abs() <= 1e-6), "{label}: {g:?} / {w:?}");
+    };
+    for (op, key) in [("normalize", "normalize"), ("resize", "resize"), ("key", "keys"), ("extents", "extents"), ("drag", "drag")] {
+        for c in resizable[key].as_array().unwrap() {
+            let mut req = c.clone();
+            req["op"] = json!(op);
+            near(&resizable_json(req.to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+        }
+    }
+    let list = fixture("virtual-list.json");
+    let expand = |e: &Value| e.as_array().cloned().unwrap_or_else(|| vec![e["extent"].clone(); e["count"].as_u64().unwrap() as usize]);
+    for c in list["windows"].as_array().unwrap() {
+        let req = json!({"op": "window", "extents": expand(&c["extents"]), "gap": c["gap"], "scroll": c["scroll"], "viewport": c["viewport"], "overscan": c.get("overscan")});
+        eq(&list_json(req.to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in list["scrollTo"].as_array().unwrap() {
+        let req = json!({"op": "scrollTo", "extents": expand(&c["extents"]), "gap": c["gap"], "index": c["index"], "viewport": c["viewport"], "scroll": c["scroll"], "align": c["align"], "inset": c.get("inset")});
+        eq(&list_json(req.to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in list["sectionedScrollTo"].as_array().unwrap() {
+        let sections: Value = serde_json::from_str(&list_json(json!({"op": "sections", "items": c["items"], "sectionBy": c["sectionBy"]}).to_string()).unwrap()).unwrap();
+        let rows = sections["rows"].as_array().unwrap().clone();
+        let extents: Vec<Value> = rows.iter().map(|r| if r.get("header").is_some() { c["headerExtent"].clone() } else { c["itemExtent"].clone() }).collect();
+        let req = json!({"op": "scrollToItem", "rows": rows, "rowExtents": extents, "gap": c["gap"], "index": c["index"], "viewport": c["viewport"], "scroll": c["scroll"], "align": c["align"], "stickyHeaders": c["stickyHeaders"]});
+        eq(&list_json(req.to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    let items = fixture("template-items.json");
+    for c in items["keys"].as_array().unwrap() {
+        eq(&list_json(json!({"op": "keys", "items": c["items"], "key": c.get("key")}).to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in items["reduce"].as_array().unwrap() {
+        let got = match c.get("nested") {
+            Some(n) => reduce_nested_json(n.to_string(), c["catalogId"].as_str().unwrap().into(), None).unwrap(),
+            None => reduce_surface_json(c["components"].to_string(), c["catalogId"].as_str().unwrap().into(), None).unwrap(),
+        };
+        eq(&got, &c["expected"], c["name"].as_str().unwrap());
+    }
+    let anim = fixture("animations.json");
+    let pulse = &anim["themes"]["neutral"]["pulse"];
+    for f in pulse["frames"].as_array().unwrap() {
+        let got: Value = serde_json::from_str(&animation_frame_json("pulse".into(), pulse["timing"].to_string(), f["t"].as_f64().unwrap(), false).unwrap().unwrap()).unwrap();
+        assert!((got["opacity"].as_f64().unwrap() - f["frame"]["opacity"].as_f64().unwrap()).abs() < 1e-3);
+    }
+    assert_eq!(relative_time_unit_json(-86_400_000.0), json!({"value": -1, "unit": "day"}).to_string());
+    assert_eq!(parse_date_value_json(json!("2026-10-14").to_string()).unwrap().unwrap(), json!({"ms": 1_791_936_000_000.0_f64, "dateOnly": true}).to_string());
+    assert_eq!(format_pattern_json("EEE d MMM".into(), json!({"year": 2026, "month": 10, "day": 14, "weekday": 3}).to_string(), None).unwrap(), "Wed 14 Oct");
+}
+
+#[test]
+fn a_foreign_formatter_localizes_what_the_core_decided() {
+    let call = |c: Value, now: Option<f64>| format_call_json(c.to_string(), Some(Arc::new(Loud)), now, None).unwrap().unwrap();
+    assert_eq!(call(json!({"call": "formatNumber", "args": {"value": 3, "decimals": 2}}), None), json!("#3/2").to_string());
+    assert_eq!(call(json!({"call": "formatCurrency", "args": {"value": 3, "currency": "eur"}}), None), json!("EUR3").to_string());
+    assert_eq!(call(json!({"call": "formatDate", "args": {"value": "2026-10-14", "style": "long", "time": true}}), None), json!("1791936000000|true||long|true").to_string());
+    assert_eq!(call(json!({"call": "formatRelativeTime", "args": {"value": 0}}), Some(7_200_000.0)), json!("-2 hour").to_string());
+    assert_eq!(call(json!({"call": "pluralize", "args": {"value": 2, "two": "a pair", "other": "many"}}), None), json!("a pair").to_string());
+    // On a surface: Table cells and bound format calls.
+    let surface = Surface::new("f".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface
+        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": 1.5}}}}]}).to_string())
+        .unwrap();
+    surface.set_formatter(Some(Arc::new(Loud)));
+    surface.set_viewport(390.0, 0.0, None);
+    surface.layout_fixed(None, true).unwrap();
+    let n = surface.nodes().into_iter().find(|n| n.id == "n").unwrap();
+    assert!(n.props_json.contains("\"#1.5/\""), "{}", n.props_json);
+    // A FileUpload's sizes: the value scaled, the unit the host names.
+    surface
+        .set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "f", "component": "FileUpload", "props": {"files": [{"name": "a.png", "size": 48213}]}}]}).to_string())
+        .unwrap();
+    surface.layout_fixed(None, true).unwrap();
+    let meta = surface.nodes().into_iter().find(|n| n.id == "f.fileMeta.0").expect("the size line");
+    assert!(meta.props_json.contains("\"47.1~kilobyte\""), "{}", meta.props_json);
+    // The English fallback in the host's zone (`HostZone` = the platform's
+    // UTC offset per instant).
+    struct Berlin;
+    impl HostZone for Berlin {
+        fn offset_minutes(&self, _: f64) -> i32 {
+            120
+        }
+    }
+    let zoned = Surface::new("z".into(), core_catalog_id(), None, "light".into()).unwrap();
+    zoned.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    zoned.set_fallback_zone(Some(Arc::new(Berlin)));
+    zoned.set_viewport(390.0, 0.0, None);
+    zoned.layout_fixed(None, true).unwrap();
+    assert!(zoned.nodes().into_iter().find(|n| n.id == "d").unwrap().props_json.contains("2026-10-15 00:30"));
+    assert!(!zoned.uses_clock(), "no relative time on screen");
+    let ticking = Surface::new("c".into(), core_catalog_id(), None, "light".into()).unwrap();
+    ticking.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "r", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}}]}).to_string()).unwrap();
+    ticking.set_viewport(390.0, 0.0, None);
+    ticking.layout_fixed(None, true).unwrap();
+    assert!(ticking.uses_clock());
+    ticking.set_clock(Some(0.0));
+    assert!(!ticking.uses_clock());
+    // `timeZone` is the host's (round 2 §3): the facade keeps it for
+    // `settings()`, the core takes the zone only through a formatter or a
+    // `HostZone`, so on its own it shifts nothing (instants stay UTC).
+    let mut settings = surface.settings();
+    settings.time_zone = Some("Europe/Vienna".into());
+    surface.set_settings(settings).unwrap();
+    assert_eq!(surface.settings().time_zone.as_deref(), Some("Europe/Vienna"));
+    let utc = Surface::new("u".into(), core_catalog_id(), None, "light".into()).unwrap();
+    utc.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "d", "component": "Text", "props": {"text": {"call": "formatDate", "args": {"value": "2026-10-14T22:30:00Z", "format": "yyyy-MM-dd HH:mm"}}}}]}).to_string()).unwrap();
+    let mut settings = utc.settings();
+    settings.time_zone = Some("Asia/Tokyo".into());
+    utc.set_settings(settings).unwrap();
+    utc.set_viewport(390.0, 0.0, None);
+    utc.layout_fixed(None, true).unwrap();
+    assert!(utc.nodes().into_iter().find(|n| n.id == "d").unwrap().props_json.contains("2026-10-14 22:30"));
+}
+
+#[test]
+fn row_slots_and_section_headers_bind_over_the_facade() {
+    let bind = fixture("bind-time.json");
+    let case = bind["extra"].as_array().unwrap().iter().find(|c| c["name"] == "Table/slot-cell:literal-rows").unwrap();
+    let d = &case["datasets"][0];
+    let bound: Value = serde_json::from_str(&bind_tree_json(case["expanded"].to_string(), d["data"].to_string(), String::new(), None).unwrap().unwrap()).unwrap();
+    for t in d["rowSlots"].as_array().unwrap() {
+        fn find<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+            if n["id"] == id {
+                return Some(n);
+            }
+            n["slots"].as_object().into_iter().flat_map(|s| s.values()).chain(n["children"].as_array().into_iter().flatten()).find_map(|c| find(c, id))
+        }
+        let id = t["id"].as_str().unwrap();
+        let node = find(&bound, id).unwrap();
+        let rows_prop = find(&case["expanded"], id).unwrap()["props"]["rows"].clone();
+        for r in t["rows"].as_array().unwrap() {
+            for (slot, expected) in r["slots"].as_object().unwrap() {
+                let got = bind_row_slot_json(node["slots"][slot].to_string(), rows_prop.to_string(), node["props"]["rows"].to_string(), r["index"].as_u64().unwrap() as u32, d["data"].to_string(), None, None).unwrap();
+                eq(&got.unwrap_or_else(|| "null".into()), expected, &format!("row {}", r["index"]));
+            }
+        }
+    }
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}});
+    let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "Today", "count": 2}).to_string(), 0, json!({"title": "Inbox"}).to_string(), None, None).unwrap().unwrap()).unwrap();
+    assert_eq!(got["props"]["text"], json!("Today · 2 · Inbox"));
+}
+
+#[test]
+fn scroll_to_index_resizable_and_sticky_cross_the_facade() {
+    let rows: Vec<Value> = (0..1000).map(|i| json!({"id": format!("r{i}"), "component": "Box", "style": {"height": 40, "flexShrink": 0}})).collect();
+    let surface = Surface::new("l".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "l", "component": "List", "style": {"height": 400}, "children": rows}]}).to_string()).unwrap();
+    surface.set_viewport(390.0, 800.0, None);
+    surface.layout_fixed(None, true).unwrap();
+    let events = surface.scroll_to_index("l".into(), 500, Some("start".into()));
+    assert!(events.iter().any(|e| e.kind == "relayout"));
+    let out = surface.layout_fixed(None, true).unwrap();
+    assert!(out.lists[0].start <= 500 && out.lists[0].end > 500);
+    assert!(surface.index_of("r500".into()).is_some());
+    let events = surface.command_json(json!({"scrollToIndex": {"id": "l", "index": 10, "align": "start"}}).to_string()).unwrap();
+    assert!(events.iter().any(|e| e.kind == "relayout"));
+
+    let split = Surface::new("r".into(), core_catalog_id(), None, "light".into()).unwrap();
+    split.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "s", "component": "Resizable", "props": {"sizes": [50, 50]}, "style": {"height": 100}, "children": [{"id": "a", "component": "Box"}, {"id": "b", "component": "Box", "style": {"backdropBlur": "$blur.sm", "animation": "pulse"}}]}]}).to_string()).unwrap();
+    split.set_viewport(401.0, 0.0, None);
+    split.layout_fixed(None, true).unwrap();
+    let handle = split.index_of("s.handle.0".into()).unwrap();
+    let events = split.event(handle, "key".into(), Some(json!({"key": "ArrowRight"}).to_string())).unwrap();
+    let action = events.iter().find(|e| e.kind == "relayout");
+    assert!(action.is_some());
+    split.layout_fixed(None, true).unwrap();
+    let s = split.nodes().into_iter().find(|n| n.id == "s").unwrap();
+    assert!(s.props_json.contains("\"sizes\":[60.0,40.0]"), "{}", s.props_json);
+    let b = split.visual(split.index_of("b".into()).unwrap()).unwrap();
+    assert_eq!(b.backdrop_blur, Some(4.0));
+    assert!(b.animation_json.unwrap().contains("\"name\":\"pulse\""));
+
+    // `position: sticky` against the host scroll: `FfiLayout.sticky` carries
+    // the node and its offset, `FfiVisual.sticky` flags it.
+    let page = Surface::new("p".into(), core_catalog_id(), None, "light".into()).unwrap();
+    page.set_nested(json!({"id": "root", "component": "Box", "children": [{"id": "bar", "component": "Box", "style": {"position": "sticky", "top": 0, "height": 20}}, {"id": "body", "component": "Box", "style": {"height": 2000, "flexShrink": 0}}]}).to_string()).unwrap();
+    page.set_viewport(390.0, 0.0, None);
+    page.layout_fixed(None, true).unwrap();
+    assert!(page.set_surface_scroll(0.0, 300.0));
+    let out = page.layout_fixed(None, true).unwrap();
+    let bar = page.index_of("bar".into()).unwrap();
+    let pin = out.sticky.iter().find(|s| s.index == bar).unwrap_or_else(|| panic!("{:?}", out.sticky));
+    assert_eq!((pin.dx, pin.dy), (0.0, 300.0));
+    assert!(page.visual(bar).unwrap().sticky);
+    assert!(!page.visual(page.index_of("body".into()).unwrap()).unwrap().sticky);
+}
+
+#[test]
+fn list_and_resizable_helpers_take_the_gap_and_the_handle_extent() {
+    let sticky = |req: Value| list_json(req.to_string());
+    // Rows of 40 with a 10 gap: header 2 starts at 100, not 80.
+    let got: Value = serde_json::from_str(&sticky(json!({"op": "sticky", "rowExtents": [40, 40, 40, 40], "headerRows": [2, 0], "scroll": 90, "gap": 10})).unwrap()).unwrap();
+    assert_eq!(got, json!({"row": 0, "offset": 60.0}), "header 0 pushed back by header 2: min(90, 100 − 40)");
+    let got: Value = serde_json::from_str(&sticky(json!({"op": "sticky", "rowExtents": [40, 40, 40], "rowOffsets": [0, 60, 120, 160], "headerRows": [1], "scroll": 70})).unwrap()).unwrap();
+    assert_eq!(got, json!({"row": 1, "offset": 70.0}));
+    assert!(sticky(json!({"op": "sticky", "rowExtents": [40], "headerRows": [3], "scroll": 0})).is_err(), "an out-of-range header is an error, not a panic");
+    let drag = |extent: Option<f64>| {
+        let mut req = json!({"op": "drag", "px": 40, "container": 404, "panels": 2, "orientation": "horizontal"});
+        if let Some(e) = extent {
+            req["handleExtent"] = json!(e);
+        }
+        resizable_json(req.to_string()).unwrap().parse::<f64>().unwrap()
+    };
+    assert!((drag(None) - 40.0 / 403.0 * 100.0).abs() < 1e-6);
+    assert!((drag(Some(4.0)) - 10.0).abs() < 1e-6, "{}", drag(Some(4.0)));
+}
+
+#[test]
+fn bind_helpers_format_through_the_host_formatter() {
+    let slot = json!({"id": "c", "component": "Text", "props": {"text": {"call": "formatNumber", "args": {"value": {"path": "n"}}}}});
+    let rows = json!([{"n": 2.5}]);
+    let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
+    assert_eq!(got["props"]["text"], json!("#2.5/"));
+    let got: Value = serde_json::from_str(&bind_row_slot_json(slot.to_string(), rows.to_string(), rows.to_string(), 0, "{}".into(), None, None).unwrap().unwrap()).unwrap();
+    assert_eq!(got["props"]["text"], json!("2.5"), "None = the English fallback");
+    // A section header: the formatter and `options.now`.
+    let header = json!({"id": "h", "component": "Text", "props": {"text": {"call": "formatRelativeTime", "args": {"value": 0}}}});
+    let got: Value = serde_json::from_str(&bind_section_header_json(header.to_string(), json!({"value": "a", "count": 1}).to_string(), 0, "{}".into(), Some(json!({"now": 120000}).to_string()), Some(Arc::new(Loud))).unwrap().unwrap()).unwrap();
+    assert_eq!(got["props"]["text"], json!("-2 minute"));
+}
+
+// ---------------------------------------------------------------------------
+// VAPP-99 round 2: the SwiftUI painter's asks (VAPP-100) through the facade.
+// ---------------------------------------------------------------------------
+
+/// Records every leaf it was asked; Markdown grows by `extra` once loaded.
+struct Recording {
+    leaves: Mutex<Vec<FfiLeaf>>,
+    extra: f32,
+}
+
+impl Measurer for Recording {
+    fn measure_id(&self) -> u64 {
+        11
+    }
+    fn measure_intrinsics(&self, leaves: Vec<FfiLeaf>) -> Vec<FfiIntrinsics> {
+        let out = leaves
+            .iter()
+            .map(|l| {
+                let w = l.control.width.unwrap_or(8.0 * l.text.chars().count() as f32 + 2.0 * l.control.padding_horizontal);
+                let extra = if l.component == "Markdown" { self.extra } else { 0.0 };
+                let h = l.control.height.unwrap_or(l.text_style.line_height + 2.0 * l.control.padding_vertical) + extra;
+                FfiIntrinsics { min_content_width: w, max_content_width: w, height_at_max_content: h, baseline: None }
+            })
+            .collect();
+        self.leaves.lock().unwrap().extend(leaves);
+        out
+    }
+    fn measure_heights(&self, leaves: Vec<FfiLeaf>, requests: Vec<FfiHeightRequest>) -> Vec<f32> {
+        requests.iter().map(|r| leaves.iter().find(|l| l.index == r.index).map(|l| l.text_style.line_height).unwrap_or(0.0)).collect()
+    }
+}
+
+fn recording(extra: f32) -> Arc<Recording> {
+    Arc::new(Recording { leaves: Mutex::new(Vec::new()), extra })
+}
+
+fn frame_of(s: &Surface, out: &FfiLayout, id: &str) -> FfiFrame {
+    let i = s.index_of(id.into()).unwrap_or_else(|| panic!("no node {id}"));
+    *out.frames.iter().find(|f| f.index == i).unwrap_or_else(|| panic!("{id} not drawn"))
+}
+
+#[test]
+fn text_styles_carry_letter_spacing_transform_and_font_style() {
+    let theme = Theme::load(
+        r#"{"id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}"#.into(),
+        None,
+    )
+    .unwrap();
+    let s = Surface::with_theme("t".into(), core_catalog_id(), Some(theme), "light".into()).unwrap();
+    s.set_nested(json!({"id": "root", "component": "Box", "children": [
+        {"id": "cap", "component": "Text", "props": {"text": "Overline", "variant": "caption"}},
+        {"id": "body", "component": "Text", "props": {"text": "Body"}}
+    ]}).to_string())
+    .unwrap();
+    s.set_viewport(400.0, 0.0, None);
+    let m = recording(0.0);
+    s.layout(m.clone());
+    let cap = s.text_style(s.index_of("cap".into()).unwrap()).unwrap();
+    assert_eq!((cap.letter_spacing, cap.text_transform.as_deref(), cap.font_style.as_deref()), (Some(0.5), Some("uppercase"), Some("italic")));
+    let body = s.text_style(s.index_of("body".into()).unwrap()).unwrap();
+    assert_eq!((body.letter_spacing, body.text_transform, body.font_style), (None, None, None));
+    let asked = m.leaves.lock().unwrap().iter().find(|l| l.id == "cap").cloned().expect("measured");
+    assert_eq!(asked.text_style.letter_spacing, Some(0.5), "the measurer gets them too");
+    assert_eq!(asked.text_style.text_transform.as_deref(), Some("uppercase"));
+    // The font scale scales the tracking like the size.
+    s.set_font_scale(2.0);
+    s.layout(recording(0.0));
+    assert_eq!(s.text_style(s.index_of("cap".into()).unwrap()).unwrap().letter_spacing, Some(1.0));
+}
+
+#[test]
+fn leaves_name_their_owner_and_show_numbers_as_text() {
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "dark".into()).unwrap();
+    s.set_nested(json!({"id": "root", "component": "Box", "children": [
+        {"id": "tabs", "component": "Tabs", "props": {"tabs": [{"label": "A", "value": "a"}], "value": "a"}, "children": [{"id": "pa", "component": "Text", "props": {"text": "a"}}]},
+        {"id": "steps", "component": "Stepper", "props": {"steps": [{"label": "One"}, {"label": "Two"}], "current": 1}},
+        {"id": "n", "component": "Text", "props": {"text": {"path": "/n"}}}
+    ]}).to_string())
+    .unwrap();
+    s.set_data("/n".into(), Some("412".into())).unwrap();
+    s.set_viewport(400.0, 0.0, None);
+    let m = recording(0.0);
+    s.layout(m.clone());
+    let leaves = m.leaves.lock().unwrap();
+    let by = |id: &str| leaves.iter().find(|l| l.id == id).unwrap_or_else(|| panic!("{id} not measured"));
+    assert_eq!(by("tabs.tab.0").owner_component.as_deref(), Some("Tabs"));
+    assert_eq!(by("steps.step.1.marker.number").owner_component.as_deref(), Some("Stepper"));
+    assert_eq!(by("pa").owner_component, None, "a plain node");
+    assert_eq!(by("n").text, "412", "a bound number shows as its display string");
+}
+
+#[test]
+fn the_effective_theme_object_is_what_the_core_resolves_against() {
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
+    s.set_nested(json!({"id": "b", "component": "Button", "props": {"label": "Go", "variant": "outline"}}).to_string()).unwrap();
+    s.set_viewport(300.0, 0.0, None);
+    let plain = s.effective_theme().unwrap();
+    assert_eq!(plain.resolved_json(), s.theme().unwrap().resolved_json(), "default density, normal contrast = the theme");
+    s.set_settings(FfiSettings { density: "compact".into(), contrast: "high".into(), ..s.settings() }).unwrap();
+    let eff = s.effective_theme().unwrap();
+    assert_eq!(eff.resolved_json(), s.effective_theme_json().unwrap());
+    assert!(eff.control("input".into()).unwrap() < plain.control("input".into()).unwrap(), "density scales the controls");
+    s.layout(recording(0.0));
+    let b = s.index_of("b".into()).unwrap();
+    let core = s.visual(b).unwrap();
+    let part = eff.resolve_part("Button".into(), "root".into(), r#"{"label":"Go","variant":"outline"}"#.into(), vec![], "light".into()).unwrap();
+    assert_eq!(part.visual.border_color, core.border_color, "a painter's part = the core's");
+    let base = plain.resolve_part("Button".into(), "root".into(), r#"{"label":"Go","variant":"outline"}"#.into(), vec![], "light".into()).unwrap();
+    assert_ne!(base.visual.border_color, core.border_color, "the high-contrast overlay is in the effective theme only");
+    let geometry = Surface::new("g".into(), core_catalog_id(), Some(String::new()), "light".into()).unwrap();
+    assert!(geometry.effective_theme().is_none());
+}
+
+#[test]
+fn hover_crosses_the_facade_and_resolves_recipes() {
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
+    s.set_nested(json!({"id": "pill", "component": "Pill", "props": {"label": "All", "pressable": true}}).to_string()).unwrap();
+    s.set_viewport(300.0, 0.0, None);
+    s.layout(recording(0.0));
+    let i = s.index_of("pill".into()).unwrap();
+    let rest = s.visual(i).unwrap().background_color;
+    assert!(!s.nodes()[i as usize].hovered);
+    assert!(s.set_hover("pill".into(), true));
+    let out = s.layout(recording(0.0));
+    assert!(out.visual_changes.contains(&i));
+    assert_eq!(s.visual(i).unwrap().background_color, Theme::builtin("neutral".into()).unwrap().color("accent".into(), "light".into()));
+    let n = &s.nodes_at(vec![i])[0];
+    assert!(n.hovered);
+    assert_eq!(n.interaction_states, vec!["hover".to_string()]);
+    assert!(n.states.is_empty(), "`states` stays the core's");
+    assert!(s.set_hovered(vec![]));
+    s.layout(recording(0.0));
+    assert_eq!(s.visual(i).unwrap().background_color, rest);
+    assert!(!s.nodes()[i as usize].hovered);
+}
+
+#[test]
+fn hover_styled_names_the_nodes_a_painter_tracks_the_pointer_over() {
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
+    s.set_nested(json!({"id": "root", "component": "Box", "children": [
+        {"id": "plain", "component": "Box", "style": {"width": 10, "height": 10}},
+        {"id": "styled", "component": "Box", "style": {"width": 10, "height": 10, ":hover": {"opacity": 0.5}}},
+        {"id": "b", "component": "Button", "props": {"label": "Go", "variant": "default"}}
+    ]}).to_string()).unwrap();
+    s.set_viewport(300.0, 0.0, None);
+    s.layout(recording(0.0));
+    let styled = |id: &str| {
+        let i = s.index_of(id.into()).unwrap();
+        let all = s.nodes()[i as usize].hover_styled;
+        assert_eq!(s.nodes_at(vec![i])[0].hover_styled, all, "{id}: nodes and nodes_at agree");
+        all
+    };
+    assert!(styled("styled"), "a `:hover` style block");
+    assert!(styled("b"), "a recipe rule on `state: hover`");
+    assert!(!styled("plain") && !styled("root"));
+}
+
+#[test]
+fn contract_heights_and_a_loaded_markdown_cross_the_facade() {
+    let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "dark".into()).unwrap();
+    s.set_nested(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "alignItems": "flex-start"}, "children": [
+        {"id": "chart", "component": "Chart", "props": {"kind": "bar", "title": "This week", "height": 160, "categories": ["Mon"], "series": [{"name": "Runs", "values": [3]}, {"name": "Merges", "values": [1]}]}},
+        {"id": "badge", "component": "Badge", "props": {"text": "3", "variant": "secondary"}},
+        {"id": "md", "component": "Markdown", "props": {"text": "![chart](https://example.com/c.png)"}}
+    ]}).to_string())
+    .unwrap();
+    s.set_viewport(400.0, 0.0, None);
+    let out = s.layout(recording(0.0));
+    assert_eq!(frame_of(&s, &out, "chart").h, 160.0, "Chart `height` = the whole box");
+    let (badge, label) = (frame_of(&s, &out, "badge"), frame_of(&s, &out, "badge.label"));
+    assert_eq!(badge.h, label.h + 2.0 * (label.y - badge.y), "Badge = content + padding, no 32 px minimum");
+    let md = frame_of(&s, &out, "md").h;
+    // The picture loaded: `mark_dirty` re-asks the Markdown.
+    let loaded = recording(80.0);
+    assert_eq!(frame_of(&s, &s.layout(loaded.clone()), "md").h, md, "memoized until marked");
+    assert!(s.mark_dirty(s.index_of("md".into()).unwrap()));
+    assert_eq!(frame_of(&s, &s.layout(loaded), "md").h, md + 80.0);
+}

@@ -613,6 +613,33 @@ internal open class UniffiForeignFutureResultVoid(
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureResultVoid.UniffiByValue,)
 }
+internal interface UniffiCallbackInterfaceHostFormatterMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`grouping`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Double,`code`: RustBuffer.ByValue,`decimals`: RustBuffer.ByValue,`grouping`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod3 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod4 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`epochMs`: Double,`dateOnly`: Byte,`format`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`time`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod5 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Long,`unit`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod6 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Double,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostFormatterMethod7 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`value`: Double,`unit`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+internal interface UniffiCallbackInterfaceHostZoneMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`epochMs`: Double,`uniffiOutReturn`: IntByReference,uniffiCallStatus: UniffiRustCallStatus,)
+}
 internal interface UniffiCallbackInterfaceMeasurerMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: LongByReference,uniffiCallStatus: UniffiRustCallStatus,)
 }
@@ -621,6 +648,65 @@ internal interface UniffiCallbackInterfaceMeasurerMethod1 : com.sun.jna.Callback
 }
 internal interface UniffiCallbackInterfaceMeasurerMethod2 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`leaves`: RustBuffer.ByValue,`requests`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,)
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "locale", "number", "currency", "percent", "date", "relativeTime", "plural", "bytes")
+internal open class UniffiVTableCallbackInterfaceHostFormatter(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `locale`: UniffiCallbackInterfaceHostFormatterMethod0? = null,
+    @JvmField internal var `number`: UniffiCallbackInterfaceHostFormatterMethod1? = null,
+    @JvmField internal var `currency`: UniffiCallbackInterfaceHostFormatterMethod2? = null,
+    @JvmField internal var `percent`: UniffiCallbackInterfaceHostFormatterMethod3? = null,
+    @JvmField internal var `date`: UniffiCallbackInterfaceHostFormatterMethod4? = null,
+    @JvmField internal var `relativeTime`: UniffiCallbackInterfaceHostFormatterMethod5? = null,
+    @JvmField internal var `plural`: UniffiCallbackInterfaceHostFormatterMethod6? = null,
+    @JvmField internal var `bytes`: UniffiCallbackInterfaceHostFormatterMethod7? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `locale`: UniffiCallbackInterfaceHostFormatterMethod0? = null,
+        `number`: UniffiCallbackInterfaceHostFormatterMethod1? = null,
+        `currency`: UniffiCallbackInterfaceHostFormatterMethod2? = null,
+        `percent`: UniffiCallbackInterfaceHostFormatterMethod3? = null,
+        `date`: UniffiCallbackInterfaceHostFormatterMethod4? = null,
+        `relativeTime`: UniffiCallbackInterfaceHostFormatterMethod5? = null,
+        `plural`: UniffiCallbackInterfaceHostFormatterMethod6? = null,
+        `bytes`: UniffiCallbackInterfaceHostFormatterMethod7? = null,
+    ): UniffiVTableCallbackInterfaceHostFormatter(`uniffiFree`,`uniffiClone`,`locale`,`number`,`currency`,`percent`,`date`,`relativeTime`,`plural`,`bytes`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceHostFormatter) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `locale` = other.`locale`
+        `number` = other.`number`
+        `currency` = other.`currency`
+        `percent` = other.`percent`
+        `date` = other.`date`
+        `relativeTime` = other.`relativeTime`
+        `plural` = other.`plural`
+        `bytes` = other.`bytes`
+    }
+
+}
+@Structure.FieldOrder("uniffiFree", "uniffiClone", "offsetMinutes")
+internal open class UniffiVTableCallbackInterfaceHostZone(
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    @JvmField internal var `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+    @JvmField internal var `offsetMinutes`: UniffiCallbackInterfaceHostZoneMethod0? = null,
+) : Structure() {
+    class UniffiByValue(
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+        `uniffiClone`: UniffiCallbackInterfaceClone? = null,
+        `offsetMinutes`: UniffiCallbackInterfaceHostZoneMethod0? = null,
+    ): UniffiVTableCallbackInterfaceHostZone(`uniffiFree`,`uniffiClone`,`offsetMinutes`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceHostZone) {
+        `uniffiFree` = other.`uniffiFree`
+        `uniffiClone` = other.`uniffiClone`
+        `offsetMinutes` = other.`offsetMinutes`
+    }
+
 }
 @Structure.FieldOrder("uniffiFree", "uniffiClone", "measureId", "measureIntrinsics", "measureHeights")
 internal open class UniffiVTableCallbackInterfaceMeasurer(
@@ -672,9 +758,15 @@ internal object IntegrityCheckingUniffiLib {
     }
     external fun uniffi_exponential_ui_ffi_checksum_func_action_message_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_bind_tree_json(
 ): Short
@@ -702,9 +794,15 @@ external fun uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_default_theme_id(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_display_string_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_error_message_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_format_call_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_format_pattern_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
 ): Short
@@ -713,6 +811,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_json_equal(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_list_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
 ): Short
@@ -726,6 +826,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
@@ -733,6 +835,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_resizable_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
 ): Short
@@ -762,6 +868,22 @@ external fun uniffi_exponential_ui_ffi_checksum_func_version(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_date(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_package_id_of(
@@ -773,6 +895,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_route(
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_supported_catalog_ids(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end(
 ): Short
@@ -795,6 +919,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_command_json(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_data_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json(
 ): Short
@@ -830,7 +956,11 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_clock(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_components(
 ): Short
@@ -840,7 +970,15 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_data(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_density(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hover(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_insets(
 ): Short
@@ -866,6 +1004,8 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_states(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_theme_json(
@@ -885,6 +1025,10 @@ external fun uniffi_exponential_ui_ffi_checksum_method_surface_take_events(
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_text_style(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_theme(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_tick(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_surface_visual(
 ): Short
@@ -950,10 +1094,34 @@ internal object UniffiLib {
 
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "exponential_ui_ffi"))
+        uniffiCallbackInterfaceHostFormatter.register(this)
+        uniffiCallbackInterfaceHostZone.register(this)
         uniffiCallbackInterfaceMeasurer.register(this)
         
     }
-    external fun uniffi_exponential_ui_ffi_fn_clone_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_exponential_ui_ffi_fn_clone_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_free_hostformatter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(`vtable`: UniffiVTableCallbackInterfaceHostFormatter,
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_number(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(`ptr`: Long,`value`: Double,`code`: RustBuffer.ByValue,`decimals`: RustBuffer.ByValue,`grouping`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(`ptr`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_date(`ptr`: Long,`epochMs`: Double,`dateOnly`: Byte,`format`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`time`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(`ptr`: Long,`value`: Long,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(`ptr`: Long,`value`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(`ptr`: Long,`value`: Double,`unit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_clone_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_free_hostrouter(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -971,6 +1139,14 @@ external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_supported_catalog_id
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_hostrouter_surface_ids(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_clone_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_free_hostzone(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(`vtable`: UniffiVTableCallbackInterfaceHostZone,
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(`ptr`: Long,`epochMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): Int
 external fun uniffi_exponential_ui_ffi_fn_clone_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
 external fun uniffi_exponential_ui_ffi_fn_free_jsonldecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1019,6 +1195,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_data_json(`ptr`: Long,u
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_effective_theme_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_event(`ptr`: Long,`index`: Int,`name`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1053,7 +1231,11 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll(`ptr`: Long,`lis
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to(`ptr`: Long,`id`: RustBuffer.ByValue,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(`ptr`: Long,`id`: RustBuffer.ByValue,`index`: Int,`align`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(`ptr`: Long,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_clock(`ptr`: Long,`nowMs`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_components(`ptr`: Long,`componentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1063,8 +1245,16 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_set_data(`ptr`: Long,`p
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_density(`ptr`: Long,`density`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(`ptr`: Long,`zone`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_font_scale(`ptr`: Long,`scale`: Float,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(`ptr`: Long,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hover(`ptr`: Long,`id`: RustBuffer.ByValue,`hovered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(`ptr`: Long,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_insets(`ptr`: Long,`top`: Float,`right`: Float,`bottom`: Float,`left`: Float,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_locale(`ptr`: Long,`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1089,6 +1279,8 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_set_states(`ptr`: Long,
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(`ptr`: Long,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(`ptr`: Long,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme(`ptr`: Long,`theme`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
 external fun uniffi_exponential_ui_ffi_fn_method_surface_set_theme_json(`ptr`: Long,`themeJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1109,6 +1301,10 @@ external fun uniffi_exponential_ui_ffi_fn_method_surface_text_style(`ptr`: Long,
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_theme(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_surface_tick(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_surface_visual(`ptr`: Long,`index`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_surface_visuals(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1153,9 +1349,15 @@ external fun uniffi_exponential_ui_ffi_fn_method_theme_type_size(`ptr`: Long,`na
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_bench_tree_json(`n`: Int,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(`slotJson`: RustBuffer.ByValue,`rowsPropJson`: RustBuffer.ByValue,`rowsJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(`slotJson`: RustBuffer.ByValue,`sectionJson`: RustBuffer.ByValue,`index`: Int,`dataJson`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_bind_tree_json(`nodeJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1183,9 +1385,15 @@ external fun uniffi_exponential_ui_ffi_fn_func_decode_jsonl_json(`text`: RustBuf
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_display_string_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_error_message_json(`code`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_format_call_json(`callJson`: RustBuffer.ByValue,`formatter`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`offsetMinutes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_format_pattern_json(`pattern`: RustBuffer.ByValue,`fieldsJson`: RustBuffer.ByValue,`namesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1195,6 +1403,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_json_equal(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
+external fun uniffi_exponential_ui_ffi_fn_func_list_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: RustBuffer.ByValue,`parentsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1207,6 +1417,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`ma
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1214,6 +1426,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_resizable_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1365,10 +1581,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 2647.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json() != 45227.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json() != 42416.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404.toShort()) {
@@ -1410,10 +1635,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 10974.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 16203.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_call_json() != 40402.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_format_pattern_json() != 12110.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957.toShort()) {
@@ -1426,6 +1660,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_json_equal() != 25552.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_list_json() != 2952.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667.toShort()) {
@@ -1446,6 +1683,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 10529.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1456,6 +1696,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 52328.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827.toShort()) {
@@ -1500,6 +1746,30 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_number() != 35282.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency() != 28224.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent() != 54520.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_date() != 10148.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time() != 19375.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural() != 18062.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 58182.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1516,6 +1786,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45773.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes() != 22212.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 43219.toShort()) {
@@ -1542,13 +1815,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 29382.toShort()) {
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme() != 34484.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305.toShort()) {
@@ -1602,7 +1878,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index() != 44001.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_clock() != 29426.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659.toShort()) {
@@ -1617,7 +1899,19 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone() != 58767.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 35944.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_hover() != 19545.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered() != 21550.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206.toShort()) {
@@ -1656,6 +1950,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll() != 60657.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_set_theme() != 2832.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1684,6 +1981,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_theme() != 51512.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_tick() != 40589.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock() != 32081.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_method_surface_visual() != 1946.toShort()) {
@@ -2018,6 +2321,29 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 /**
  * @suppress
  */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterULong: FfiConverter<ULong, Long> {
     override fun lift(value: Long): ULong {
         return value.toULong()
@@ -2035,6 +2361,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
     }
 }
 
@@ -2161,6 +2510,581 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+public interface HostFormatter {
+    
+    /**
+     * BCP 47.
+     */
+    fun `locale`(): kotlin.String
+    
+    /**
+     * `decimals` = fixed fraction digits (`None` = 0..3); `grouping` =
+     * locale separators.
+     */
+    fun `number`(`value`: kotlin.Double, `decimals`: kotlin.UInt?, `grouping`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * `code` = an upper-case ISO 4217 code; `decimals` `None` = its minor digits.
+     */
+    fun `currency`(`value`: kotlin.Double, `code`: kotlin.String, `decimals`: kotlin.UInt?, `grouping`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * `value` is a ratio (0.256 → 26 %); `decimals` `None` = 0.
+     */
+    fun `percent`(`value`: kotlin.Double, `decimals`: kotlin.UInt?): kotlin.String
+    
+    /**
+     * `epoch_ms` = the instant; `date_only` = a calendar day (format in
+     * UTC, never shifted); `format` = a TR35 pattern (wins) else `style` =
+     * `short | medium | long | full` (default medium) + `time` = append
+     * the short time.
+     */
+    fun `date`(`epochMs`: kotlin.Double, `dateOnly`: kotlin.Boolean, `format`: kotlin.String?, `style`: kotlin.String?, `time`: kotlin.Boolean): kotlin.String
+    
+    /**
+     * `value` units from now (negative = past); `unit` = `second | minute
+     * | hour | day | week | month | year`; numeric:auto phrasing.
+     */
+    fun `relativeTime`(`value`: kotlin.Long, `unit`: kotlin.String): kotlin.String
+    
+    /**
+     * `zero | one | two | few | many | other`.
+     */
+    fun `plural`(`value`: kotlin.Double): kotlin.String
+    
+    /**
+     * A byte size: `value` already in `unit` (`byte | kilobyte | megabyte
+     * | gigabyte`, ≤ 1 fraction digit) with the locale's short unit name
+     * (`Intl` `style: unit`; en-US `47.1 kB`, `500 byte`).
+     */
+    fun `bytes`(`value`: kotlin.Double, `unit`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+open class HostFormatterImpl: Disposable, AutoCloseable, HostFormatter
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_ui_ffi_fn_free_hostformatter(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_ui_ffi_fn_clone_hostformatter(handle, status)
+        }
+    }
+
+    
+    /**
+     * BCP 47.
+     */override fun `locale`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `decimals` = fixed fraction digits (`None` = 0..3); `grouping` =
+     * locale separators.
+     */override fun `number`(`value`: kotlin.Double, `decimals`: kotlin.UInt?, `grouping`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_number(
+        it,
+        FfiConverterDouble.lower(`value`),FfiConverterOptionalUInt.lower(`decimals`),FfiConverterBoolean.lower(`grouping`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `code` = an upper-case ISO 4217 code; `decimals` `None` = its minor digits.
+     */override fun `currency`(`value`: kotlin.Double, `code`: kotlin.String, `decimals`: kotlin.UInt?, `grouping`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(
+        it,
+        FfiConverterDouble.lower(`value`),FfiConverterString.lower(`code`),FfiConverterOptionalUInt.lower(`decimals`),FfiConverterBoolean.lower(`grouping`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `value` is a ratio (0.256 → 26 %); `decimals` `None` = 0.
+     */override fun `percent`(`value`: kotlin.Double, `decimals`: kotlin.UInt?): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(
+        it,
+        FfiConverterDouble.lower(`value`),FfiConverterOptionalUInt.lower(`decimals`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `epoch_ms` = the instant; `date_only` = a calendar day (format in
+     * UTC, never shifted); `format` = a TR35 pattern (wins) else `style` =
+     * `short | medium | long | full` (default medium) + `time` = append
+     * the short time.
+     */override fun `date`(`epochMs`: kotlin.Double, `dateOnly`: kotlin.Boolean, `format`: kotlin.String?, `style`: kotlin.String?, `time`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_date(
+        it,
+        FfiConverterDouble.lower(`epochMs`),FfiConverterBoolean.lower(`dateOnly`),FfiConverterOptionalString.lower(`format`),FfiConverterOptionalString.lower(`style`),FfiConverterBoolean.lower(`time`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `value` units from now (negative = past); `unit` = `second | minute
+     * | hour | day | week | month | year`; numeric:auto phrasing.
+     */override fun `relativeTime`(`value`: kotlin.Long, `unit`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(
+        it,
+        FfiConverterLong.lower(`value`),FfiConverterString.lower(`unit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `zero | one | two | few | many | other`.
+     */override fun `plural`(`value`: kotlin.Double): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(
+        it,
+        FfiConverterDouble.lower(`value`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * A byte size: `value` already in `unit` (`byte | kilobyte | megabyte
+     * | gigabyte`, ≤ 1 fraction digit) with the locale's short unit name
+     * (`Intl` `style: unit`; en-US `47.1 kB`, `500 byte`).
+     */override fun `bytes`(`value`: kotlin.Double, `unit`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(
+        it,
+        FfiConverterDouble.lower(`value`),FfiConverterString.lower(`unit`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceHostFormatter {
+    internal object `locale`: UniffiCallbackInterfaceHostFormatterMethod0 {
+        override fun callback(`uniffiHandle`: Long,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`locale`(
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `number`: UniffiCallbackInterfaceHostFormatterMethod1 {
+        override fun callback(`uniffiHandle`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`grouping`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`number`(
+                    FfiConverterDouble.lift(`value`),
+                    FfiConverterOptionalUInt.lift(`decimals`),
+                    FfiConverterBoolean.lift(`grouping`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `currency`: UniffiCallbackInterfaceHostFormatterMethod2 {
+        override fun callback(`uniffiHandle`: Long,`value`: Double,`code`: RustBuffer.ByValue,`decimals`: RustBuffer.ByValue,`grouping`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`currency`(
+                    FfiConverterDouble.lift(`value`),
+                    FfiConverterString.lift(`code`),
+                    FfiConverterOptionalUInt.lift(`decimals`),
+                    FfiConverterBoolean.lift(`grouping`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `percent`: UniffiCallbackInterfaceHostFormatterMethod3 {
+        override fun callback(`uniffiHandle`: Long,`value`: Double,`decimals`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`percent`(
+                    FfiConverterDouble.lift(`value`),
+                    FfiConverterOptionalUInt.lift(`decimals`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `date`: UniffiCallbackInterfaceHostFormatterMethod4 {
+        override fun callback(`uniffiHandle`: Long,`epochMs`: Double,`dateOnly`: Byte,`format`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`time`: Byte,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`date`(
+                    FfiConverterDouble.lift(`epochMs`),
+                    FfiConverterBoolean.lift(`dateOnly`),
+                    FfiConverterOptionalString.lift(`format`),
+                    FfiConverterOptionalString.lift(`style`),
+                    FfiConverterBoolean.lift(`time`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `relativeTime`: UniffiCallbackInterfaceHostFormatterMethod5 {
+        override fun callback(`uniffiHandle`: Long,`value`: Long,`unit`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`relativeTime`(
+                    FfiConverterLong.lift(`value`),
+                    FfiConverterString.lift(`unit`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `plural`: UniffiCallbackInterfaceHostFormatterMethod6 {
+        override fun callback(`uniffiHandle`: Long,`value`: Double,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`plural`(
+                    FfiConverterDouble.lift(`value`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+    internal object `bytes`: UniffiCallbackInterfaceHostFormatterMethod7 {
+        override fun callback(`uniffiHandle`: Long,`value`: Double,`unit`: RustBuffer.ByValue,`uniffiOutReturn`: RustBuffer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostFormatter.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`bytes`(
+                    FfiConverterDouble.lift(`value`),
+                    FfiConverterString.lift(`unit`),
+                )
+            }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeHostFormatter.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeHostFormatter.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceHostFormatter.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `locale`,
+        `number`,
+        `currency`,
+        `percent`,
+        `date`,
+        `relativeTime`,
+        `plural`,
+        `bytes`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHostFormatter: FfiConverter<HostFormatter, Long> {
+    internal val handleMap = UniffiHandleMap<HostFormatter>()
+
+    override fun lower(value: HostFormatter): Long {
+        if (value is HostFormatterImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): HostFormatter {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return HostFormatterImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): HostFormatter {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: HostFormatter) = 8UL
+
+    override fun write(value: HostFormatter, buf: ByteBuffer) {
+        buf.putLong(lower(value))
     }
 }
 
@@ -2532,6 +3456,340 @@ public object FfiConverterTypeHostRouter: FfiConverter<HostRouter, Long> {
     override fun allocationSize(value: HostRouter) = 8UL
 
     override fun write(value: HostRouter, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Implemented by the host per surface (Foundation `NumberFormatter` /
+ * `Date.FormatStyle` / `RelativeDateTimeFormatter`; `android.icu`), in the
+ * surface's locale and time zone. The core parses the values and decides
+ * (the date value, the relative unit and count, the plural arm); the host
+ * only localizes. `formatPatternJson` gives a host the TR35 subset with
+ * its own month / weekday names.
+ * Round 2: the surface zone for the core's English fallback (it has no
+ * zone database): the platform's UTC offset at an instant
+ * (`TimeZone.secondsFromGMT(for:)`, `TimeZone.getOffset`).
+ */
+public interface HostZone {
+    
+    /**
+     * Minutes east of UTC in force at `epoch_ms`.
+     */
+    fun `offsetMinutes`(`epochMs`: kotlin.Double): kotlin.Int
+    
+    companion object
+}
+
+/**
+ * Implemented by the host per surface (Foundation `NumberFormatter` /
+ * `Date.FormatStyle` / `RelativeDateTimeFormatter`; `android.icu`), in the
+ * surface's locale and time zone. The core parses the values and decides
+ * (the date value, the relative unit and count, the plural arm); the host
+ * only localizes. `formatPatternJson` gives a host the TR35 subset with
+ * its own month / weekday names.
+ * Round 2: the surface zone for the core's English fallback (it has no
+ * zone database): the platform's UTC offset at an instant
+ * (`TimeZone.secondsFromGMT(for:)`, `TimeZone.getOffset`).
+ */
+open class HostZoneImpl: Disposable, AutoCloseable, HostZone
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_ui_ffi_fn_free_hostzone(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_ui_ffi_fn_clone_hostzone(handle, status)
+        }
+    }
+
+    
+    /**
+     * Minutes east of UTC in force at `epoch_ms`.
+     */override fun `offsetMinutes`(`epochMs`: kotlin.Double): kotlin.Int {
+            return FfiConverterInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(
+        it,
+        FfiConverterDouble.lower(`epochMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfaceHostZone {
+    internal object `offsetMinutes`: UniffiCallbackInterfaceHostZoneMethod0 {
+        override fun callback(`uniffiHandle`: Long,`epochMs`: Double,`uniffiOutReturn`: IntByReference,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHostZone.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`offsetMinutes`(
+                    FfiConverterDouble.lift(`epochMs`),
+                )
+            }
+            val writeReturn = { value: kotlin.Int -> uniffiOutReturn.setValue(FfiConverterInt.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypeHostZone.handleMap.remove(handle)
+        }
+    }
+
+    internal object uniffiClone: UniffiCallbackInterfaceClone {
+        override fun callback(handle: Long): Long {
+            return FfiConverterTypeHostZone.handleMap.clone(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfaceHostZone.UniffiByValue(
+        uniffiFree,
+        uniffiClone,
+        `offsetMinutes`,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(vtable)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHostZone: FfiConverter<HostZone, Long> {
+    internal val handleMap = UniffiHandleMap<HostZone>()
+
+    override fun lower(value: HostZone): Long {
+        if (value is HostZoneImpl) {
+             // Rust-implemented object.  Clone the handle and return it
+            return value.uniffiCloneHandle()
+         } else {
+            // Kotlin object, generate a new vtable handle and return that.
+            return handleMap.insert(value)
+         }
+    }
+
+    override fun lift(value: Long): HostZone {
+        if ((value and 1.toLong()) == 0.toLong()) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return HostZoneImpl(UniffiWithHandle, value)
+        } else {
+            // Kotlin-generated handle, get the object from the handle map
+            return handleMap.remove(value)
+        }
+    }
+
+    override fun read(buf: ByteBuffer): HostZone {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: HostZone) = 8UL
+
+    override fun write(value: HostZone, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -3585,7 +4843,8 @@ public interface SurfaceInterface {
     
     /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
-     * `{"scrollIntoView": {"id"}}`.
+     * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
+     * "align"?}}` (round 2).
      */
     fun `commandJson`(`commandJson`: kotlin.String): List<FfiEvent>
     
@@ -3595,6 +4854,16 @@ public interface SurfaceInterface {
      * A Toast's timeout: `open: false`, `dismiss` + `change`.
      */
     fun `dismissToast`(`id`: kotlin.String): List<FfiEvent>
+    
+    /**
+     * Round 2 (VAPP-100): the theme the core resolves against, as a
+     * `Theme` object: the set theme (`extends` resolved) with the surface's
+     * density and contrast applied. Painters resolving sub-parts
+     * (`resolve_part`) or reading tokens use this one, so they get the
+     * core layout's values. Null in geometry mode. Read it again after a
+     * theme or settings change.
+     */
+    fun `effectiveTheme`(): Theme?
     
     /**
      * The theme in effect (density + contrast applied), as JSON.
@@ -3666,7 +4935,19 @@ public interface SurfaceInterface {
     
     fun `scrollTo`(`id`: kotlin.String, `x`: kotlin.Float, `y`: kotlin.Float): kotlin.Boolean
     
+    /**
+     * Round 2: bring item `index` (data order) of List/Table `id` into
+     * view; `align` = `start | center | end | nearest` (default).
+     */
+    fun `scrollToIndex`(`id`: kotlin.String, `index`: kotlin.UInt, `align`: kotlin.String?): List<FfiEvent>
+    
     fun `setBuiltinTheme`(`id`: kotlin.String)
+    
+    /**
+     * Round 2: pin the clock relative times read (epoch ms; `None` = the
+     * wall clock).
+     */
+    fun `setClock`(`nowMs`: kotlin.Double?)
     
     /**
      * A flat component list (the `updateComponents` payload's `components`).
@@ -3683,9 +4964,37 @@ public interface SurfaceInterface {
     fun `setDensity`(`density`: kotlin.String)
     
     /**
+     * Round 2: the English fallback in the surface zone, as the platform's
+     * UTC offset per instant (`zone`; `None` = UTC). It REPLACES a host
+     * formatter: a host with one formats in its own zone and needs none.
+     * Called with the surface locked: never call the surface from it.
+     */
+    fun `setFallbackZone`(`zone`: HostZone?)
+    
+    /**
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
     fun `setFontScale`(`scale`: kotlin.Float)
+    
+    /**
+     * Round 2: format through the host's formatter (built from the
+     * surface's locale + time zone); `None` = the English fallback. The
+     * formatter is called during a rebuild with the surface locked: it
+     * must not call back into the surface.
+     */
+    fun `setFormatter`(`formatter`: HostFormatter?)
+    
+    /**
+     * One node's pointer enter (`true`) / leave, its other states kept.
+     */
+    fun `setHover`(`id`: kotlin.String, `hovered`: kotlin.Boolean): kotlin.Boolean
+    
+    /**
+     * Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
+     * these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
+     * resolve through it; a hover overlay's trigger opens it.
+     */
+    fun `setHovered`(`ids`: List<kotlin.String>): kotlin.Boolean
     
     /**
      * Safe-area insets layers keep clear of.
@@ -3734,6 +5043,13 @@ public interface SurfaceInterface {
     fun `setStringsJson`(`stringsJson`: kotlin.String)
     
     /**
+     * Round 2: the host's scroll offset of the whole surface; unbounded
+     * lists window against it, sticky nodes pin against it. True = lay
+     * out again.
+     */
+    fun `setSurfaceScroll`(`x`: kotlin.Float, `y`: kotlin.Float): kotlin.Boolean
+    
+    /**
      * Paint with this `Theme` object from the next pass on.
      */
     fun `setTheme`(`theme`: Theme)
@@ -3774,6 +5090,20 @@ public interface SurfaceInterface {
      * The theme in force, as a `Theme` object (null in geometry mode).
      */
     fun `theme`(): Theme?
+    
+    /**
+     * Round 2: re-bind (call at least once a minute while the surface
+     * shows a `formatRelativeTime` without `now`).
+     */
+    fun `tick`()
+    
+    /**
+     * Round 2: whether a time on screen moves with the clock (a
+     * `formatRelativeTime` without `now`, a Table `relativeTime` column;
+     * `false` with a pinned clock): call `tick` at least once a minute
+     * while it holds. Ask after a layout.
+     */
+    fun `usesClock`(): kotlin.Boolean
     
     fun `visual`(`index`: kotlin.UInt): FfiVisual?
     
@@ -3914,7 +5244,8 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
     /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
-     * `{"scrollIntoView": {"id"}}`.
+     * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
+     * "align"?}}` (round 2).
      */
     @Throws(UiException::class)override fun `commandJson`(`commandJson`: kotlin.String): List<FfiEvent> {
             return FfiConverterSequenceTypeFfiEvent.lift(
@@ -3952,6 +5283,27 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
         it,
         FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 2 (VAPP-100): the theme the core resolves against, as a
+     * `Theme` object: the set theme (`extends` resolved) with the surface's
+     * density and contrast applied. Painters resolving sub-parts
+     * (`resolve_part`) or reading tokens use this one, so they get the
+     * core layout's values. Null in geometry mode. Read it again after a
+     * theme or settings change.
+     */override fun `effectiveTheme`(): Theme? {
+            return FfiConverterOptionalTypeTheme.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(
+        it,
+        _status)
 }
     }
     )
@@ -4217,6 +5569,23 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     
 
     
+    /**
+     * Round 2: bring item `index` (data order) of List/Table `id` into
+     * view; `align` = `start | center | end | nearest` (default).
+     */override fun `scrollToIndex`(`id`: kotlin.String, `index`: kotlin.UInt, `align`: kotlin.String?): List<FfiEvent> {
+            return FfiConverterSequenceTypeFfiEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(
+        it,
+        FfiConverterString.lower(`id`),FfiConverterUInt.lower(`index`),FfiConverterOptionalString.lower(`align`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(UiException::class)override fun `setBuiltinTheme`(`id`: kotlin.String)
         = 
     callWithHandle {
@@ -4224,6 +5593,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(
         it,
         FfiConverterString.lower(`id`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Round 2: pin the clock relative times read (epoch ms; `None` = the
+     * wall clock).
+     */override fun `setClock`(`nowMs`: kotlin.Double?)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_clock(
+        it,
+        FfiConverterOptionalDouble.lower(`nowMs`),_status)
 }
     }
     
@@ -4290,6 +5675,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     
     /**
+     * Round 2: the English fallback in the surface zone, as the platform's
+     * UTC offset per instant (`zone`; `None` = UTC). It REPLACES a host
+     * formatter: a host with one formats in its own zone and needs none.
+     * Called with the surface locked: never call the surface from it.
+     */override fun `setFallbackZone`(`zone`: HostZone?)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(
+        it,
+        FfiConverterOptionalTypeHostZone.lower(`zone`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Dynamic Type / font scale (1 = the theme's sizes).
      */override fun `setFontScale`(`scale`: kotlin.Float)
         = 
@@ -4301,6 +5704,58 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 }
     }
     
+    
+
+    
+    /**
+     * Round 2: format through the host's formatter (built from the
+     * surface's locale + time zone); `None` = the English fallback. The
+     * formatter is called during a rebuild with the surface locked: it
+     * must not call back into the surface.
+     */override fun `setFormatter`(`formatter`: HostFormatter?)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(
+        it,
+        FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * One node's pointer enter (`true`) / leave, its other states kept.
+     */override fun `setHover`(`id`: kotlin.String, `hovered`: kotlin.Boolean): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_hover(
+        it,
+        FfiConverterString.lower(`id`),FfiConverterBoolean.lower(`hovered`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
+     * these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
+     * resolve through it; a hover overlay's trigger opens it.
+     */override fun `setHovered`(`ids`: List<kotlin.String>): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(
+        it,
+        FfiConverterSequenceString.lower(`ids`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -4480,6 +5935,24 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     
     /**
+     * Round 2: the host's scroll offset of the whole surface; unbounded
+     * lists window against it, sticky nodes pin against it. True = lay
+     * out again.
+     */override fun `setSurfaceScroll`(`x`: kotlin.Float, `y`: kotlin.Float): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(
+        it,
+        FfiConverterFloat.lower(`x`),FfiConverterFloat.lower(`y`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Paint with this `Theme` object from the next pass on.
      */override fun `setTheme`(`theme`: Theme)
         = 
@@ -4621,6 +6094,41 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_theme(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Round 2: re-bind (call at least once a minute while the surface
+     * shows a `formatRelativeTime` without `now`).
+     */override fun `tick`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_tick(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Round 2: whether a time on screen moves with the clock (a
+     * `formatRelativeTime` without `now`, a Table `relativeTime` column;
+     * `false` with a pinned clock): call `tick` at least once a minute
+     * while it holds. Ask after a layout.
+     */override fun `usesClock`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(
         it,
         _status)
 }
@@ -5441,7 +6949,8 @@ public object FfiConverterTypeFfiDelta: FfiConverterRustBuffer<FfiDelta> {
 /**
  * One event for the host: `kind` = `action | openUrl | functionCall |
  * dataChanged | input | focus | announce | copy | pickFiles | relayout |
- * hoverTimer`, `json` = the event's fields (`functionCall`: `{componentId,
+ * hoverTimer | scrollSurface` (round 2: `{x, y}`, scroll the host
+ * viewport, then `setSurfaceScroll`), `json` = the event's fields (`functionCall`: `{componentId,
  * name, args}`, a host function for the registry + `decideFunction` gate).
  */
 data class FfiEvent (
@@ -5781,6 +7290,11 @@ data class FfiLayout (
      * result, no new pass.
      */
     var `reentrant`: kotlin.Boolean
+    , 
+    /**
+     * Round 2: `position: sticky` nodes and pinned section headers.
+     */
+    var `sticky`: List<FfiSticky> = listOf() 
     
 ){
     
@@ -5817,6 +7331,7 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterBoolean.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeFfiSticky.read(buf),
         )
     }
 
@@ -5840,7 +7355,8 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterUInt.allocationSize(value.`restyled`) +
             FfiConverterBoolean.allocationSize(value.`rebuilt`) +
             FfiConverterUInt.allocationSize(value.`builtNodes`) +
-            FfiConverterBoolean.allocationSize(value.`reentrant`)
+            FfiConverterBoolean.allocationSize(value.`reentrant`) +
+            FfiConverterSequenceTypeFfiSticky.allocationSize(value.`sticky`)
     )
 
     override fun write(value: FfiLayout, buf: ByteBuffer) {
@@ -5864,6 +7380,7 @@ public object FfiConverterTypeFfiLayout: FfiConverterRustBuffer<FfiLayout> {
             FfiConverterBoolean.write(value.`rebuilt`, buf)
             FfiConverterUInt.write(value.`builtNodes`, buf)
             FfiConverterBoolean.write(value.`reentrant`, buf)
+            FfiConverterSequenceTypeFfiSticky.write(value.`sticky`, buf)
     }
 }
 
@@ -5890,6 +7407,13 @@ data class FfiLeaf (
     var `control`: FfiControlBox
     , 
     var `lines`: kotlin.UInt?
+    , 
+    /**
+     * Round 2 (VAPP-100): the component owning a PART leaf: the native
+     * (`Tabs` for `Tabs/tab`) or the macro (`Stepper` for its `number`);
+     * null for a plain node.
+     */
+    var `ownerComponent`: kotlin.String? = null 
     
 ){
     
@@ -5915,6 +7439,7 @@ public object FfiConverterTypeFfiLeaf: FfiConverterRustBuffer<FfiLeaf> {
             FfiConverterTypeFfiTextStyle.read(buf),
             FfiConverterTypeFfiControlBox.read(buf),
             FfiConverterOptionalUInt.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -5927,7 +7452,8 @@ public object FfiConverterTypeFfiLeaf: FfiConverterRustBuffer<FfiLeaf> {
             FfiConverterString.allocationSize(value.`text`) +
             FfiConverterTypeFfiTextStyle.allocationSize(value.`textStyle`) +
             FfiConverterTypeFfiControlBox.allocationSize(value.`control`) +
-            FfiConverterOptionalUInt.allocationSize(value.`lines`)
+            FfiConverterOptionalUInt.allocationSize(value.`lines`) +
+            FfiConverterOptionalString.allocationSize(value.`ownerComponent`)
     )
 
     override fun write(value: FfiLeaf, buf: ByteBuffer) {
@@ -5940,6 +7466,7 @@ public object FfiConverterTypeFfiLeaf: FfiConverterRustBuffer<FfiLeaf> {
             FfiConverterTypeFfiTextStyle.write(value.`textStyle`, buf)
             FfiConverterTypeFfiControlBox.write(value.`control`, buf)
             FfiConverterOptionalUInt.write(value.`lines`, buf)
+            FfiConverterOptionalString.write(value.`ownerComponent`, buf)
     }
 }
 
@@ -5959,6 +7486,11 @@ data class FfiList (
     var `count`: kotlin.UInt
     , 
     var `windowed`: kotlin.Boolean
+    , 
+    /**
+     * Round 2: windows on x (`content_height` = the content width).
+     */
+    var `horizontal`: kotlin.Boolean = false 
     
 ){
     
@@ -5982,6 +7514,7 @@ public object FfiConverterTypeFfiList: FfiConverterRustBuffer<FfiList> {
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -5992,7 +7525,8 @@ public object FfiConverterTypeFfiList: FfiConverterRustBuffer<FfiList> {
             FfiConverterUInt.allocationSize(value.`start`) +
             FfiConverterUInt.allocationSize(value.`end`) +
             FfiConverterUInt.allocationSize(value.`count`) +
-            FfiConverterBoolean.allocationSize(value.`windowed`)
+            FfiConverterBoolean.allocationSize(value.`windowed`) +
+            FfiConverterBoolean.allocationSize(value.`horizontal`)
     )
 
     override fun write(value: FfiList, buf: ByteBuffer) {
@@ -6003,6 +7537,7 @@ public object FfiConverterTypeFfiList: FfiConverterRustBuffer<FfiList> {
             FfiConverterUInt.write(value.`end`, buf)
             FfiConverterUInt.write(value.`count`, buf)
             FfiConverterBoolean.write(value.`windowed`, buf)
+            FfiConverterBoolean.write(value.`horizontal`, buf)
     }
 }
 
@@ -6082,6 +7617,26 @@ data class FfiNode (
      * The macro a non-part node expands (`Card`, `Alert`…), else null.
      */
     var `macroName`: kotlin.String?
+    , 
+    /**
+     * Round 2 (VAPP-100): the interaction states the HOST set on the node
+     * (`setStates` / `setPressed` / `setHovered` / `setHover`), as of this
+     * read; recipes and `:hover`/`:pressed` styles resolve through them.
+     */
+    var `interactionStates`: List<kotlin.String> = listOf() 
+    , 
+    /**
+     * `interaction_states` holds `hover`.
+     */
+    var `hovered`: kotlin.Boolean = false 
+    , 
+    /**
+     * Round 2 (VAPP-100): the node restyles under the pointer (a `:hover`
+     * style block, or a recipe rule on `state: hover` its props match, in
+     * the effective theme). Track a mouse over it like over a pressable and
+     * report `setHover`. Re-read after a theme switch.
+     */
+    var `hoverStyled`: kotlin.Boolean = false 
     
 ){
     
@@ -6123,6 +7678,9 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterBoolean.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -6151,7 +7709,10 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterOptionalString.allocationSize(value.`live`) +
             FfiConverterBoolean.allocationSize(value.`removed`) +
             FfiConverterSequenceString.allocationSize(value.`partStates`) +
-            FfiConverterOptionalString.allocationSize(value.`macroName`)
+            FfiConverterOptionalString.allocationSize(value.`macroName`) +
+            FfiConverterSequenceString.allocationSize(value.`interactionStates`) +
+            FfiConverterBoolean.allocationSize(value.`hovered`) +
+            FfiConverterBoolean.allocationSize(value.`hoverStyled`)
     )
 
     override fun write(value: FfiNode, buf: ByteBuffer) {
@@ -6180,6 +7741,9 @@ public object FfiConverterTypeFfiNode: FfiConverterRustBuffer<FfiNode> {
             FfiConverterBoolean.write(value.`removed`, buf)
             FfiConverterSequenceString.write(value.`partStates`, buf)
             FfiConverterOptionalString.write(value.`macroName`, buf)
+            FfiConverterSequenceString.write(value.`interactionStates`, buf)
+            FfiConverterBoolean.write(value.`hovered`, buf)
+            FfiConverterBoolean.write(value.`hoverStyled`, buf)
     }
 }
 
@@ -6386,6 +7950,15 @@ data class FfiSettings (
      * `hoverTimeout(owner)`.
      */
     var `hoverCloseMs`: kotlin.UInt = 0u 
+    , 
+    /**
+     * Round 2: the IANA zone instants show in (`catalog/host.json`
+     * `timeZone`). The HOST's: build the `HostFormatter` (or the
+     * `HostZone` for `setFallbackZone`) in it; the core has no zone
+     * database and takes the zone only through those. Kept on the facade
+     * so `settings()` returns it; without either, instants format in UTC.
+     */
+    var `timeZone`: kotlin.String? = null 
     
 ){
     
@@ -6418,6 +7991,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterFloat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterUInt.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -6437,7 +8011,8 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterFloat.allocationSize(value.`insetBottom`) +
             FfiConverterFloat.allocationSize(value.`insetLeft`) +
             FfiConverterOptionalString.allocationSize(value.`today`) +
-            FfiConverterUInt.allocationSize(value.`hoverCloseMs`)
+            FfiConverterUInt.allocationSize(value.`hoverCloseMs`) +
+            FfiConverterOptionalString.allocationSize(value.`timeZone`)
     )
 
     override fun write(value: FfiSettings, buf: ByteBuffer) {
@@ -6457,6 +8032,54 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterFloat.write(value.`insetLeft`, buf)
             FfiConverterOptionalString.write(value.`today`, buf)
             FfiConverterUInt.write(value.`hoverCloseMs`, buf)
+            FfiConverterOptionalString.write(value.`timeZone`, buf)
+    }
+}
+
+
+
+/**
+ * Round 2: a sticky node (or a pinned List section header) this pass:
+ * paint it and its subtree translated by `(dx, dy)`.
+ */
+data class FfiSticky (
+    var `index`: kotlin.UInt
+    , 
+    var `dx`: kotlin.Float
+    , 
+    var `dy`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSticky: FfiConverterRustBuffer<FfiSticky> {
+    override fun read(buf: ByteBuffer): FfiSticky {
+        return FfiSticky(
+            FfiConverterUInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSticky) = (
+            FfiConverterUInt.allocationSize(value.`index`) +
+            FfiConverterFloat.allocationSize(value.`dx`) +
+            FfiConverterFloat.allocationSize(value.`dy`)
+    )
+
+    override fun write(value: FfiSticky, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`index`, buf)
+            FfiConverterFloat.write(value.`dx`, buf)
+            FfiConverterFloat.write(value.`dy`, buf)
     }
 }
 
@@ -6470,6 +8093,17 @@ data class FfiTextStyle (
     var `lineHeight`: kotlin.Float
     , 
     var `fontFamily`: kotlin.String?
+    , 
+    /**
+     * Round 2 (VAPP-100): extra px between glyphs (font scale applied),
+     * `uppercase | lowercase | capitalize`, `italic`; null = none. They
+     * change the shaped width: measure and paint with them.
+     */
+    var `letterSpacing`: kotlin.Float? = null 
+    , 
+    var `textTransform`: kotlin.String? = null 
+    , 
+    var `fontStyle`: kotlin.String? = null 
     
 ){
     
@@ -6490,6 +8124,9 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterUShort.read(buf),
             FfiConverterFloat.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -6497,7 +8134,10 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterFloat.allocationSize(value.`fontSize`) +
             FfiConverterUShort.allocationSize(value.`fontWeight`) +
             FfiConverterFloat.allocationSize(value.`lineHeight`) +
-            FfiConverterOptionalString.allocationSize(value.`fontFamily`)
+            FfiConverterOptionalString.allocationSize(value.`fontFamily`) +
+            FfiConverterOptionalFloat.allocationSize(value.`letterSpacing`) +
+            FfiConverterOptionalString.allocationSize(value.`textTransform`) +
+            FfiConverterOptionalString.allocationSize(value.`fontStyle`)
     )
 
     override fun write(value: FfiTextStyle, buf: ByteBuffer) {
@@ -6505,6 +8145,9 @@ public object FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer<FfiTextStyle>
             FfiConverterUShort.write(value.`fontWeight`, buf)
             FfiConverterFloat.write(value.`lineHeight`, buf)
             FfiConverterOptionalString.write(value.`fontFamily`, buf)
+            FfiConverterOptionalFloat.write(value.`letterSpacing`, buf)
+            FfiConverterOptionalString.write(value.`textTransform`, buf)
+            FfiConverterOptionalString.write(value.`fontStyle`, buf)
     }
 }
 
@@ -6659,6 +8302,29 @@ data class FfiVisual (
      * A Chart's series colours, resolved.
      */
     var `seriesColors`: List<kotlin.String>?
+    , 
+    /**
+     * Round 2: a leaf's direction (`ltr | rtl`), the bidi paragraph
+     * direction of its text (`text_align` is then the PHYSICAL align).
+     */
+    var `direction`: kotlin.String? = null 
+    , 
+    /**
+     * Round 2: backdrop blur radius in px (no platform blur = paint the
+     * background alone).
+     */
+    var `backdropBlur`: kotlin.Float? = null 
+    , 
+    /**
+     * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
+     * sample it with `animationFrameJson`.
+     */
+    var `animationJson`: kotlin.String? = null 
+    , 
+    /**
+     * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
+     */
+    var `sticky`: kotlin.Boolean = false 
     
 ){
     
@@ -6712,6 +8378,10 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -6752,7 +8422,11 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterBoolean.allocationSize(value.`pointerEventsNone`) +
             FfiConverterOptionalString.allocationSize(value.`userSelect`) +
             FfiConverterOptionalString.allocationSize(value.`cursor`) +
-            FfiConverterOptionalSequenceString.allocationSize(value.`seriesColors`)
+            FfiConverterOptionalSequenceString.allocationSize(value.`seriesColors`) +
+            FfiConverterOptionalString.allocationSize(value.`direction`) +
+            FfiConverterOptionalFloat.allocationSize(value.`backdropBlur`) +
+            FfiConverterOptionalString.allocationSize(value.`animationJson`) +
+            FfiConverterBoolean.allocationSize(value.`sticky`)
     )
 
     override fun write(value: FfiVisual, buf: ByteBuffer) {
@@ -6793,6 +8467,10 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
             FfiConverterOptionalString.write(value.`userSelect`, buf)
             FfiConverterOptionalString.write(value.`cursor`, buf)
             FfiConverterOptionalSequenceString.write(value.`seriesColors`, buf)
+            FfiConverterOptionalString.write(value.`direction`, buf)
+            FfiConverterOptionalFloat.write(value.`backdropBlur`, buf)
+            FfiConverterOptionalString.write(value.`animationJson`, buf)
+            FfiConverterBoolean.write(value.`sticky`, buf)
     }
 }
 
@@ -6952,6 +8630,38 @@ public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
+    override fun read(buf: ByteBuffer): kotlin.Int? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Int?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Int?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalFloat: FfiConverterRustBuffer<kotlin.Float?> {
     override fun read(buf: ByteBuffer): kotlin.Float? {
         if (buf.get().toInt() == 0) {
@@ -7070,6 +8780,70 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeHostFormatter: FfiConverterRustBuffer<HostFormatter?> {
+    override fun read(buf: ByteBuffer): HostFormatter? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeHostFormatter.read(buf)
+    }
+
+    override fun allocationSize(value: HostFormatter?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeHostFormatter.allocationSize(value)
+        }
+    }
+
+    override fun write(value: HostFormatter?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeHostFormatter.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeHostZone: FfiConverterRustBuffer<HostZone?> {
+    override fun read(buf: ByteBuffer): HostZone? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeHostZone.read(buf)
+    }
+
+    override fun allocationSize(value: HostZone?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeHostZone.allocationSize(value)
+        }
+    }
+
+    override fun write(value: HostZone?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeHostZone.write(value, buf)
         }
     }
 }
@@ -7640,6 +9414,34 @@ public object FfiConverterSequenceTypeFfiScroll: FfiConverterRustBuffer<List<Ffi
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiSticky: FfiConverterRustBuffer<List<FfiSticky>> {
+    override fun read(buf: ByteBuffer): List<FfiSticky> {
+        val len = buf.getInt()
+        return List<FfiSticky>(len) {
+            FfiConverterTypeFfiSticky.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiSticky>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiSticky.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiSticky>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiSticky.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiToast: FfiConverterRustBuffer<List<FfiToast>> {
     override fun read(buf: ByteBuffer): List<FfiToast> {
         val len = buf.getInt()
@@ -7702,6 +9504,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     )
     }
     
+
+        /**
+         * Round 2 (§2): the frame of an animation (`timing_json` = a visual's
+         * `animation.timing`) `elapsed_ms` after the node entered the tree:
+         * `{opacity, translateX, translateY, rotate, scale, band}`.
+         */
+    @Throws(UiException::class) fun `animationFrameJson`(`name`: kotlin.String, `timingJson`: kotlin.String, `elapsedMs`: kotlin.Double, `reducedMotion`: kotlin.Boolean): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_animation_frame_json(
+    
+        FfiConverterString.lower(`name`),FfiConverterString.lower(`timingJson`),FfiConverterDouble.lower(`elapsedMs`),FfiConverterBoolean.lower(`reducedMotion`),_status)
+}
+    )
+    }
+    
  fun `basicCatalogId`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -7721,6 +9539,41 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_bench_tree_json(
     
         FfiConverterUInt.lower(`n`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2 (§4): a row-scoped slot cell (Table) bound for row `index`:
+         * `rows_prop_json` = the UNBOUND `rows` (a binding → relative paths read
+         * the data at `<its pointer>/<index>`; a literal → inside `rows[index]`),
+         * `rows_json` = the bound rows. Format calls go through `formatter` (the
+         * surface's; `None` = the English fallback). `None` = not visible.
+         */
+    @Throws(UiException::class) fun `bindRowSlotJson`(`slotJson`: kotlin.String, `rowsPropJson`: kotlin.String, `rowsJson`: kotlin.String, `index`: kotlin.UInt, `dataJson`: kotlin.String, `optionsJson`: kotlin.String?, `formatter`: HostFormatter? = null): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(
+    
+        FfiConverterString.lower(`slotJson`),FfiConverterString.lower(`rowsPropJson`),FfiConverterString.lower(`rowsJson`),FfiConverterUInt.lower(`index`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`optionsJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2 (§4): a List `section` header bound for section `index`;
+         * `section_json` = `{value, count}` (`start` optional): relative paths
+         * read `{value, count, index}`. `options.now` and `formatter` as
+         * [`bind_row_slot_json`].
+         */
+    @Throws(UiException::class) fun `bindSectionHeaderJson`(`slotJson`: kotlin.String, `sectionJson`: kotlin.String, `index`: kotlin.UInt, `dataJson`: kotlin.String, `optionsJson`: kotlin.String?, `formatter`: HostFormatter? = null): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(
+    
+        FfiConverterString.lower(`slotJson`),FfiConverterString.lower(`sectionJson`),FfiConverterUInt.lower(`index`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`optionsJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),_status)
 }
     )
     }
@@ -7899,6 +9752,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * Round 2 (§3): what a text prop shows for a bound value (`412`, `true`,
+         * nothing for null / objects).
+         */
+    @Throws(UiException::class) fun `displayStringJson`(`valueJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_display_string_json(
+    
+        FfiConverterString.lower(`valueJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A client error message (A2UI v0.9 `error`) JSON.
          */ fun `errorMessageJson`(`code`: kotlin.String, `surfaceId`: kotlin.String, `message`: kotlin.String, `path`: kotlin.String?): kotlin.String {
             return FfiConverterString.lift(
@@ -7920,6 +9788,39 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_extension_errors(
     
         FfiConverterString.lower(`extensionJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2: a format call (`{call, args}`) through the English fallback
+         * (at `offset_minutes` east of UTC, default 0: `format.json` `zoned`), or
+         * through `formatter` (`now` = the clock for `formatRelativeTime`).
+         */
+    @Throws(UiException::class) fun `formatCallJson`(`callJson`: kotlin.String, `formatter`: HostFormatter?, `now`: kotlin.Double?, `offsetMinutes`: kotlin.Int? = null): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_call_json(
+    
+        FfiConverterString.lower(`callJson`),FfiConverterOptionalTypeHostFormatter.lower(`formatter`),FfiConverterOptionalDouble.lower(`now`),FfiConverterOptionalInt.lower(`offsetMinutes`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2: the TR35 subset over calendar fields with the host's names:
+         * `fields_json` = `{year, month (1–12), day, weekday (0 = Sunday), hour,
+         * minute, second}`, `names_json` = `{months, monthsShort, weekdays,
+         * weekdaysShort, dayPeriods}` (`None` = English).
+         */
+    @Throws(UiException::class) fun `formatPatternJson`(`pattern`: kotlin.String, `fieldsJson`: kotlin.String, `namesJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_pattern_json(
+    
+        FfiConverterString.lower(`pattern`),FfiConverterString.lower(`fieldsJson`),FfiConverterOptionalString.lower(`namesJson`),_status)
 }
     )
     }
@@ -7974,6 +9875,28 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_json_equal(
     
         FfiConverterString.lower(`a`),FfiConverterString.lower(`b`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2 (§5): the list arithmetic, `{op, …}` → JSON: `window {extents,
+         * gap, scroll, viewport, overscan?}`, `scrollTo {extents, gap, index,
+         * viewport, scroll, align?, inset?}`, `scrollToItem {rows ([{header}|
+         * {item}], as `sections` gives), rowExtents, gap, index (DATA), viewport,
+         * scroll, align?, stickyHeaders?}`, `sections {items, sectionBy}`,
+         * `sticky {rowExtents, headerRows, scroll, gap?, rowOffsets?}` (`gap` =
+         * the list's item spacing incl. a divider's hairline; `rowOffsets`, when
+         * given, wins; header rows sort, out-of-range ones are an error), `keys
+         * {items, key?}`, `rowKeys {rows, rowKey?}`.
+         */
+    @Throws(UiException::class) fun `listJson`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_list_json(
+    
+        FfiConverterString.lower(`requestJson`),_status)
 }
     )
     }
@@ -8066,6 +9989,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * Round 2: a date value (`yyyy-mm-dd`, an ISO date-time, epoch ms) as
+         * `{ms, dateOnly}`, or `None` when unreadable.
+         */
+    @Throws(UiException::class) fun `parseDateValueJson`(`valueJson`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
+    
+        FfiConverterString.lower(`valueJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A binding source URI → `{uri, scheme, name, params}` JSON, null when it
          * does not parse.
          */ fun `parseSourceJson`(`uri`: kotlin.String): kotlin.String? {
@@ -8116,6 +10054,41 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(
     
         FfiConverterString.lower(`componentsJson`),FfiConverterString.lower(`catalogId`),FfiConverterOptionalString.lower(`extensionsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2: the unit a relative time shows in: `{value, unit}` for
+         * `delta_ms` = value − now.
+         */ fun `relativeTimeUnitJson`(`deltaMs`: kotlin.Double): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
+    
+        FfiConverterDouble.lower(`deltaMs`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 2 (§1): the Resizable arithmetic, `{op, …}` → the numbers:
+         * `normalize {sizes?, count, panels?}`, `resize {sizes, handle, delta,
+         * panels?}`, `key {sizes, handle, key, orientation, direction?, panels?}`,
+         * `extents {sizes, container, handleExtent?}`, `drag {px, container,
+         * panels, orientation, direction?, handleExtent?}` (`handleExtent` = the
+         * theme's `$control.hairline`, default 1; `extents` also reads the older
+         * `handle`). A surface runs them itself on `drag` / `key` events; hosts
+         * use this for previews and the binding suites.
+         */
+    @Throws(UiException::class) fun `resizableJson`(`requestJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_resizable_json(
+    
+        FfiConverterString.lower(`requestJson`),_status)
 }
     )
     }

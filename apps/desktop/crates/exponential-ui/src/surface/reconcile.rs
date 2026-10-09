@@ -4,7 +4,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::Value;
 
 use super::{Carried, NodeState, Surface};
 use crate::layout_tree::{self, BuildContext, LNode, LayerPlacement, NodeKind};
@@ -29,20 +28,6 @@ impl Surface {
             self.toasts.clear();
             return;
         };
-        // Templates referenced by the tree are reduced up front (once per
-        // reduce) so the build closure stays borrow-free.
-        if self.template_ids.is_none() {
-            let mut ids: Vec<String> = Vec::new();
-            root.walk(&mut |n| {
-                if let Some(t) = &n.template {
-                    ids.push(t.component.clone());
-                }
-            });
-            self.template_ids = Some(ids);
-        }
-        for id in self.template_ids.clone().unwrap_or_default() {
-            self.template_root(&id, Some(&root));
-        }
         let breakpoint = self.active_breakpoint();
         let built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
         self.root = Some(root);
@@ -64,6 +49,8 @@ impl Surface {
         let window_height = if vh > 0.0 { vh } else { self.max_height.unwrap_or(2000.0) };
         let gaps: HashMap<&str, f32> = ["none", "xxs", "xs", "sm", "md", "lg", "xl", "xl2", "xl3"].iter().map(|g| (*g, self.gap_px(g))).collect();
         let wide = self.breakpoints().get("md").is_some_and(|md| vw >= *md);
+        let token = |name: &str, default: f32| self.effective.as_ref().and_then(|t| t.tokens.control.get(name).copied()).map(|v| v as f32).unwrap_or(default);
+        let (hairline, row_extent) = (token("hairline", 1.0), token("row", crate::list::DEFAULT_ESTIMATED_ITEM_HEIGHT));
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
             let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
@@ -75,6 +62,9 @@ impl Surface {
                 local: &mut self.local,
                 template: &template,
                 viewport_height: window_height,
+                viewport_width: if vw > 0.0 { vw } else { 2000.0 },
+                hairline,
+                row_extent,
                 gap_px: &gap,
                 expand_controls: expand,
                 strings: &self.strings,
@@ -82,6 +72,9 @@ impl Surface {
                 locale: &self.settings.locale,
                 wide,
                 today: self.settings.today.clone(),
+                formatter: &*self.formatter,
+                now: self.clock.unwrap_or_else(crate::format::now_ms),
+                data_version: self.data_version,
             };
             f(&mut ctx)
         };
@@ -212,6 +205,7 @@ impl Surface {
             kind: NodeKind::Container,
             props: Default::default(),
             base_style: Default::default(),
+            default_keys: Vec::new(),
             own_query: None,
             part_query: None,
             hidden: true,
@@ -284,10 +278,11 @@ impl Surface {
         for t in &built.toasts {
             if !self.toasts.iter().any(|old| old.id == t.id) {
                 if let Some(n) = self.node_by_id(&t.id) {
-                    let title = n.props.get("title").and_then(Value::as_str).unwrap_or("");
-                    let text = match n.props.get("description").and_then(Value::as_str) {
-                        Some(d) => format!("{title}. {d}"),
-                        None => title.to_string(),
+                    // Round 2: non-string values show as display strings.
+                    let title = crate::format::display_opt(n.props.get("title"));
+                    let text = match n.props.get("description").filter(|d| !d.is_null()) {
+                        Some(d) => format!("{title}. {}", crate::format::display_string(d)),
+                        None => title,
                     };
                     let live = if t.kind == "error" { "assertive" } else { "polite" };
                     self.pending.push(super::OutEvent::Announce { text, live: live.into() });
@@ -360,13 +355,13 @@ impl Surface {
                     || old.live != n.live
                     || old.part_query.as_ref().map(|q| &q.states) != n.part_query.as_ref().map(|q| &q.states)
                     || old.own_query.as_ref().map(|q| &q.states) != n.own_query.as_ref().map(|q| &q.states);
-                let style_changed = old.base_style != n.base_style || old.own_query != n.own_query || old.part_query != n.part_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
+                let style_changed = old.base_style != n.base_style || old.default_keys != n.default_keys || old.own_query != n.own_query || old.part_query != n.part_query || old.hidden != n.hidden || old.kind != n.kind || old.component != n.component;
                 let measure_changed = old.props != n.props || old.lines != n.lines || old.component != n.component || old.kind != n.kind || old.part != n.part;
                 if old.parent != n.parent || old.children != n.children || old.layer != n.layer {
                     structure_changed = true;
                 }
                 if live_text_changed(old, &n) {
-                    let text = n.props.get("text").and_then(Value::as_str).unwrap_or("").to_string();
+                    let text = crate::format::display_opt(n.props.get("text"));
                     let live = n.live.clone().unwrap_or_else(|| "polite".into());
                     self.pending.push(super::OutEvent::Announce { text, live });
                 }
