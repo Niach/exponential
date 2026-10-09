@@ -170,12 +170,12 @@ describe(`accessibility channel (§6, review majors)`, () => {
     expect(byId(bindTree(bound, { open: true }, STRINGS)!, `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: true })
     expect(byId(expand({ id: `c`, component: `Collapsible`, props: { title: `More` } }), `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: false })
 
-    // Round 3: the TabBar alias is a `bar` Segmented native (its navigation role comes from a11y.json, the painter sets aria-current); a Section header is a heading, or a button with aria-expanded when collapsible.
+    // Round 3: the TabBar alias is a `bar` Segmented native (its navigation role comes from a11y.json, the painter sets aria-current); a Section header is a heading, or a button with aria-expanded (no aria-level) when collapsible; the fold toggles against its default open.
     const tabs = bindTree(expand({ id: `tb`, component: `TabBar`, props: { items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: { path: `/tab` } } }), { tab: `b` }, STRINGS)!
     expect(tabs.component).toBe(`Segmented`)
     expect(tabs.props).toMatchObject({ variant: `bar`, value: `b` })
     expect(byId(expand({ id: `s`, component: `Section`, props: { title: `More` } }), `s.header`)!.accessibility).toEqual({ role: `heading`, level: 3 })
-    expect(byId(bindTree(expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } }), { open: false }, STRINGS)!, `s.header`)!.accessibility).toEqual({ role: `button`, level: 3, expanded: false })
+    expect(byId(bindTree(expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } }), { open: false }, STRINGS)!, `s.header`)!.accessibility).toEqual({ role: `button`, expanded: false })
 
     const stepper = bindTree(expand({ id: `s`, component: `Stepper`, props: { steps: [{ label: `Account` }, { label: `Team` }, { label: `Done` }], current: { path: `/c` } } }), { c: 1 }, STRINGS)!
     expect(stepper.children.map((c) => c.accessibility)).toEqual([
@@ -220,7 +220,7 @@ describe(`$set meets an author function (§1, review minor)`, () => {
     // An event handler still gets the set.
     const ok = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { event: { name: `fold` } } } })
     expect(ok.issues).toEqual([])
-    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { call: `not`, args: { value: { path: `/open` } } } } }, function: { call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { path: `/open` } } } } } })
+    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } }, function: { call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } } })
   })
 
   test(`an A2UI functionCall counts as the author's function too (VAPP-99)`, () => {
