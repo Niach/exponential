@@ -176,8 +176,9 @@ fn whole_image(line: &str) -> Option<(String, String)> {
 }
 
 /// The host's policy over parsed blocks: an image block whose src the
-/// media policy refuses becomes a paragraph of its alt text (the measurer
-/// and the painter both resolve, so a denied image never reserves a box);
+/// media policy refuses becomes a paragraph of its alt text (dropped
+/// without one; the measurer and the painter both resolve, so a denied
+/// image never reserves a box);
 /// a link the URL policy refuses loses its href (plain text, not pressable).
 pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, image_allowed: impl Fn(&str) -> bool) -> Vec<Block> {
     let strip = |inlines: &mut Vec<Inline>| {
@@ -189,17 +190,20 @@ pub fn resolve_urls(blocks: Vec<Block>, link_allowed: impl Fn(&str) -> bool, ima
     };
     blocks
         .into_iter()
-        .map(|mut b| {
+        .filter_map(|mut b| {
             if let BlockKind::Image { src, alt } = &b.kind {
                 if !image_allowed(src) {
-                    b = Block { kind: BlockKind::Paragraph, inlines: parse_inline(alt), list_group: None };
+                    if alt.is_empty() {
+                        return None;
+                    }
+                    b = Block { kind: BlockKind::Paragraph, inlines: vec![Inline { text: alt.clone(), ..Inline::default() }], list_group: None };
                 }
             }
             strip(&mut b.inlines);
             if let BlockKind::Table { header, rows } = &mut b.kind {
                 header.iter_mut().chain(rows.iter_mut().flatten()).for_each(&strip);
             }
-            b
+            Some(b)
         })
         .collect()
 }
@@ -1161,6 +1165,7 @@ mod tests {
         assert_eq!(links, [Some("https://exponential.at")], "a denied link is plain text");
         let denied = parse("![x](javascript:alert(3))");
         assert_eq!(resolve_urls(denied, |_| true, |src| !src.starts_with("javascript:"))[0].kind, BlockKind::Paragraph);
+        assert!(resolve_urls(parse("![](javascript:x)"), |_| true, |_| false).is_empty(), "a denied image without alt text is dropped");
     }
 
     #[test]

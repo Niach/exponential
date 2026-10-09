@@ -91,20 +91,26 @@ describe(`markdown`, () => {
     expect(linkAt(`[a](x y)`, 0)).toBeNull()
     expect(linkAt(`[a](x(`, 0)).toBeNull()
   })
-  it(`a denied link is its label as text; a denied image its alt`, () => {
-    const { container } = render(<div>{renderMarkdown(`see [docs](https://en.wikipedia.org/wiki/A_(b)) and [bad](javascript:alert(1)) ![pic](javascript:alert(3)) end`)}</div>)
+  it(`a denied link is its label as text; an inline image its alt (×4)`, () => {
+    const { container } = render(<div>{renderMarkdown(`see [docs](https://en.wikipedia.org/wiki/A_(b)) and [bad](javascript:alert(1)) ![pic](https://exponential.at/p.png) end`)}</div>)
     const hrefs = [...container.querySelectorAll(`a`)].map((a) => a.getAttribute(`href`))
     expect(hrefs).toEqual([`https://en.wikipedia.org/wiki/A_(b)`])
     expect(container.querySelector(`img`)).toBeNull()
-    expect(container.querySelector(`.xui-Markdown-imageAlt`)!.textContent).toBe(`pic`)
+    expect(container.textContent).toContain(`pic end`)
     expect(container.textContent).toContain(`bad`)
     expect(container.textContent).toContain(` end`)
     expect(container.innerHTML).not.toContain(`javascript`)
   })
-  it(`an allowed image paints through the media policy`, () => {
+  it(`a paragraph that is one image is a block image through the media policy`, () => {
     const { container } = render(<div>{renderMarkdown(`![chart](https://exponential.at/c.png)`)}</div>)
-    expect(container.querySelector(`img`)!.getAttribute(`src`)).toBe(`https://exponential.at/c.png`)
-    expect(container.querySelector(`img`)!.getAttribute(`alt`)).toBe(`chart`)
+    expect(container.querySelector(`.xui-Markdown-image img`)!.getAttribute(`src`)).toBe(`https://exponential.at/c.png`)
+    expect(container.querySelector(`.xui-Markdown-image`)!.getAttribute(`aria-label`)).toBe(`chart`)
+  })
+  it(`a denied block image is a paragraph of its alt text, nothing without one (×4)`, () => {
+    const { container } = render(<div>{renderMarkdown(`![pic](javascript:alert(3))\n\n![](javascript:x)`)}</div>)
+    expect(container.querySelector(`.xui-Markdown-image`)).toBeNull()
+    expect([...container.querySelectorAll(`.xui-Markdown-paragraph`)].map((p) => p.textContent)).toEqual([`pic`])
+    expect(container.innerHTML).not.toContain(`javascript`)
   })
   it(`lists nest by indentation`, () => {
     const list = parseList([`- a`, `  - a1`, `    1. deep`, `  - a2`, `- b`, `- [x] done`])

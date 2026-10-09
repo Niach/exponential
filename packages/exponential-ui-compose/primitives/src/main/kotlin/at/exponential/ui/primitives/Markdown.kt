@@ -40,8 +40,9 @@ sealed class MarkdownBlockKind {
 
     /**
      * A paragraph that is one image `![alt](src)`: painted through the
-     * host's media policy at `imageHeight`, the alt text when it is denied
-     * or fails. `inlines` = the alt text.
+     * host's media policy at `imageHeight`, the alt text in the box while it
+     * loads or when it fails; a DENIED src is a paragraph of its alt text
+     * ([Markdown.resolveImages]). `inlines` = the alt text.
      */
     data class Image(val src: String, val alt: String) : MarkdownBlockKind()
 
@@ -416,6 +417,20 @@ object Markdown {
         }
         flush()
         return blocks
+    }
+
+    /**
+     * Image blocks whose src [allowed] refuses become a paragraph of their
+     * alt text (dropped without one): what the measurer and the painter
+     * both lay out, so a denied image never reserves a box.
+     */
+    fun resolveImages(blocks: List<MarkdownBlock>, allowed: (String) -> Boolean): List<MarkdownBlock> = blocks.mapNotNull { b ->
+        val kind = b.kind
+        when {
+            kind !is MarkdownBlockKind.Image || allowed(kind.src) -> b
+            kind.alt.isEmpty() -> null
+            else -> MarkdownBlock(MarkdownBlockKind.Paragraph, listOf(MarkdownInline(text = kind.alt)))
+        }
     }
 
     /**

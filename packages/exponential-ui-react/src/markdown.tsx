@@ -5,7 +5,9 @@
 // `host.Markdown` and this one steps aside. No HTML passthrough: tags are
 // text. VAPP-103: link and image destinations parse balanced parentheses
 // (CommonMark); every href passes the URL policy (denied = the label as
-// text), every image the media policy (denied or failed = the alt text).
+// text), every image the media policy. A paragraph that is one image is a
+// BLOCK image (denied = a paragraph of its alt text); an image inside
+// running text is its alt text, as on every renderer.
 
 import { Fragment, createElement, type ReactNode } from "react"
 import type { HostPlugin } from "./host"
@@ -65,12 +67,27 @@ export function linkAt(s: string, at: number): { label: string; dest: string; en
   return { label, dest, end: j + 1 }
 }
 
-/** An image through the media policy and loader; the alt text when denied
- *  or failed. */
+/** A paragraph that is exactly one `![alt](src)` → its alt + src (a BLOCK
+ *  image, as every renderer paints it; an image inside running text is its
+ *  alt text). */
+export function wholeImage(text: string): { alt: string; src: string } | null {
+  if (text[0] !== `!`) return null
+  const l = linkAt(text, 1)
+  return l && l.end === text.length ? { alt: l.label, src: l.dest } : null
+}
+
+/** A block image through the media policy and loader in an `imageHeight`
+ *  (160px, ×4) box (loading or loaded, so the box never jumps;
+ *  the alt text there while it loads or when it fails). A src the policy
+ *  DENIES is a paragraph of its alt text (nothing without one). */
 function MarkdownImage({ host, src, alt }: { host: HostPlugin; src: string; alt: string }) {
   const media = useMediaSource(host, src)
-  if (mediaRequestOf(host, src) === null || media.error) return <span className="xui-Markdown-imageAlt">{alt}</span>
-  return media.url ? <img className="xui-Markdown-image" alt={alt} src={media.url} /> : null
+  if (mediaRequestOf(host, src) === null) return alt ? <p className="xui-Markdown-paragraph">{alt}</p> : null
+  return (
+    <div className="xui-Markdown-image" role="img" aria-label={alt}>
+      {media.url && !media.error ? <img alt="" src={media.url} /> : <span className="xui-Markdown-imageAlt">{alt}</span>}
+    </div>
+  )
 }
 
 const SIMPLE = /(`[^`]+`)|(\*\*([^*]+)\*\*)|(__([^_]+)__)|(\*([^*\s][^*]*)\*)|(_([^_\s][^_]*)_)|(~~([^~]+)~~)/
@@ -94,7 +111,8 @@ function inline(text: string, host: HostPlugin, key = 0): Inline[] {
     if (link) {
       if (link.at > 0) out.push(rest.slice(0, link.at))
       const k = i++
-      if (link.image) out.push(<MarkdownImage key={k} host={host} src={link.dest} alt={link.label} />)
+      // An image inside running text paints its alt text (×4).
+      if (link.image) out.push(link.label)
       else {
         const href = linkHref(host, link.dest)
         const label = inline(link.label, host, k * 100)
@@ -182,7 +200,10 @@ export function renderMarkdown(text: string, host: HostPlugin = {}): ReactNode[]
   const para: string[] = []
   const flush = () => {
     if (para.length === 0) return
-    blocks.push(<p key={key++} className="xui-Markdown-paragraph">{inline(para.join(` `), host, key * 1000)}</p>)
+    const text = para.join(` `)
+    const image = wholeImage(text)
+    if (image) blocks.push(<MarkdownImage key={key++} host={host} src={image.src} alt={image.alt} />)
+    else blocks.push(<p key={key++} className="xui-Markdown-paragraph">{inline(text, host, key * 1000)}</p>)
     para.length = 0
   }
   while (i < lines.length) {

@@ -306,8 +306,8 @@ internal fun UnknownLeaf(cx: LeafContext) {
  * `MarkdownView` with the measurer's [MarkdownPainter.styles] and fonts,
  * so the painted document is the measured height. Every link href passes
  * the host's URL policy (denied = plain text) and opens through the host;
- * block images load through its media policy (denied / failed = the alt
- * text).
+ * block images load through its media policy (denied = a paragraph of the
+ * alt text, as the measurer lays it out; failed = the alt text in the box).
  */
 @Composable
 internal fun MarkdownLeaf(cx: LeafContext) {
@@ -345,6 +345,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
             fonts = fonts,
             onLink = { model.openHref(it) },
             linkPolicy = remember(model, model.host) { { href: String -> model.href(href) } },
+            imagePolicy = remember(model, model.host) { { src: String -> model.mediaRequest(src) != null } },
             image = { src, alt ->
                 val picture = rememberPolicedImage(model, src)
                 if (picture != null) {

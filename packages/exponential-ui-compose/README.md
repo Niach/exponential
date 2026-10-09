@@ -131,7 +131,7 @@ Every answer is the BORDER box: the recipe's padding (per side) and border aroun
 - the leaf's `FfiTextStyle`: size, weight, line height, family, `letterSpacing`, `textTransform` and italics, inherited like CSS (the leaves paint with the same style);
 - a number or boolean in a text prop shows as its display string (`412`);
 - Markdown measures with the same block layout it paints; platform controls have recipe-fixed boxes.
-- Markdown link and image destinations follow CommonMark (balanced parentheses, `\` escapes, no whitespace). A list item whose marker sits ≥ 2 columns right of the previous level's nests one `listIndent` deeper. A paragraph that is one `![alt](src)` is a block image `imageHeight` tall (loaded or not, so measure = paint), the alt text when denied or failed; an image inside running text stays its alt text.
+- Markdown link and image destinations follow CommonMark (balanced parentheses, `\` escapes, no whitespace). A list item whose marker sits ≥ 2 columns right of the previous level's nests one `listIndent` deeper. A paragraph that is one `![alt](src)` is a block image `imageHeight` tall (loading or loaded, so measure = paint; the alt text in the box when it fails); a src the media policy DENIES is a paragraph of its alt text (none without one), in the measurer and the painter alike; an image inside running text stays its alt text.
 
 Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tests).
 

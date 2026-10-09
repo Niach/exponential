@@ -202,9 +202,9 @@ class MarkdownComposeText(
  * taken at `fontScale = 1` so the measured layout is the painted one.
  * [linkPolicy] polices every href (null result = plain text, never
  * navigates); links open through [onLink] (null = the platform URI
- * handler). [image] paints a block image inside its box (null = the alt
- * text); it should load through a media policy and fall back to the alt
- * text itself.
+ * handler). [imagePolicy] polices every block image's src (refused = a
+ * paragraph of its alt text, no box); [image] paints an allowed one inside
+ * its box (null = the alt text) and falls back to the alt text itself.
  */
 @Composable
 fun MarkdownView(
@@ -217,10 +217,11 @@ fun MarkdownView(
     fonts: MarkdownFontResolver = MarkdownFontResolver { _, mono -> if (mono) FontFamily.Monospace else null },
     onLink: ((String) -> Unit)? = null,
     linkPolicy: ((String) -> String?)? = null,
+    imagePolicy: ((String) -> Boolean)? = null,
     image: (@Composable (src: String, alt: String) -> Unit)? = null,
 ) {
-    val blocks = remember(text, linkPolicy) {
-        val parsed = Markdown.parse(text)
+    val blocks = remember(text, linkPolicy, imagePolicy) {
+        val parsed = Markdown.parse(text).let { if (imagePolicy == null) it else Markdown.resolveImages(it, imagePolicy) }
         if (linkPolicy == null) parsed else Markdown.policeLinks(parsed, linkPolicy)
     }
     val outer = LocalDensity.current
@@ -340,7 +341,7 @@ private fun MarkdownBlockView(
     }
 }
 
-/** A block image's alt text (denied, failed, still loading or no image painter): one line, start-aligned. */
+/** A block image's alt text (failed, still loading or no image painter): one line, start-aligned. */
 @Composable
 fun MarkdownImageAlt(alt: String, style: TextStyle) {
     BasicText(alt, style = style, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)

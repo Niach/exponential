@@ -217,7 +217,10 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Markdown-link{color:var(--xui-color-primary);text-decoration:underline;text-underline-offset:3px}
 .xui-Markdown-table{border-collapse:collapse;margin:0 0 var(--xui-spacing-sm);width:100%}
 .xui-Markdown-table th,.xui-Markdown-table td{border:1px solid var(--xui-color-border);padding:var(--xui-spacing-xs) var(--xui-spacing-sm);text-align:start}
-.xui-md img{max-width:100%;height:auto;border-radius:var(--xui-radius-sm)}
+.xui-Markdown-image{height:160px;margin:0 0 var(--xui-spacing-sm);overflow:hidden}
+.xui-Markdown-image>img{display:block;width:100%;height:100%;object-fit:contain;object-position:0 0}
+.xui-Markdown-image>img:dir(rtl){object-position:100% 0}
+.xui-Markdown-imageAlt{color:var(--xui-color-mutedForeground)}
 [data-xui-c="Chart"].xui-el{flex-direction:column;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Chart-legend,.xui-Chart-title{flex-shrink:0}
 [data-xui-c="Chart"].xui-el>svg{width:100%;display:block}

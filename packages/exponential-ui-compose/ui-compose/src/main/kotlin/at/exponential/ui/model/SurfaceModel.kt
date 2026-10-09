@@ -646,7 +646,7 @@ class SurfaceModel(
         if (nodesDirty) readNodes()
         var measurer: SurfaceMeasurer? = null
         val out: FfiLayout = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed).let {
+            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed) { mediaRequest(it) != null }.let {
                 measurer = it
                 surface.layout(it)
             }

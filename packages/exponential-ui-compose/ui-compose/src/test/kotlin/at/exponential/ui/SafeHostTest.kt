@@ -259,6 +259,10 @@ class SafeHostTest {
         val img = Markdown.parse("![i](javascript:alert(3))").single().kind
         assertEquals(MarkdownBlockKind.Image("javascript:alert(3)", "i"), img)
         assertNull(policedMediaRequest(NoHost, (img as MarkdownBlockKind.Image).src))
+        // Denied: a paragraph of the alt text (no box), dropped without an alt (×4).
+        val denied = Markdown.resolveImages(Markdown.parse("![i](javascript:alert(3))\n\n![](javascript:x)\n\n![ok](https://x/y.png)")) { policedMediaRequest(NoHost, it) != null }
+        assertEquals(listOf(MarkdownBlockKind.Paragraph, MarkdownBlockKind.Image("https://x/y.png", "ok")), denied.map { it.kind })
+        assertEquals("i", Markdown.plain(denied[0].inlines))
         // Links through a policy: a denied href is plain text (same text, no link).
         val policed = Markdown.policeLinks(Markdown.parse("[ok](https://a.example) [bad](javascript:alert(1))")) { safeHref(NoHost, it) }
         assertEquals(listOf("https://a.example/", null), policed.single().inlines.filter { it.text == "ok" || it.text == "bad" }.map { it.link })
