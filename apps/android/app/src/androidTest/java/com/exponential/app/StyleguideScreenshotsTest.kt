@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -15,6 +16,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -447,9 +449,15 @@ class StyleguideScreenshotsTest {
         // PR (APP-14) completes it into the Fix merge conflicts look — the
         // verb + the PR's issue chip, the card's PR row, "Fix conflicts".
         flow.waitFor(hasTestTag("agent-composer-fix-conflicts"), NAV_TIMEOUT)
+        // The row is matched INSIDE the picker sheet: the Agent page behind it
+        // lists APP-14's live run too, and that row (first in the tree) opens
+        // the run instead of picking the pull request.
         composeRule.onNode(hasTestTag("agent-composer-fix-conflicts-pr")).performClick()
-        flow.waitFor(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true)).onFirst().performClick()
+        val prRow = hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true) and
+            hasAnyAncestor(hasTestTag("agent-composer-fix-conflicts-picker"))
+        flow.waitFor(prRow, SYNC_TIMEOUT)
+        composeRule.onAllNodes(prRow).onFirst().performClick()
+        flow.waitForGone(hasTestTag("agent-composer-fix-conflicts-picker"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-issue-$FIX_CONFLICTS_PR_IDENTIFIER"), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
         flow.settle()
@@ -586,6 +594,14 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_guide")
+            // At rest the Changes row can sit under the floating Merge capsule
+            // (APP-14 is a stack member: `Merge stack`), and a centre click
+            // would land on the capsule. Scroll it clear of the bar first.
+            // performScrollToNode would not move it (the row is already
+            // inside the viewport, which reaches under the bar): swipe the
+            // Guide to its end, where the bottom inset lifts every row clear.
+            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+            flow.settle()
             composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
             flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
             flow.settle()
@@ -607,6 +623,8 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
         flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+        flow.settle()
         composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
         flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)

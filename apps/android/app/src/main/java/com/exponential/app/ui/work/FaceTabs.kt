@@ -14,6 +14,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,7 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassSegmentedControlDefaults
+import com.exponential.app.ui.components.LocalDetailHazeSourceActive
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.icons.ExpIcons
@@ -90,7 +92,11 @@ fun WorkFaceFrame(
         onSelect = onFace,
         key = { it.name },
         modifier = Modifier.fillMaxSize(),
-    ) { pageFace -> content(pageFace, padding) }
+    ) { pageFace ->
+        CompositionLocalProvider(LocalDetailHazeSourceActive provides (pageFace == face)) {
+            content(pageFace, padding)
+        }
+    }
 }
 
 /**

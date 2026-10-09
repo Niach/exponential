@@ -357,6 +357,8 @@ fun WorkScreen(
     // group claiming every diff path (one Changes row in the PR band, its page
     // titled with the PR title, `Show complete diff` last, never `Other changes`).
     val guidePrState = prDescription.takeIf { resultGroups.isEmpty() && prOpen }
+    // Numbered sections only with a run REPORT; the PR-body fallback has none.
+    val guideNumbered = resultGroups.isNotEmpty()
     val guideGroups = remember(resultGroups, guidePrState, guideFiles) {
         resultGroups.ifEmpty { prDescriptionGroups(guidePrState, guideFiles) }
     }
@@ -846,8 +848,9 @@ fun WorkScreen(
                             // EXP-1251: a Changes row's section page.
                             GuideSectionDiff(
                                 padding = padding,
-                                page = remember(guideGroups, guideFiles, section) {
-                                    guideSectionPage(guideGroups, guideFiles, section)
+                                // The PR-body fallback is unnumbered: no `01 / 01`.
+                                page = remember(guideGroups, guideFiles, section, guideNumbered) {
+                                    guideSectionPage(guideGroups, guideFiles, section, numbered = guideNumbered)
                                 },
                                 load = prLoad,
                                 merge = mergeControl,
@@ -859,7 +862,7 @@ fun WorkScreen(
                                 groups = guideGroups,
                                 files = guideFiles,
                                 prFallback = guidePrState,
-                                numbered = resultGroups.isNotEmpty(),
+                                numbered = guideNumbered,
                                 stack = guideStack,
                                 merge = mergeControl,
                                 onOpenSection = if (hasChanges) {

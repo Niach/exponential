@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -468,15 +470,22 @@ fun AgentScreen(
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         // EXP-1249: the faint brand mark behind the headline and the composer
-        // (the logo in the foreground colour at ~3.5%, ~520dp), Agent page only.
-        ExponentialMark(
-            size = 520.dp,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .alpha(0.035f)
-                .testTag(ComposerMenu.BRAND_MARK_TEST_ID),
-        )
+        // (the logo in the foreground colour at ~3.5%), Agent page only —
+        // centred on the page at min(520dp, 92% of its width), web
+        // `size-[min(520px,92vw)]`. The mark's drawable box is wider than the
+        // logo circle, so it is measured UNBOUNDED: clamped to the page width
+        // it shrank the circle to half of that.
+        BoxWithConstraints(modifier = Modifier.matchParentSize()) {
+            ExponentialMark(
+                size = minOf(520.dp, maxWidth * 0.92f),
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .wrapContentSize(unbounded = true)
+                    .alpha(0.035f)
+                    .testTag(ComposerMenu.BRAND_MARK_TEST_ID),
+            )
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

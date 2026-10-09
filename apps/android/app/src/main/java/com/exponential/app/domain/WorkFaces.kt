@@ -103,11 +103,14 @@ data class GuideSectionPage(
 
 /** The page [section] opens over [files] (the diff the Guide counts): the
  *  same coverage the Guide's rows read, so a page never shows a file its row
- *  did not count. Null = no such section (a stale link) or no diff loaded. */
+ *  did not count. Null = no such section (a stale link) or no diff loaded.
+ *  [numbered] = false for the PR-body fallback (an unnumbered Guide): its
+ *  section page carries no `01 / 01` caption, as its band shows no number. */
 fun guideSectionPage(
     groups: List<SessionResultGroup>,
     files: List<Diff.File>?,
     section: GuideSectionKey,
+    numbered: Boolean = true,
 ): GuideSectionPage? {
     if (files == null) return null
     val coverage = guideCoverage(groups, files)
@@ -118,7 +121,7 @@ fun guideSectionPage(
         GuideSectionKey.Other -> coverage.other?.let { page(it.topic, null, it.changes) }
         GuideSectionKey.Lead -> coverage.lead?.let { page(it.group.topic, null, it.changes) }
         is GuideSectionKey.Numbered -> coverage.sections.firstOrNull { it.index == section.index }?.let {
-            page(it.group.topic, guideSectionCaption(it.index, it.total), it.changes)
+            page(it.group.topic, if (numbered) guideSectionCaption(it.index, it.total) else null, it.changes)
         }
     }
 }

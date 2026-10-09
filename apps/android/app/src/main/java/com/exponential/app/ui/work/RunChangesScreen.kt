@@ -105,7 +105,10 @@ fun RunChangesScreen(
             if (section != null) {
                 GuideSectionDiff(
                     padding = padding,
-                    page = remember(groups, files, section) { guideSectionPage(groups, files, section) },
+                    // A run's Guide is its report: numbered whenever it has one.
+                    page = remember(groups, files, section) {
+                        guideSectionPage(groups, files, section, numbered = groups.isNotEmpty())
+                    },
                     load = load,
                     merge = merge,
                     onBack = { sectionName = null },
@@ -115,6 +118,7 @@ fun RunChangesScreen(
                     padding = padding,
                     groups = groups,
                     files = files,
+                    numbered = groups.isNotEmpty(),
                     merge = merge,
                     onOpenSection = { key -> sectionName = guideSectionParam(key) },
                 )

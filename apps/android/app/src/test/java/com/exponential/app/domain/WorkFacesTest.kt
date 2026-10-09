@@ -124,6 +124,24 @@ class WorkFacesTest {
         assertNull(guideSectionPage(groups, null, GuideSectionKey.All))
     }
 
+    // ×4 rule (web `numbered = false`): the PR-body fallback's ONE section
+    // page carries no `01 / 01` caption; a run report's keeps its number.
+    @Test
+    fun `guideSectionPage drops the caption of an unnumbered PR-body section`() {
+        val files = listOf(
+            Diff.File(path = "a.ts", additions = 2, deletions = 1),
+            Diff.File(path = "b.ts", additions = 1, deletions = 0),
+        )
+        val fallback = listOf(prDescriptionGroup("Group board issues", "body", files))
+        val numbered = guideSectionPage(fallback, files, GuideSectionKey.Numbered(1))!!
+        assertEquals("01 / 01", numbered.caption)
+        val plain = guideSectionPage(fallback, files, GuideSectionKey.Numbered(1), numbered = false)!!
+        assertNull(plain.caption)
+        assertEquals("Group board issues", plain.title)
+        assertEquals(listOf("a.ts", "b.ts"), plain.files.map { it.path })
+        assertEquals(3, plain.additions)
+    }
+
     @Test
     fun `targets the bound run when it is mine and live`() {
         val rows = listOf(
