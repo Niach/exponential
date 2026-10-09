@@ -245,7 +245,7 @@ pub fn is_focusable(n: &PlacedNode) -> bool {
         ("Checkbox" | "Switch", Some("box" | "track")) => false,
         ("Box", Some("row")) if owner == "Table" => n.pressable,
         _ if is_text_field(n) => true,
-        ("Slider", Some("track")) | ("Box", Some("indicator")) | ("ToggleGroup", _) | ("Composer", _) => true,
+        ("Slider", Some("track")) | ("Box", Some("indicator")) | ("Segmented", _) | ("Composer", _) => true,
         // Arrow keys move its tooltip between categories (a11y.json); a
         // sparkline has no tooltip and is no tab stop (as on the web).
         ("Chart", None) => !is_sparkline(n),
@@ -351,7 +351,10 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Button", _) => Role::Button,
         ("Link", _) => Role::Link,
         ("Toggle", _) => Role::Button,
-        ("ToggleGroup", _) => Role::RadioGroup,
+        // Round 3: a `bar` Segmented is the bottom destinations (navigation
+        // over button items); every other variant a radio group.
+        ("Segmented", _) if n.props.get("variant").and_then(Value::as_str) == Some("bar") => Role::Navigation,
+        ("Segmented", _) => Role::RadioGroup,
         ("Text", Some("tab")) => Role::Tab,
         ("Box", Some("list")) if owner == "Tabs" => Role::TabList,
         ("Box", Some("content")) if owner == "Tabs" => Role::TabPanel,
@@ -365,8 +368,8 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Box", Some("week")) => Role::Row,
         ("Text", Some("day")) => Role::GridCell,
         ("Text", Some("weekday")) => Role::ColumnHeader,
-        ("Box", Some("content")) if matches!(owner, "DropdownMenu" | "ContextMenu") => Role::Menu,
-        ("Box", Some("item")) if matches!(owner, "DropdownMenu" | "ContextMenu") => match kind {
+        ("Box", Some("content")) if owner == "Menu" => Role::Menu,
+        ("Box", Some("item")) if owner == "Menu" => match kind {
             "checkbox" => Role::MenuItemCheckBox,
             _ => Role::MenuItem,
         },

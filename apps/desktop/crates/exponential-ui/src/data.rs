@@ -755,6 +755,27 @@ mod tests {
     }
 
     #[test]
+    fn a_bound_submenu_resolves_to_the_rows_of_its_source() {
+        // Round 3: `menuItem.items` is bindable; a submenu's rows may come
+        // from a host source (`bindDataModel` → statuses, members, labels).
+        let view = CatalogView::core();
+        let def = view.components.get("Menu").expect("Menu");
+        let props = json!({"items": [
+            {"label": "Rename", "value": "rename"},
+            {"kind": "submenu", "label": "Status", "items": {"path": "/statuses"}},
+        ]});
+        let props = props.as_object().unwrap();
+        assert_eq!(crate::validate::validate_props(def, props, "props", &view), vec![]);
+        let data = json!({"statuses": [{"label": "Backlog", "value": "backlog"}, {"label": "Done", "value": "done", "icon": "ui-check"}]});
+        let out = resolve_node_props(Some(def), props, &ResolveContext::new(&data, ""), &view.defs);
+        assert_eq!(out["items"][0], json!({"label": "Rename", "value": "rename"}));
+        assert_eq!(out["items"][1]["items"], data["statuses"]);
+        // An unset source resolves to nothing: the submenu has no rows.
+        let empty = resolve_node_props(Some(def), props, &ResolveContext::new(&json!({}), ""), &view.defs);
+        assert!(empty["items"][1].get("items").is_none());
+    }
+
+    #[test]
     fn template_scope_resolves_relative_paths() {
         let data = json!({"items": [{"name": "one"}, {"name": "two"}]});
         let ctx = ResolveContext::new(&data, "/items/1");

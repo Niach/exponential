@@ -151,7 +151,7 @@ impl Surface {
             // CSS parity (VAPP-91): a block-level surface root is as wide as
             // the surface unless its own style sets a width; the web's
             // inline-flex natives (base-css.ts) keep their content width.
-            let inline_root = matches!(self.nodes[root as usize].component.as_str(), "Button" | "Toggle" | "Link" | "Icon" | "Ring" | "Spinner" | "ToggleGroup");
+            let inline_root = matches!(self.nodes[root as usize].component.as_str(), "Button" | "Toggle" | "Link" | "Icon" | "Ring" | "Spinner" | "Segmented");
             if !inline_root && self.engine.style(root).size.width == Dimension::auto() {
                 let mut style = self.engine.style(root).clone();
                 style.size.width = Dimension::percent(1.0);

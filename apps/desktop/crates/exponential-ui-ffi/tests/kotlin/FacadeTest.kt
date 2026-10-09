@@ -388,7 +388,7 @@ fun main(args: Array<String>) {
     asks.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(
         mapOf("id" to "cap", "component" to "Text", "props" to mapOf("text" to "Overline", "variant" to "caption")),
         mapOf("id" to "steps", "component" to "Stepper", "props" to mapOf("steps" to listOf(mapOf("label" to "One"), mapOf("label" to "Two")), "current" to 1.0)),
-        mapOf("id" to "pill", "component" to "Pill", "props" to mapOf("label" to "All", "pressable" to true)),
+        mapOf("id" to "pill", "component" to "Chip", "props" to mapOf("label" to "All", "pressable" to true)),
         mapOf("id" to "n", "component" to "Text", "props" to mapOf("text" to mapOf("path" to "/n"))),
         mapOf("id" to "hov", "component" to "Box", "style" to mapOf("width" to 10.0, "height" to 10.0, ":hover" to mapOf("opacity" to 0.5)))))))
     asks.setData("/n", "412")

@@ -353,7 +353,7 @@ fn choice_picker(out: &mut MappedComponent, flat: &FlatView) {
         out.props.insert("searchable".into(), json!(true));
         out.props.insert("multiple".into(), json!(multiple));
     } else if flat.str("displayStyle") == Some("chips") {
-        out.component = "ToggleGroup".into();
+        out.component = "Segmented".into();
         let mut props = Props::new();
         set(&mut props, "items", out.props.get("options").cloned());
         props.insert("type".into(), json!(if multiple { "multiple" } else { "single" }));

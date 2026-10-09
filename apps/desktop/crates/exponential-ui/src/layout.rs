@@ -27,7 +27,12 @@ pub const MEDIA_INTRINSIC_WIDTH: f64 = 320.0;
 /// Width / height of an Image without `aspectRatio` or a height; Video's default.
 pub const MEDIA_ASPECT_RATIO: f64 = 1.7777778;
 /// One TreeGuides gutter column (px).
-pub const TREE_GUIDE_COLUMN: f64 = 16.0;
+pub const TREE_GUIDE_COLUMN: f64 = 14.0;
+/// The radius of a TreeGuides elbow's corner (px).
+pub const TREE_GUIDE_RADIUS: f64 = 3.0;
+/// How far a TreeGuides vertical overshoots its row's TOP to bridge a
+/// Section divider (px; paint only, never layout).
+pub const TREE_GUIDE_BRIDGE: f64 = 1.0;
 
 #[cfg(test)]
 mod tests {
@@ -35,10 +40,10 @@ mod tests {
 
     #[test]
     fn the_constants_are_layout_json() {
-        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN)] {
+        for (name, v) in [("windowThreshold", WINDOW_THRESHOLD), ("windowOverscan", WINDOW_OVERSCAN), ("resizeStep", RESIZE_STEP), ("panelMin", PANEL_MIN), ("resizeHandleHit", RESIZE_HANDLE_HIT), ("fieldIntrinsicWidth", FIELD_INTRINSIC_WIDTH), ("mediaIntrinsicWidth", MEDIA_INTRINSIC_WIDTH), ("mediaAspectRatio", MEDIA_ASPECT_RATIO), ("treeGuideColumn", TREE_GUIDE_COLUMN), ("treeGuideRadius", TREE_GUIDE_RADIUS), ("treeGuideBridge", TREE_GUIDE_BRIDGE)] {
             assert_eq!(layout_constant(name), Some(v), "{name}");
         }
-        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 9);
+        assert_eq!(g::LAYOUT_CONSTANT_NAMES.len(), 11);
         let json: serde_json::Value = serde_json::from_str(g::LAYOUT_JSON).unwrap();
         assert_eq!(json["windowThreshold"], 50);
     }

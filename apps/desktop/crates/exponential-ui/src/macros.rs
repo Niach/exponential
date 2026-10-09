@@ -481,7 +481,10 @@ pub fn expand_macros(root: &UiNode, view: &CatalogView) -> Result<UiNode, String
 /// `expandMacros(root, {issues})`.
 pub fn expand_macros_with_issues(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
     let mut issues = Vec::new();
-    let node = expand_tree(root, view, 0, &mut issues)?;
+    let mut node = expand_tree(root, view, 0, &mut issues)?;
+    // Round 3: the tree guides of nested Rows come from their siblings, so
+    // they are filled AFTER the whole tree is native (`tree_guides`).
+    crate::tree_guides::apply_tree_guides(&mut node);
     Ok((node, issues))
 }
 

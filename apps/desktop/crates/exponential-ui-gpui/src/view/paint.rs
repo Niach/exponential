@@ -452,8 +452,8 @@ impl SurfaceView {
     fn interactive(&self, mut el: Stateful<Div>, index: u32, n: &PlacedNode, style: &PaintStyle, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = n.id.clone();
         let owner = n.owner_component.as_deref().unwrap_or("");
-        // A ContextMenu opens at the pointer (right click on anything in it).
-        if n.component == "ContextMenu" {
+        // A context Menu opens at the pointer (right click on anything in it).
+        if exponential_ui::layout_tree::is_context_menu(&n.component, &n.props) {
             el = el.on_mouse_down(MouseButton::Right, cx.listener(move |this, ev: &gpui::MouseDownEvent, _, cx| {
                 cx.stop_propagation();
                 this.context_menu(index, ev.position, cx);
@@ -474,7 +474,7 @@ impl SurfaceView {
                     this.files_dropped(&drop_id, paths.paths().to_vec(), cx);
                 }));
         }
-        // A trigger that opens on hover (Tooltip, HoverCard): its hover
+        // A trigger that opens on hover (Tooltip, a hover Popover): its hover
         // state is set after the platform delay; the core opens it.
         if let Some(target) = n.trigger_for.clone().filter(|t| self.opens_on_hover(t)) {
             let hid = id.clone();
@@ -655,7 +655,7 @@ impl SurfaceView {
             }
             ("Text", _) => self.paint_text(&lcx, window),
             ("Markdown", _) => self.paint_markdown(&lcx, index, window, cx),
-            ("Button" | "Toggle" | "DropdownMenu", _) => natives::button(&lcx, &n.component, window),
+            ("Button" | "Toggle", _) => natives::button(&lcx, &n.component, window),
             ("Link", _) => natives::link(&lcx),
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
@@ -685,7 +685,7 @@ impl SurfaceView {
                 let frac = if max > min { ((v - min) / (max - min)) as f32 } else { 0.0 };
                 natives::slider(&lcx, frac)
             }
-            ("ToggleGroup", _) => self.paint_toggle_group(&lcx, index, window, cx),
+            ("Segmented", _) => self.paint_segmented(&lcx, index, window, cx),
             ("Box", Some("indicator")) => self.paint_indicator(&lcx, index, cx),
             ("Input" | "Select" | "DatePicker" | "Textarea" | "NumberField" | "TimePicker" | "DateRangePicker" | "ChipInput", None) => {
                 let v = display_text(n.props.get("value"));
@@ -963,7 +963,7 @@ impl SurfaceView {
         out.child(bar).into_any_element()
     }
 
-    fn paint_toggle_group(&self, lcx: &LeafCx, index: u32, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+    fn paint_segmented(&self, lcx: &LeafCx, index: u32, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let n = lcx.node;
         let items = n.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
         let fill = lcx.bool("fill");
@@ -973,8 +973,11 @@ impl SurfaceView {
             Value::String(s) if lcx.str("type") == "multiple" || s.contains(',') => s.split(',').map(str::to_string).collect(),
             v => vec![display_text(Some(v))],
         };
-        let item_props = lcx.part_props("ToggleGroup", "item", &[]);
-        let ih = px_prop(&item_props, "height").unwrap_or(lcx.h);
+        // Round 3: `bar` (the old TabBar) = full-width bottom destinations,
+        // each item a COLUMN of icon over a caption label sharing the width.
+        let bar = lcx.str("variant") == "bar";
+        let item_props = lcx.part_props("Segmented", "item", &[]);
+        let ih = if bar { lcx.h } else { px_prop(&item_props, "height").unwrap_or(lcx.h) };
         let pad = px_prop(&item_props, "paddingHorizontal").or_else(|| px_prop(&item_props, "padding")).unwrap_or(12.0);
         let (x, y, w, h) = lcx.inner();
         let focused_item = self.focused == Some(index) && self.keyboard;
@@ -1000,9 +1003,13 @@ impl SurfaceView {
             if ring {
                 st.push("focus-visible".into());
             }
-            let s = lcx.part("ToggleGroup", "item", &st);
+            let s = lcx.part("Segmented", "item", &st);
             let color = s.color.unwrap_or(lcx.ink);
             let label = display_text(it.get("label"));
+            if bar {
+                row = row.child(self.segmented_bar_item(lcx, index, item_id, it, &label, value, &st, &s, color, ring, disabled, ih, window, cx));
+                continue;
+            }
             let mut item = styled_box(lcx.row(div().id(SharedString::from(item_id.clone())).h(px(ih)).px(px(pad))).items_center().justify_center().gap(px(px_prop(&item_props, "gap").unwrap_or(0.0))).whitespace_nowrap().text_color(color), &s, 80.0, ih)
                 .when(fill, |d| d.flex_1())
                 .role(gpui::Role::RadioButton)
@@ -1017,7 +1024,7 @@ impl SurfaceView {
                 item = item
                     .cursor_pointer()
                     .on_hover(cx.listener(move |this, h: &bool, _, cx| this.hover(&hid, *h, cx)))
-                    .on_click(cx.listener(move |this, _, window, cx| this.toggle_group_select(index, value.clone(), window, cx)));
+                    .on_click(cx.listener(move |this, _, window, cx| this.segmented_select(index, value.clone(), window, cx)));
             }
             if let Some(icon) = it.get("icon").and_then(Value::as_str) {
                 item = item.child(icons::concept(self.host.as_ref(), icon, 16.0, color));
@@ -1039,6 +1046,56 @@ impl SurfaceView {
             row = row.child(item);
         }
         row.into_any_element()
+    }
+
+    /// One `bar` Segmented item: a column (the `icon` part over the caption
+    /// `label` part), `flexGrow 1` / `flexBasis 0`, a navigation button
+    /// whose selected item is the current page.
+    #[allow(clippy::too_many_arguments)]
+    fn segmented_bar_item(&self, lcx: &LeafCx, index: u32, item_id: String, it: &Value, label: &str, value: Value, st: &[String], s: &PaintStyle, color: Hsla, ring: bool, disabled: bool, h: f32, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let selected = st.iter().any(|x| x == "selected");
+        let icon_ink = lcx.part("Segmented", "icon", st).color.unwrap_or(color);
+        let label_ink = lcx.part("Segmented", "label", st).color.unwrap_or(color);
+        let label_props = lcx.part_props("Segmented", "label", st);
+        let caption = crate::measure::bar_caption(lcx.theme, lcx.mode, lcx.text_style);
+        let weight = label_props.get("fontWeight").and_then(Value::as_u64).map(|w| w as u16).unwrap_or(lcx.text_style.font_weight);
+        let icon_size = crate::paint::parts::control(lcx.theme, "iconMd", 20.0);
+        let (xxs, xs) = (spacing(lcx.theme, "xxs"), spacing(lcx.theme, "xs"));
+        let mut item = styled_box(div().id(SharedString::from(item_id.clone())).flex().flex_col().items_center().justify_center().gap(px(xxs)).flex_1().flex_basis(px(0.0)).min_w(px(0.0)).h(px(h)).py(px(xs)), s, 80.0, h)
+            .role(gpui::Role::Button)
+            .aria_label(SharedString::from(label.to_string()))
+            .aria_selected(selected);
+        if ring && s.shadows.is_empty() {
+            let rc = lcx.theme_color("ring").unwrap_or(lcx.ink.opacity(0.5));
+            item = item.border_2().border_color(rc);
+        }
+        if !disabled {
+            let hid = item_id.clone();
+            item = item
+                .cursor_pointer()
+                .on_hover(cx.listener(move |this, h: &bool, _, cx| this.hover(&hid, *h, cx)))
+                .on_click(cx.listener(move |this, _, window, cx| this.segmented_select(index, value.clone(), window, cx)));
+        }
+        if let Some(icon) = it.get("icon").and_then(Value::as_str) {
+            item = item.child(icons::concept(self.host.as_ref(), icon, icon_size, icon_ink));
+        }
+        if !label.is_empty() {
+            let font = crate::measure::make_font(lcx.font.family.clone(), weight);
+            let _ = window;
+            item = item.child(
+                div()
+                    .max_w_full()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .font(font)
+                    .text_size(px(caption.font_size))
+                    .line_height(px(caption.line_height))
+                    .text_color(label_ink)
+                    .child(SharedString::from(label.to_string())),
+            );
+        }
+        item.into_any_element()
     }
 
     fn paint_indicator(&self, lcx: &LeafCx, index: u32, cx: &mut Context<Self>) -> AnyElement {

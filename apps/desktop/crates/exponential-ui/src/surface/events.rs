@@ -124,7 +124,7 @@ impl Surface {
     // ------------------------------------------------------------------
 
     /// Open or close an overlay or popup (Dialog, Drawer, Popover, Tooltip,
-    /// DropdownMenu, ContextMenu, Select, the pickers, Toast).
+    /// Menu, Select, the pickers, Toast).
     pub fn set_open(&mut self, id: &str, open: bool) -> Vec<OutEvent> {
         self.local.open.insert(id.to_string(), open);
         if !open {
@@ -355,13 +355,13 @@ impl Surface {
                 out.extend(self.fire(&owner_id, "change", Some(json!({"page": page}))));
                 out.push(OutEvent::Relayout);
             }
-            ("DropdownMenu" | "ContextMenu", Some("item"), "press") => out.extend(self.menu_select(&n, &owner_id)),
+            ("Menu", Some("item"), "press") => out.extend(self.menu_select(&n, &owner_id)),
             ("Toast", Some("action"), "press") => {
                 out.extend(self.fire(&owner_id, "action", None));
                 out.extend(self.dismiss_toast(&owner_id));
             }
             ("Toast", Some("close"), "press") | ("Toast", _, "dismiss") => out.extend(self.dismiss_toast(&owner_id)),
-            ("Dialog" | "Drawer" | "Popover" | "Tooltip" | "DropdownMenu" | "ContextMenu", part, "press") if part.is_some() || n.id == owner_id => {
+            ("Dialog" | "Drawer" | "Popover" | "Tooltip" | "Menu", part, "press") if part.is_some() || n.id == owner_id => {
                 if part == Some("close") {
                     out.extend(self.set_open(&owner_id, false));
                 } else if part.is_none() || part == Some("trigger") {
@@ -376,7 +376,7 @@ impl Surface {
                     out.extend(self.set_open(&owner_id, false));
                 }
             }
-            ("Dialog" | "Drawer" | "Popover" | "Tooltip" | "DropdownMenu" | "ContextMenu" | "Select" | "DatePicker" | "DateRangePicker" | "TimePicker", _, "change") if payload.as_ref().and_then(|p| p.get("open")).is_some() => {
+            ("Dialog" | "Drawer" | "Popover" | "Tooltip" | "Menu" | "Select" | "DatePicker" | "DateRangePicker" | "TimePicker", _, "change") if payload.as_ref().and_then(|p| p.get("open")).is_some() => {
                 let open = payload.as_ref().and_then(|p| p.get("open")).and_then(Value::as_bool).unwrap_or(false);
                 out.extend(self.set_open(&owner_id, open));
             }
@@ -527,7 +527,7 @@ impl Surface {
                     out.extend(self.submit_form(&form));
                 }
             }
-            ("Input" | "Textarea" | "Select" | "DatePicker" | "Slider" | "Composer" | "ToggleGroup" | "TimePicker" | "DateRangePicker", _, "change" | "commit" | "submit") => {
+            ("Input" | "Textarea" | "Select" | "DatePicker" | "Slider" | "Composer" | "Segmented" | "TimePicker" | "DateRangePicker", _, "change" | "commit" | "submit") => {
                 let value = payload.as_ref().and_then(|p| p.get("value")).cloned().unwrap_or(Value::Null);
                 let name = n.props.get("name").or_else(|| self.node_by_id(&owner_id).and_then(|o| o.props.get("name"))).and_then(Value::as_str).unwrap_or(&owner_id).to_string();
                 let path = self.binding_path(&owner_id, "value");
@@ -574,11 +574,11 @@ impl Surface {
     }
 
     fn context_menu(&mut self, n: &LNode, payload: Option<Value>) -> Vec<OutEvent> {
-        // The nearest ContextMenu at or above the node.
+        // The nearest context Menu (`openOn: contextmenu`) at or above the node.
         let mut cur = Some(n.index);
         while let Some(c) = cur {
             let node = &self.nodes[c as usize];
-            if node.component == "ContextMenu" {
+            if crate::layout_tree::is_context_menu(&node.component, &node.props) {
                 let id = node.id.clone();
                 let x = payload.as_ref().and_then(|p| p.get("x")).and_then(Value::as_f64);
                 let y = payload.as_ref().and_then(|p| p.get("y")).and_then(Value::as_f64);

@@ -739,7 +739,7 @@ fn toasts_stack_newest_nearest_the_edge_three_at_most_and_dismiss() {
 fn a_context_menu_opens_at_the_point_and_a_submenu_opens_beside_its_row() {
     for dir in ["ltr", "rtl"] {
         let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "height": 600, "direction": dir},
-            "children": [{"id": "cm", "component": "ContextMenu", "props": {"items": [
+            "children": [{"id": "cm", "component": "Menu", "props": {"openOn": "contextmenu", "items": [
                 {"label": "Copy", "value": "copy", "shortcut": "⌘C"}, {"kind": "separator"}, {"kind": "label", "label": "View"},
                 {"label": "Show done", "value": "done", "kind": "checkbox", "checked": {"path": "/done"}},
                 {"label": "Sort by", "kind": "submenu", "items": [{"label": "Priority", "value": "priority"}, {"label": "Updated", "value": "updated"}]}]},
@@ -787,7 +787,7 @@ fn hover_and_keyboard_focus_open_tooltips_and_hover_popovers() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [
             {"id": "tip", "component": "Tooltip", "props": {"content": "Saves the draft"}, "children": [{"id": "btn", "component": "Button", "props": {"label": "Save"}}]},
-            {"id": "hc", "component": "HoverCard", "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}}, "children": [{"id": "card", "component": "Text", "props": {"text": "Ada Lovelace"}}]}
+            {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}}, "children": [{"id": "card", "component": "Text", "props": {"text": "Ada Lovelace"}}]}
         ]}));
     s.set_viewport(400.0, 600.0, None);
     let mut m = fixed();

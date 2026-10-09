@@ -39,7 +39,7 @@ webviews.
   (`natives::tracked_text`); the measurer adds the same `ls × characters`,
   so the painted width IS the measured one. Underline / line-through and
   the one-line ellipsis follow. Text, Button, Link, picker triggers and
-  ToggleGroup items paint tracked; the host's editable inputs cannot, so
+  Segmented items paint tracked; the host's editable inputs cannot, so
   inline fields MEASURE untracked too (a divergence from CSS, below).
 - Hidden nodes (inactive tabs, closed panels, falsy `visible`) paint nothing;
   `visibility: hidden` keeps the box and paints nothing.
@@ -70,7 +70,10 @@ which resolves them exactly like the core does:
 - Checkbox `check`, Switch `thumb`, Slider `range` / `thumb`
 - Button `icon`, Ring `track` / `fill`, Chart `axis` / `grid` / `legend` /
   `tooltip` / `title` / `valueLabel`
-- the Tabs `indicator`, Carousel `indicator`, TreeGuides `line`
+- the Tabs `indicator`, Carousel `indicator`, TreeGuides `line` (round 3:
+  14 px columns, the line of column i at x = i·14 + 7, the elbow a 3 px
+  ROUNDED corner drawn as one stroked path, every vertical overshooting the
+  row's top by 1 px to bridge a Section divider)
 - the Composer `field` / `send` / `attachment`, the `Markdown` block parts
 - the CodeBlock `token` per kind (`when: {kind}`)
 
@@ -198,8 +201,8 @@ request, with first baselines (`alignItems: baseline` aligns text):
   - `Enter` / `Space` press. A focused scroll container scrolls with the
     arrows, PageUp/PageDown, Home/End and Space.
   - Tabs: arrows move and activate (wrapping), Home/End. Radio: arrows move
-    and select. ToggleGroup: arrows move the roving item, Space/Enter
-    toggle it. Accordion: Up/Down/Home/End between headers.
+    and select. Segmented: arrows move the roving item, Space/Enter
+    toggle it (a `bar` is a navigation of button items). Accordion: Up/Down/Home/End between headers.
   - Menus and listboxes: ArrowDown on a trigger opens it; focus lands on the
     selected option (else the first). Up/Down wrap, Home/End jump, a printed
     character jumps to the next match (type-ahead), Enter chooses.
@@ -212,7 +215,7 @@ request, with first baselines (`alignItems: baseline` aligns text):
   - Slider: arrows ± step, PageUp/PageDown ± 10 steps, Home/End.
     NumberField: Up/Down ± step (Shift ×10), PageUp/PageDown ×10.
     ChipInput: Backspace in the empty field removes the last chip.
-  - Shift+F10 opens the ContextMenu around the focused node; a right click
+  - Shift+F10 opens the context Menu (`openOn: contextmenu`) around the focused node; a right click
     opens it at the pointer.
   - `Escape` closes the top DISMISSIBLE layer and returns focus to its
     trigger; a non-dismissible AlertDialog presses its cancel; then it
@@ -242,7 +245,7 @@ request, with first baselines (`alignItems: baseline` aligns text):
   units; any other press drops it. The selection paints on the theme's
   `ring` colour at 30 %. `selected_text`, `select_all_markdown` and
   `copy_selection` drive it for automation.
-- **Hover-opened overlays.** A Tooltip or `openOn: hover` Popover/HoverCard
+- **Hover-opened overlays.** A Tooltip or `openOn: hover` Popover
   trigger gets its `hover` state 300 ms after the pointer enters (the core
   opens it), keeps it while the pointer is over the card, and loses it
   120 ms after leaving. Keyboard focus inside the trigger opens it at once.
@@ -575,7 +578,7 @@ paint): `RUSTUP_TOOLCHAIN=1.96.0 cargo run --release -p exponential-ui-gpui
   the list's scroller and the host's (`HostPlugin::scroll_surface`); a
   windowed row's place in set; horizontal windowing in ltr and rtl; the
   minute tick; the §7 sizes (Video 16:9, Image ratio, Badge,
-  ToggleGroup, Radio gap, Slider row); the Accordion count.
+  Segmented, Radio gap, Slider row); the Accordion count.
 - Unit tests for text breaking, paint styles, transforms, easing, motion,
   rounded clips, scrollbar geometry, RTL natives, data URIs, image focal
   bounds, Markdown selection ranges and highlighted runs, icons (every

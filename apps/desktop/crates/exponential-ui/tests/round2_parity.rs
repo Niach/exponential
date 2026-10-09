@@ -128,7 +128,7 @@ fn a_sticky_child_of_the_scroller_stays_pinned_all_the_way() {
 fn table_text_cells_and_slot_cells_share_the_row_equally() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "t", "component": "Table", "props": {"columns": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}], "rows": [{"id": "x", "a": "one", "b": "two"}]},
-         "slots": {"cell": {"id": "slot", "component": "Pill", "props": {"label": {"path": "b"}}}}}
+         "slots": {"cell": {"id": "slot", "component": "Chip", "props": {"label": {"path": "b"}}}}}
     ]}));
     s.layout(&mut measure());
     let nodes: Vec<String> = s.nodes().into_iter().map(|n| n.id).collect();
@@ -146,5 +146,26 @@ fn tree_guides_are_depth_columns_wide_and_stretch_to_their_row() {
     ]}));
     s.layout(&mut measure());
     let (g, label) = (frame(&mut s, "g"), frame(&mut s, "label"));
-    assert_eq!((g.2, g.3), (32.0, label.3), "depth × 16, the row's height");
+    assert_eq!((g.2, g.3), (28.0, label.3), "depth × 14, the row's height");
+}
+
+#[test]
+fn a_tree_section_of_rows_reserves_the_gutter_the_core_filled() {
+    // Round 3: Row `depth` emits a TreeGuides part; the core fills its
+    // elbow / tee / passThrough from the sibling rows.
+    let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
+        {"id": "tree", "component": "Section", "props": {"tree": true}, "children": [
+            {"id": "a", "component": "Row", "props": {"title": "Root"}},
+            {"id": "b", "component": "Row", "props": {"title": "Child", "depth": 1}},
+            {"id": "c", "component": "Row", "props": {"title": "Grandchild", "depth": 2}},
+            {"id": "d", "component": "Row", "props": {"title": "Second child", "depth": 1}}
+        ]}
+    ]}));
+    s.layout(&mut measure());
+    let nodes = s.nodes();
+    let guides = |id: &str| nodes.iter().find(|n| n.id == id).unwrap_or_else(|| panic!("{id}")).props.clone();
+    assert_eq!(guides("b.guides"), *json!({"depth": 1, "elbowAt": 0, "tee": true, "passThrough": []}).as_object().unwrap());
+    assert_eq!(guides("c.guides"), *json!({"depth": 2, "elbowAt": 1, "tee": false, "passThrough": [0]}).as_object().unwrap());
+    assert!(nodes.iter().all(|n| n.id != "a.guides"), "a root row has no guides part");
+    assert_eq!(frame(&mut s, "c.guides").2, 28.0);
 }

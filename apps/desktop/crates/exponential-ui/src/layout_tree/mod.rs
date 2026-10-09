@@ -19,6 +19,7 @@ mod containers;
 pub mod fields;
 mod misc;
 mod overlays;
+pub use overlays::is_context_menu;
 mod table;
 
 use std::collections::HashMap;
@@ -117,7 +118,7 @@ pub enum LayerPlacement {
     Edge(OverlaySide),
     /// Against the anchor node's frame (Popover, Tooltip, menus, pickers).
     Anchored { anchor: u32, side: OverlaySide, align: OverlayAlign },
-    /// Against a point (a ContextMenu opened at the pointer).
+    /// Against a point (a context Menu opened at the pointer).
     AtPoint { x: f32, y: f32 },
     /// The toast stack (bottom-centre on phones, bottom-end from `md`),
     /// `order` 0 = nearest the edge.
@@ -228,7 +229,7 @@ pub struct LocalState {
     pub range_anchor: HashMap<String, String>,
     /// The open submenu of a menu (item index).
     pub submenu: HashMap<String, usize>,
-    /// Where a ContextMenu was opened (surface coordinates).
+    /// Where a context Menu was opened (surface coordinates).
     pub context_point: HashMap<String, (f32, f32)>,
     /// The host's latest value of a field (text inputs are host-owned).
     pub field_values: HashMap<String, Value>,
@@ -378,7 +379,7 @@ fn with_suffix(node: &UiNode, suffix: &str, template: Option<&str>, sources: &mu
 }
 
 /// The overlay natives whose content lives in a layer.
-pub const OVERLAYS: &[&str] = &["Dialog", "Drawer", "Popover", "Tooltip", "DropdownMenu", "ContextMenu"];
+pub const OVERLAYS: &[&str] = &["Dialog", "Drawer", "Popover", "Tooltip", "Menu"];
 
 /// The form fields a Form collects (when they carry a `name`).
 pub const FORM_FIELDS: &[&str] =
@@ -677,8 +678,10 @@ impl<'a, 'b> Builder<'a, 'b> {
         // Round 2 §7: explicit sizes instead of browser defaults.
         match node.component.as_str() {
             "Image" | "Video" => self.media_ratio(index),
-            // A ToggleGroup is content-sized unless `fill`.
-            "ToggleGroup" if !bool_prop(&self.nodes[index as usize].props, "fill") => self.style_default(index, &[("alignSelf", json!("flex-start"))]),
+            // A Segmented is content-sized unless `fill` (a `bar` always fills).
+            "Segmented" if !bool_prop(&self.nodes[index as usize].props, "fill") && str_prop(&self.nodes[index as usize].props, "variant") != Some("bar") => {
+                self.style_default(index, &[("alignSelf", json!("flex-start"))])
+            }
             // TreeGuides: depth × `treeGuideColumn` wide, stretched to its row.
             "TreeGuides" => {
                 let depth = self.nodes[index as usize].props.get("depth").and_then(Value::as_f64).unwrap_or(0.0).max(0.0);

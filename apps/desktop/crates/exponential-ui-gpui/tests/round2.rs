@@ -399,9 +399,9 @@ fn explicit_sizes_replace_the_browser_defaults(cx: &mut TestAppContext) {
         {"id": "square", "component": "Image", "props": {"src": "", "alt": "x", "aspectRatio": 1}},
         {"id": "row", "component": "Box", "style": {"display": "flex", "flexDirection": "row"}, "children": [
             {"id": "badge", "component": "Badge", "props": {"text": "3"}},
-            {"id": "toggles", "component": "ToggleGroup", "props": {"items": [{"label": "A", "value": "a"}]}}
+            {"id": "toggles", "component": "Segmented", "props": {"items": [{"label": "A", "value": "a"}]}}
         ]},
-        {"id": "tg", "component": "ToggleGroup", "props": {"items": [{"label": "A", "value": "a"}]}},
+        {"id": "tg", "component": "Segmented", "props": {"items": [{"label": "A", "value": "a"}]}},
         {"id": "radio", "component": "Radio", "props": {"label": "Tone", "name": "tone", "options": [{"label": "A", "value": "a"}], "orientation": "horizontal"}},
         {"id": "slider", "component": "Slider", "props": {"label": "Length", "min": 0, "max": 10, "value": 4}}
     ]});
@@ -413,12 +413,37 @@ fn explicit_sizes_replace_the_browser_defaults(cx: &mut TestAppContext) {
     let (badge, label) = (frame(&view, cx, "badge"), frame(&view, cx, "badge.label"));
     assert!((badge.w - (label.w + 16.0)).abs() < 0.01, "Badge = 2 × padding + content: {} vs {}", badge.w, label.w);
     let tg = frame(&view, cx, "tg");
-    assert!(tg.w < 200.0, "a ToggleGroup is content-sized: {}", tg.w);
+    assert!(tg.w < 200.0, "a Segmented is content-sized: {}", tg.w);
     let (radio, items) = (frame(&view, cx, "radio"), frame(&view, cx, "radio.items"));
     assert_eq!(items.y - radio.y, 20.0 + 8.0, "the Radio/root gap ($spacing.sm)");
     let (slider, track) = (frame(&view, cx, "slider"), frame(&view, cx, "slider.track"));
     assert_eq!(slider.h, 20.0 + 4.0 + 16.0, "header + xs + a thumb-tall track row");
     assert_eq!((track.h, track.y - slider.y), (6.0, 24.0 + 5.0), "the 6 px rail centred in the row");
+}
+
+#[gpui::test]
+fn a_bar_segmented_is_tab_bar_tall_fills_its_row_and_items_share_the_width(cx: &mut TestAppContext) {
+    // Round 3: `variant: bar` (the old TabBar) — `$control.tabBar` tall,
+    // full width, each item a column (icon over a caption label).
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"}, "children": [
+        {"id": "bar", "component": "Segmented", "props": {"variant": "bar", "value": "inbox", "items": [
+            {"label": "Inbox", "value": "inbox", "icon": "nav-inbox"},
+            {"label": "Issues", "value": "issues", "icon": "nav-issues"},
+            {"label": "Settings", "value": "settings", "icon": "nav-settings"}]},
+         "on": {"change": {"event": {"name": "go"}}}}
+    ]});
+    let (view, log, cx) = surface(cx, tree);
+    let (root, bar) = (frame(&view, cx, "root"), frame(&view, cx, "bar"));
+    assert_eq!(bar.h, 56.0, "$control.tabBar");
+    assert_eq!(bar.w, root.w, "a bar always fills");
+    let b = painted(&view, cx, "bar");
+    // The third item's centre: the items share the width equally.
+    let x = b.origin.x + b.size.width * (5.0 / 6.0);
+    cx.simulate_click(gpui::point(x, b.center().y), Modifiers::default());
+    draw(cx);
+    let actions = log.actions.borrow();
+    let go = actions.iter().find(|a| a.name == "go").expect("change fired");
+    assert_eq!(go.context["value"], json!("settings"));
 }
 
 #[gpui::test]

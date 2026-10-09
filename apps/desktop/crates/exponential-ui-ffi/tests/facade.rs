@@ -390,7 +390,7 @@ fn a_panicking_measurer_does_not_freeze_the_surface() {
 fn a_hover_card_closes_through_the_hover_timer() {
     let surface = Surface::new("h".into(), core_catalog_id(), None, "light".into()).unwrap();
     surface.set_nested(json!({"id": "root", "component": "Box", "children": [
-        {"id": "hc", "component": "HoverCard", "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}}, "children": [{"id": "card", "component": "Text", "props": {"text": "Ada"}}]}]}).to_string()).unwrap();
+        {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}}, "children": [{"id": "card", "component": "Text", "props": {"text": "Ada"}}]}]}).to_string()).unwrap();
     surface.set_viewport(400.0, 600.0, None);
     assert_eq!(surface.settings().hover_close_ms, 0, "off by default (the host delays)");
     surface.set_settings(FfiSettings { hover_close_ms: 150, ..surface.settings() }).unwrap();
@@ -990,7 +990,7 @@ fn the_effective_theme_object_is_what_the_core_resolves_against() {
 #[test]
 fn hover_crosses_the_facade_and_resolves_recipes() {
     let s = Surface::new("t".into(), core_catalog_id(), Some("neutral".into()), "light".into()).unwrap();
-    s.set_nested(json!({"id": "pill", "component": "Pill", "props": {"label": "All", "pressable": true}}).to_string()).unwrap();
+    s.set_nested(json!({"id": "pill", "component": "Chip", "props": {"label": "All", "pressable": true}}).to_string()).unwrap();
     s.set_viewport(300.0, 0.0, None);
     s.layout(recording(0.0));
     let i = s.index_of("pill".into()).unwrap();
