@@ -407,4 +407,35 @@ class WorkFacesTest {
             assertEquals(name, case["expected"]!!.jsonPrimitive.content, state.wire)
         }
     }
+
+    // EXP-1154 / web M8 (`prDescriptionGroups`): the PR body as ONE group.
+    @Test
+    fun `the PR body is one group with the fallback title and body`() {
+        val blank = prDescriptionGroup(title = " ", body = "", files = null)
+        assertEquals(PR_FALLBACK_TITLE, blank.topic)
+        assertEquals(PR_FALLBACK_EMPTY_BODY, blank.text)
+        assertTrue(blank.files.isEmpty())
+    }
+
+    @Test
+    fun `the PR body group claims every diff path, so ONE Changes section and no Other changes`() {
+        val files = listOf(
+            Diff.File(path = "a.ts", additions = 1),
+            Diff.File(path = "b.ts", additions = 2, deletions = 1),
+        )
+        val group = prDescriptionGroup(title = "Fix it", body = "Body.", files = files)
+        assertEquals(listOf("a.ts", "b.ts"), group.files)
+        val coverage = guideCoverage(listOf(group), files)
+        assertNull(coverage.lead)
+        assertEquals(1, coverage.sections.size)
+        assertEquals(2, coverage.sections.single().changes?.fileCount)
+        assertNull(coverage.other)
+        assertEquals(2, coverage.complete?.fileCount)
+        // Its Changes row opens the section page titled with the PR title.
+        val page = guideSectionPage(listOf(group), files, GuideSectionKey.Numbered(1))!!
+        assertEquals("Fix it", page.title)
+        assertEquals(2, page.files.size)
+        assertNull(guideSectionPage(listOf(group), files, GuideSectionKey.Other))
+        assertEquals(2, guideSectionPage(listOf(group), files, GuideSectionKey.All)?.files?.size)
+    }
 }

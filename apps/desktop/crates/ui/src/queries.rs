@@ -452,6 +452,23 @@ pub(crate) fn issue_team_id(cx: &App, issue_id: &str) -> Option<String> {
         .map(|board| board.team_id.clone())
 }
 
+/// EXP-1248: the issue's board's `default_branch` — the Stack card's base row
+/// fallback (web `useIssueStack().defaultBranch`), before the literal
+/// `default branch`.
+pub(crate) fn issue_board_default_branch(cx: &App, issue_id: &str) -> Option<String> {
+    let collections = Store::global(cx).collections();
+    let board_id = collections
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .map(|issue| issue.board_id.clone())?;
+    collections
+        .boards
+        .read(cx)
+        .get(&board_id)
+        .and_then(|board| board.default_branch.clone())
+}
+
 /// `use-team-data.ts` `useTeamUsers`: `team_members` ⨝ `users`
 /// (name-sorted for deterministic pickers), matching the web's `people`
 /// filter (EXP-50 alignment: this query and the properties panel's member

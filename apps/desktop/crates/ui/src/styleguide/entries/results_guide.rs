@@ -95,6 +95,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             let hovered = view.rows.first().map(|row| row.issue_id.clone());
             crate::session_results::stack_card(
                 &view,
+                Some("main".to_string()),
                 None,
                 Some(std::rc::Rc::new(|_, _, _| {})),
                 hovered,

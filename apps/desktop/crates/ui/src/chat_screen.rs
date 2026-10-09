@@ -3866,15 +3866,17 @@ impl BlockedStart {
 
     /// What a Stacked PR answer starts: `run[0]`'s issue id and its message,
     /// [`blocked_start::stacked_start_prompt`] over the TYPED text, with the
-    /// composed image embeds kept attached. The launcher and its settings
+    /// composed attachments (image embeds AND file lines) kept attached, so
+    /// the launcher still binds every upload. The launcher and its settings
     /// are exactly Start anyway's.
     fn stacked_start(&self, message: &str) -> Option<(String, String)> {
         let stack = self.stack.as_ref()?;
         let parsed = domain::image_message::parse_steer_message(message);
         let prompt = blocked_start::stacked_start_prompt(&stack.plan, &parsed.text);
-        let message = domain::image_message::build_steer_image_message(
+        let message = domain::image_message::build_steer_message(
             &prompt,
             &parsed.attachment_ids,
+            &parsed.files,
         );
         Some((stack.issue_id.clone(), message))
     }

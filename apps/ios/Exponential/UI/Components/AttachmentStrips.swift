@@ -191,6 +191,7 @@ struct SteerFileLinkRow: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
     @State private var previewURL: URL?
     @State private var downloading = false
 
@@ -241,11 +242,19 @@ struct SteerFileLinkRow: View {
             let destination = directory
                 .appendingPathComponent(AttachmentFiles.sanitizedFilename(file.name))
             if !FileManager.default.fileExists(atPath: destination.path) {
+                // A failed download (401, offline, a full disk) says so
+                // instead of a silent no-op tap.
                 guard let data = try? await deps.attachmentsApi.download(
                     accountId: accountId, relativeUrl: "/api/attachments/\(file.id)"
-                ) else { return }
+                ) else {
+                    toaster.error("Could not download the file")
+                    return
+                }
                 try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                guard (try? data.write(to: destination, options: .atomic)) != nil else { return }
+                guard (try? data.write(to: destination, options: .atomic)) != nil else {
+                    toaster.error("Could not download the file")
+                    return
+                }
             }
             previewURL = destination
         }

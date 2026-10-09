@@ -699,8 +699,12 @@ final class StyleguideScreenshots: XCTestCase {
             let guideTab = anyElement(app, identified: "work-face-guide")
             if guideTab.waitForExistence(timeout: 20) { guideTab.tap() }
             let changesRow = anyElement(app, identified: "guide-changes-row")
+            // Below the fold on a phone (the PR body comes first), so scroll
+            // to it; the shot then shows the body's end, the Changes row and
+            // Show complete diff.
+            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(60))
             XCTAssertTrue(
-                changesRow.waitForExistence(timeout: 60),
+                changesRow.exists,
                 "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
             )
             snapshot("sg_guide", settle: 2)
@@ -709,7 +713,7 @@ final class StyleguideScreenshots: XCTestCase {
             XCTAssertTrue(sectionPage.waitForExistence(timeout: 30), "The Guide section page did not open")
             snapshot("sg_guide-section", settle: 2)
             anyElement(app, identified: "guide-section-back").tap()
-            _ = changesRow.waitForExistence(timeout: 15)
+            _ = anyElement(app, identified: "work-face-guide").waitForExistence(timeout: 15)
             goBack(app)
             XCTAssertTrue(
                 reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 30),
@@ -919,14 +923,23 @@ final class StyleguideScreenshots: XCTestCase {
     /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
     /// file cards: open the diff (the first Changes row, else Show complete
     /// diff) as the section page and wait for its file cards.
+    /// The Guide body is a LazyVStack: a row below the fold is not in the
+    /// accessibility tree until it scrolls on screen. Swipe up until one of
+    /// `rows` exists or the deadline passes (a loading Guide just keeps
+    /// waiting; the swipes are harmless on a short page).
+    @MainActor
+    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
+        while Date() < deadline && !rows.contains(where: { $0.exists }) {
+            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
+            app.swipeUp()
+        }
+    }
+
     @MainActor
     private func openGuideDiff(_ app: XCUIApplication, failure: String) {
         let changesRow = anyElement(app, identified: "guide-changes-row")
         let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        let deadline = Date().addingTimeInterval(60)
-        while !changesRow.exists && !completeDiff.exists && Date() < deadline {
-            _ = changesRow.waitForExistence(timeout: 2)
-        }
+        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
         if changesRow.exists {
             changesRow.tap()
         } else {

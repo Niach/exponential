@@ -16,6 +16,10 @@
 import { MAX_START_PROMPT, MAX_START_PROMPT_IMAGES } from "@exp/db-schema/domain"
 import { MAX_STEER_FILES, parseSteerMessage } from "@/lib/steer-image-message"
 
+/** The id column is uuid: anything else must not reach the lookup. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export interface StartPromptAttachment {
   id: string
   teamId: string
@@ -66,6 +70,13 @@ export async function resolveStartPrompt(
     ...parsed.files.map((file) => file.id),
   ]
   if (attachmentIds.length === 0) return { ok: true, prompt: normalized }
+  if (attachmentIds.some((id) => !UUID_RE.test(id))) {
+    return {
+      ok: false,
+      code: `BAD_REQUEST`,
+      message: `One of the attached files is not yours or has expired`,
+    }
+  }
   if (parsed.attachmentIds.length > MAX_START_PROMPT_IMAGES) {
     return {
       ok: false,

@@ -123,6 +123,29 @@ fun guideSectionPage(
     }
 }
 
+/** EXP-1154: the PR-body fallback's band label without a PR title (web
+ *  `PR_DESCRIPTION_FALLBACK_TOPIC`). */
+const val PR_FALLBACK_TITLE = "Pull request"
+
+/** EXP-1154: the PR-body fallback's text for a blank body (web `PR_DESCRIPTION_EMPTY`). */
+const val PR_FALLBACK_EMPTY_BODY = "No description."
+
+/**
+ * EXP-1154 (web `prDescriptionGroups`): the open PR's GitHub body as ONE
+ * Guide group: band = the PR title (else `Pull request`), text = the body
+ * (`No description.` when blank). EXP-1251: no report + a PR = ONE Changes
+ * section, so the group claims EVERY diff path: its band carries the one
+ * Changes row, nothing is left for `Other changes`, and `Show complete diff`
+ * still closes the page.
+ */
+fun prDescriptionGroup(title: String?, body: String?, files: List<Diff.File>?): SessionResultGroup =
+    SessionResultGroup(
+        topic = title?.trim()?.takeIf { it.isNotEmpty() } ?: PR_FALLBACK_TITLE,
+        entries = emptyList(),
+        text = body?.trim()?.takeIf { it.isNotEmpty() } ?: PR_FALLBACK_EMPTY_BODY,
+        files = files.orEmpty().map { it.path },
+    )
+
 /** The section page's back-row summary: `+A −D · N files`. */
 fun guideSectionSummary(page: GuideSectionPage): String =
     "${Diff.additionsLabel(page.additions)} ${Diff.deletionsLabel(page.deletions)} · ${guideFileCountLabel(page.files.size)}"

@@ -224,6 +224,10 @@ fn image_embed_pattern() -> &'static regex::Regex {
 /// (`buildSteerMessage`'s file block): `[<name>](/api/attachments/<uuid>)`
 /// NOT preceded by `!` (the caller checks that — the regex crate has no
 /// look-behind). The link text may carry the builder's `\]`/`\\` escapes.
+/// Unanchored on purpose, like [`image_embed_pattern`]: a link to one of
+/// OUR attachments anywhere in the prose is localized for the agent too
+/// (the viewers keep showing it as a link); the parsers' tail-only rule
+/// decides what the composer STRIP shows, not what the agent may read.
 fn file_embed_pattern() -> &'static regex::Regex {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     PATTERN.get_or_init(|| {

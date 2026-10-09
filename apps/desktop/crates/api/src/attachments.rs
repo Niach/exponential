@@ -115,16 +115,17 @@ pub fn download_image(
 }
 
 /// Wave D: the local filename a steered FILE is written under — the link
-/// text's basename (path separators, NULs and leading dots dropped), or
-/// `file` when nothing usable is left.
+/// text's basename (path separators, NULs and control characters dropped;
+/// a dotfile keeps its dot, so the agent reads `.env` as `.env`), or `file`
+/// when nothing usable is left (`.`/`..` included, so the path never climbs).
 pub fn local_file_name(name: &str) -> String {
     let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
     let cleaned: String = base
         .chars()
         .filter(|c| *c != '\0' && !c.is_control())
         .collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').trim();
-    if cleaned.is_empty() {
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || cleaned.chars().all(|c| c == '.') {
         "file".to_string()
     } else {
         cleaned.to_string()
@@ -438,7 +439,8 @@ mod tests {
         assert_eq!(local_file_name("notes.pdf"), "notes.pdf");
         assert_eq!(local_file_name("../../etc/passwd"), "passwd");
         assert_eq!(local_file_name("a\\b\\c.txt"), "c.txt");
-        assert_eq!(local_file_name(".env"), "env");
+        assert_eq!(local_file_name(".env"), ".env");
+        assert_eq!(local_file_name("..."), "file");
         assert_eq!(local_file_name(""), "file");
         assert_eq!(local_file_name(".."), "file");
     }

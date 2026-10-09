@@ -3126,6 +3126,7 @@ impl SteerSessionView {
                 });
             Some(crate::session_results::stack_card(
                 &view,
+                crate::queries::issue_board_default_branch(cx, &issue.id),
                 Some(on_pick),
                 Some(on_merge),
                 self.stack_hovered.clone(),

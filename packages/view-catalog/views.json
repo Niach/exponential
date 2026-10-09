@@ -1255,7 +1255,7 @@
       "blurb": "A Guide section's diff as a page under the Guide (`?view=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree in the column beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=other",
+        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=1",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1273,7 +1273,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-1251: APP-14 has no report, so its whole diff is the automatic Changes section (`section=other`); the anchor is a line of the first card's own patch, as on review-diff.",
+        "web": "EXP-1251: APP-14 has no report, so the PR body is its one unnumbered section claiming the whole diff (`section=1`; there is no `other` page); the anchor is a line of the first card's own patch, as on review-diff.",
         "desktop": "EXP-1251: a section page is state inside the Guide (`SteerSessionView::open_guide_page`) with no dev deep link yet, so the desktop half is not driven."
       }
     },

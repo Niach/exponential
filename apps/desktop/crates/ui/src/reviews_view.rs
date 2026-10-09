@@ -153,7 +153,14 @@ impl ReviewsView {
                         StackRailSpec {
                             id_prefix: SharedString::from(format!("{prefix}-stack-{index}")),
                             members,
-                            base_branch: SharedString::from(base_branch.clone().unwrap_or_default()),
+                            base_branch: SharedString::from(
+                                base_branch
+                                    .clone()
+                                    .or_else(|| group.board.default_branch.clone())
+                                    .unwrap_or_else(|| {
+                                        crate::session_results::STACK_BASE_FALLBACK.to_string()
+                                    }),
+                            ),
                             word: Some(SharedString::from(STACK_WORD)),
                             hovered: None,
                             on_hover: None,

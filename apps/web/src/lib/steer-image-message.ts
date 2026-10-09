@@ -56,7 +56,8 @@ export function escapeSteerFileName(name: string): string {
 }
 
 function unescapeSteerFileName(label: string): string {
-  return label.replace(/\\([\\\]])/g, `$1`)
+  // Any `\x` reads as `x`, as on desktop, iOS, Android and the host.
+  return label.replace(/\\(.)/g, `$1`)
 }
 
 /** The wire message with files: prose, a blank line, the image embed block

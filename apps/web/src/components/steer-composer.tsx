@@ -341,7 +341,7 @@ export function SteerComposer({
                 ) : (
                   <AttachmentFileTile
                     key={image.url}
-                    name={image.file.name}
+                    name={image.uploadedName ?? image.file.name}
                     removeLabel={`Remove ${image.file.name}`}
                     onRemove={() => removeImage(image.url)}
                     disabled={sending}

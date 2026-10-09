@@ -210,7 +210,7 @@ export function LaunchComposer({
                   ) : (
                     <AttachmentFileTile
                       key={image.url}
-                      name={image.file.name}
+                      name={image.uploadedName ?? image.file.name}
                       removeLabel={`Remove ${image.file.name}`}
                       onRemove={() => model.removeImage(image.url)}
                       disabled={busy}

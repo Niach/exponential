@@ -76,13 +76,13 @@ fun imageMarker(index: Int): String = imageMarker(index.toLong())
 private fun markerNumber(match: MatchResult): Long? = match.groupValues[1].toLongOrNull()
 
 /** One embed line, exactly as [buildSteerImageMessage] writes it. */
-private val EMBED_LINE = Regex("""^!\[image]\(/api/attachments/([^)\s]+)\)$""")
+private val EMBED_LINE = Regex("""(?U)^!\[image]\(/api/attachments/([^)\s]+)\)$""")
 
 /**
  * One file line, exactly as [buildSteerMessage] writes it: a plain link (no
  * `!`), its text the filename with `]` and `\` backslash-escaped.
  */
-private val FILE_LINE = Regex("""^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)\s]+)\)$""")
+private val FILE_LINE = Regex("""(?U)^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)\s]+)\)$""")
 
 /** Runs of spaces/tabs a removed marker leaves behind. */
 private val SPACE_RUN = Regex("""[ \t]{2,}""")

@@ -353,6 +353,13 @@ fun WorkScreen(
     val hasResults = resultGroups.isNotEmpty() || (issueId != null && prOpen)
     val prDescription by (changesVm?.prDescription ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
+    // EXP-1154 / web M8 ×4: no report + an open PR = the PR body as ONE Guide
+    // group claiming every diff path (one Changes row in the PR band, its page
+    // titled with the PR title, `Show complete diff` last, never `Other changes`).
+    val guidePrState = prDescription.takeIf { resultGroups.isEmpty() && prOpen }
+    val guideGroups = remember(resultGroups, guidePrState, guideFiles) {
+        resultGroups.ifEmpty { prDescriptionGroups(guidePrState, guideFiles) }
+    }
     val faces = availableFaces(
         hasIssue = issueId != null,
         hasRun = shownSessionId != null,
@@ -839,8 +846,8 @@ fun WorkScreen(
                             // EXP-1251: a Changes row's section page.
                             GuideSectionDiff(
                                 padding = padding,
-                                page = remember(resultGroups, guideFiles, section) {
-                                    guideSectionPage(resultGroups, guideFiles, section)
+                                page = remember(guideGroups, guideFiles, section) {
+                                    guideSectionPage(guideGroups, guideFiles, section)
                                 },
                                 load = prLoad,
                                 merge = mergeControl,
@@ -849,9 +856,10 @@ fun WorkScreen(
                         } else {
                             GuideFace(
                                 padding = padding,
-                                groups = resultGroups,
+                                groups = guideGroups,
                                 files = guideFiles,
-                                prFallback = prDescription.takeIf { resultGroups.isEmpty() && prOpen },
+                                prFallback = guidePrState,
+                                numbered = resultGroups.isNotEmpty(),
                                 stack = guideStack,
                                 merge = mergeControl,
                                 onOpenSection = if (hasChanges) {

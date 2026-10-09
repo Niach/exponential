@@ -12,22 +12,20 @@ class WaveDParityTest {
 
     @Test
     fun `an untouched computer use toggle sends nothing`() {
-        assertNull(ComposerMenu.computerUseWire(pick = null, deviceDefault = true, canToggle = true))
-        assertNull(ComposerMenu.computerUseWire(pick = null, deviceDefault = false, canToggle = true))
+        assertNull(ComposerMenu.computerUseWire(pick = null, canToggle = true))
         assertTrue(ComposerMenu.computerUseShown(pick = null, deviceDefault = true))
     }
 
     @Test
     fun `an explicit flip rides the wire`() {
-        assertEquals(false, ComposerMenu.computerUseWire(pick = false, deviceDefault = true, canToggle = true))
-        assertEquals(true, ComposerMenu.computerUseWire(pick = true, deviceDefault = false, canToggle = true))
-        // Flipped back to the default is still an explicit choice.
-        assertEquals(true, ComposerMenu.computerUseWire(pick = true, deviceDefault = true, canToggle = true))
+        assertEquals(false, ComposerMenu.computerUseWire(pick = false, canToggle = true))
+        // Any explicit pick rides, even one equal to the device default.
+        assertEquals(true, ComposerMenu.computerUseWire(pick = true, canToggle = true))
     }
 
     @Test
     fun `a device that cannot read the flag never gets it`() {
-        assertNull(ComposerMenu.computerUseWire(pick = true, deviceDefault = false, canToggle = false))
+        assertNull(ComposerMenu.computerUseWire(pick = true, canToggle = false))
     }
 
     @Test

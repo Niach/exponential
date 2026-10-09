@@ -508,13 +508,14 @@ private fun RunFaceContent(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
             // ContentResolver reads can stream from a cloud-backed provider —
-            // [readComposerPick] stays off the main thread.
-            when (val picked = readComposerPick(context, uri)) {
+            // [readComposerPick] stays off the main thread. One pick at a time
+            // through the VM, so its caps (4 images, 4 files) + toasts apply.
+            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
                 is ComposerPick.Read ->
                     viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
                 is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)

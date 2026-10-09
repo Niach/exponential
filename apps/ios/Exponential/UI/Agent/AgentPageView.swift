@@ -311,9 +311,15 @@ struct AgentPageView: View {
     /// EXP-1249: the logo in the foreground colour at ~3.5%, ~520pt, behind
     /// the top of the page; never hit-testable, hidden from VoiceOver.
     private var brandMark: some View {
-        ExpLogoMark(size: 520, color: .white.opacity(0.035))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .offset(y: 40)
+        // Drawn as an overlay of a zero-size colour so the 520pt mark never
+        // widens the page ZStack past a phone's width (it did: the column
+        // laid out off-screen and clipped at both edges).
+        Color.clear
+            .overlay(alignment: .top) {
+                ExpLogoMark(size: 520, color: .white.opacity(0.035))
+                    .offset(y: 40)
+            }
+            .clipped()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .accessibilityIdentifier(ComposerMenu.brandMarkTestId)

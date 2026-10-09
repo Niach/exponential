@@ -849,11 +849,9 @@ class AgentComposerViewModel @Inject constructor(
             mcpServerIds = _mcpServerIds.value
                 .takeIf { it.isNotEmpty() && !subjectOwnsMcpServers((_subject.value as? ComposerSubject.Action)?.id) },
             // Only a device that reads the flag gets it (older builds ignore it).
-            // Web M12: only an explicit flip (or a value off the device's
-            // current default) rides the wire.
+            // Web M12: only an explicit flip rides the wire.
             computerUse = ComposerMenu.computerUseWire(
                 pick = _computerUsePick.value,
-                deviceDefault = device.value?.launchDefaults?.computerUse == true,
                 canToggle = device.value?.canToggleComputerUse == true,
             ),
         )

@@ -78,6 +78,7 @@ import com.exponential.app.ui.components.StackRail
 import com.exponential.app.ui.components.StackRailMember
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.guideSectionCaption
+import com.exponential.app.domain.prDescriptionGroup
 import com.exponential.app.domain.sessionResultsGuide
 import com.exponential.app.domain.SessionResultGroup
 import com.exponential.app.domain.SESSION_RESULTS_EARLIER_LABEL
@@ -115,11 +116,15 @@ import com.exponential.app.ui.theme.TextEmphasis
 private val HorizontalPadding = 16.dp
 private val TileShape = RoundedCornerShape(10.dp)
 
-/** EXP-1154: the PR-body fallback's band label without a PR title. */
-internal const val PR_FALLBACK_TITLE = "Pull request"
-
-/** EXP-1154: the PR-body fallback's text for a blank body. */
-internal const val PR_FALLBACK_EMPTY_BODY = "No description."
+/** EXP-1154 (web `prDescriptionGroups`): a LOADED PR body as ONE Guide group
+ *  claiming every diff path ([prDescriptionGroup]); empty until loaded. */
+fun prDescriptionGroups(state: PrDescriptionState?, files: List<Diff.File>?): List<SessionResultGroup> =
+    when (state) {
+        is PrDescriptionState.Loaded -> listOf(
+            prDescriptionGroup(state.description.title, state.description.body, files),
+        )
+        else -> emptyList()
+    }
 
 /** EXP-1251: the Stack card's band title (web `STACK_CARD_TITLE`). */
 internal const val STACK_CARD_TITLE = "Stack"
@@ -142,8 +147,12 @@ fun GuideFace(
     /** The diff the Guide counts (the run's live diff, else the PR / branch
      *  files); null while it is not loaded: no Changes rows yet. */
     files: List<Diff.File>?,
-    /** EXP-1154: the open PR's GitHub body, drawn only while [groups] is empty. */
+    /** EXP-1154: the open PR's GitHub body fetch, drawn (its spinner or its
+     *  refusal) only while [groups] is empty; once loaded the caller passes it
+     *  IN [groups] ([prDescriptionGroups]). */
     prFallback: PrDescriptionState? = null,
+    /** False for the PR-body group (one band, no `01 / 01`), web `numbered`. */
+    numbered: Boolean = true,
     /** EXP-1251: the Stack card; null = not in an open stack. */
     stack: GuideStack? = null,
     /** The bar's white Merge; null = no bar. */
@@ -184,18 +193,10 @@ fun GuideFace(
             stack?.let { card ->
                 item(key = "__stack__") { GuideStackCard(card) }
             }
-            // Web M8 ×4: with no report the PR-body group claims EVERY diff
-            // path — its band carries the one Changes row and nothing is
-            // left for a separate `Changes` / `Other changes` band.
-            val prGroupClaims = groups.isEmpty() && prFallback is PrDescriptionState.Loaded
-            if (groups.isEmpty() && prFallback != null) {
-                item(key = "__pr_fallback__") {
-                    PrFallbackSection(
-                        state = prFallback,
-                        changes = if (prGroupClaims) coverage.other?.changes else null,
-                        onOpenChanges = onOpenSection?.let { open -> { open(GuideSectionKey.Other) } },
-                    )
-                }
+            // Web M8 ×4: a loaded PR body arrives as a group ([prDescriptionGroups])
+            // that claims EVERY diff path; only its spinner / refusal draws here.
+            if (groups.isEmpty() && prFallback != null && prFallback !is PrDescriptionState.Loaded) {
+                item(key = "__pr_fallback__") { PrFallbackSection(state = prFallback) }
             }
             coverage.lead?.let { lead ->
                 item(key = "__lead__") {
@@ -218,10 +219,14 @@ fun GuideFace(
                 val group = section.group
                 item(key = "topic_${section.index}_${group.topic}") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SectionHeader(
-                            title = group.topic,
-                            leading = { GuideCaption(guideSectionCaption(section.index, section.total)) },
-                        )
+                        if (numbered) {
+                            SectionHeader(
+                                title = group.topic,
+                                leading = { GuideCaption(guideSectionCaption(section.index, section.total)) },
+                            )
+                        } else {
+                            SectionHeader(title = group.topic)
+                        }
                         GuideGroupBody(
                             group = group,
                             changes = section.changes,
@@ -234,7 +239,7 @@ fun GuideFace(
                     }
                 }
             }
-            coverage.other?.takeIf { !prGroupClaims }?.let { other ->
+            coverage.other?.let { other ->
                 item(key = "__other__") {
                     Column(
                         modifier = Modifier.testTag("guide-other-changes"),
@@ -455,17 +460,12 @@ private fun GuideRow(
 }
 
 /**
- * EXP-1154: an open PR with no run report — its GitHub body as ONE
- * unnumbered band (the PR title, else `Pull request`), `No description.`
- * when blank; a spinner while it loads, the refusal when it failed.
+ * EXP-1154: an open PR with no run report while its GitHub body loads (a
+ * spinner) or after the fetch failed (the refusal). The loaded body is a
+ * Guide group ([prDescriptionGroups]).
  */
 @Composable
-private fun PrFallbackSection(
-    state: PrDescriptionState,
-    /** Web M8: the whole diff, claimed by this group (its ONE Changes row). */
-    changes: GuideChangeSet? = null,
-    onOpenChanges: (() -> Unit)? = null,
-) {
+private fun PrFallbackSection(state: PrDescriptionState) {
     Column(
         modifier = Modifier.testTag("results-pr-fallback"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -489,21 +489,7 @@ private fun PrFallbackSection(
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(vertical = 12.dp),
             )
-            is PrDescriptionState.Loaded -> {
-                val title = state.description.title?.trim()?.takeIf { it.isNotEmpty() } ?: PR_FALLBACK_TITLE
-                val body = state.description.body?.trim()?.takeIf { it.isNotEmpty() }
-                SectionHeader(title = title)
-                if (body != null) {
-                    MarkdownView(markdown = body, modifier = Modifier.fillMaxWidth().testTag("work-result-text"))
-                } else {
-                    Text(
-                        PR_FALLBACK_EMPTY_BODY,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-                if (changes != null) GuideChangesRow(changes = changes, onOpen = onOpenChanges)
-            }
+            is PrDescriptionState.Loaded -> Unit
         }
     }
 }

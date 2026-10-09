@@ -575,8 +575,15 @@ pub(crate) type OnHoverStackRow = std::rc::Rc<dyn Fn(Option<String>, &mut Window
 /// the active wash, down to the muted base-branch row. A click REPLACES the
 /// subject (`on_pick`); the HOVERED member (`hovered`, the host's view
 /// state written by `on_hover`) offers the ghost `Merge through here`.
+/// Web `STACK_BASE_FALLBACK`: never an assumed `main` (default branches
+/// resolve live).
+pub(crate) const STACK_BASE_FALLBACK: &str = "default branch";
+
 pub(crate) fn stack_card(
     view: &domain::pr_stack::StackView,
+    // The board's default branch: the base row's label when the bottom
+    // member's `pr_base_branch` is not synced (then `default branch`).
+    default_branch: Option<String>,
     on_pick: Option<OnPickStackRow>,
     on_merge_through: Option<OnPickStackRow>,
     hovered: Option<String>,
@@ -606,7 +613,10 @@ pub(crate) fn stack_card(
             id_prefix: SharedString::from("guide-stack"),
             members,
             base_branch: SharedString::from(
-                view.base_branch.clone().unwrap_or_else(|| "base".to_string()),
+                view.base_branch
+                    .clone()
+                    .or(default_branch)
+                    .unwrap_or_else(|| STACK_BASE_FALLBACK.to_string()),
             ),
             word: None,
             hovered,

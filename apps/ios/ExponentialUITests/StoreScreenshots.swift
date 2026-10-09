@@ -250,14 +250,23 @@ final class StoreScreenshots: XCTestCase {
     /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
     /// file cards: open the diff (the first Changes row, else Show complete
     /// diff) as the section page and wait for its file cards.
+    /// The Guide body is a LazyVStack: a row below the fold is not in the
+    /// accessibility tree until it scrolls on screen. Swipe up until one of
+    /// `rows` exists or the deadline passes (a loading Guide just keeps
+    /// waiting; the swipes are harmless on a short page).
+    @MainActor
+    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
+        while Date() < deadline && !rows.contains(where: { $0.exists }) {
+            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
+            app.swipeUp()
+        }
+    }
+
     @MainActor
     private func openGuideDiff(_ app: XCUIApplication, failure: String) {
         let changesRow = anyElement(app, identified: "guide-changes-row")
         let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        let deadline = Date().addingTimeInterval(60)
-        while !changesRow.exists && !completeDiff.exists && Date() < deadline {
-            _ = changesRow.waitForExistence(timeout: 2)
-        }
+        revealGuideRow(app, [changesRow, completeDiff], deadline: Date().addingTimeInterval(60))
         if changesRow.exists {
             changesRow.tap()
         } else {
