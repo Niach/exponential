@@ -3,6 +3,7 @@ package com.exponential.app
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -409,9 +410,15 @@ class StyleguideScreenshotsTest {
         // PR (APP-14) completes it into the Fix merge conflicts look — the
         // verb + the PR's issue chip, the card's PR row, "Fix conflicts".
         flow.waitFor(hasTestTag("agent-composer-fix-conflicts"), NAV_TIMEOUT)
+        // The row is matched INSIDE the picker sheet: the Agent page behind it
+        // lists APP-14's live run too, and that row (first in the tree) opens
+        // the run instead of picking the pull request.
         composeRule.onNode(hasTestTag("agent-composer-fix-conflicts-pr")).performClick()
-        flow.waitFor(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true)).onFirst().performClick()
+        val prRow = hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true) and
+            hasAnyAncestor(hasTestTag("agent-composer-fix-conflicts-picker"))
+        flow.waitFor(prRow, SYNC_TIMEOUT)
+        composeRule.onAllNodes(prRow).onFirst().performClick()
+        flow.waitForGone(hasTestTag("agent-composer-fix-conflicts-picker"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-chip-issue-$FIX_CONFLICTS_PR_IDENTIFIER"), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
         flow.settle()
