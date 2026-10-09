@@ -47,3 +47,18 @@ final class RecordingHost: HostPlugin {
     func onUnknown(component: String, catalogId: String?, id: String) { unknowns.append(component) }
     func onUpload(_ event: SurfaceUploadEvent) { uploads.append(event) }
 }
+
+/// Polls `condition` on the main actor until it holds or `timeout` passes.
+/// Timer-driven behaviour (the 150 ms input debounce, toast and tooltip
+/// timers) is asserted through this, never through a fixed sleep: a loaded
+/// CI runner fires those timers late, and a fixed sleep then reads a count
+/// of 0 and indexes into an empty array.
+@MainActor
+func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now + timeout
+    while !condition() {
+        if clock.now >= deadline { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+}

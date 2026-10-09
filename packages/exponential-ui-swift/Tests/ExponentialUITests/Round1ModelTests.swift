@@ -469,11 +469,11 @@ final class Round1ModelTests: XCTestCase {
         XCTAssertTrue(m.layers.contains { $0.isToast })
         m.toastHover(id: "t2", true)
         XCTAssertTrue(m.toastPaused("t2"))
-        try await Task.sleep(for: .milliseconds(450))
+        try await eventually { m.toasts.map(\.id) == ["t2"] }
         XCTAssertEqual(m.toasts.map(\.id), ["t2"], "t1 ran out; the hovered t2 is held")
         XCTAssertEqual(host.actions.filter { $0.name == "dismiss" }.map(\.componentId), ["t1"])
         m.toastHover(id: "t2", false)
-        try await Task.sleep(for: .milliseconds(450))
+        try await eventually { m.toasts.isEmpty }
         XCTAssertTrue(m.toasts.isEmpty)
         XCTAssertFalse(m.layers.contains { $0.isToast })
     }
@@ -486,10 +486,10 @@ final class Round1ModelTests: XCTestCase {
         guard let trigger = m.trigger(of: "tip") else { throw XCTSkip("no tooltip trigger") }
         m.setHover(id: trigger.id, true)
         XCTAssertFalse(m.layers.contains { $0.kind == "Tooltip" }, "the platform delay first")
-        try await Task.sleep(for: .milliseconds(450))
+        try await eventually { m.layers.contains { $0.kind == "Tooltip" } }
         XCTAssertTrue(m.layers.contains { $0.kind == "Tooltip" })
         m.setHover(id: trigger.id, false)
-        try await Task.sleep(for: .milliseconds(400))
+        try await eventually { !m.layers.contains { $0.kind == "Tooltip" } }
         XCTAssertFalse(m.layers.contains { $0.kind == "Tooltip" }, "the core's hoverTimer closed it")
     }
 

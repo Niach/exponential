@@ -101,12 +101,13 @@ final class InteractionTests: XCTestCase {
             m.fieldEdited(field, text: m.fieldText(field) + String(ch))
         }
         XCTAssertEqual(host.inputs.count, 0, "nothing before the debounce")
-        try await Task.sleep(for: .milliseconds(260))
+        try await eventually { host.inputs.count == 1 }
         XCTAssertEqual(host.inputs.count, 1)
-        XCTAssertEqual(host.inputs[0].value, .string("Hello"))
-        XCTAssertEqual(host.inputs[0].revision, 5)
-        XCTAssertEqual(host.inputs[0].kind, .change)
-        XCTAssertEqual(host.inputs[0].path, "/draft/title")
+        let first = try XCTUnwrap(host.inputs.first)
+        XCTAssertEqual(first.value, .string("Hello"))
+        XCTAssertEqual(first.revision, 5)
+        XCTAssertEqual(first.kind, .change)
+        XCTAssertEqual(first.path, "/draft/title")
         XCTAssertEqual(m.data["draft"]?["title"], .string("Hello"), "a bound value writes through")
         m.fieldEdited(field, text: "Hello!")
         m.fieldFocused(field, false)
@@ -149,7 +150,9 @@ final class InteractionTests: XCTestCase {
             typed.append(ch)
             m.fieldEdited(field, text: typed)
         }
-        try await Task.sleep(for: .milliseconds(500))
+        try await eventually { echoed.last?.revision == 40 }
+        // The last echo (150 ms) lands too; the field keeps every character.
+        try await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(m.fieldText(field), String(text.prefix(40)))
         XCTAssertEqual(echoed.last?.revision, 40)
         XCTAssertEqual(echoed.last?.value, .string(String(text.prefix(40))))
