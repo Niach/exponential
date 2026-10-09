@@ -2252,6 +2252,13 @@
         "bytes": 12282,
         "sha256": "39678245806c3d03eb8861d72775c1746560c296528ae7fca122eb788f972316"
       },
+      "desktop": {
+        "file": "shots/exponential-ui-resizable/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 22042,
+        "sha256": "39ad0c63c3688039154c78d003865feb6ff1a460372b1b1c3ed4104422f1710a"
+      },
       "web": {
         "file": "shots/exponential-ui-resizable/web.webp",
         "width": 1800,
