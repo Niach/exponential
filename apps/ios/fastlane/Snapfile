@@ -80,6 +80,9 @@ override_status_bar(true)
 # one at a time and retry flaky runs instead of parallelizing.
 concurrent_simulators(false)
 number_of_retries(3)
+# A failed attempt otherwise stalls up to 10 minutes in `simctl diagnose`
+# (the sysdiagnose xcodebuild collects on failure) before the retry starts.
+xcargs("-collect-test-diagnostics never")
 
 # Accounts live in the device keychain, which survives app reinstalls — erase
 # the simulator so every run starts on the fresh InstanceView sign-in flow.

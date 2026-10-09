@@ -355,8 +355,11 @@ const IssueRow = memo(function IssueRow({
             {isSelected && <CheckIcon className="size-3" />}
           </span>
         )}
+        {/* Phones: the 32px tap targets bleed into the row gap (`-mx-2`), so
+            the glyphs sit as tight as the natives' and the title keeps its
+            room for the label dots and due date. */}
         <div
-          className="flex items-center justify-center max-md:shrink-0"
+          className="flex items-center justify-center max-md:shrink-0 max-md:-mx-2"
           style={indent > 0 ? { paddingLeft: indent } : undefined}
           onClick={(e) => e.stopPropagation()}
         >
@@ -373,7 +376,7 @@ const IssueRow = memo(function IssueRow({
           {issue.identifier}
         </span>
         <div
-          className="flex items-center justify-center"
+          className="flex items-center justify-center max-md:shrink-0 max-md:-mx-2"
           onClick={(e) => e.stopPropagation()}
         >
           <StatusDropdown
