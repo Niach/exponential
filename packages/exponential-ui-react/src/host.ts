@@ -6,7 +6,7 @@
 // `<HostSurface>` (host-surface.tsx).
 
 import type { ComponentType, SVGProps } from "react"
-import type { UiNode, ResolvedTheme, ModeName, FunctionCallInfo, MediaRequest } from "@exponential-at/ui"
+import type { UiNode, ResolvedTheme, ModeName, FunctionCallInfo, MediaRequest, ThemeIssue } from "@exponential-at/ui"
 import type { ClientFunction } from "./data"
 
 /** An icon component the host maps a registry name to (`lucide-react`'s
@@ -73,6 +73,10 @@ export interface HostPlugin {
   resolveUrl?: (src: string) => string
   /** Called with the node for every Unknown placeholder painted. */
   onUnknown?: (node: UiNode) => void
+  /** Round 4 (VAPP-103): the `theme` prop was unusable (an unknown built-in
+   *  id, a theme file with issues). The surface never throws: it paints
+   *  with the default theme and reports why here. */
+  onThemeIssues?: (issues: ThemeIssue[]) => void
   /** Round 1, FileUpload: the picked/dropped files' BYTES (the `upload`
    *  event carries only `{name, size, type}`). Return a promise to keep the
    *  drop zone busy until it settles. */

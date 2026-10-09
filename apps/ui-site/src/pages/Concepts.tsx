@@ -48,6 +48,7 @@ const FUNCTION_CALL = `{"id":"docs","component":"Button","label":"Open the docs"
  "on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"https://ui.exponential.at/"}}}}}`
 
 const THEME = `{
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
   "id": "brand", "name": "Brand", "extends": "neutral",
   "modes": { "dark": { "color": { "primary": "#818cf8" } } },
   "tokens": { "radius": { "md": 10 } },

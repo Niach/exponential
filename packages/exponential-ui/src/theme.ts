@@ -319,6 +319,9 @@ const THEME_KEYS = [`$schema`, `$comment`, `id`, `name`, `extends`, `modes`, `co
 export function validateTheme(source: unknown, options: ThemeOptions = {}): ThemeIssue[] {
   const issues: ThemeIssue[] = []
   if (!isObj(source)) return [{ path: `theme`, message: `expected a theme object {id, name, modes, tokens, recipes}` }]
+  // Round 4 (VAPP-103): the schema id is READ, not just tolerated: a theme
+  // written for another (or no) format version is refused outright.
+  if (source.$schema !== THEME_SCHEMA_ID) issues.push({ path: `$schema`, message: `expected "${THEME_SCHEMA_ID}"` })
   if (typeof source.id !== `string` || !ID.test(source.id)) issues.push({ path: `id`, message: `expected a kebab-case id` })
   if (typeof source.name !== `string` || source.name.length === 0) issues.push({ path: `name`, message: `expected a name` })
   for (const key of Object.keys(source))

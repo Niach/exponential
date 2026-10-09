@@ -7,8 +7,8 @@
 import exponentialJson from "../themes/exponential.theme.json" with { type: "json" }
 import neutralJson from "../themes/neutral.theme.json" with { type: "json" }
 import playfulJson from "../themes/playful.theme.json" with { type: "json" }
-import { loadTheme } from "./theme"
-import type { ResolvedTheme, ThemeSource } from "./theme-types"
+import { loadTheme, tryLoadTheme } from "./theme"
+import type { ResolvedTheme, ThemeIssue, ThemeSource } from "./theme-types"
 
 export const neutralTheme = neutralJson as unknown as ThemeSource
 export const exponentialTheme = exponentialJson as unknown as ThemeSource
@@ -30,6 +30,20 @@ export function builtinTheme(id: string): ResolvedTheme {
   const theme = loadTheme(source, { themes: BUILTIN_THEMES })
   resolved.set(id, theme)
   return theme
+}
+
+/** Round 4 (VAPP-103): the theme a host paints with, NEVER a throw: a
+ *  built-in id or a theme file over the built-ins; anything unusable (an
+ *  unknown id, a bad `$schema`, an unknown token, a missing value) falls back
+ *  to the default theme with the issues saying why (Rust
+ *  `themes::theme_or_default`, Swift/Kotlin `ThemeHandle.loadOrDefault`). */
+export function themeOrDefault(input: unknown): { theme: ResolvedTheme; issues: ThemeIssue[] } {
+  if (typeof input === `string`) {
+    if (BUILTIN_THEME_IDS.includes(input)) return { theme: builtinTheme(input), issues: [] }
+    return { theme: builtinTheme(DEFAULT_THEME_ID), issues: [{ path: `theme`, message: `unknown built-in theme "${input}"; known: ${BUILTIN_THEME_IDS.join(`|`)}` }] }
+  }
+  const { theme, issues } = tryLoadTheme(input, { themes: BUILTIN_THEMES })
+  return theme ? { theme, issues: [] } : { theme: builtinTheme(DEFAULT_THEME_ID), issues }
 }
 
 /** Every built-in resolved, in source order. */

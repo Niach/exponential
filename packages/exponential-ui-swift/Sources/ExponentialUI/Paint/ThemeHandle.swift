@@ -20,6 +20,16 @@ public final class ThemeHandle: @unchecked Sendable {
         self.id = theme.id()
     }
 
+    /// One reason a theme was refused (`path` into the theme file).
+    public struct ThemeIssue: Equatable, Sendable {
+        public let path: String
+        public let message: String
+        public init(path: String, message: String) {
+            self.path = path
+            self.message = message
+        }
+    }
+
     public static func builtin(_ id: String) -> ThemeHandle? {
         (try? Theme.builtin(id: id)).map(ThemeHandle.init)
     }
@@ -27,6 +37,25 @@ public final class ThemeHandle: @unchecked Sendable {
     /// Load a theme file over the built-ins.
     public static func load(json: String, parents: [String] = []) throws -> ThemeHandle {
         ThemeHandle(try Theme.load(themeJson: json, parentsJson: parents.isEmpty ? nil : "[\(parents.joined(separator: ","))]"))
+    }
+
+    /// Round 4 (VAPP-103): a theme file that NEVER fails the host. An
+    /// unusable one (a bad `$schema`, an unknown token, a missing value…)
+    /// falls back to the default built-in and `onIssues` gets why, as the
+    /// React surface's `onThemeIssues` and the TS host's `onIssue` do.
+    public static func loadOrDefault(json: String, parents: [String] = [], onIssues: (([ThemeIssue]) -> Void)? = nil) -> ThemeHandle {
+        do {
+            return try load(json: json, parents: parents)
+        } catch {
+            let issues: [ThemeIssue]
+            if case let UiError.Theme(issuesJson) = error {
+                issues = (JSONValue.parse(issuesJson).array ?? []).map { ThemeIssue(path: $0["path"]?.string ?? "", message: $0["message"]?.string ?? "") }
+            } else {
+                issues = [ThemeIssue(path: "theme", message: "\(error)")]
+            }
+            onIssues?(issues)
+            return builtin(defaultThemeId())!
+        }
     }
 
     /// `owner/part` resolved for the OWNER's props and `states` in `mode`.

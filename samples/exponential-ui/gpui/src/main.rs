@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use exponential_ui::extension::parse_extension;
 use exponential_ui::measure::LeafRequest;
-use exponential_ui::theme::{load_theme, Mode, ThemeOptions};
-use exponential_ui::themes::builtin_refs;
+use exponential_ui::theme::Mode;
+use exponential_ui::themes::theme_or_default;
 use exponential_ui_gpui::extension::{ExtensionPainter, PaintContext};
 use exponential_ui_gpui::paint::color::parse_hex;
 use exponential_ui_gpui::runtime::{ExponentialHost, HostOptions};
@@ -128,8 +128,12 @@ fn main() {
     // The theme + the extension catalog, fetched at runtime (the server owns
     // them; nothing about them is compiled in).
     let theme_json: Value = serde_json::from_str(&fetch(&format!("{server}/theme.json")).expect("the theme")).expect("theme JSON");
-    let refs = builtin_refs();
-    let theme = Arc::new(load_theme(&theme_json, &ThemeOptions::core(&refs)).expect("a valid theme"));
+    // An unusable server theme never fails the app: the default theme
+    // paints and the issues are logged.
+    let (theme, issues) = theme_or_default(&theme_json);
+    if !issues.is_empty() {
+        eprintln!("theme.json refused: {issues:?}");
+    }
     let extension = parse_extension(&fetch(&format!("{server}/extension.json")).expect("the extension")).expect("a valid extension");
 
     let color = |name: &str| theme.modes.get(mode).color.get(name).and_then(|c| parse_hex(c));

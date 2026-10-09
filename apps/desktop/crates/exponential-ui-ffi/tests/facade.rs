@@ -202,7 +202,7 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     assert_eq!(out.layers[0].position, "centered");
     assert_eq!(serde_json::from_str::<Value>(&surface.data_json()).unwrap()["open"], json!(true));
     surface.set_builtin_theme("playful".into()).unwrap();
-    assert!(surface.set_theme_json(json!({"id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
+    assert!(surface.set_theme_json(json!({"$schema": "https://ui.exponential.at/schemas/theme/v1.json", "id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
     assert!(matches!(surface.set_theme_json("{\"id\":\"bad\"}".into()), Err(UiError::Theme { .. })));
 }
 

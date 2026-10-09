@@ -203,7 +203,23 @@ public final class ExponentialHost {
         switch op["op"]?.string {
         case "create":
             unbind(surfaceId)
-            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, settings: settings)
+            // Round 4: the server's `createSurface.theme` wins; an unusable
+            // one never fails the host: the surface paints with the host's
+            // theme and the server hears VALIDATION_FAILED (the TS / gpui rule).
+            var surfaceTheme = theme
+            if let t = op["theme"], t != .null {
+                var refused: [String] = []
+                if let named = t.string {
+                    if let builtin = ThemeHandle.builtin(named) { surfaceTheme = builtin } else { refused = ["unknown built-in theme \"\(named)\""] }
+                } else {
+                    let loaded = ThemeHandle.loadOrDefault(json: t.json) { issues in refused = issues.map { "\($0.path): \($0.message)" } }
+                    if refused.isEmpty { surfaceTheme = loaded }
+                }
+                if !refused.isEmpty {
+                    send(errorMessageJson(code: "VALIDATION_FAILED", surfaceId: surfaceId, message: "createSurface.theme is unusable: \(refused.joined(separator: "; "))", path: "/createSurface/theme"))
+                }
+            }
+            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: surfaceTheme, mode: mode, settings: settings)
             o.rounding = false
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }

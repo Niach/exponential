@@ -262,8 +262,18 @@ class ExponentialHost(
             "create" -> {
                 unbind(sid)
                 surfaces.remove(sid)
-                val opTheme = op["theme"]?.let { t ->
-                    t.string?.let { ThemeHandle.builtin(it) } ?: runCatching { ThemeHandle.load(t.json) }.getOrNull()
+                // Round 4: an unusable `createSurface.theme` never fails the
+                // host: the surface paints with the host's theme and the
+                // server hears VALIDATION_FAILED (the TS / gpui hosts' rule).
+                val opTheme = op["theme"]?.takeIf { it != JsonValue.Null }?.let { t ->
+                    val named = t.string
+                    if (named != null) {
+                        ThemeHandle.builtin(named) ?: null.also { sendError("VALIDATION_FAILED", sid, "createSurface.theme is unusable: unknown built-in theme \"$named\"", "/createSurface/theme") }
+                    } else {
+                        var refused: List<at.exponential.ui.theme.ThemeIssue> = emptyList()
+                        val loaded = ThemeHandle.loadOrDefault(t.json) { refused = it }
+                        if (refused.isEmpty()) loaded else null.also { sendError("VALIDATION_FAILED", sid, "createSurface.theme is unusable: ${refused.joinToString("; ") { i -> "${i.path}: ${i.message}" }}", "/createSurface/theme") }
+                    }
                 }
                 val model = SurfaceModel(
                     sid,

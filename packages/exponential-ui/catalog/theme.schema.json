@@ -6,12 +6,14 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "$schema",
     "id",
     "name"
   ],
   "properties": {
     "$schema": {
-      "type": "string"
+      "const": "https://ui.exponential.at/schemas/theme/v1.json",
+      "description": "Required: the theme format version this file is written for; a loader refuses any other."
     },
     "$comment": {
       "type": "string"

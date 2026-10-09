@@ -29,6 +29,7 @@ import {
   decideUrl,
   defineExtension,
   loadTheme,
+  THEME_SCHEMA_ID,
   mcpActionCall,
   mediaRequest,
   messagesFromMcpResult,
@@ -334,7 +335,7 @@ describe(`Exponential UI conformance: @exponential-at/ui-react`, () => {
         await page.goto(h.url({ view: `conditions`, case: ci, ctx: xi }))
         await page.waitForSelector(`[data-xui-id="n"]`, { state: `attached` })
         await page.waitForTimeout(100)
-        const theme = ctx.breakpoints ? loadTheme({ id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
+        const theme = ctx.breakpoints ? loadTheme({ $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
         const want = styleToCss(resolveStyleValues(theme, c.expected[xi], `light`), theme.fonts)
         if (ctx.reducedMotion) delete want.transition // reduced motion zeroes every duration (contract §2)
         const got = await page.evaluate((css) => {

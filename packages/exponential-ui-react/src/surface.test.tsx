@@ -4,9 +4,9 @@
 
 import { describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, renderHook } from "@testing-library/react"
-import { CORE_CATALOG_ID, reduceNested, builtinTheme } from "@exponential-at/ui"
-import type { NestedNode } from "@exponential-at/ui"
-import { ExponentialSurface } from "./surface"
+import { CORE_CATALOG_ID, DEFAULT_THEME_ID, THEME_SCHEMA_ID, reduceNested, builtinTheme } from "@exponential-at/ui"
+import type { NestedNode, ThemeIssue, ThemeSource } from "@exponential-at/ui"
+import { ExponentialSurface, resolveThemeInput } from "./surface"
 import { useSurface } from "./use-surface"
 import { useHostOwnedValue } from "./inputs"
 import { compileTheme } from "./theme-css"
@@ -162,8 +162,23 @@ describe(`themes`, () => {
   })
   it(`a host theme file resolves against the built-ins`, () => {
     const root = tree({ id: `root`, component: `Text`, props: { text: `hi` } })
-    const { container } = render(<ExponentialSurface root={root} theme={{ id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } } }} mode="light" id="brand" />)
+    const { container } = render(<ExponentialSurface root={root} theme={{ $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } } }} mode="light" id="brand" />)
     expect(container.querySelector(`style[data-xui-style="theme"]`)!.textContent).toContain(`--xui-color-primary:#2563eb`)
+  })
+  it(`round 4: an unusable theme never crashes the host; it paints the default theme and reports the issues`, () => {
+    const root = tree({ id: `root`, component: `Text`, props: { text: `hi` } })
+    const seen: ThemeIssue[][] = []
+    const host = { onThemeIssues: (issues: ThemeIssue[]) => seen.push(issues) }
+    const { container } = render(
+      <>
+        <ExponentialSurface root={root} theme="nope" host={host} id="unknown-id" />
+        <ExponentialSurface root={root} theme={{ id: `brand`, name: `Brand`, extends: `neutral` } as unknown as ThemeSource} host={host} id="no-schema" />
+        <ExponentialSurface root={root} theme={{ $schema: THEME_SCHEMA_ID, id: `bad`, name: `Bad`, extends: `neutral`, tokens: { spacing: { huge: 1 } } } as unknown as ThemeSource} host={host} id="bad-token" />
+      </>
+    )
+    expect(container.querySelectorAll(`[data-xui-theme="${DEFAULT_THEME_ID}"]`).length).toBe(3)
+    expect(seen.map((issues) => issues[0]!.path)).toEqual([`theme`, `$schema`, `tokens.spacing.huge`])
+    expect(resolveThemeInput(`nope`).theme.id).toBe(DEFAULT_THEME_ID)
   })
 })
 

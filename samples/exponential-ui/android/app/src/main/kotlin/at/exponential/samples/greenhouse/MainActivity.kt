@@ -143,7 +143,9 @@ private fun Greenhouse(server: String, live: Boolean, mode: Mode) {
                     reconnectMs = if (live) 2000 else 0,
                 ),
                 extensions = listOf(HostExtension(a.extension, mapOf("TrendLine" to TrendLinePainter))),
-                theme = ThemeHandle.load(a.theme),
+                // An unusable server theme never fails the app: the default
+                // theme paints and the issues are logged.
+                theme = ThemeHandle.loadOrDefault(a.theme) { issues -> android.util.Log.w("greenhouse", "theme.json refused: $issues") },
                 mode = mode,
                 // Links open in the browser (the URL policy's default schemes).
                 policy = HostPolicy(),

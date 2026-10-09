@@ -19,7 +19,7 @@ import { expandMacros, propsAt, responsiveAt } from "./macros"
 import { reduceNested, reduceSurface } from "./reducer"
 import { coreSchema } from "./schema"
 import { DEFAULT_STRINGS, STRING_IDS, formatString, isStringRef, resolveString, stringTable } from "./strings"
-import { applyContrast, applyDensity, loadTheme, resolveConditionKey, resolveMode, resolveRecipe, resolveStyleValues, resolveToken, validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, applyContrast, applyDensity, loadTheme, resolveConditionKey, resolveMode, resolveRecipe, resolveStyleValues, resolveToken, validateTheme } from "./theme"
 import { BUILTIN_THEMES, builtinTheme } from "./themes"
 import { validateProps } from "./validate"
 import type { Action, FlatComponent, NestedNode, UiNode } from "./types"
@@ -330,10 +330,10 @@ describe(`theming (§5)`, () => {
   })
 
   test(`validation of the new groups and keys`, () => {
-    const bad = { id: `bad`, name: `Bad`, extends: `neutral`, tokens: { ease: { standard: [0, 1] }, density: { compact: 9 } }, contrast: { light: { color: { foreground: `black` } } }, recipes: { Button: { root: [{ style: { transition: 120, transform: `skew(4deg)`, borderStyle: `wavy` } }] } } }
+    const bad = { $schema: THEME_SCHEMA_ID, id: `bad`, name: `Bad`, extends: `neutral`, tokens: { ease: { standard: [0, 1] }, density: { compact: 9 } }, contrast: { light: { color: { foreground: `black` } } }, recipes: { Button: { root: [{ style: { transition: 120, transform: `skew(4deg)`, borderStyle: `wavy` } }] } } }
     const issues = validateTheme(bad, { themes: BUILTIN_THEMES }).map((i) => i.path)
     for (const path of [`tokens.ease.standard`, `tokens.density.compact`, `contrast.light.color.foreground`, `recipes.Button.root[0].style.transition`, `recipes.Button.root[0].style.transform`, `recipes.Button.root[0].style.borderStyle`]) expect(issues, path).toContain(path)
-    const ok = loadTheme({ id: `ok`, name: `Ok`, extends: `neutral`, tokens: { breakpoint: { md: 700 } } }, { themes: BUILTIN_THEMES })
+    const ok = loadTheme({ $schema: THEME_SCHEMA_ID, id: `ok`, name: `Ok`, extends: `neutral`, tokens: { breakpoint: { md: 700 } } }, { themes: BUILTIN_THEMES })
     expect(ok.tokens.breakpoint).toEqual({ sm: 640, md: 700, lg: 1024, xl: 1280 })
   })
 })

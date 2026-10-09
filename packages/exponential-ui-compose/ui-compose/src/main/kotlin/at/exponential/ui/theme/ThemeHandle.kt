@@ -3,6 +3,8 @@ package at.exponential.ui.theme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ffi.Theme
+import at.exponential.ui.ffi.UiException
+import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.json
@@ -25,6 +27,9 @@ enum class Mode(val wire: String) {
  * recipes themselves: [part] resolves a sub-part the core does not
  * synthesize exactly like the core resolves a synthetic one.
  */
+/** One reason a theme was refused (`path` into the theme file). */
+data class ThemeIssue(val path: String, val message: String)
+
 class ThemeHandle(val theme: Theme) {
     /** The theme id. */
     val id: String = theme.id()
@@ -40,6 +45,25 @@ class ThemeHandle(val theme: Theme) {
         /** Load a theme file over the built-ins (`parents` = theme JSON documents it may extend). Throws on an invalid theme. */
         fun load(json: String, parents: List<String> = emptyList()): ThemeHandle =
             ThemeHandle(Theme.load(json, if (parents.isEmpty()) null else "[${parents.joinToString(",")}]"))
+
+        /**
+         * Round 4 (VAPP-103): a theme file that NEVER fails the host. An
+         * unusable one (a bad `$schema`, an unknown token, a missing value…)
+         * falls back to the default built-in and [onIssues] gets why, as the
+         * React surface's `onThemeIssues` and the TS host's `onIssue` do.
+         */
+        fun loadOrDefault(json: String, parents: List<String> = emptyList(), onIssues: ((List<ThemeIssue>) -> Unit)? = null): ThemeHandle =
+            try {
+                load(json, parents)
+            } catch (e: UiException.Theme) {
+                onIssues?.invoke(
+                    (JsonValue.parse(e.issuesJson).array ?: emptyList()).map { ThemeIssue(it["path"]?.string ?: "", it["message"]?.string ?: "") },
+                )
+                builtin(defaultThemeId())!!
+            } catch (e: UiException) {
+                onIssues?.invoke(listOf(ThemeIssue("theme", e.message ?: "invalid")))
+                builtin(defaultThemeId())!!
+            }
     }
 
     /** `owner/part` resolved for the OWNER's props and `states` in `mode`. */

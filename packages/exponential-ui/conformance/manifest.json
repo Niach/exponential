@@ -72,7 +72,7 @@
         "fixtures/theme-invalid.json"
       ],
       "unit": "case",
-      "cases": 24,
+      "cases": 26,
       "check": "Validate the bad theme: the same issue paths, never a crash."
     },
     {

@@ -133,7 +133,8 @@ export type ThemeRecipes = Record<string, Record<string, RecipeRule[]>>
 /** The theme FILE. With `extends`, every section is optional and overrides
  *  the parent's; without it, every token name needs a value. */
 export interface ThemeSource {
-  $schema?: string
+  /** Required: `THEME_SCHEMA_ID` (round 4: a loader refuses any other). */
+  $schema: string
   $comment?: string
   id: string
   name: string

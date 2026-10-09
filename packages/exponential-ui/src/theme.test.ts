@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { CORE_CATALOG_ID } from "./catalog"
 import { reduceNested } from "./reducer"
 import { RECIPE_KEYS, RECIPE_STATES, recipeParts } from "./recipes"
-import { ThemeError, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, ThemeError, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, builtinTheme, builtinThemes } from "./themes"
 import { STYLE_VISUAL_KEYS } from "./style"
 import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
@@ -145,7 +145,7 @@ describe(`resolution`, () => {
 describe(`extends`, () => {
   test(`a theme that changes primary and the button radius works everywhere`, () => {
     const brand = loadTheme(
-      { id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } }, recipes: { Button: { root: [{ style: { borderRadius: `$radius.full` } }] } } },
+      { $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } }, recipes: { Button: { root: [{ style: { borderRadius: `$radius.full` } }] } } },
       { themes: BUILTIN_THEMES }
     )
     expect(brand.chain).toEqual([`neutral`, `brand`])
@@ -160,7 +160,7 @@ describe(`extends`, () => {
 
   test(`chains of chains and resolved parents`, () => {
     const playful = builtinTheme(`playful`)
-    const child = loadTheme({ id: `c`, name: `C`, extends: `playful`, tokens: { spacing: { md: 20 } } }, { themes: [playful] })
+    const child = loadTheme({ $schema: THEME_SCHEMA_ID, id: `c`, name: `C`, extends: `playful`, tokens: { spacing: { md: 20 } } }, { themes: [playful] })
     expect(child.chain).toEqual([`neutral`, `playful`, `c`])
     expect(child.tokens.spacing.md).toBe(20)
     expect(child.tokens.radius.md).toBe(14)
@@ -171,7 +171,7 @@ describe(`errors`, () => {
   test(`an invalid theme fails with every issue listed, never a crash`, () => {
     expect(() => loadTheme(null, { themes: BUILTIN_THEMES })).toThrow(ThemeError)
     expect(() => loadTheme(42)).toThrow(/expected a theme object/)
-    const bad = { id: `bad`, name: `Bad`, extends: `neutral`, tokens: { spacing: { huge: 1 } }, recipes: { Button: { root: [{ style: { display: `flex` } }] } } }
+    const bad = { $schema: THEME_SCHEMA_ID, id: `bad`, name: `Bad`, extends: `neutral`, tokens: { spacing: { huge: 1 } }, recipes: { Button: { root: [{ style: { display: `flex` } }] } } }
     try {
       loadTheme(bad, { themes: BUILTIN_THEMES })
       throw new Error(`loaded`)
@@ -182,12 +182,12 @@ describe(`errors`, () => {
       expect(e.message).toContain(`Theme "bad" is invalid:`)
       expect(e.message).toContain(`not a recipe key`)
     }
-    expect(tryLoadTheme({ id: `x`, name: `X`, extends: `nope` }, { themes: BUILTIN_THEMES }).issues[0].message).toContain(`unknown theme "nope"`)
+    expect(tryLoadTheme({ $schema: THEME_SCHEMA_ID, id: `x`, name: `X`, extends: `nope` }, { themes: BUILTIN_THEMES }).issues[0].message).toContain(`unknown theme "nope"`)
     expect(validateTheme(`neutral`)).toHaveLength(1)
   })
 
   test(`a root theme must give every token a value`, () => {
-    const { theme, issues } = tryLoadTheme({ id: `bare`, name: `Bare`, modes: {}, tokens: {}, recipes: {} })
+    const { theme, issues } = tryLoadTheme({ $schema: THEME_SCHEMA_ID, id: `bare`, name: `Bare`, modes: {}, tokens: {}, recipes: {} })
     expect(theme).toBeNull()
     expect(issues.length).toBeGreaterThan(100)
     expect(issues[0].message).toMatch(/missing value for \$color\./)

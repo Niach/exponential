@@ -106,7 +106,7 @@ export {
   shadowCss,
 } from "./theme"
 export type { ThemeOptions } from "./theme"
-export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, builtinTheme, builtinThemes } from "./themes"
+export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, builtinTheme, builtinThemes, themeOrDefault } from "./themes"
 export { styleToCss, styleAttribute, gradientCss } from "./css"
 export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
 export type { ThemeImport } from "./builder"
