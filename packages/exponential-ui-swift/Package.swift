@@ -16,15 +16,25 @@
 //   core.
 //
 // The binary target is declared only when the xcframework is present (or
-// `EXPONENTIAL_UI_FFI` names one), so a checkout that only needs the
+// `EXPONENTIAL_UI_FFI` names one, absolute or relative to this directory), so a checkout that only needs the
 // primitives (the app's Tuist graph, CI) resolves without a Rust toolchain.
 // Publishing (VAPP-91) switches the binary target to `url:` + `checksum`.
 import Foundation
 import PackageDescription
 
-let ffiPath = ProcessInfo.processInfo.environment["EXPONENTIAL_UI_FFI"] ?? "Binaries/ExponentialUIFFI.xcframework"
-let ffiAbsolute = ffiPath.hasPrefix("/") ? ffiPath : Context.packageDirectory + "/" + ffiPath
-let hasFFI = FileManager.default.fileExists(atPath: ffiAbsolute)
+/// SwiftPM takes a binary target's `path:` only RELATIVE to the package root
+/// (`../` is fine): an absolute `EXPONENTIAL_UI_FFI` is rewritten relative.
+func relativeToPackage(_ path: String) -> String {
+    guard path.hasPrefix("/") else { return path }
+    let base = URL(fileURLWithPath: Context.packageDirectory).resolvingSymlinksInPath().pathComponents
+    let target = URL(fileURLWithPath: path).resolvingSymlinksInPath().pathComponents
+    var common = 0
+    while common < min(base.count, target.count), base[common] == target[common] { common += 1 }
+    return (Array(repeating: "..", count: base.count - common) + target[common...]).joined(separator: "/")
+}
+
+let ffiPath = relativeToPackage(ProcessInfo.processInfo.environment["EXPONENTIAL_UI_FFI"] ?? "Binaries/ExponentialUIFFI.xcframework")
+let hasFFI = FileManager.default.fileExists(atPath: Context.packageDirectory + "/" + ffiPath)
 
 var products: [Product] = [
     .library(name: "ExponentialUIPrimitives", targets: ["ExponentialUIPrimitives"]),

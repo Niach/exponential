@@ -9,12 +9,27 @@ name: exponential-ui
 # the gpui painter on Linux, the SwiftUI painter on macOS against the
 # xcframework, the Compose painter under Robolectric against the host build
 # of the facade. Each job also compiles its ui.exponential.at guides from a
-# fresh project (`apps/ui-site/guides/check.ts`, VAPP-93).
+# fresh project (`apps/ui-site/guides/check.ts`, VAPP-93). VAPP-103: the
+# SwiftUI painter also builds and tests on an iOS Simulator (the UIKit paths)
+# with the KitchenSink example, and the Compose painter runs its instrumented
+# tests on an Android emulator.
 #
-# Once per change: the pull request (path-filtered to the SDK), like test.yml.
+# The pull request AND the push to master (path-filtered to the SDK, both).
 
 on:
   pull_request:
+    branches: [master]
+    paths:
+      - 'packages/exponential-ui/**'
+      - 'packages/exponential-ui-react/**'
+      - 'packages/exponential-ui-swift/**'
+      - 'packages/exponential-ui-compose/**'
+      - 'apps/desktop/crates/exponential-ui/**'
+      - 'apps/desktop/crates/exponential-ui-ffi/**'
+      - 'apps/desktop/crates/exponential-ui-gpui/**'
+      - 'apps/ui-site/guides/**'
+      - '.github/workflows/exponential-ui.yml'
+  push:
     branches: [master]
     paths:
       - 'packages/exponential-ui/**'
@@ -109,12 +124,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
       - name: Build the xcframework (iOS device + simulator + macOS)
         run: bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh
+      - name: Hand the xcframework to the simulator job
+        uses: actions/upload-artifact@v4
+        with:
+          name: exponential-ui-xcframework
+          path: packages/exponential-ui-swift/Binaries/
+          retention-days: 1
       - name: Swift painter tests (SwiftUI conformance)
         working-directory: packages/exponential-ui-swift
         env:
@@ -128,6 +149,106 @@ jobs:
           name: conformance-swift
           path: .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+
+  swift-ios:
+    # The UIKit paths (`#if canImport(UIKit)`) only compile for iOS: build +
+    # test the package on a Simulator against the swift job's xcframework,
+    # then build the KitchenSink example.
+    needs: swift
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest RELEASE Xcode 26.x
+        run: |
+          XCODE_APP="$(ls -d /Applications/Xcode_26.*.app 2>/dev/null | sort -V | tail -1)"
+          [ -n "$XCODE_APP" ] || { echo "::error::No release Xcode 26.x on this image" >&2; exit 1; }
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+      - uses: actions/download-artifact@v4
+        with:
+          name: exponential-ui-xcframework
+          path: packages/exponential-ui-swift/Binaries/
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          DEVICE="$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d=json.load(sys.stdin)["devices"]
+          ios=sorted((k for k in d if "iOS" in k), key=lambda k: [int(x) for x in k.rsplit("iOS-",1)[1].split("-")])
+          print(next(x["udid"] for k in reversed(ios) for x in d[k] if x["name"].startswith("iPhone")))')"
+          echo "id=$DEVICE" >> "$GITHUB_OUTPUT"
+      - name: Package tests on the iOS Simulator
+        working-directory: packages/exponential-ui-swift
+        run: |
+          set -o pipefail
+          xcodebuild test -scheme ExponentialUI-Package -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO | tail -40
+      - name: Build the KitchenSink example (Simulator)
+        working-directory: packages/exponential-ui-swift/Example
+        run: |
+          set -o pipefail
+          xcodebuild build -project KitchenSink.xcodeproj -scheme KitchenSink \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.id }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd-sink" CODE_SIGNING_ALLOWED=NO | tail -20
+
+  compose-emulator:
+    # Instrumented tests (ui-compose/src/androidTest) on an x86_64 emulator
+    # against the facade's x86_64 .so.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
+      - run: cargo install cargo-ndk --locked
+      - name: The facade for the emulator (x86_64, the committed binding)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          ABIS: x86_64
+          SKIP_BINDINGS: '1'
+        run: bash apps/desktop/crates/exponential-ui-ffi/build-android.sh
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-ui-gradle-${{ hashFiles('packages/exponential-ui-compose/**/*.gradle*', 'packages/exponential-ui-compose/gradle/wrapper/gradle-wrapper.properties', 'packages/exponential-ui-compose/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-ui-gradle-
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build the test APKs before the emulator boots
+        working-directory: packages/exponential-ui-compose
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew :ui-compose:assembleDebugAndroidTest --no-daemon
+      - name: Instrumented tests (emulator, API 34)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          working-directory: packages/exponential-ui-compose
+          script: ./gradlew :ui-compose:connectedDebugAndroidTest --no-daemon
 
   compose:
     runs-on: ubuntu-latest
