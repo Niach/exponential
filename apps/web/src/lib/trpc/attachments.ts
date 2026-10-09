@@ -54,14 +54,19 @@ async function collectTeamReferencedAttachmentIdsInTx(
     // in markdown — without this they'd read as unreferenced sweep bait.
     // EXP-878: a DRAFT's attachments are the same case — their only body is
     // the unsaved draft description, which is not an issue or a comment. The
-    // owning column IS the reference; they die with the draft.
+    // owning column IS the reference; they die with the draft. EXP-1247: a
+    // FILE-path upload (`as_file`) is a Files row, never a markdown embed.
     tx
       .select({ id: attachments.id })
       .from(attachments)
       .where(
         and(
           eq(attachments.teamId, teamId),
-          or(isNotNull(attachments.commentId), isNotNull(attachments.draftId))
+          or(
+            isNotNull(attachments.commentId),
+            isNotNull(attachments.draftId),
+            eq(attachments.asFile, true)
+          )
         )
       ),
   ])
@@ -246,8 +251,8 @@ export const attachmentsRouter = router({
   /**
    * Owner-only bulk reclaim: deletes IMAGE attachments that no markdown in the
    * team references any more and that are older than the grace window. Files
-   * (non-inline-image rows) are never swept — they live in the issue's Files
-   * list, which is not a markdown reference.
+   * (non-inline-image rows, and EXP-1247 `as_file` images) are never swept —
+   * they live in the issue's Files list, which is not a markdown reference.
    */
   sweepUnreferencedImages: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
@@ -267,13 +272,14 @@ export const attachmentsRouter = router({
             sizeBytes: attachments.sizeBytes,
             storageKey: attachments.storageKey,
             posterStorageKey: attachments.posterStorageKey,
+            asFile: attachments.asFile,
             createdAt: attachments.createdAt,
           })
           .from(attachments)
           .where(eq(attachments.teamId, input.teamId))
 
-        const imageRows = rows.filter((row) =>
-          isAcceptedImageContentType(row.contentType)
+        const imageRows = rows.filter(
+          (row) => !row.asFile && isAcceptedImageContentType(row.contentType)
         )
 
         if (imageRows.length === 0) {

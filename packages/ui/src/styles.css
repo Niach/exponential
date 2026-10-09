@@ -398,12 +398,19 @@ html {
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
   [role="option"],
   [role="tab"]:not([disabled]),
   [role="combobox"],
   label[for],
   select:not(:disabled) {
     cursor: pointer;
+  }
+  /* An element that opens a context menu on a long-press (`menuProps`,
+     the `Menu` gesture host): no iOS callout over the menu. */
+  [data-menu-id] {
+    -webkit-touch-callout: none;
   }
   body {
     @apply text-foreground antialiased;
@@ -807,14 +814,3 @@ html {
   border-color: var(--ring);
 }
 
-/* SLOP-15 — the stacked chip's ghosts (`IssueChipStack`, ./issue-chip.tsx):
-   the chip's OUTLINE alone — the same hairline and 6px radius, no fill — in
-   2px steps up and to the right, the far one at half strength. A stack reads
-   as one chip with a hint of depth, never as three boxes. */
-.issue-chip-ghost {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.issue-chip-ghost[data-depth="2"] {
-  opacity: 0.5;
-}

@@ -164,7 +164,7 @@ describe(`MarkdownEditor programmatic setMarkdown`, () => {
     )
     await waitFor(() => expect(ref.current?.getMarkdown()).toBe(``))
     act(() => ref.current!.setMarkdown(`The long description`))
-    act(() => ref.current!.appendImage({ alt: `b`, src: `/api/attachments/b` }))
+    act(() => ref.current!.insertImage({ alt: `b`, src: `/api/attachments/b` }))
     expect(ref.current!.getMarkdown()).toContain(`/api/attachments/b`)
 
     undo(container)

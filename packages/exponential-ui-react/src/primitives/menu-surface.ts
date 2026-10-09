@@ -16,12 +16,13 @@ export const MENU_SURFACE_CLASS = `z-50 rounded-lg border border-glass-stroke-ca
 // items, Command rows, the typeahead rows) reads the --menu-* vars in
 // styles.css, which mirror packages/design-tokens/tokens.json `menu` — the
 // pointer density from md up, the touch density below — so one change moves
-// every web menu, and the styleguide's specimen (`menu-specimen.tsx`) wears
-// these SAME constants on plain elements. The dropdown and context items
-// stay two Radix roots (pointer- vs trigger-anchored); their classes are one.
+// every web menu. Since the UI cleanup batch every action menu is the ONE
+// `@exp/ui` `Menu` over these constants (dropdown, pointer and phone-sheet
+// presentations alike), and its static `MenuPanel` is what the styleguide
+// draws. Every row carries the pointer cursor; a disabled one the arrow.
 export const MENU_CONTENT_CLASS = `min-w-(--menu-min-width) max-w-(--menu-max-width) p-(--menu-surface-padding)`
 
-const MENU_ROW_BASE = `flex min-h-(--menu-item-height) cursor-default items-center gap-(--menu-item-gap) rounded-sm px-(--menu-item-padding-x) py-1 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--menu-icon-size) [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`
+const MENU_ROW_BASE = `flex min-h-(--menu-item-height) cursor-pointer items-center gap-(--menu-item-gap) rounded-sm px-(--menu-item-padding-x) py-1 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:cursor-default data-[inset]:pl-8 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--menu-icon-size) [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive!`
 
 export const MENU_ITEM_CLASS = `relative ${MENU_ROW_BASE} data-[disabled]:pointer-events-none data-[disabled]:opacity-50`
 
@@ -32,7 +33,7 @@ export const MENU_ITEM_CLASS = `relative ${MENU_ROW_BASE} data-[disabled]:pointe
 export const MENU_SUB_TRIGGER_CLASS = `${MENU_ROW_BASE} whitespace-nowrap data-[state=open]:bg-glass-active data-[variant=destructive]:data-[state=open]:bg-destructive/10 data-[variant=destructive]:data-[state=open]:text-destructive [&>span+svg:last-child]:ml-0`
 
 /** The checkbox / radio rows: the indicator sits in the `pl-8` inset. */
-export const MENU_CHECK_ITEM_CLASS = `relative flex min-h-(--menu-item-height) cursor-default items-center gap-(--menu-item-gap) rounded-sm py-1 pr-(--menu-item-padding-x) pl-8 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--menu-icon-size)`
+export const MENU_CHECK_ITEM_CLASS = `relative flex min-h-(--menu-item-height) cursor-pointer items-center gap-(--menu-item-gap) rounded-sm py-1 pr-(--menu-item-padding-x) pl-8 text-sm text-foreground/90 outline-hidden select-none focus:bg-glass-active focus:text-foreground data-[disabled]:cursor-default data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--menu-icon-size)`
 
 export const MENU_LABEL_CLASS = `px-(--menu-item-padding-x) py-1.5 text-sm font-medium data-[inset]:pl-8`
 

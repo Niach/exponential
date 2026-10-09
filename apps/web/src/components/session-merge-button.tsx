@@ -21,13 +21,13 @@ import {
 } from "@exp/ui"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
-import type { StackMergeChoice } from "@/lib/pr-stack"
+import type { StackMergeConfirm } from "@/lib/pr-stack"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useStackMergeChoice } from "@/hooks/use-stack-merge-choice"
+import { useStackMergeConfirm } from "@/hooks/use-stack-merge-choice"
 import { useLinkedIssueCount } from "@/hooks/use-linked-issue-count"
 import {
-  StackMergeChoiceDialog,
+  StackMergeConfirmDialog,
   type StackMergeInput,
 } from "@/components/stack-merge-choice-dialog"
 import type { VariantProps } from "class-variance-authority"
@@ -85,12 +85,12 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 // cannot supply (no `teamId` — the board-scoped `issues` shape drops it,
 // REV2-5; the composer resolves the team from the route).
 //
-// EXP-1145: a PR that is a member of a STACK of 2+ open pull requests never
-// merges off the plain confirm. The click first reads the stack off the
-// synced rows (`useStackMergeChoice`, armed by the click so a list of these
-// buttons costs no live queries) and opens `StackMergeChoiceDialog`: Merge
-// stack, Merge this pull request (plain for the bottom member, the chain
-// through this one otherwise), Cancel. A run's own chore PR is in no stack.
+// EXP-1248: a PR that is a member of an open linear STACK never merges off
+// the plain confirm (the server refuses a plain merge of any member). The
+// click first reads the stack off the synced rows (`useStackMergeConfirm`,
+// armed by the click so a list of these buttons costs no live queries) and
+// opens `StackMergeConfirmDialog`: "Merge stack" lands the whole open chain
+// through its top. A run's own chore PR is in no stack.
 
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
  *  `Pill mode="action" primary` every Changes surface uses (the review's top
@@ -211,11 +211,13 @@ export function SessionMergeButton({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [merging, setMerging] = useState(false)
   const openComposer = useOpenComposer()
-  // EXP-1145: the click ARMS the stack read; the answer decides which dialog
-  // opens. `stackChoice` holds the stack dialog's content while it is open.
+  // EXP-1248: the click ARMS the stack read; the answer decides which dialog
+  // opens. `stackConfirm` holds the stack confirm's content while it is open.
   const [armed, setArmed] = useState(false)
-  const [stackChoice, setStackChoice] = useState<StackMergeChoice | null>(null)
-  const stack = useStackMergeChoice(issueId, armed)
+  const [stackConfirm, setStackConfirm] = useState<StackMergeConfirm | null>(
+    null
+  )
+  const stack = useStackMergeConfirm(issueId, armed)
   // Armed with the stack read, so a batch PR's body counts its issues on the
   // confirm's first paint instead of flipping after it opens.
   const linkedCount = useLinkedIssueCount(issueId, armed || confirmOpen)
@@ -228,7 +230,7 @@ export function SessionMergeButton({
       setMerging(false)
       setConfirmOpen(false)
       setArmed(false)
-      setStackChoice(null)
+      setStackConfirm(null)
     }
   }, [prState])
 
@@ -237,9 +239,9 @@ export function SessionMergeButton({
   useEffect(() => {
     if (!armed || !stack.ready) return
     setArmed(false)
-    if (stack.choice) setStackChoice(stack.choice)
+    if (stack.confirm) setStackConfirm(stack.confirm)
     else setConfirmOpen(true)
-  }, [armed, stack.ready, stack.choice])
+  }, [armed, stack.ready, stack.confirm])
 
   if (prState !== `open`) return null
   // The caller wired neither target — nothing to merge.
@@ -267,7 +269,7 @@ export function SessionMergeButton({
         )
       }
       setConfirmOpen(false) // keep `merging` until the echo flips prState
-      setStackChoice(null)
+      setStackConfirm(null)
     } catch (error) {
       const next = mergeFailure(
         error,
@@ -275,7 +277,7 @@ export function SessionMergeButton({
       )
       setMerging(false)
       setConfirmOpen(false)
-      setStackChoice(null)
+      setStackConfirm(null)
       // EXP-1233: a real conflict on an issue PR opens the recovery run's
       // composer at once, this pull request picked and the refusal flagged
       // (EXP-825: a navigation/dialog seed, no device lookup here). Every
@@ -298,21 +300,20 @@ export function SessionMergeButton({
     }
   }
 
-  // EXP-1145: a stack merge (Merge stack, or Merge this pull request on a
-  // member above the bottom) lands several pull requests; its refusal is the
-  // server's message about whichever one stopped the chain, never a
-  // rebase-and-resolve job for THIS one, so it is toasted, never a run.
+  // EXP-1248: a stack merge lands several pull requests in one GitHub
+  // merge-async; its refusal is about the stack, never a rebase-and-resolve
+  // job for THIS one, so it is toasted, never a run.
   const mergeStack = async (input: StackMergeInput) => {
     setMerging(true)
     try {
       await trpc.issues.mergePr.mutate(input, {
         context: { skipErrorToast: true },
       })
-      setStackChoice(null) // keep `merging` until the echo flips prState
+      setStackConfirm(null) // keep `merging` until the echo flips prState
     } catch (error) {
       const next = mergeFailure(error, `The stack could not be merged`)
       setMerging(false)
-      setStackChoice(null)
+      setStackConfirm(null)
       toast.error(`Couldn't merge the stack`, { description: next.message })
     }
   }
@@ -341,17 +342,11 @@ export function SessionMergeButton({
         {label}
       </MergeControl>
       {issueId ? (
-        <StackMergeChoiceDialog
-          choice={stackChoice}
-          issueId={issueId}
+        <StackMergeConfirmDialog
+          confirm={stackConfirm}
           busy={merging}
-          onCancel={() => setStackChoice(null)}
-          onMerge={(input) => {
-            // The bottom member's "Merge this pull request" is the plain
-            // single-PR merge, conflict recovery and all.
-            if (input.mergeStack) void mergeStack(input)
-            else void merge()
-          }}
+          onCancel={() => setStackConfirm(null)}
+          onConfirm={(input) => void mergeStack(input)}
         />
       ) : null}
       {/* The card is portalled, but React still bubbles its clicks through

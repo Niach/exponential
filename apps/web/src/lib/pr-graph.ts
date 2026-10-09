@@ -19,6 +19,9 @@
 // stack`, `reports nothing for a lone pr`.
 
 import { stackChain, type PrStackNode } from "@/lib/pr-stack"
+
+// EXP-1248: a base-chained component's shape (tree | stack | single).
+export { prComponent, prGraphShape, type PrGraphShape } from "@/lib/pr-stack"
 import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
 import { openBlockers, type GraphRelation } from "@/lib/issue-graph"
 import { batchRunIssues, isBatchRun, type BatchRunIssue } from "@/lib/batch-run"

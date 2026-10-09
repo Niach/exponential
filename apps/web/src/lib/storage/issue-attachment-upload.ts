@@ -49,6 +49,23 @@ function readBoundedInt(formData: FormData, name: string, max: number) {
 }
 
 /**
+ * EXP-1247: the FILE/paperclip marker. A multipart `asFile` part or an
+ * `?asFile=` query param, `1`/`true`; anything else (older clients, MCP)
+ * keeps today's content-type classification.
+ */
+export function readAsFileFlag(formData: FormData, url: string | undefined) {
+  const part = formData.get(`asFile`)
+  const raw =
+    typeof part === `string`
+      ? part
+      : url
+        ? new URL(url, `http://localhost`).searchParams.get(`asFile`)
+        : null
+  const value = raw?.trim().toLowerCase()
+  return value === `1` || value === `true`
+}
+
+/**
  * Resolves a video/audio upload's metadata: the server-side header probe wins
  * for MP4/MOV; the client-supplied fields fill in for anything it can't parse
  * (webm) or when the probe fails. Never blocks the upload.
@@ -158,6 +175,7 @@ export async function storeAttachmentUpload(
   // are not guaranteed lowercase or parameter-free, and the exact-match
   // inline-image rule must behave identically for every stored row.
   const contentType = canonicalizeContentType(file.type)
+  const asFile = readAsFileFlag(formData, request.url)
   const isImage = isAcceptedImageContentType(contentType)
   const isMedia = isInlineMediaContentType(contentType)
 
@@ -277,6 +295,7 @@ export async function storeAttachmentUpload(
       durationMs: media?.durationMs ?? null,
       posterStorageKey,
       posterSizeBytes: poster && posterStorageKey ? poster.size : null,
+      asFile,
     })
   } catch (error) {
     await rollbackObjects()
@@ -293,6 +312,7 @@ export async function storeAttachmentUpload(
     height: dimensions?.height ?? null,
     durationMs: media?.durationMs ?? null,
     posterUrl: posterStorageKey ? buildAttachmentPosterUrl(attachmentId) : null,
+    asFile,
     // Sample-entry fourccs so the client can show the "may not play
     // everywhere" hint for anything outside H.264 (`avc1`/`avc3`) + AAC.
     videoCodec: media?.videoCodec ?? null,

@@ -1115,6 +1115,10 @@ export const attachments = pgTable(
     // (`getTeamUsage` sums it beside `size_bytes`). SERVER-ONLY: not in the
     // attachments shape allowlist. NULL when the row has no poster.
     posterSizeBytes: integer(`poster_size_bytes`),
+    // EXP-1247: uploaded through a FILE/paperclip path, so the row lists in
+    // Files even when its type would inline (an image picked as a file); the
+    // unreferenced-image sweep exempts it. Image button / paste / drop = false.
+    asFile: boolean(`as_file`).notNull().default(false),
     ...timestamps,
   },
   (table) => [

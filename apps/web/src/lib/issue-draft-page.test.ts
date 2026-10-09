@@ -21,12 +21,7 @@ describe(`issue draft page (contract fixture)`, () => {
       titlePlaceholder: `Issue title`,
       descriptionPlaceholder: `Add description...`,
       create: `Create`,
-      discard: `Discard draft`,
       untitled: `Untitled draft`,
-      discardConfirm: {
-        title: `Discard this draft and its files?`,
-        confirm: `Discard`,
-      },
       leave: {
         title: `Save this issue as a draft?`,
         discard: `Discard`,
@@ -85,11 +80,12 @@ describe(`newDraftNavigation`, () => {
 
 // EXP-1212: a draft with content never goes silently.
 describe(`draftExitPrompt`, () => {
+  // EXP-1247: no `×` discard trigger and no discard confirm any more.
   it(`asks only when the draft has content`, () => {
-    expect(draftExitPrompt(`discard`, true)).toBe(`discardConfirm`)
     expect(draftExitPrompt(`leave`, true)).toBe(`leave`)
-    expect(draftExitPrompt(`discard`, false)).toBe(`none`)
     expect(draftExitPrompt(`leave`, false)).toBe(`none`)
+    expect(`discard` in ISSUE_DRAFT_COPY).toBe(false)
+    expect(`discardConfirm` in ISSUE_DRAFT_COPY).toBe(false)
   })
 
   it(`enables Create only with a title and nothing in flight`, () => {

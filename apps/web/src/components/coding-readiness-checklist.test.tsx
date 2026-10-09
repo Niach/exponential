@@ -45,12 +45,10 @@ vi.mock(`@/components/add-device-dialog`, () => ({
   AddDeviceDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="add-device-dialog" /> : null,
 }))
-vi.mock(`@/components/github-repo-picker`, () => ({
-  GithubRepoPicker: () => <div data-testid="github-repo-picker" />,
-}))
 const openGithubConnect = vi.hoisted(() => vi.fn(() => true))
 vi.mock(`@/lib/github-connect`, () => ({
   openGithubConnect,
+  openGithubPopup: vi.fn(() => true),
   POPUP_BLOCKED_MESSAGE: `blocked`,
 }))
 

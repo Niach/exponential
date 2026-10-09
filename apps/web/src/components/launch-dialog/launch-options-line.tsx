@@ -1,21 +1,20 @@
 import {
   AccountPicker,
   Button,
-  Combobox,
   DevicePicker,
+  EffortPicker,
   GlassGroup,
   GlassToggleRow,
-  type PickerOption,
+  type ValueChoice,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
   Label,
-  PickerTrigger,
-  PICKER_INLINE_WORD,
+  ModelPicker,
+  RepositoryPicker,
   Switch,
   conceptIcon,
   deviceReadinessBlocker,
-  getDeviceIcon,
 } from "@exp/ui"
 import { DeviceReadinessNotice } from "@/components/device-readiness-notice"
 import {
@@ -57,10 +56,11 @@ import { subjectOwnsMcpServers } from "@/lib/mcp-servers"
 // and the `⋯` overlay is the divided-rows shell with no card inside the
 // popover's card (EXP-993/994).
 //
-// EXP-958: every word of the line is a `Combobox` in its `inline` variant —
-// the primitive collapses a picker to plain text on its own once there is at
+// EXP-958 → the UI cleanup batch: every word of the line is a typed picker
+// (`ModelPicker`, `RepositoryPicker` …) in its `inline` variant — the
+// primitive collapses a picker to plain text on its own once there is at
 // most one thing it could say, so the line has no picker component of its
-// own any more. None of these four ever reaches ZERO options: the whole line
+// own. None of these four ever reaches ZERO options: the whole line
 // returns early without a device, Repository and Account render behind a
 // count guard, and the model list is contract values plus the blank default.
 
@@ -91,7 +91,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       label: modelLabel(value),
     })),
   ]
-  const effortOptions: PickerOption[] = [
+  const effortOptions: ValueChoice[] = [
     { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
     ...agentEffortValues(agent).map((value) => ({
       value,
@@ -122,13 +122,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     icon: candidate.icon,
     kind: candidate.kind,
   }))
-  const pickedDevice =
-    deviceRows.find((row) => row.id === device?.deviceId) ?? null
-  const DeviceGlyph = pickedDevice ? getDeviceIcon(pickedDevice) : undefined
-  // Nothing picked yet and one machine on offer still reads as that machine —
-  // there is nothing else it could be.
-  const onlyDevice = pickedDevice ?? deviceRows[0]
-  const OnlyDeviceGlyph = onlyDevice ? getDeviceIcon(onlyDevice) : undefined
 
   return (
     <div className="flex flex-col gap-1 px-1 text-xs text-muted-foreground">
@@ -136,37 +129,16 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
         data-testid="agent-options-row"
       >
-        {deviceRows.length <= 1 ? (
-          /* One machine is not a choice: the sentence just says it. The
-             shared `Picker` always renders its trigger (only `Combobox`'s
-             own `inline` variant collapses), so the word is drawn here. */
-          <span
-            data-slot="combobox-inline-word"
-            className={PICKER_INLINE_WORD}
-            title="Device"
-          >
-            {OnlyDeviceGlyph && (
-              <OnlyDeviceGlyph aria-hidden className="size-3.5 shrink-0" />
-            )}
-            {onlyDevice?.name ?? `Device`}
-          </span>
-        ) : (
-          <DevicePicker
-            mobileTitle="Device"
-            value={device?.deviceId ?? null}
-            devices={deviceRows}
-            onChange={launch.setDeviceId}
-            width="sm"
-            trigger={
-              <PickerTrigger
-                variant="inline"
-                label="Device"
-                icon={DeviceGlyph}
-                value={pickedDevice?.name}
-              />
-            }
-          />
-        )}
+        {/* One machine is not a choice: the inline word collapses to
+            plain text on its own (the primitive's `inline` variant). */}
+        <DevicePicker
+          triggerVariant="inline"
+          mobileTitle="Device"
+          value={device?.deviceId ?? null}
+          devices={deviceRows}
+          onChange={launch.setDeviceId}
+          width="sm"
+        />
         {/* EXP-872: THE account picker — brand mark + email, the agent
             implied by the pick; one login collapses to plain text. */}
         <AccountPicker
@@ -176,33 +148,26 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           onChange={launch.setAccountKey}
           data-testid="agent-composer-account"
         />
-        <Combobox
-          triggerVariant="inline"
-          searchable={false}
-          mobileTitle="Model"
+        <ModelPicker
           value={launch.model === `` ? CLI_DEFAULT_MODEL : launch.model}
-          options={modelOptions}
-          onChange={(value) => {
-            if (value !== null) {
-              launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
-            }
-          }}
-          width="sm"
+          models={modelOptions}
+          onChange={(value) =>
+            launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
+          }
         />
         {subject === null && model.repoOptions.length > 1 && (
           /* EXP-993: a choice only when there IS one — several repos. One
              repo is the chat's anchor without a word said, and repo-less is
              not on offer. */
-          <Combobox
+          <RepositoryPicker
             triggerVariant="inline"
-            searchable={false}
-            mobileTitle="Repository"
-            value={model.repoId || null}
-            options={model.repoOptions}
-            onChange={(value) => {
-              if (value !== null) model.setRepoId(value)
-            }}
             width="sm"
+            value={model.repoId || null}
+            repositories={model.repoOptions.map((option) => ({
+              id: option.value,
+              fullName: option.label,
+            }))}
+            onChange={model.setRepoId}
           />
         )}
         {agentSupportsPlanMode(agent) && !model.resumeActive && (
@@ -256,40 +221,34 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                 hairlines and nothing draws a second card inside it. */}
             <div data-testid="agent-options-sheet">
               <GlassGroup bare>
-                <Combobox
-                  triggerVariant="row"
-                  searchable={false}
+                <EffortPicker
                   mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
                   value={
                     launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
                   }
-                  onChange={(value) => {
-                    if (value !== null) launch.setEffortValue(value)
-                  }}
-                  options={effortOptions}
+                  onChange={launch.setEffortValue}
+                  efforts={effortOptions}
                   disabled={launch.ultracode && agentSupportsUltracode(agent)}
                 />
                 {agentSupportsSubagentModel(agent) && (
                   /* EXP-981: the model the run's SUBAGENTS get — claude only
                      (it is that CLI's env var), blank = the CLI's own
                      default, and then it never reaches the start payload. */
-                  <Combobox
+                  <ModelPicker
                     triggerVariant="row"
-                    searchable={false}
+                    width="md"
                     mobileTitle="Subagent model"
                     value={
                       launch.subagentModel === ``
                         ? CLI_DEFAULT_MODEL
                         : launch.subagentModel
                     }
-                    onChange={(value) => {
-                      if (value !== null) {
-                        launch.setSubagentModel(
-                          value === CLI_DEFAULT_MODEL ? `` : value
-                        )
-                      }
-                    }}
-                    options={[
+                    onChange={(value) =>
+                      launch.setSubagentModel(
+                        value === CLI_DEFAULT_MODEL ? `` : value
+                      )
+                    }
+                    models={[
                       { value: CLI_DEFAULT_MODEL, label: `Default` },
                       ...contract.codingModel.values.map((value) => ({
                         value,

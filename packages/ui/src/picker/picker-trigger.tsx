@@ -1,4 +1,3 @@
-import type { LucideIcon } from "lucide-react"
 import type * as React from "react"
 import type { ReactNode } from "react"
 
@@ -7,6 +6,7 @@ import { cn } from "../cn"
 import { GLASS_SELECT_TRIGGER } from "../glass-rows"
 import { conceptIcon } from "../icons.generated"
 import { Pill } from "../pill"
+import type { PickerGlyph } from "./picker-item"
 
 // EXP-1021 — the four things a picker is opened BY, in one place.
 //
@@ -50,7 +50,7 @@ export interface PickerTriggerProps {
   /** The word while nothing is picked; defaults to `label`. */
   placeholder?: string
   /** A leading glyph for the `inline` word. */
-  icon?: LucideIcon
+  icon?: PickerGlyph
   disabled?: boolean
   className?: string
 }

@@ -6,27 +6,17 @@ import {
   AgentRunMark,
   type RunMarkState,
   getDeviceIcon,
-  ListRow,
+  SessionRow,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  TREE_BASE,
-  TREE_INDENT,
-  TreeGuides,
   type TreeGuide,
 } from "@exp/ui"
 import type { CodingSession, Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import {
-  TreeFoldToggle,
-  useCollapsedNodes,
-  useSessionTreeRows,
-} from "@/components/session-tree"
+import { sessionDeviceRow, useSessionTreeRows } from "@/components/session-tree"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -40,22 +30,22 @@ import { useOpenSession } from "@/hooks/use-open-session"
 // `parent_session_id` with the EXP-965 connector, hidden entirely when nothing
 // runs (no empty copy, the desktop's `RunningSessionsSection` rule).
 //
-// The row is deliberately NOT the session-list row: one line, the AGENT's
-// brand mark instead of a state dot (with a small amber badge when the run
-// wants you), identifier + title, and the HOST DEVICE's icon pinned at the
-// trailing edge. No status line, no "started ago", no ping — the sidebar says
+// The row is SessionRow at size small: one line, the AGENT's run mark (with a
+// small badge when the run wants you), identifier + title, and the HOST
+// DEVICE's icon pinned at the trailing edge. No caption: the sidebar says
 // WHAT is running and WHERE, the run's own page says how it is going.
 //
 // Clicking a row navigates with the `running` origin, which creates no work
 // tab (`lib/work-tabs.ts` `TABLESS_ORIGIN`) and keeps the main menu up.
 //
 // EXP-996: and the nesting is the whole `sessionTree`, resumes collapsed.
-
-const EMPTY_COLLAPSED: ReadonlySet<string> = new Set<string>()
+// EXP-1248: the row is `@exp/ui` SessionRow, size small, children always
+// shown (no fold), so a parent's mark sits exactly where its child's elbow
+// points.
 
 /** One row of the section, nested: a live run. */
 export interface RunningSessionEntry {
-  /** `sessionTreeNodeKey` — what the collapsed set holds. */
+  /** `sessionTreeNodeKey`. */
   key: string
   depth: number
   hasChildren: boolean
@@ -74,23 +64,18 @@ export interface RunningSessionEntry {
  *  by the expanded group and the compact rail's icon column. */
 export function useMyRunningRows(
   teamId: string | undefined,
-  currentUserId: string | undefined,
-  collapsed: ReadonlySet<string> = EMPTY_COLLAPSED
+  currentUserId: string | undefined
 ): RunningSessionEntry[] {
   const { runs } = useMyLiveRuns(teamId, currentUserId, 30_000)
   const rows = useSessionListRows(teamId, runs)
-  const tree = useSessionTreeRows(rows, collapsed)
+  const tree = useSessionTreeRows(rows)
   const { data: deviceRows } = useLiveQuery(
     (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
     [teamId]
   )
   return useMemo(() => {
     const devices = (deviceRows ?? []) as Device[]
-    const deviceOf = (session: CodingSession) => {
-      if (!session.deviceId) return undefined
-      const matches = devices.filter((d) => d.deviceId === session.deviceId)
-      return matches.find((d) => d.userId === session.userId) ?? matches[0]
-    }
+    const deviceOf = (session: CodingSession) => sessionDeviceRow(session, devices)
     return tree.flatMap(({ flat, row, guide }): RunningSessionEntry[] => {
       if (!row) return []
       const identity = sessionIdentity(row)
@@ -155,8 +140,7 @@ export function SidebarRunningSection({
   teamId: string | undefined
   currentUserId: string | undefined
 }) {
-  const [collapsed, toggle] = useCollapsedNodes()
-  const entries = useMyRunningRows(teamId, currentUserId, collapsed)
+  const entries = useMyRunningRows(teamId, currentUserId)
   const shown = useShownRun()
   const openSession = useOpenSession()
   if (entries.length === 0) return null
@@ -169,52 +153,26 @@ export function SidebarRunningSection({
         {/* Gapless (EXP-965: nothing for a connector to bridge). */}
         <div className="flex flex-col">
           {entries.map((entry) => {
-            const expanded = !collapsed.has(entry.key)
             const session = entry.row.session
-            const DeviceIcon = getDeviceIcon(entry.device ?? {})
             return (
-              <ListRow
+              <SessionRow
                 key={entry.key}
-                interactive
+                size="small"
+                agent={session.agent}
+                markState={entry.state}
+                identifier={entry.identifier}
+                title={entry.subject}
+                depth={entry.depth}
+                guide={entry.guide}
+                deviceIcon={getDeviceIcon(entry.device ?? {})}
+                deviceName={entry.deviceName}
                 active={isShown(entry, shown)}
+                ringClassName="ring-sidebar"
                 onClick={() =>
                   openSession(session, { origin: { kind: `running` } })
                 }
-                className="relative h-8 gap-1.5 py-0 pr-2 text-sm"
-                style={{
-                  paddingLeft: `${TREE_BASE + entry.depth * TREE_INDENT}px`,
-                }}
                 data-testid={`sidebar-running-${session.id}`}
-              >
-                <TreeGuides guide={entry.guide} />
-                {entry.hasChildren && (
-                  <TreeFoldToggle
-                    expanded={expanded}
-                    label={
-                      expanded ? `Collapse child runs` : `Expand child runs`
-                    }
-                    onToggle={() => toggle(entry.key)}
-                  />
-                )}
-                <RunningMark agent={session.agent} state={entry.state} />
-                {entry.identifier && (
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                    {entry.identifier}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1 truncate">{entry.subject}</span>
-                {/* Fixed, never truncated: WHERE the run is. */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="flex shrink-0 items-center justify-center">
-                      <DeviceIcon className="size-3.5 text-muted-foreground" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {entry.deviceName}
-                  </TooltipContent>
-                </Tooltip>
-              </ListRow>
+              />
             )
           })}
         </div>

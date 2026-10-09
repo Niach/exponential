@@ -28,6 +28,8 @@ const ATTACHMENT_COLUMNS = [
   // the duration chip and `?poster=1` when `poster_storage_key` is set.
   `duration_ms`,
   `poster_storage_key`,
+  // EXP-1247: a FILE/paperclip upload lists in Files even when it is an image.
+  `as_file`,
   `created_at`,
   `updated_at`,
 ]

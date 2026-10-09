@@ -9,7 +9,7 @@ import {
 import {
   AttachmentThumb,
   conceptIcon,
-  Combobox,
+  ModelPicker,
   Composer,
   ComposerSubmit,
   ComposerTool,
@@ -459,18 +459,14 @@ export function SteerComposer({
                  ordinary message path — queued mid-turn like anything else,
                  and the republished `config_state` is the confirmation. No
                  optimistic write. */
-              <Combobox
-                triggerVariant="inline"
-                searchable={false}
-                mobileTitle="Model"
+              <ModelPicker
                 value={model}
-                options={modelOptions}
-                width="sm"
+                models={modelOptions}
                 onChange={(value) => {
                   // The picker is CONTROLLED by the republished
                   // `config_state`, so a send that never left has to say so —
                   // otherwise the value silently snaps back.
-                  if (value === null || !live || value === model) return
+                  if (!live || value === model) return
                   if (!onSend(`/model ${value}`)) {
                     toast.error(`The session is no longer connected`)
                   }

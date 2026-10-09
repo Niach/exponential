@@ -1151,6 +1151,17 @@
         "result": "session"
       },
       {
+        "name": "sessions_guide",
+        "title": "Write the Guide",
+        "blurb": "Writes the run's Guide on the issue: GFM sections with the files they cover and screenshots, which is also the PR body.",
+        "progressive": "Writing the Guide",
+        "done": "Wrote the Guide",
+        "progressiveMany": "Writing the Guide {n} times",
+        "doneMany": "Wrote the Guide {n} times",
+        "subjectKey": "topic",
+        "result": "results"
+      },
+      {
         "name": "sessions_kill",
         "title": "Stop session",
         "blurb": "Ends a running coding session on its device.",
@@ -1197,7 +1208,7 @@
       {
         "name": "sessions_results",
         "title": "Publish results",
-        "blurb": "Publishes the run's report on the issue's Results: GFM text and screenshots, grouped by topic.",
+        "blurb": "The Guide tool's old name (exponential_sessions_guide), kept for older CLIs.",
         "progressive": "Publishing results",
         "done": "Published results",
         "progressiveMany": "Publishing results {n} times",
@@ -1208,7 +1219,7 @@
       {
         "name": "sessions_show",
         "title": "Show picture",
-        "blurb": "Shows a screenshot in the run's transcript while it works, filed under its Results.",
+        "blurb": "Shows a screenshot in the run's transcript while it works, filed under its Guide.",
         "progressive": "Showing picture",
         "done": "Showed picture",
         "progressiveMany": "Showing {n} pictures",
@@ -1436,6 +1447,7 @@
       { "name": "sessions_compact", "refs": "" },
       { "name": "sessions_end", "refs": "" },
       { "name": "sessions_get", "refs": "session@ issue@" },
+      { "name": "sessions_guide", "refs": "" },
       { "name": "sessions_kill", "refs": "session@" },
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_message", "refs": "session@" },

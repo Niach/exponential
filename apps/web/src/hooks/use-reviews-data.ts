@@ -30,12 +30,21 @@ export interface ReviewEntry {
   issues: Issue[]
 }
 
+/** EXP-1248: one drawn item of a board band (`reviewsQueue` rule 9). */
+export type ReviewItem =
+  /** A lone PR (depth 0) or a PR-tree member, nested under its root. */
+  | { kind: `pr`; entry: ReviewEntry; depth: number }
+  /** A linear stack: entries TOP first, then the base-branch row. */
+  | { kind: `stack`; entries: ReviewEntry[]; baseBranch: string | null }
+
 export interface ReviewGroup {
   board: Board
   /** EXP-1186: the board's team (a phone reads every member team). */
   team: Team | undefined
-  /** One entry per open PR, newest first — a FLAT list. */
+  /** One entry per open PR, newest first — the flat list. */
   entries: ReviewEntry[]
+  /** EXP-1248: the same entries as drawn: trees nest, stacks rail. */
+  items: ReviewItem[]
 }
 
 // EXP-734: one open PR a coding run opened for ITSELF (an action or chat run
@@ -153,15 +162,29 @@ export function useReviewsData(
       sessions: (sessionRows ?? []) as CodingSession[],
       pulls: externalGroups,
     })
-    const groups: ReviewGroup[] = queue.boardGroups.map((group) => ({
-      board: group.board,
-      team: teamById.get(group.board.teamId),
-      entries: group.entries.map((entry) => ({
+    const groups: ReviewGroup[] = queue.boardGroups.map((group) => {
+      const entries: ReviewEntry[] = group.entries.map((entry) => ({
         key: entry.key,
         issue: entry.issues[0]!,
         issues: entry.issues,
-      })),
-    }))
+      }))
+      const byKey = new Map(entries.map((entry) => [entry.key, entry]))
+      const items: ReviewItem[] = group.items.map((item) =>
+        item.kind === `pr`
+          ? { kind: `pr`, entry: byKey.get(item.entry.key)!, depth: item.depth }
+          : {
+              kind: `stack`,
+              entries: item.entries.map((entry) => byKey.get(entry.key)!),
+              baseBranch: item.baseBranch,
+            }
+      )
+      return {
+        board: group.board,
+        team: teamById.get(group.board.teamId),
+        entries,
+        items,
+      }
+    })
     const sessionGroups: SessionReviewGroup[] = queue.runGroups.map(
       (group) => ({
         team: teamById.get(group.teamId),
@@ -179,6 +202,7 @@ export function useReviewsData(
       sessionEntries,
       sessionGroups,
       externalGroups: queue.repoGroups,
+      // The nav dot's input only: no Reviews band renders a count (EXP-1248).
       count: queue.count,
       // A team with no boards skips the query and can never deliver a
       // snapshot — treat it as ready-empty instead of loading forever. The
@@ -188,8 +212,8 @@ export function useReviewsData(
       externalLoading,
       userMap,
       removeExternalPull: removeOpenPull,
-      // EXP-1145: every open-PR issue of the team, the rows a Merge reads its
-      // stack from (`stackMergeChoice`).
+      // Every open-PR issue of the team, the rows a Merge reads its stack
+      // from (`stackMergeConfirm`, `stackView`).
       openIssues: list,
     }
   }, [

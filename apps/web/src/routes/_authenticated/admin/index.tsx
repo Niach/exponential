@@ -1,14 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
+import { Meter } from "@exp/ui"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Meter,
-} from "@exp/ui"
-import {
+  AdminCard,
   DayBars,
   formatStorageMb,
   platformLabel,
@@ -82,128 +76,101 @@ function AdminOverview() {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Signups (last 30 days)</CardTitle>
-            <CardDescription className="text-xs">
-              {signupTotal} new {signupTotal === 1 ? `user` : `users`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DayBars rows={overview.signupsByDay} unit="signup" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">
-              Teams created (last 30 days)
-            </CardTitle>
-            <CardDescription className="text-xs">
-              {wsTotal} new {wsTotal === 1 ? `team` : `teams`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DayBars rows={overview.teamsByDay} unit="team" />
-          </CardContent>
-        </Card>
+        <AdminCard
+          title="Signups (last 30 days)"
+          description={<>{signupTotal} new {signupTotal === 1 ? `user` : `users`}</>}
+        >
+          <DayBars rows={overview.signupsByDay} unit="signup" />
+        </AdminCard>
+        <AdminCard
+          title="Teams created (last 30 days)"
+          description={<>{wsTotal} new {wsTotal === 1 ? `team` : `teams`}</>}
+        >
+          <DayBars rows={overview.teamsByDay} unit="team" />
+        </AdminCard>
       </div>
 
       {/* EXP-835: where users stop on the way to their first coding run. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Activation</CardTitle>
-          <CardDescription className="text-xs">
-            Users who reached each step themselves, as a share of all users.
-            Steps are not strictly nested: a teammate’s GitHub connection lets
-            a member code without connecting.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {activationSteps.map((step) => (
-              <div key={step.label} className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span>{step.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {step.users} ({pct(step.users, activation.users)})
-                  </span>
-                </div>
-                <Meter
-                  className="h-2"
-                  value={(step.users / Math.max(1, activation.users)) * 100}
-                />
+      <AdminCard
+        title="Activation"
+        description="Users who reached each step themselves, as a share of all users. Steps are not strictly nested: a teammate’s GitHub connection lets a member code without connecting."
+      >
+        <div className="space-y-2">
+          {activationSteps.map((step) => (
+            <div key={step.label} className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span>{step.label}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {step.users} ({pct(step.users, activation.users)})
+                </span>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              <Meter
+                className="h-2"
+                value={(step.users / Math.max(1, activation.users)) * 100}
+              />
+            </div>
+          ))}
+        </div>
+      </AdminCard>
 
       {/* EXP-759: who uses which client. */}
       <div className="grid gap-3 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Platforms</CardTitle>
-            <CardDescription className="text-xs">
+        <AdminCard
+          title="Platforms"
+          description={
+            <>
               Users seen per client (any time / last 30 days / last 7 days).{` `}
               {platforms.usersWithAny} of {platforms.usersTotal} users have a
               record; {platforms.multiPlatform} use two or more clients.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {platforms.byPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No client activity recorded yet.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {platforms.byPlatform.map((row) => (
-                  <div key={row.platform} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span>{platformLabel(row.platform)}</span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {row.users} · 30d {row.active30d} · 7d {row.active7d}
-                      </span>
-                    </div>
-                    <Meter
-                      className="h-2"
-                      value={(row.users / platformMax) * 100}
-                      title={`${platformLabel(row.platform)}: ${row.users} users (${pct(row.users, platforms.usersTotal)} of all users)`}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">First client used</CardTitle>
-            <CardDescription className="text-xs">
-              The client each user was first seen on. Accounts older than the
-              ledger (Sep 2026) are the migration backfill’s best guess from
-              sessions, devices and push tokens.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {platforms.firstPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing yet.</p>
-            ) : (
-              <div className="space-y-1">
-                {platforms.firstPlatform.map((row) => (
-                  <div
-                    key={row.platform}
-                    className="flex items-center justify-between text-xs"
-                  >
+            </>
+          }
+        >
+          {platforms.byPlatform.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No client activity recorded yet.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {platforms.byPlatform.map((row) => (
+                <div key={row.platform} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
                     <span>{platformLabel(row.platform)}</span>
                     <span className="tabular-nums text-muted-foreground">
-                      {row.users} ({pct(row.users, platforms.usersWithAny)})
+                      {row.users} · 30d {row.active30d} · 7d {row.active7d}
                     </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <Meter
+                    className="h-2"
+                    value={(row.users / platformMax) * 100}
+                    title={`${platformLabel(row.platform)}: ${row.users} users (${pct(row.users, platforms.usersTotal)} of all users)`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </AdminCard>
+        <AdminCard
+          title="First client used"
+          description="The client each user was first seen on. Accounts older than the ledger (Sep 2026) are the migration backfill’s best guess from sessions, devices and push tokens."
+        >
+          {platforms.firstPlatform.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {platforms.firstPlatform.map((row) => (
+                <div
+                  key={row.platform}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <span>{platformLabel(row.platform)}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {row.users} ({pct(row.users, platforms.usersWithAny)})
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </AdminCard>
       </div>
     </div>
   )

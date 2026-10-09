@@ -1,14 +1,8 @@
-import type { ReactNode } from "react"
 import { contract } from "@exp/domain-contract"
 
 import { ClaudeIcon, CodexIcon } from "./brand-icons"
 import { Button } from "./button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./dropdown-menu"
+import { Menu, type MenuEntry } from "./menu"
 import { SegmentedControl } from "./segmented-control"
 import { SEGMENTED_ROW } from "./tabs"
 import {
@@ -62,7 +56,6 @@ const AGENT_ICONS: Record<
 // mark: the same fallback glyph the other three clients draw.
 const AgentFallbackIcon = conceptIcon(`settings-agents`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
-const CheckIcon = conceptIcon(`ui-check`)
 
 /** The glyph for an agent id — its brand mark, or the neutral agent concept
  *  for an id this build ships no mark for. */
@@ -84,27 +77,20 @@ export function AgentMark({
   return <Mark className={cn(`size-4 shrink-0`, className)} />
 }
 
-/** The menu rows — brand mark + label, a check on the current pick. Exported
- * on its own so a surface that already owns a dropdown (a row's "…" menu)
- * lists the agents without nesting a second trigger inside it. */
-export function AgentMenuItems({
-  agents,
-  value,
-  onChange,
-}: {
-  agents: string[]
-  value: string
+/** The menu rows — brand mark + label, a check on the current pick. */
+export function agentMenuEntries(
+  agents: readonly string[],
+  value: string,
   onChange: (agent: string) => void
-}): ReactNode {
-  return agents.map((agent) => (
-    <DropdownMenuItem key={agent} onSelect={() => onChange(agent)}>
-      <AgentMark agent={agent} />
-      <span className="flex-1">{agentLabel(agent)}</span>
-      {agent === value && (
-        <CheckIcon className="size-4 shrink-0 text-muted-foreground" />
-      )}
-    </DropdownMenuItem>
-  ))
+): MenuEntry[] {
+  return agents.map((agent) => ({
+    kind: `item`,
+    id: agent,
+    label: agentLabel(agent),
+    icon: <AgentMark agent={agent} />,
+    checked: agent === value,
+    onSelect: () => onChange(agent),
+  }))
 }
 
 /** THE agent picker: brand mark + chevron, the label only in the tooltip. */
@@ -134,10 +120,14 @@ export function AgentPicker({
     // that do not always sit under the app shell's provider, and a tooltip
     // that throws is worse than one that nests.
     <TooltipProvider delayDuration={0}>
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
+      <Tooltip>
+        <Menu
+          align={align}
+          aria-label="Agent"
+          title="Agent"
+          entries={agentMenuEntries(agents, value, onChange)}
+          trigger={
+            <TooltipTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
@@ -158,14 +148,11 @@ export function AgentPicker({
                   className={small ? `size-2.5` : `size-3`}
                 />
               </Button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{label}</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align={align}>
-          <AgentMenuItems agents={agents} value={value} onChange={onChange} />
-        </DropdownMenuContent>
-      </DropdownMenu>
+            </TooltipTrigger>
+          }
+        />
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
     </TooltipProvider>
   )
 }

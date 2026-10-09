@@ -47,4 +47,10 @@ describe(`RunStatusRow`, () => {
     expect(screen.getByTestId(`run-status-row`).getAttribute(`data-show-work`)).toBe(`true`)
     expect(screen.getByRole(`button`, { name: `Hide work` })).toBeTruthy()
   })
+
+  // EXP-1245: a settled turn's row in the owner's thread has no toggle.
+  it(`draws no toggle without onToggle`, () => {
+    render(<RunStatusRow agent="claude" markState="ended" caption="Done on mint · 7m 17s" tone="muted" />)
+    expect(screen.queryByRole(`button`)).toBeNull()
+  })
 })

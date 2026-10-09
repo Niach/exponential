@@ -1,4 +1,3 @@
-import { CalendarDays } from "lucide-react"
 import type { Issue } from "@/db/schema"
 import {
   formatDueDateMenuMeta,
@@ -6,77 +5,50 @@ import {
   matchesDueDateValue,
 } from "@/lib/issue-due-date"
 import { formatDate } from "@/lib/utils"
-import {
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from "@exp/ui"
+import type { IssueMenuSlot, MenuEntry } from "@exp/ui"
 
-interface DueDateSubmenuProps {
-  dueDate: Issue[`dueDate`]
-  topLevelValueClass: string
-  onApplyDueDate: (date: Date | null) => void
-}
-
-export function DueDateSubmenu({
+/** The "Set due date" slot of the issue menu: the presets as rows (a square
+ *  marker on the one the issue is set to, the date at the trailing edge),
+ *  then "Clear due date" while one is set. */
+export function dueDateSlot({
   dueDate,
-  topLevelValueClass,
   onApplyDueDate,
-}: DueDateSubmenuProps) {
-  const dueDatePresets = getDueDatePresets(new Date())
-  const dueDateLabel = dueDate ? formatDate(dueDate) : `None`
-
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <CalendarDays />
-        Set due date
-        <DropdownMenuShortcut className={`${topLevelValueClass} tabular-nums`}>
-          {dueDateLabel}
-        </DropdownMenuShortcut>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-[15.5rem] p-1">
-        {dueDatePresets.map((preset) => (
-          <DropdownMenuItem
-            className="gap-3"
-            key={preset.id}
-            onSelect={() => {
-              onApplyDueDate(preset.date)
-            }}
-          >
-            <DueDatePresetIndicator
-              active={matchesDueDateValue(preset.date, dueDate)}
-            />
-            <span>{preset.label}</span>
-            <DropdownMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal tabular-nums">
-              {formatDueDateMenuMeta(preset.date)}
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        ))}
-
-        {dueDate && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="gap-3"
-              onSelect={() => {
-                onApplyDueDate(null)
-              }}
-            >
-              <DueDatePresetIndicator active={false} muted />
-              Clear due date
-              <DropdownMenuShortcut className="min-w-[5.125rem] text-right normal-case tracking-normal">
-                Remove
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  )
+}: {
+  dueDate: Issue[`dueDate`]
+  onApplyDueDate: (date: Date | null) => void
+}): IssueMenuSlot {
+  const entries: MenuEntry[] = getDueDatePresets(new Date()).map((preset) => ({
+    kind: `item`,
+    id: preset.id,
+    label: preset.label,
+    icon: (
+      <DueDatePresetIndicator active={matchesDueDateValue(preset.date, dueDate)} />
+    ),
+    value: (
+      <span className="tabular-nums">{formatDueDateMenuMeta(preset.date)}</span>
+    ),
+    onSelect: () => onApplyDueDate(preset.date),
+  }))
+  if (dueDate) {
+    entries.push(
+      { kind: `separator` },
+      {
+        kind: `item`,
+        id: `clear`,
+        label: `Clear due date`,
+        icon: <DueDatePresetIndicator active={false} muted />,
+        value: `Remove`,
+        onSelect: () => onApplyDueDate(null),
+      }
+    )
+  }
+  return {
+    value: (
+      <span className="tabular-nums">{dueDate ? formatDate(dueDate) : `None`}</span>
+    ),
+    contentClassName: `w-[15.5rem]`,
+    entries,
+  }
 }
 
 function DueDatePresetIndicator({

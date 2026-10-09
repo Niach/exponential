@@ -678,6 +678,9 @@ export const codingSessionsRouter = router({
         // EXP-711: per-merge override of the team's end-sessions-on-merge
         // setting, like issues.mergePr.
         endSessions: z.boolean().optional(),
+        // EXP-1248: merge through the run's PR when it is an open-stack
+        // member (it lands with everything beneath it), like issues.mergePr.
+        mergeStack: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
@@ -741,6 +744,7 @@ export const codingSessionsRouter = router({
         userId: ctx.session.user.id,
         viaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
+        mergeStack: input.mergeStack,
       })
     }),
 

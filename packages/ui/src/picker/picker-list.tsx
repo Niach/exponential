@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 
 import { ComboboxList } from "../combobox"
-import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker"
+import { PickerItemBody, type PickerItem } from "./picker-item"
 
 // EXP-1021 — the picker BODY with no surface around it.
 //
@@ -12,9 +12,8 @@ import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker"
 // off). Its rows still have to be the primitive's rows — that is the whole
 // point of EXP-1021 — so the host keeps its shell and renders this inside it.
 //
-// The same relationship `ComboboxList` has to `Combobox` (EXP-941), one level
-// up: the selection language here is the picker's (a multi pick reads as the
-// row's own highlight), never the circles.
+// The same relationship the internal `ComboboxList` has to `Combobox`
+// (EXP-941): a multi pick reads as the row's own highlight, never a glyph.
 
 interface PickerListBase<T extends string> {
   items: readonly PickerItem<T>[]
@@ -82,15 +81,6 @@ export function PickerList<T extends string = string>(
     renderItem,
   } = props
 
-  const byValue = new Map(items.map((item) => [item.value, item]))
-  const options = items.map((item) => ({
-    value: item.value,
-    label: item.label,
-    keywords: pickerItemKeywords(item),
-    disabled: item.disabled,
-    checked: item.checked,
-  }))
-
   const selection =
     props.mode === `multi`
       ? ({
@@ -112,9 +102,7 @@ export function PickerList<T extends string = string>(
   return (
     <ComboboxList
       {...selection}
-      options={options}
-      // The primitive's own selection language: highlight, never circles.
-      selectionStyle="highlight"
+      options={items}
       searchable={search}
       placeholder={searchPlaceholder}
       emptyText={emptyText}
@@ -128,15 +116,9 @@ export function PickerList<T extends string = string>(
       inputVariant={inputVariant}
       className={className}
       listClassName={listClassName}
-      renderOption={(option, state) => {
-        const item = byValue.get(option.value)
-        if (!item) return null
-        return renderItem ? (
-          renderItem(item, state)
-        ) : (
-          <PickerItemBody item={item} />
-        )
-      }}
+      renderOption={(item, state) =>
+        renderItem ? renderItem(item, state) : <PickerItemBody item={item} />
+      }
     />
   )
 }

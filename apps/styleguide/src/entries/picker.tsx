@@ -1,5 +1,8 @@
 import {
+  MENU_CONTENT_CLASS,
+  MENU_SURFACE_CLASS,
   PickerList,
+  PickerMenuRows,
   PickerTrigger,
   conceptIcon,
   type PickerItem,
@@ -9,7 +12,10 @@ import type { ComponentPlatform, ComponentStatus } from "../components.tsx"
 import { PICKER_FILES, PickerSpecimen } from "./picker-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1029 contract, EXP-1021 implementation — THE picker primitive.
+// EXP-1029 contract, EXP-1021 implementation — THE picker primitive, and
+// since the UI cleanup batch the ONLY public one (Combobox went internal);
+// its three bodies are the popover/sheet surface, `PickerList` (a host that
+// already is a surface) and `PickerMenuRows` (inside a Menu submenu).
 
 const noop = (): void => {}
 const BoardGlyph = conceptIcon(`nav-boards`)
@@ -56,7 +62,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Picker`,
-  blurb: `THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive, never to the caller — a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point of EXP-1021: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, never a leading circle, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline); the surface, the search field and the keys are the primitive's.`,
+  blurb: `THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive, never to the caller — a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point of EXP-1021: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, never a leading circle, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline), or the primitive's own in triggerVariant; the surface, the search field and the keys are the primitive's. Typed pickers sit on it (board, status, model, effort, repository, branch …), and the same rows go inside a Menu submenu as PickerMenuRows.`,
   status,
   island: () => (
     <div className="grid gap-5">
@@ -97,6 +103,24 @@ export const entry: StyleguideEntry = {
           />
         }
         caption="Multi: the picked rows are the highlighted ones — no circles, nothing in the gutter."
+      />
+      <PickerSpecimen
+        trigger={<PickerTrigger variant="inline" label="Labels" value="Status ›" />}
+        surface={
+          <div className={`${MENU_SURFACE_CLASS} ${MENU_CONTENT_CLASS} w-[15rem]`}>
+            <PickerMenuRows
+              mode="multi"
+              items={[
+                { value: `bug`, label: `Bug`, color: `#ef4444` },
+                { value: `ops`, label: `Ops`, color: `#3b82f6`, checked: `indeterminate` },
+                { value: `ui`, label: `UI`, color: `#22c55e` },
+              ]}
+              value={[`bug`]}
+              onChange={noop}
+            />
+          </div>
+        }
+        caption="Menu rows (PickerMenuRows): the same rows inside a Menu submenu — the issue menu's Labels, the bulk bar. A label on SOME of the selection reads as a softer wash."
       />
     </div>
   ),

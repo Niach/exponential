@@ -141,8 +141,10 @@ export async function mergePullRequest(opts: {
   prNumber: number
   token: string
   commitTitle?: string
+  fetchImpl?: GitHubFetch
 }): Promise<MergedPull> {
-  const res = await fetch(
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
     `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge`,
     {
       method: `PUT`,
@@ -920,6 +922,8 @@ export async function mergePullRequestAsync(opts: {
 }
 
 const ASYNC_MERGE_TIMEOUT_MS = 60_000
+/** EXP-1248: GitHub says a stack merge "may take a few minutes". */
+export const STACK_MERGE_TIMEOUT_MS = 300_000
 const ASYNC_MERGE_STEP_MS = 2_000
 
 const defaultSleep = (ms: number) =>
@@ -1019,17 +1023,6 @@ export class GitHubAsyncMergePending extends Error {
   ) {
     super(`GitHub is still merging PR #${prNumber}`)
   }
-}
-
-/** GitHub's refusal to merge a stacked PR through the legacy endpoint. */
-export const STACKED_PR_REFUSAL = /stacked PRs?/i
-
-export function isStackedPrRefusal(err: unknown): boolean {
-  return (
-    err instanceof GitHubMergeError &&
-    (err.status === 405 || err.status === 422) &&
-    STACKED_PR_REFUSAL.test(err.message)
-  )
 }
 
 /**
@@ -1146,16 +1139,20 @@ export interface SmartMergeResult {
 }
 
 /**
- * The ONE merge entry point (FEED-43): a legacy squash `PUT …/merge`, retried
- * through `merge-async` + poll when GitHub refuses it as a stacked PR. Any PR
- * that merge also lands is closed by its own `pull_request.closed` webhook
- * (or the poller), never here.
+ * The ONE merge entry point (FEED-43, async-first since EXP-1248): a squash
+ * `PUT …/merge-async` + poll, the only call that merges a PR GitHub holds in
+ * a stack (and merge queues); the legacy `PUT …/merge` runs only when an
+ * older server answers merge-async with 404. `stack` = a merge-through on a
+ * stack member: the poll waits up to `STACK_MERGE_TIMEOUT_MS` (it still
+ * stops at `enqueued`). Any PR that merge also lands is closed by its own
+ * `pull_request.closed` webhook (or the poller), never here.
  */
 export async function mergePullRequestSmart(opts: {
   repo: string
   prNumber: number
   token: string
   commitTitle?: string
+  stack?: boolean
   fetchImpl?: GitHubFetch
   sleepImpl?: (ms: number) => Promise<void>
   timeoutMs?: number
@@ -1169,35 +1166,18 @@ export async function mergePullRequestSmart(opts: {
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     ...(opts.sleepImpl ? { sleepImpl: opts.sleepImpl } : {}),
   }
-  try {
-    const merged = await mergePullRequest({
-      repo,
-      prNumber,
-      token,
-      ...(commitTitle !== undefined ? { commitTitle } : {}),
+  // FEED-64: a 5xx/dropped answer, or the 405 an already-merged PR gives a
+  // retry: read the PR before calling either a failure.
+  const verified = async (err: unknown): Promise<SmartMergeResult | null> => {
+    if (!isMergeOutcomeUnknown(err) && !isUnmergeable405(err)) return null
+    const confirmed = await confirmMergedDespiteError({
+      ...verifyOpts,
+      // A 405 is GitHub's answer about the PR: one open read settles it.
+      settled: !isMergeOutcomeUnknown(err),
     })
-    return { merged: merged.merged, queued: false, sha: merged.sha, mergedBy: null }
-  } catch (err) {
-    if (!isStackedPrRefusal(err)) {
-      // FEED-64: a 5xx/dropped answer, or the 405 an already-merged PR
-      // gives a retry — read the PR before calling either a failure.
-      if (isMergeOutcomeUnknown(err) || isUnmergeable405(err)) {
-        const confirmed = await confirmMergedDespiteError({
-          ...verifyOpts,
-          // A 405 is GitHub's answer about the PR: one open read settles it.
-          settled: !isMergeOutcomeUnknown(err),
-        })
-        if (confirmed) {
-          return {
-            merged: true,
-            queued: false,
-            sha: confirmed.sha,
-            mergedBy: confirmed.mergedBy,
-          }
-        }
-      }
-      throw err
-    }
+    return confirmed
+      ? { merged: true, queued: false, sha: confirmed.sha, mergedBy: confirmed.mergedBy }
+      : null
   }
 
   let started: AsyncMergeStatus
@@ -1210,23 +1190,17 @@ export async function mergePullRequestSmart(opts: {
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
     })
   } catch (err) {
-    // FEED-64: same verification as the legacy call — merge-async can land
-    // the merge and still answer 5xx.
-    if (isMergeOutcomeUnknown(err)) {
-      const confirmed = await confirmMergedDespiteError(verifyOpts)
-      if (confirmed) {
-        return {
-          merged: true,
-          queued: false,
-          sha: confirmed.sha,
-          mergedBy: confirmed.mergedBy,
-        }
-      }
+    if (err instanceof GitHubMergeError && err.status === 404) {
+      return legacySquashMerge(opts, verified)
     }
+    const confirmed = await verified(err)
+    if (confirmed) return confirmed
     throw err
   }
   let state = started
   if (state.status === `pending` && state.uuid) {
+    const timeoutMs =
+      opts.timeoutMs ?? (opts.stack ? STACK_MERGE_TIMEOUT_MS : undefined)
     state = await pollAsyncMerge({
       repo,
       prNumber,
@@ -1234,7 +1208,7 @@ export async function mergePullRequestSmart(opts: {
       token,
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
       ...(opts.sleepImpl ? { sleepImpl: opts.sleepImpl } : {}),
-      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(opts.stepMs !== undefined ? { stepMs: opts.stepMs } : {}),
     })
   }
@@ -1255,4 +1229,260 @@ export async function mergePullRequestSmart(opts: {
     sha: state.sha,
     mergedBy: null,
   }
+}
+
+/** An older server without merge-async: the synchronous squash. */
+async function legacySquashMerge(
+  opts: {
+    repo: string
+    prNumber: number
+    token: string
+    commitTitle?: string
+    fetchImpl?: GitHubFetch
+  },
+  verified: (err: unknown) => Promise<SmartMergeResult | null>
+): Promise<SmartMergeResult> {
+  try {
+    const merged = await mergePullRequest({
+      repo: opts.repo,
+      prNumber: opts.prNumber,
+      token: opts.token,
+      ...(opts.commitTitle !== undefined ? { commitTitle: opts.commitTitle } : {}),
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    })
+    return { merged: merged.merged, queued: false, sha: merged.sha, mergedBy: null }
+  } catch (err) {
+    const confirmed = await verified(err)
+    if (confirmed) return confirmed
+    throw err
+  }
+}
+
+// ── GitHub native stacks (EXP-1248) ─────────────────────────────────────────
+// REST `/repos/{r}/stacks` (API version 2026-03-10). NO fallback: every
+// failure throws `GitHubStackError` for the caller to surface.
+
+export class GitHubStackError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+export interface GithubStackPull {
+  number: number
+  state: `open` | `closed`
+  merged: boolean
+  headRef: string
+}
+
+export interface GithubStack {
+  number: number
+  baseRef: string
+  open: boolean
+  /** Bottom → top, as GitHub orders them. */
+  pulls: GithubStackPull[]
+}
+
+/** A PR's own `stack` field: where it sits, 1-based from the bottom. */
+export interface PullStackRef {
+  number: number
+  size: number
+  position: number
+  baseRef: string
+}
+
+type RawStack = {
+  number?: number
+  open?: boolean
+  base?: { ref?: string }
+  pull_requests?: Array<{
+    number?: number
+    state?: string
+    merged_at?: string | null
+    head?: { ref?: string } | string
+  }>
+}
+
+function parseStack(raw: RawStack): GithubStack {
+  return {
+    number: raw.number ?? 0,
+    baseRef: raw.base?.ref ?? ``,
+    open: raw.open !== false,
+    pulls: (raw.pull_requests ?? []).map((pull) => ({
+      number: pull.number ?? 0,
+      state: pull.state === `closed` ? `closed` : `open`,
+      merged: pull.merged_at != null,
+      headRef:
+        typeof pull.head === `string` ? pull.head : (pull.head?.ref ?? ``),
+    })),
+  }
+}
+
+async function stackRequest(
+  opts: { repo: string; token: string; fetchImpl?: GitHubFetch },
+  path: string,
+  what: string,
+  init?: { method: string; body?: unknown }
+): Promise<unknown> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/stacks${path}`,
+    {
+      method: init?.method ?? `GET`,
+      headers: {
+        ...asyncMergeHeaders(opts.token),
+        ...(init?.body !== undefined ? { "content-type": `application/json` } : {}),
+      },
+      ...(init?.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    }
+  )
+  if (!res.ok) {
+    throw new GitHubStackError(
+      res.status,
+      `GitHub could not ${what} (${res.status}): ${await githubErrorMessage(res)}`
+    )
+  }
+  return res.json().catch(() => null)
+}
+
+/** The stacks a PR belongs to (GitHub pages them; one PR sits in at most one
+ *  open stack, so the first page is the answer). */
+export async function listStacksForPull(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<GithubStack[]> {
+  const data = await stackRequest(
+    opts,
+    `?pull_request=${opts.prNumber}&per_page=100`,
+    `list the stacks of PR #${opts.prNumber}`
+  )
+  const rows = Array.isArray(data)
+    ? data
+    : ((data as { stacks?: unknown[] } | null)?.stacks ?? [])
+  return (rows as RawStack[]).map(parseStack)
+}
+
+/** A new stack from `numbers`, bottom → top (each base = the head below). */
+export async function createStack(opts: {
+  repo: string
+  numbers: number[]
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<GithubStack> {
+  const data = await stackRequest(
+    opts,
+    ``,
+    `stack PRs ${opts.numbers.map((n) => `#${n}`).join(`, `)}`,
+    { method: `POST`, body: { pull_requests: opts.numbers } }
+  )
+  return parseStack((data ?? {}) as RawStack)
+}
+
+/** Append `numbers` (bottom → top) on top of stack `stackNumber`. */
+export async function addToStack(opts: {
+  repo: string
+  stackNumber: number
+  numbers: number[]
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<GithubStack> {
+  const data = await stackRequest(
+    opts,
+    `/${opts.stackNumber}/add`,
+    `add PRs ${opts.numbers.map((n) => `#${n}`).join(`, `)} to stack ${opts.stackNumber}`,
+    { method: `POST`, body: { pull_requests: opts.numbers } }
+  )
+  return parseStack((data ?? {}) as RawStack)
+}
+
+/** Dissolve stack `stackNumber` (its PRs stay open, plainly base-chained). */
+export async function unstack(opts: {
+  repo: string
+  stackNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<void> {
+  await stackRequest(opts, `/${opts.stackNumber}/unstack`, `unstack stack ${opts.stackNumber}`, {
+    method: `POST`,
+  })
+}
+
+/** The PR's `stack` field (null = in no native stack), read with the API
+ *  version that carries it. */
+export async function fetchPullStack(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<PullStackRef | null> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+    { headers: asyncMergeHeaders(opts.token) }
+  )
+  if (!res.ok) {
+    throw new Error(
+      `GitHub returned ${res.status} for ${opts.repo}#${opts.prNumber}: ${await githubErrorMessage(res)}`
+    )
+  }
+  const data = (await res.json()) as {
+    stack?: {
+      number?: number
+      size?: number
+      position?: number
+      base?: { ref?: string }
+    } | null
+  }
+  const stack = data.stack
+  if (!stack || stack.number == null) return null
+  return {
+    number: stack.number,
+    size: stack.size ?? 0,
+    position: stack.position ?? 0,
+    baseRef: stack.base?.ref ?? ``,
+  }
+}
+
+export interface RefComparison {
+  status: `ahead` | `behind` | `identical` | `diverged`
+  aheadBy: number
+  behindBy: number
+}
+
+/** `GET /compare/{base}...{head}`; null when either ref is gone (404). */
+export async function compareRefs(opts: {
+  repo: string
+  base: string
+  head: string
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<RefComparison | null> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/compare/${encodeURIComponent(opts.base)}...${encodeURIComponent(opts.head)}?per_page=1`,
+    { headers: githubApiHeaders(opts.token) }
+  )
+  if (res.status === 404) return null
+  if (!res.ok) {
+    throw new Error(
+      `GitHub returned ${res.status} comparing ${opts.base}...${opts.head} in ${opts.repo}: ${await githubErrorMessage(res)}`
+    )
+  }
+  const data = (await res.json()) as {
+    status?: string
+    ahead_by?: number
+    behind_by?: number
+  }
+  const status =
+    data.status === `ahead` ||
+    data.status === `behind` ||
+    data.status === `identical`
+      ? data.status
+      : (`diverged` as const)
+  return { status, aheadBy: data.ahead_by ?? 0, behindBy: data.behind_by ?? 0 }
 }

@@ -49,8 +49,7 @@ import {
   STARTED_RUN_DEADLINE_MS,
   STARTED_RUN_SKEW_MS,
 } from "@/lib/started-run-match"
-import { UsageMini } from "@/components/agent-usage-mini"
-import { cn } from "@/lib/utils"
+import { AgentUsageWindows } from "@/components/agent-usage-windows"
 
 const SwapIcon = conceptIcon(`ui-swap`)
 
@@ -459,7 +458,7 @@ function SessionAccountRow({
           </span>
         </IconTooltip>
       </div>
-      <UsageMini usage={option.row.usage} className={cn(age && `opacity-50`)} />
+      <AgentUsageWindows usage={option.row.usage} density="mini" stale={age !== null} />
       {age && (
         <p className="text-[11px] text-muted-foreground/70 opacity-50">{age}</p>
       )}

@@ -11,12 +11,14 @@ describe(`prBodyFromResults`, () => {
     raw: unknown
     resultsUrl: string | null
     max?: number
+    prUrl?: string | null
     expected: string | null
   }>) {
     it(c.name, () => {
       const body = prBodyFromResults(c.raw, {
         resultsUrl: c.resultsUrl,
         ...(c.max ? { max: c.max } : {}),
+        ...(`prUrl` in c ? { prUrl: c.prUrl } : {}),
       })
       expect(body).toBe(c.expected)
       if (body && c.max) expect(body.length).toBeLessThanOrEqual(c.max)

@@ -31,16 +31,12 @@ import {
   descriptionSaves,
   resolveIncomingDescription,
 } from "@/lib/unechoed-saves"
-import {
-  uploadIssueFile,
-  uploadIssueImageFile,
-} from "@/lib/storage/issue-image-upload"
+import { uploadIssueAttachment } from "@/lib/storage/issue-image-upload"
 import {
   mediaPlayabilityHint,
   prepareMediaUpload,
   uploadIssueMediaFile,
 } from "@/lib/storage/media-upload"
-import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { useIssueRefs } from "@/components/issue-ref-provider"
@@ -417,30 +413,8 @@ export function IssueDetailView({
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
-          const { url } = await uploadIssueImageFile(issue.id, file)
+          const { url } = await uploadIssueAttachment(issue.id, file)
           editorRef.current?.insertImage({ alt: file.name, src: url })
-          const nextDescription =
-            editorRef.current?.getMarkdown() ?? descriptionRef.current
-          setDescriptionValue(nextDescription)
-          await queueDescriptionSave(nextDescription)
-        }
-      })
-    } catch (error) {
-      setAttachmentStatus(
-        error instanceof Error ? error.message : `Failed to upload image`
-      )
-    }
-  }
-
-  // Images picked via the Files section's attach button (EXP-316): they belong
-  // in the description, appended at the bottom rather than at the caret.
-  const handleAppendImageFiles = async (files: File[]) => {
-    setAttachmentStatus(null)
-    try {
-      await enqueueUploadTask(async () => {
-        for (const file of files) {
-          const { url } = await uploadIssueImageFile(issue.id, file)
-          editorRef.current?.appendImage({ alt: file.name, src: url })
           const nextDescription =
             editorRef.current?.getMarkdown() ?? descriptionRef.current
           setDescriptionValue(nextDescription)
@@ -456,12 +430,9 @@ export function IssueDetailView({
 
   // EXP-824: video/audio → probe + poster + `.mov` remux in the browser, a
   // progress-narrated upload, then the media block `[name](url)` at the caret
-  // (paste/drop/rail) or the bottom (Files rail attach button). A clip that
-  // is not H.264 MP4 gets a non-blocking "may not play everywhere" toast.
-  const handleMediaFiles = async (
-    files: File[],
-    placement: `insert` | `append`
-  ) => {
+  // (paste/drop/the image button). A clip that is not H.264 MP4 gets a
+  // non-blocking "may not play everywhere" toast.
+  const handleMediaFiles = async (files: File[]) => {
     setAttachmentStatus(null)
     try {
       await enqueueUploadTask(async () => {
@@ -482,12 +453,10 @@ export function IssueDetailView({
                   `Uploading ${prepared.file.name}… ${percent}%`
                 ),
             })
-            const block = { label: uploaded.filename, src: uploaded.url }
-            if (placement === `append`) {
-              editorRef.current?.appendMedia(block)
-            } else {
-              editorRef.current?.insertMedia(block)
-            }
+            editorRef.current?.insertMedia({
+              label: uploaded.filename,
+              src: uploaded.url,
+            })
             const nextDescription =
               editorRef.current?.getMarkdown() ?? descriptionRef.current
             setDescriptionValue(nextDescription)
@@ -506,24 +475,18 @@ export function IssueDetailView({
     }
   }
 
-  // The Files rail's attach button hands over every INLINE pick (images and
-  // media both leave the rail): images append as image nodes, clips as media
-  // blocks.
-  const handleAppendInlineFiles = async (files: File[]) => {
-    const media = files.filter((file) => isInlineMediaAttachment(file.type))
-    const images = files.filter((file) => !isInlineMediaAttachment(file.type))
-    if (images.length > 0) await handleAppendImageFiles(images)
-    if (media.length > 0) await handleMediaFiles(media, `append`)
-  }
-
-  // Pasted/dropped files that are NOT inline-embeddable images (EXP-297): they
-  // upload to the Files section instead of entering the markdown.
-  const handleOtherFiles = async (files: File[]) => {
+  // Pasted/dropped files that are NOT inline-embeddable images (EXP-297), and
+  // EVERY pick of the rail's "Attach file" (EXP-1247 `asFile`, images too):
+  // they upload to the Files section instead of entering the markdown.
+  const handleOtherFiles = async (
+    files: File[],
+    options?: { asFile?: boolean }
+  ) => {
     setAttachmentStatus(null)
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
-          await uploadIssueFile(issue.id, file)
+          await uploadIssueAttachment(issue.id, file, options)
         }
       })
     } catch (error) {
@@ -673,7 +636,7 @@ export function IssueDetailView({
           uploading: activeUploadCount > 0,
           statusText: uploadStatusText,
           onFiles: handleImageFiles,
-          onMediaFiles: (files) => handleMediaFiles(files, `insert`),
+          onMediaFiles: handleMediaFiles,
           onOtherFiles: handleOtherFiles,
         }}
       />
@@ -690,11 +653,7 @@ export function IssueDetailView({
   // EXP-297 Files rail: non-inline-image attachments straight from the synced
   // shape, plus the "Attach file" affordance for members.
   const filesSection = (
-    <IssueFilesSection
-      issueId={issue.id}
-      readOnly={readOnly}
-      onInlineFiles={handleAppendInlineFiles}
-    />
+    <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
   )
 
   // PR / pushed-branch link to the issue's Changes face (EXP-106; EXP-1154:

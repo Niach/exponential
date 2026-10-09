@@ -83,9 +83,14 @@ export interface MarkdownEditorImageUploadConfig {
    * Receives pasted/dropped/picked files that are NOT of an accepted inline
    * image type (EXP-297: only png/jpeg/webp/gif/avif may be embedded in
    * markdown — everything else belongs in the issue's Files section). When
-   * absent, such files are ignored.
+   * absent, such files are ignored. EXP-1247: the rail's FILE picker sends
+   * EVERY pick here (images and clips included) with `asFile`, so the host
+   * uploads them as Files rows and never inlines them.
    */
-  onOtherFiles?: (files: File[]) => void | Promise<void>
+  onOtherFiles?: (
+    files: File[],
+    options?: { asFile?: boolean }
+  ) => void | Promise<void>
   /**
    * EXP-824: pasted/dropped/picked `video/*` and `audio/*` files — they are
    * embedded as media blocks (`[clip.mp4](/api/attachments/{id})`). When
@@ -111,12 +116,9 @@ export interface MarkdownEditorRef {
   // indistinguishable from a legitimately empty document.
   getMarkdown: () => string | null
   insertImage: (image: { alt?: string; src: string }) => void
-  // Inserts at the very end of the document instead of the caret — the Files
-  // section's attach button routes images here (EXP-316).
-  appendImage: (image: { alt?: string; src: string }) => void
-  // EXP-824: the media block twins of insertImage/appendImage.
+  // EXP-824: the media block twin of insertImage. (EXP-1247: the append-at-
+  // end variants went with the Files paperclip's inline detour.)
   insertMedia: (media: { label: string; src: string }) => void
-  appendMedia: (media: { label: string; src: string }) => void
 }
 
 interface MarkdownEditorProps {
@@ -485,13 +487,6 @@ export const MarkdownEditor = forwardRef<
         }
         editor.chain().focus().setImage({ alt, src }).run()
       },
-      appendImage: ({ alt, src }) => {
-        if (!editor) return
-        // `end` lands inside the last cell when the document ends in a table.
-        editor.commands.focus(`end`)
-        moveSelectionAfterTable(editor)
-        editor.chain().focus().setImage({ alt, src }).run()
-      },
       insertMedia: ({ label, src }) => {
         if (!editor) return
         // Same table/NodeSelection care as insertImage (EXP-824).
@@ -508,12 +503,6 @@ export const MarkdownEditor = forwardRef<
             .run()
           return
         }
-        editor.chain().focus().setMediaLink({ label, src }).run()
-      },
-      appendMedia: ({ label, src }) => {
-        if (!editor) return
-        editor.commands.focus(`end`)
-        moveSelectionAfterTable(editor)
         editor.chain().focus().setMediaLink({ label, src }).run()
       },
     }))

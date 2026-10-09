@@ -3,7 +3,6 @@ import {
   MAX_SESSION_RESULTS,
   SESSION_RESULT_TALL_ASPECT,
   SESSION_RESULT_TILE_HEIGHT,
-  groupSessionResults,
   parseSessionResults,
   sessionResultIsTall,
   sessionResultTileHeightFitting,
@@ -72,36 +71,6 @@ describe(`session results`, () => {
     expect(parseSessionResults(`{`)).toEqual([])
     expect(parseSessionResults({ topic: `t` })).toEqual([])
     expect(parseSessionResults(42)).toEqual([])
-  })
-
-  it(`groups by topic in first-seen order`, () => {
-    const entries = parseSessionResults([
-      { topic: `chatui`, label: `web`, attachmentId: `a1` },
-      { topic: `nav`, label: `web`, attachmentId: `a2` },
-      { topic: `chatui`, label: `ios`, attachmentId: `a3` },
-    ])
-    expect(groupSessionResults(entries)).toEqual([
-      {
-        topic: `chatui`,
-        text: null,
-        entries: [
-          { topic: `chatui`, label: `web`, attachmentId: `a1`, width: null, height: null, inline: false, caption: null },
-          { topic: `chatui`, label: `ios`, attachmentId: `a3`, width: null, height: null, inline: false, caption: null },
-        ],
-        earlier: [],
-        files: [],
-      },
-      {
-        topic: `nav`,
-        text: null,
-        entries: [
-          { topic: `nav`, label: `web`, attachmentId: `a2`, width: null, height: null, inline: false, caption: null },
-        ],
-        earlier: [],
-        files: [],
-      },
-    ])
-    expect(groupSessionResults([])).toEqual([])
   })
 
   it(`caps at 60 entries`, () => {
@@ -230,7 +199,6 @@ describe(`session inline fixture`, () => {
 // `guide` blocks ×4.
 import {
   SESSION_RESULT_FILES_MAX,
-  guideFileRows,
   guideSectionCaption,
   guideSections,
   isSummaryTopic,
@@ -270,17 +238,6 @@ describe(`session results guide fixture`, () => {
       expect(guideSectionCaption(c.index, c.total)).toBe(c.text)
     }
   })
-  for (const c of fixture.guide.fileRows) {
-    it(`file rows: ${c.name}`, () => {
-      expect(
-        guideFileRows(c.paths, c.diff).map((row) => ({
-          path: row.path,
-          additions: row.counts?.additions ?? null,
-          deletions: row.counts?.deletions ?? null,
-        }))
-      ).toEqual(c.expected)
-    })
-  }
   it(`reads the Summary topic trimmed and case-insensitive`, () => {
     expect(isSummaryTopic(` summary `)).toBe(true)
     expect(isSummaryTopic(`SUMMARY`)).toBe(true)
@@ -302,6 +259,114 @@ describe(`session thread`, () => {
             : { kind: `picture`, attachmentId: item.entry.attachmentId }
         ),
         reply: thread.reply,
+      }).toEqual(c.expected)
+    })
+  }
+})
+
+// EXP-1251: the Guide's coverage + PR scope, the fixture's `coverage` and
+// `prScope` blocks ×4.
+import {
+  GUIDE_CHANGES_TOPIC,
+  GUIDE_OTHER_CHANGES_TOPIC,
+  guideCoverage,
+  guideFileCountLabel,
+  sessionResultPrUrls,
+  sessionResultsForPr,
+  type GuideChangeSet,
+  type GuideCoverageFile,
+} from "./session-results"
+
+describe(`session results coverage fixture`, () => {
+  it(`titles the automatic section off the contract`, () => {
+    expect(GUIDE_OTHER_CHANGES_TOPIC).toBe(`Other changes`)
+    expect(GUIDE_CHANGES_TOPIC).toBe(`Changes`)
+  })
+  it(`labels a Changes row's file count`, () => {
+    for (const [count, label] of fixture.coverage.fileCountLabels) {
+      expect(guideFileCountLabel(count as number)).toBe(label)
+    }
+  })
+  const paths = (set: GuideChangeSet<GuideCoverageFile>) => set.files.map((file) => file.path)
+  for (const c of fixture.coverage.cases) {
+    it(`coverage: ${c.name}`, () => {
+      const coverage = guideCoverage(c.groups, c.diff)
+      const covered = (
+        entry: { group: { topic: string }; changes: GuideChangeSet<GuideCoverageFile> | null; missing: string[] },
+        extra: Record<string, unknown> = {}
+      ) =>
+        entry.changes
+          ? {
+              topic: entry.group.topic,
+              ...extra,
+              files: paths(entry.changes),
+              additions: entry.changes.additions,
+              deletions: entry.changes.deletions,
+              missing: entry.missing,
+            }
+          : { topic: entry.group.topic, ...extra, changes: null, missing: entry.missing }
+      expect({
+        lead: coverage.lead ? covered(coverage.lead) : null,
+        sections: coverage.sections.map((section) =>
+          covered(section, { index: section.index, total: section.total })
+        ),
+        other: coverage.other
+          ? {
+              topic: coverage.other.topic,
+              files: paths(coverage.other.changes),
+              additions: coverage.other.changes.additions,
+              deletions: coverage.other.changes.deletions,
+            }
+          : null,
+        complete: coverage.complete
+          ? {
+              fileCount: coverage.complete.fileCount,
+              additions: coverage.complete.additions,
+              deletions: coverage.complete.deletions,
+            }
+          : null,
+      }).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.prScope.cases) {
+    it(`pr scope: ${c.name}`, () => {
+      expect(sessionResultPrUrls(c.raw)).toEqual(c.prUrls)
+      for (const scope of c.byPr) {
+        expect(
+          sessionResultsForPr(c.raw, scope.prUrl).map((record) => record.topic),
+          `${scope.prUrl}`
+        ).toEqual(scope.topics)
+      }
+    })
+  }
+  it(`reads a topic's prUrl onto its group`, () => {
+    const [group] = parseSessionResultGroups([
+      { topic: `t`, text: `x`, prUrl: ` https://github.com/o/r/pull/1 ` },
+    ])
+    expect(group.prUrl).toBe(`https://github.com/o/r/pull/1`)
+  })
+})
+
+// EXP-1245: the thread as turns, the fixture's `turns` cases ×4.
+import { sessionTurns, type SessionTurnEvent } from "./session-results"
+
+describe(`session turns`, () => {
+  for (const c of fixture.turns.cases) {
+    it(c.name, () => {
+      const turns = sessionTurns(c.raw, c.feed as SessionTurnEvent[] | null)
+      expect({
+        perTurn: turns.perTurn,
+        turns: turns.turns.map((turn) => ({
+          message: turn.message,
+          startedAt: turn.startedAt,
+          endedAt: turn.endedAt,
+          items: turn.items.map((item) =>
+            item.kind === `text`
+              ? { kind: `text`, topic: item.topic, text: item.text }
+              : { kind: `picture`, attachmentId: item.entry.attachmentId }
+          ),
+          reply: turn.reply,
+        })),
       }).toEqual(c.expected)
     })
   }

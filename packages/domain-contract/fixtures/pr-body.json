@@ -1,10 +1,10 @@
 {
-  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Results report (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Report and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded.",
+  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Guide (EXP-1251, formerly Results) (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Guide and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded. EXP-1251 prUrl: a case may carry prUrl (the PR the body is for): a topic whose first text entry is tagged with ANOTHER prUrl is left out (untagged topics stay); prUrl null = untagged topics only; absent = no filter.",
   "cases": [
     {
       "name": "null blob",
       "raw": null,
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
       "expected": null
     },
     {
@@ -18,7 +18,7 @@
           "height": 50
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
       "expected": null
     },
     {
@@ -33,7 +33,7 @@
           "text": "   "
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
       "expected": null
     },
     {
@@ -48,8 +48,8 @@
           "text": "  Fixed the nav bar for #EXP-1.  "
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Fixed the nav bar for #EXP-1.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Fixed the nav bar for #EXP-1.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "summary filed last still leads",
@@ -78,8 +78,8 @@
           "text": "Did it."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n### nav\n\nThe nav bar moved.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n### nav\n\nThe nav bar moved.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "a topic's files become backticked bullets",
@@ -111,8 +111,8 @@
           ]
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n- `apps/web/src/a.ts`\n\n### nav\n\nThe nav bar.\n\n- `apps/web/src/__init__.py`\n- `packages/ui/src/b.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n- `apps/web/src/a.ts`\n\n### nav\n\nThe nav bar.\n\n- `apps/web/src/__init__.py`\n- `packages/ui/src/b.ts`\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "no Summary opens with a heading",
@@ -134,8 +134,8 @@
           "text": "The chat."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "### nav\n\nThe nav bar.\n\n### chat\n\nThe chat.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "### nav\n\nThe nav bar.\n\n### chat\n\nThe chat.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "SUMMARY counts, only the first one leads",
@@ -165,8 +165,8 @@
           "text": "Second."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Lead.\n\n### chat\n\nThe chat.\n\n### summary\n\nSecond.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Lead.\n\n### chat\n\nThe chat.\n\n### summary\n\nSecond.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "the first text per topic wins, its files only",
@@ -200,8 +200,8 @@
           "text": "ignored on a picture"
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "### nav\n\nfirst\n\n- `x.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "### nav\n\nfirst\n\n- `x.ts`\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "no results url, no footer",
@@ -221,8 +221,8 @@
     {
       "name": "a JSON string blob parses like the array",
       "raw": "[{\"topic\":\"Summary\",\"label\":null,\"attachmentId\":null,\"width\":null,\"height\":null,\"text\":\"Hi\"}]",
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Hi\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Hi\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "over max cuts at the last fitting line and keeps the footer",
@@ -246,7 +246,7 @@
       ],
       "resultsUrl": "https://e.x/r",
       "max": 120,
-      "expected": "Line one of the lead.\nLine two of the lead.\n…\n\n---\n\n[Report and screenshots in Exponential](https://e.x/r)"
+      "expected": "Line one of the lead.\nLine two of the lead.\n…\n\n---\n\n[Guide and screenshots in Exponential](https://e.x/r)"
     },
     {
       "name": "a topic's whitespace runs, newlines included, collapse to one space",
@@ -268,8 +268,8 @@
           "text": "Moved."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n### nav bar fix\n\nMoved.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n### nav bar fix\n\nMoved.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "a topic ending in ' #' keeps its '#' escaped",
@@ -299,8 +299,8 @@
           "text": "Kept as is."
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n### Issue \\#\n\nNumbered.\n\n### C#\n\nKept as is.\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n### Issue \\#\n\nNumbered.\n\n### C#\n\nKept as is.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "a path with backticks gets a longer, padded fence",
@@ -318,8 +318,8 @@
           ]
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n- ``a`b.ts``\n- ``` `odd``.ts ```\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n- ``a`b.ts``\n- ``` `odd``.ts ```\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
     },
     {
       "name": "a path's newlines are stripped",
@@ -338,8 +338,119 @@
           ]
         }
       ],
-      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=results",
-      "expected": "Did it.\n\n- `apps/web/a.ts`\n- `b.ts`\n\n---\n\n[Report and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=results)"
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide",
+      "expected": "Did it.\n\n- `apps/web/a.ts`\n- `b.ts`\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)"
+    },
+    {
+      "name": "a stacked run's first PR keeps its own topics",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Dropped the iOS x.",
+          "prUrl": "https://github.com/o/r/pull/1011"
+        },
+        {
+          "topic": "Verification",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Tests pass."
+        },
+        {
+          "topic": "Reviews",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Linked by pr_url.",
+          "files": [
+            "apps/web/src/lib/reviews-queue.ts"
+          ],
+          "prUrl": "https://github.com/o/r/pull/1012"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1239?view=guide",
+      "prUrl": "https://github.com/o/r/pull/1011",
+      "expected": "Dropped the iOS x.\n\n### Verification\n\nTests pass.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1239?view=guide)"
+    },
+    {
+      "name": "a stacked run's second PR leaves the first PR's summary out",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Dropped the iOS x.",
+          "prUrl": "https://github.com/o/r/pull/1011"
+        },
+        {
+          "topic": "Verification",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Tests pass."
+        },
+        {
+          "topic": "Reviews",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Linked by pr_url.",
+          "files": [
+            "apps/web/src/lib/reviews-queue.ts"
+          ],
+          "prUrl": "https://github.com/o/r/pull/1012"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/boards/web/issues/EXP-1239?view=guide",
+      "prUrl": "https://github.com/o/r/pull/1012",
+      "expected": "### Verification\n\nTests pass.\n\n### Reviews\n\nLinked by pr_url.\n\n- `apps/web/src/lib/reviews-queue.ts`\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/boards/web/issues/EXP-1239?view=guide)"
+    },
+    {
+      "name": "a PR not opened yet takes the untagged topics",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Dropped the iOS x.",
+          "prUrl": "https://github.com/o/r/pull/1011"
+        },
+        {
+          "topic": "Verification",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Tests pass."
+        },
+        {
+          "topic": "Reviews",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Linked by pr_url.",
+          "files": [
+            "apps/web/src/lib/reviews-queue.ts"
+          ],
+          "prUrl": "https://github.com/o/r/pull/1012"
+        }
+      ],
+      "resultsUrl": null,
+      "prUrl": null,
+      "expected": "### Verification\n\nTests pass."
     }
   ]
 }

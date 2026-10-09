@@ -95,8 +95,7 @@ vi.mock(`@/components/issue-title-field`, () => ({
 }))
 vi.mock(`@/components/pr-graph-badge`, () => ({ PrGraphBadge: () => null }))
 vi.mock(`@/lib/storage/issue-image-upload`, () => ({
-  uploadIssueFile: vi.fn(),
-  uploadIssueImageFile: vi.fn(),
+  uploadIssueAttachment: vi.fn(),
 }))
 vi.mock(`@/lib/storage/media-upload`, () => ({
   mediaPlayabilityHint: () => null,
@@ -132,9 +131,7 @@ vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
       getMarkdown: () => valueRef.current,
       setMarkdown: (next: string) => write(next),
       insertImage: vi.fn(),
-      appendImage: vi.fn(),
       insertMedia: vi.fn(),
-      appendMedia: vi.fn(),
     }))
     return (
       <textarea

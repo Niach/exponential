@@ -2,11 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import {
   conceptIcon,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  GlassCard,
 } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
 
@@ -67,18 +63,18 @@ function AboutPage() {
           </Button>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <GlassCard className="flex flex-col gap-6 py-6 backdrop-blur-md">
+          <div className="grid gap-2 px-6">
+            <div className="leading-none font-semibold flex items-center gap-2">
               <LicensesIcon className="size-4" />
               Third-party licenses
-            </CardTitle>
-            <CardDescription>
+            </div>
+            <div className="text-sm text-muted-foreground">
               Exponential is built with open-source software. These licenses
               cover the components bundled in this build.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
+            </div>
+          </div>
+          <div className="px-6 flex flex-col gap-3">
             {notices === null ? (
               <p className="text-sm text-muted-foreground">
                 The notices file could not be loaded. You can download it
@@ -100,8 +96,8 @@ function AboutPage() {
                 </a>
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </GlassCard>
       </div>
     </div>
   )

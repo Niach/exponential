@@ -16,14 +16,31 @@ import {
 } from "@/lib/storage/issue-attachments"
 
 /**
+ * What the classifiers read: a bare content type (a local `File.type` before
+ * upload) or a stored row, whose EXP-1247 `asFile` marker wins over its type.
+ */
+export type AttachmentClassInput =
+  | string
+  | { contentType: string; asFile?: boolean | null }
+
+function contentTypeOf(input: AttachmentClassInput) {
+  return typeof input === `string` ? input : input.contentType
+}
+
+function markedAsFile(input: AttachmentClassInput) {
+  return typeof input !== `string` && input.asFile === true
+}
+
+/**
  * EXP-297 classification rule, shared by every client: a row is an INLINE
  * IMAGE iff its content type is one of the five accepted raster types (they
  * ride the `![](…)` markdown pipeline). Everything else — including other
  * `image/*` types like tiff — belongs in the Files section, except the
- * EXP-824 inline media classes below.
+ * EXP-824 inline media classes below. EXP-1247: a row uploaded through a
+ * FILE/paperclip path (`asFile`) is never inline, whatever its type.
  */
-export function isInlineImageAttachment(contentType: string) {
-  return isAcceptedImageContentType(contentType)
+export function isInlineImageAttachment(input: AttachmentClassInput) {
+  return !markedAsFile(input) && isAcceptedImageContentType(contentTypeOf(input))
 }
 
 /**
@@ -31,23 +48,24 @@ export function isInlineImageAttachment(contentType: string) {
  * `[clip.mp4](/api/attachments/{id})` and rendered as a player (poster +
  * controls). Mirrored ×4 like isInlineImageAttachment.
  */
-export function isInlineVideoAttachment(contentType: string) {
-  return isVideoContentType(contentType)
+export function isInlineVideoAttachment(input: AttachmentClassInput) {
+  return !markedAsFile(input) && isVideoContentType(contentTypeOf(input))
 }
 
 /** `audio/*` rides the same link form and renders as an audio player. */
-export function isInlineAudioAttachment(contentType: string) {
-  return isAudioContentType(contentType)
+export function isInlineAudioAttachment(input: AttachmentClassInput) {
+  return !markedAsFile(input) && isAudioContentType(contentTypeOf(input))
 }
 
 /** Third class beside inline image and file: rows that render inline media. */
-export function isInlineMediaAttachment(contentType: string) {
-  return isInlineVideoAttachment(contentType) || isInlineAudioAttachment(contentType)
+export function isInlineMediaAttachment(input: AttachmentClassInput) {
+  return isInlineVideoAttachment(input) || isInlineAudioAttachment(input)
 }
 
-/** True for rows that belong in the Files rail (neither inline image nor media). */
-export function isFileAttachment(contentType: string) {
-  return !isInlineImageAttachment(contentType) && !isInlineMediaAttachment(contentType)
+/** True for rows that belong in the Files rail: neither inline image nor
+ *  media, OR marked `asFile` (EXP-1247). */
+export function isFileAttachment(input: AttachmentClassInput) {
+  return !isInlineImageAttachment(input) && !isInlineMediaAttachment(input)
 }
 
 const archiveTypes = new Set([

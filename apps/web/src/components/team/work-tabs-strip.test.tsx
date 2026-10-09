@@ -30,7 +30,7 @@ vi.mock(`@/hooks/use-work-tabs`, () => ({
   useWorkTabs: () => ({ tabs: tabs.value }),
   updateWorkTabs,
 }))
-vi.mock(`@/components/agent-session-row`, () => ({
+vi.mock(`@/lib/session-row-caption`, () => ({
   LIVE_DOT_TONE_BY_SESSION_TONE: { muted: `muted` },
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({

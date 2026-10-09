@@ -43,7 +43,11 @@ const ORIGIN = `http://localhost:5173/api/trpc/issueDrafts.upsert`
 
 const state = {
   /** Attachment rows the ownership probe finds for this draft. */
-  ownedAttachments: [] as { id: string }[],
+  ownedAttachments: [] as {
+    id: string
+    contentType?: string
+    asFile?: boolean
+  }[],
   /** Attachment rows the delete path collects (storage keys). */
   draftAttachments: [] as {
     storageKey: string
@@ -337,11 +341,25 @@ describe(`issueDrafts.listAttachments`, () => {
     )
   })
 
-  it(`returns the draft's rows once ownership is proven`, async () => {
+  it(`returns the draft's Files rows once ownership is proven`, async () => {
     state.draftRows = [{ id: DRAFT }]
-    state.ownedAttachments = [{ id: ATT }]
+    state.ownedAttachments = [{ id: ATT, contentType: `application/pdf` }]
     await expect(caller.listAttachments({ id: DRAFT })).resolves.toEqual([
-      { id: ATT },
+      { id: ATT, contentType: `application/pdf` },
     ])
+  })
+
+  // EXP-1247: pasted images and clips are the description's, not Files rows;
+  // a FILE-path image (`asFile`) is.
+  it(`drops inline rows unless they were uploaded as files`, async () => {
+    state.draftRows = [{ id: DRAFT }]
+    state.ownedAttachments = [
+      { id: `inline-png`, contentType: `image/png`, asFile: false },
+      { id: `clip`, contentType: `video/mp4`, asFile: false },
+      { id: `file-png`, contentType: `image/png`, asFile: true },
+      { id: `pdf`, contentType: `application/pdf`, asFile: false },
+    ]
+    const rows = await caller.listAttachments({ id: DRAFT })
+    expect(rows.map((row) => row.id)).toEqual([`file-png`, `pdf`])
   })
 })

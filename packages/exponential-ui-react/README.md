@@ -162,9 +162,9 @@ fixtures snapshot every row.
 
 `src/primitives/` holds the generic shadcn/Radix components the app and
 extension authors share (button, input, select, dialog, sheet, tabs, the glass
-rows, pill, meter, composer, calendar, … plus radio-group, slider, toggle,
-toggle-group, carousel, accordion, pagination, button-group, spinner, table),
-themed only through the surface's variables. `@exp/ui` re-exports every one
+rows, pill, meter, composer, calendar, …), themed only through the surface's
+variables; only what the app imports lives here (the catalog's natives own
+Radix directly). `@exp/ui` re-exports every one
 (its old paths are one-line shims), and its `styles.css` scans this directory
 so the app's Tailwind build still emits their classes. An embedder without
 Tailwind takes the compiled `dist/exponential-ui-react.css`

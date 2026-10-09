@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest"
 import {
   availableFaces,
   changesFaceCounts,
-  changesFaceText,
   codingTarget,
+  GUIDE_FACE_LABEL,
+  OPEN_RESULTS_LABEL,
   faceLabel,
   faceShowsContextMenu,
   fallbackFace,
@@ -42,54 +43,35 @@ function run(
 }
 
 describe(`work faces`, () => {
-  it(`lists the available faces in issue, run, changes, results order`, () => {
+  it(`lists the available faces in issue, run, guide order`, () => {
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: true,
-        hasChanges: true,
-        hasResults: true,
-      })
-    ).toEqual([`issue`, `run`, `changes`, `results`])
+      availableFaces({ hasIssue: true, hasRun: true, hasResults: true, hasDiff: true })
+    ).toEqual([`issue`, `run`, `guide`])
     expect(
-      availableFaces({
-        hasIssue: false,
-        hasRun: true,
-        hasChanges: false,
-        hasResults: false,
-      })
+      availableFaces({ hasIssue: false, hasRun: true, hasResults: false, hasDiff: false })
     ).toEqual([`run`])
-    // Changes is independent of Run: an open PR with no run of mine.
+    // EXP-1251: a diff alone (an open PR, no run of mine) is a Guide.
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: false,
-        hasChanges: true,
-        hasResults: false,
-      })
-    ).toEqual([`issue`, `changes`])
-    // EXP-879: results come LAST, after the changes face.
+      availableFaces({ hasIssue: true, hasRun: false, hasResults: false, hasDiff: true })
+    ).toEqual([`issue`, `guide`])
+    // So are results alone.
     expect(
-      availableFaces({
-        hasIssue: true,
-        hasRun: true,
-        hasChanges: false,
-        hasResults: true,
-      })
-    ).toEqual([`issue`, `run`, `results`])
+      availableFaces({ hasIssue: true, hasRun: true, hasResults: true, hasDiff: false })
+    ).toEqual([`issue`, `run`, `guide`])
   })
 
   it(`labels the faces, Runs once there are several`, () => {
     expect(faceLabel(`issue`)).toBe(`Issue`)
     expect(faceLabel(`run`)).toBe(`Run`)
     expect(faceLabel(`run`, true)).toBe(`Runs`)
-    expect(faceLabel(`changes`)).toBe(`Changes`)
-    expect(faceLabel(`results`)).toBe(`Results`)
+    expect(faceLabel(`guide`)).toBe(`Guide`)
+    expect(GUIDE_FACE_LABEL).toBe(`Guide`)
+    expect(OPEN_RESULTS_LABEL).toBe(`Open Guide`)
     expect(STEER_COMPOSER_PLACEHOLDER).toBe(`Type / for commands`)
     expect(PLAN_MODE_LABEL).toBe(`Plan mode`)
   })
 
-  it(`labels Changes with its counts once the files are known`, () => {
+  it(`counts the diff once the files are known`, () => {
     expect(changesFaceCounts(null)).toBeNull()
     expect(changesFaceCounts(undefined)).toBeNull()
     expect(changesFaceCounts({ files: 0, additions: 0, deletions: 0 })).toBeNull()
@@ -97,9 +79,6 @@ describe(`work faces`, () => {
       additions: 12,
       deletions: 2,
     })
-    // U+2212 MINUS SIGN, never a hyphen — the contract's `deletionsLabel`.
-    expect(changesFaceText({ additions: 12, deletions: 2 })).toBe(`+12 \u22122`)
-    expect(changesFaceText({ additions: 0, deletions: 0 })).toBe(`+0 \u22120`)
   })
 
   it(`targets the bound run when it is mine and live`, () => {
@@ -186,18 +165,15 @@ describe(`work faces`, () => {
     expect(swipeTarget(tabs, `drafts`, `left`)).toBeNull()
   })
 
-  it(`falls back changes to run to issue`, () => {
-    expect(fallbackFace(`changes`, [`issue`, `run`])).toBe(`run`)
-    expect(fallbackFace(`changes`, [`issue`])).toBe(`issue`)
+  it(`falls back guide to run to issue`, () => {
+    expect(fallbackFace(`guide`, [`issue`, `run`])).toBe(`run`)
+    expect(fallbackFace(`guide`, [`issue`])).toBe(`issue`)
+    expect(fallbackFace(`guide`, [`issue`, `run`, `guide`])).toBe(`guide`)
+    expect(fallbackFace(`guide`, [])).toBeNull()
     expect(fallbackFace(`run`, [`issue`])).toBe(`issue`)
     expect(fallbackFace(`run`, [`issue`, `run`])).toBe(`run`)
     expect(fallbackFace(`issue`, [`run`])).toBe(`run`)
     expect(fallbackFace(`run`, [])).toBeNull()
-    // EXP-879: the results face walks the same ladder.
-    expect(fallbackFace(`results`, [`issue`, `run`])).toBe(`run`)
-    expect(fallbackFace(`results`, [`issue`])).toBe(`issue`)
-    expect(fallbackFace(`results`, [`issue`, `run`, `results`])).toBe(`results`)
-    expect(fallbackFace(`results`, [])).toBeNull()
   })
 
   it(`reads the session model off the config option`, () => {
@@ -237,8 +213,7 @@ describe(`work faces`, () => {
   it(`shows the context menu on the issue face alone`, () => {
     expect(faceShowsContextMenu(`issue`)).toBe(true)
     expect(faceShowsContextMenu(`run`)).toBe(false)
-    expect(faceShowsContextMenu(`changes`)).toBe(false)
-    expect(faceShowsContextMenu(`results`)).toBe(false)
+    expect(faceShowsContextMenu(`guide`)).toBe(false)
   })
 })
 
@@ -259,7 +234,8 @@ describe(`issueResultsRun`, () => {
         updatedAt: string
         results: unknown
       }>
-      const picked = issueResultsRun(rows, c.issueId, c.boundId, c.me ?? undefined, now)
+      const prUrl = (c as { prUrl?: string | null }).prUrl ?? null
+      const picked = issueResultsRun(rows, c.issueId, c.boundId, c.me ?? undefined, now, prUrl)
       expect(picked?.id ?? null).toBe(c.expected)
     })
   }
@@ -274,6 +250,7 @@ import {
   runRowCaption,
   runRowState,
   showWorkLabel,
+  turnRowCaption,
   type RunRowState,
 } from "./work-faces"
 
@@ -313,6 +290,23 @@ describe(`runRowState`, () => {
           display: c.display as `needs_input` | `working` | `review` | `done`,
         })
       ).toBe(c.expected)
+    })
+  }
+})
+
+// EXP-1245: one status row per turn, fixture-locked ×4.
+describe(`turnRowCaption`, () => {
+  for (const c of runRowFixture.turnCaptions) {
+    it(c.name, () => {
+      expect(
+        turnRowCaption({
+          turn: c.turn,
+          state: c.state as RunRowState,
+          device: c.device,
+          runEndedAt: c.runEndedAt,
+          now: c.now,
+        })
+      ).toEqual(c.expected)
     })
   }
 })

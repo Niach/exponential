@@ -9,11 +9,6 @@ import { trpc } from "@/lib/trpc-client"
 import {
   Pill,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   ListEmpty,
   Select,
@@ -26,7 +21,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@exp/ui"
-import { EmailDeliveriesTable, formatRelative } from "./-shared"
+import { AdminCard, EmailDeliveriesTable, formatRelative } from "./-shared"
 import { pageTitle } from "@/lib/page-title"
 
 type BounceRow = Awaited<
@@ -128,23 +123,18 @@ function EmailError({ error }: ErrorComponentProps) {
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
       <h1 className="text-2xl font-bold">Email health</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Couldn’t load email data</CardTitle>
-          <CardDescription className="text-xs">
-            {error instanceof Error ? error.message : String(error)}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void router.invalidate()}
-          >
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
+      <AdminCard
+        title="Couldn’t load email data"
+        description={error instanceof Error ? error.message : String(error)}
+      >
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => void router.invalidate()}
+        >
+          Retry
+        </Button>
+      </AdminCard>
     </div>
   )
 }

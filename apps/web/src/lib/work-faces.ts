@@ -1,14 +1,15 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
-import { additionsLabel, deletionsLabel } from "@exp/domain-contract/diff"
+import { contract } from "@exp/domain-contract"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
-import { hasSessionResults, type SessionDotTone } from "@exp/ui"
+import { hasSessionResults, sessionResultPrUrls, type SessionDotTone } from "@exp/ui"
 import { formatTurnDuration } from "@/lib/working-caption"
 import type { SessionStatusTone } from "@/lib/coding-session-display"
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
-// session) with up to four FACES held as screen state, never as navigation:
-// `issue`, `run`, `changes` and `results`. EXP-1150: the faces are TABS — a
+// session) with up to three FACES held as screen state, never as navigation:
+// `issue`, `run` and `guide` (EXP-1251: Changes + Results merged into the
+// Guide, its diff counts moved into the body). EXP-1150: the faces are TABS — a
 // segmented strip under the header (the ONE segmented control every list
 // strip wears) names every available face in its fixed order, and a
 // horizontal swipe on the face's body moves to the neighbour. The header
@@ -20,21 +21,20 @@ import type { SessionStatusTone } from "@/lib/coding-session-display"
 // `ExpCore/Domain/WorkFaces.swift`, Android `domain/WorkFaces.kt` — same
 // names, same cases, same test names.
 
-/** The four faces. `changes` is the run's diff, else the issue's open PR;
- *  `results` (EXP-879) is the run's published screenshots, mirrored by the
- *  natives. */
-export type WorkFaceKind = `issue` | `run` | `changes` | `results`
+/** The three faces. EXP-1251: `guide` = the run's Guide (its published
+ *  sections + pictures) over the diff (the run's live diff, else the issue's
+ *  open PR), mirrored by the natives. */
+export type WorkFaceKind = `issue` | `run` | `guide`
 
 export const ISSUE_FACE_LABEL = `Issue`
 export const RUN_FACE_LABEL = `Run`
 /** EXP-886: the Run face's label with MORE THAN ONE own run on the issue. */
 export const RUNS_FACE_LABEL = `Runs`
-export const CHANGES_FACE_LABEL = `Changes`
-/** EXP-879: the run's published results. */
-export const RESULTS_FACE_LABEL = `Results`
-/** EXP-933: the transcript card under a settled `sessions_results` call that
- *  switches the run to its Results face. */
-export const OPEN_RESULTS_LABEL = `Open Results`
+/** EXP-1251: the Guide face (contract `diffUi.guideFace`). */
+export const GUIDE_FACE_LABEL = contract.diffUi.guideFace
+/** EXP-933: the transcript card under a settled `sessions_guide` call that
+ *  switches the run to its Guide face. */
+export const OPEN_RESULTS_LABEL = `Open ${GUIDE_FACE_LABEL}`
 /** The Start circle's label — the Run face's bar once the shown run ended
  *  for good, the Issue face's bar always. */
 export const START_CODING_LABEL = `Start coding`
@@ -51,17 +51,14 @@ export function faceLabel(face: WorkFaceKind, multipleRuns = false): string {
       return ISSUE_FACE_LABEL
     case `run`:
       return multipleRuns ? RUNS_FACE_LABEL : RUN_FACE_LABEL
-    case `changes`:
-      return CHANGES_FACE_LABEL
-    case `results`:
-      return RESULTS_FACE_LABEL
+    case `guide`:
+      return GUIDE_FACE_LABEL
   }
 }
 
-/** EXP-1152: what the Changes tab WEARS — the desktop `work_header.rs`
- *  `FaceToggle::diff` rule on every phone: the `+N −M` counts of the files
- *  the face draws (the run's live diff, else the issue's loaded PR files)
- *  once they are known, the word `Changes` until then. `null` = the word. */
+/** EXP-1152: the `+N −M` counts of the files the diff draws (the run's live
+ *  diff, else the issue's loaded PR files) once they are known; `null` while
+ *  none are. EXP-1251: the tab reads `Guide`, the counts sit in the body. */
 export interface ChangesFaceCounts {
   additions: number
   deletions: number
@@ -74,26 +71,20 @@ export function changesFaceCounts(
   return { additions: totals.additions, deletions: totals.deletions }
 }
 
-/** The counts as ONE string (`+12 −2`, U+2212) — the segment's accessible
- *  name and the natives' plain label, byte-identical ×3. */
-export function changesFaceText(counts: ChangesFaceCounts): string {
-  return `${additionsLabel(counts.additions)} ${deletionsLabel(counts.deletions)}`
-}
-
-/** The faces a subject can show, in their fixed order. Changes is independent
- *  of Run: an issue with an open PR and no run of mine still has its PR files.
- *  Results (EXP-879) comes last — what the run PUBLISHED, after what it did. */
+/** The faces a subject can show, in their fixed order. EXP-1251: the Guide
+ *  shows when the run published results OR there is a diff (live, PR or
+ *  branch), independent of Run: an issue with an open PR and no run of mine
+ *  still has its PR files. It comes last: what the run did, then its Guide. */
 export function availableFaces(input: {
   hasIssue: boolean
   hasRun: boolean
-  hasChanges: boolean
   hasResults: boolean
+  hasDiff: boolean
 }): WorkFaceKind[] {
   const faces: WorkFaceKind[] = []
   if (input.hasIssue) faces.push(`issue`)
   if (input.hasRun) faces.push(`run`)
-  if (input.hasChanges) faces.push(`changes`)
-  if (input.hasResults) faces.push(`results`)
+  if (input.hasResults || input.hasDiff) faces.push(`guide`)
   return faces
 }
 
@@ -168,7 +159,9 @@ export function codingTarget<T extends CodingTargetRow>(
  * EXP-933: the run whose Results an ISSUE shows. Results live on the run but
  * sync team-wide, and an agent message deep-links a teammate to the ISSUE's
  * Results — so this is not limited to my runs: `codingTarget` when that run
- * has results, else the newest run on the issue (any member) that has any.
+ * has results, else the newest run on the issue (any member) that has any,
+ * else (EXP-1251) the newest run anywhere whose topics are tagged with the
+ * issue's PR (a run that stacked this issue's PR on its own).
  * Fixture: `packages/domain-contract/fixtures/session-results.json` (×4).
  */
 export function issueResultsRun<T extends CodingTargetRow & { results?: unknown }>(
@@ -176,18 +169,21 @@ export function issueResultsRun<T extends CodingTargetRow & { results?: unknown 
   issueId: string,
   boundId: string | null | undefined,
   me: string | undefined,
-  now: Date
+  now: Date,
+  issuePrUrl?: string | null
 ): T | null {
   const own = codingTarget(rows, issueId, boundId, me, now)
   if (own && hasSessionResults(own.results)) return own
-  return newest(
+  const onIssue = newest(
     rows.filter((row) => row.issueId === issueId && hasSessionResults(row.results))
   )
+  if (onIssue || !issuePrUrl) return onIssue
+  return newest(rows.filter((row) => sessionResultPrUrls(row.results).includes(issuePrUrl)))
 }
 
 /** EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark
  *  duplicate · Delete issue) belongs to the issue, so it shows on the ISSUE
- *  face alone. On Run, Changes and Results the trailing slot carries the run's
+ *  face alone. On Run and Guide the trailing slot carries the run's
  *  own verb (Stop / Resume) and nothing else — a Delete issue sitting beside a
  *  running agent acts on a subject that face is not even showing. */
 export function faceShowsContextMenu(face: WorkFaceKind): boolean {
@@ -228,16 +224,16 @@ export function swipeTarget<T>(
   return faces[next] ?? null
 }
 
-/** Where a face lands when it vanishes under the reader (the diff cleared,
- *  the results list was empty, the run row went): changes → run → issue, and
- *  results the same way (EXP-879). `null` = nothing left. */
+/** Where a face lands when it vanishes under the reader (the diff cleared
+ *  and the results list was empty, the run row went): guide → run → issue.
+ *  `null` = nothing left. */
 export function fallbackFace(
   shown: WorkFaceKind,
   available: readonly WorkFaceKind[]
 ): WorkFaceKind | null {
   if (available.includes(shown)) return shown
   const order: WorkFaceKind[] =
-    shown === `changes` || shown === `results`
+    shown === `guide`
       ? [`run`, `issue`]
       : shown === `run`
         ? [`issue`]
@@ -281,8 +277,8 @@ export type FaceDotTone = `running` | `needs_input` | `review`
  * EXP-1162: which face TABS carry a state dot (contract `detail-chrome.json`
  * `faceDots`, ×4). The header title carries none. The Run tab says its run
  * is live — amber while it waits on a person; an open pull request dots the
- * Results tab, or the Changes tab when there is no Results face. An ended
- * run carries no dot, and a face that is not on show never does.
+ * Guide tab (EXP-1251). An ended run carries no dot, and a face that is not
+ * on show never does.
  */
 export function faceDots(input: {
   faces: readonly WorkFaceKind[]
@@ -294,19 +290,8 @@ export function faceDots(input: {
   if (input.runLive && input.faces.includes(`run`)) {
     dots.run = input.needsInput ? `needs_input` : `running`
   }
-  if (input.prOpen) {
-    if (input.faces.includes(`results`)) dots.results = `review`
-    else if (input.faces.includes(`changes`)) dots.changes = `review`
-  }
+  if (input.prOpen && input.faces.includes(`guide`)) dots.guide = `review`
   return dots
-}
-
-/** The same dots keyed the face TOGGLE's way (`diff` is the Changes face). */
-export function toggleFaceDots(
-  dots: Partial<Record<WorkFaceKind, FaceDotTone>>
-): Partial<Record<`issue` | `run` | `diff` | `results`, FaceDotTone>> {
-  const { changes, ...rest } = dots
-  return changes ? { ...rest, diff: changes } : rest
 }
 
 // ── EXP-1175: the Run face's status row + Show work ─────────────────────────
@@ -361,9 +346,9 @@ export interface RunRowCaptionInput {
   state: RunRowState
   /** The resolved device label (`device.label || session.deviceLabel || 'Desktop'`). */
   device: string
-  startedAt: Date | string | null | undefined
+  startedAt: Date | string | number | null | undefined
   /** The run's `ended_at`, else its `updated_at` — an ended run's end. */
-  endedAt: Date | string | null | undefined
+  endedAt: Date | string | number | null | undefined
   now: Date | string | number
 }
 
@@ -403,4 +388,44 @@ export function runRowCaption(
       return { text: `${verb} ${device}${elapsed}`, tone: `muted` }
     }
   }
+}
+
+// ── EXP-1245: one status row PER TURN ───────────────────────────────────────
+// The owner's thread is a conversation of turns (`sessionTurns`, @exp/ui):
+// every turn draws its own status row. A settled turn reads `Done on
+// <device> · <turn duration>`; the open (newest) turn reads the run's row
+// (`runRowCaption`) timed from the TURN's start, not the run's; a sent
+// message still waiting for its turn has no row. Fixture `run-row.json`
+// `turnCaptions` (×4).
+
+export interface TurnRowCaptionInput {
+  turn: { startedAt: number | string | null; endedAt: number | string | null }
+  /** The run's row state (`runRowState`), read by the open turn only. */
+  state: RunRowState
+  device: string
+  /** The run's end (`ended_at`, else `updated_at`) for an open turn of an
+   *  ended run. */
+  runEndedAt: Date | string | number | null | undefined
+  now: Date | string | number
+}
+
+export function turnRowCaption(
+  input: TurnRowCaptionInput
+): { text: string; tone: SessionStatusTone } | null {
+  const start = stampOrNull(input.turn.startedAt)
+  if (start === null) return null
+  const end = stampOrNull(input.turn.endedAt)
+  if (end !== null) {
+    return {
+      text: `Done on ${input.device} · ${formatTurnDuration(end - start)}`,
+      tone: `muted`,
+    }
+  }
+  return runRowCaption({
+    state: input.state,
+    device: input.device,
+    startedAt: start,
+    endedAt: input.runEndedAt,
+    now: input.now,
+  })
 }

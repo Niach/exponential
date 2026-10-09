@@ -16,7 +16,7 @@ import {
 } from "./session-result-writes"
 
 // EXP-879: the server-side list algebra behind the token upload route and MCP
-// `exponential_sessions_results`.
+// `exponential_sessions_guide`.
 
 const entry = (
   topic: string,
@@ -276,5 +276,47 @@ describe(`nextShowLabel`, () => {
       )
     ).toBe(`Shot 2`)
     expect(nextShowLabel([pic(`Progress`, `Shot 2`)], `Progress`)).toBe(`Shot 3`)
+  })
+})
+
+// EXP-1245/1251: the write stamp, the per-PR tag and the Guide's missing-file
+// answer.
+import { missingGuideFiles, stampUntaggedResults } from "./session-result-writes"
+
+describe(`guide writes`, () => {
+  it(`stamps at and tags a topic's PR, keeping the tag on a rewrite`, () => {
+    const first = upsertSessionResultText(null, `t`, `one`, undefined, {
+      at: 1000,
+      prUrl: ` https://github.com/o/r/pull/2 `,
+    })
+    expect(first?.[0]).toMatchObject({ at: 1000, prUrl: `https://github.com/o/r/pull/2` })
+    const second = upsertSessionResultText(first, `t`, `two`, undefined, { at: 2000 })
+    expect(second?.[0]).toMatchObject({ text: `two`, at: 2000, prUrl: `https://github.com/o/r/pull/2` })
+    const cleared = upsertSessionResultText(second, `t`, `three`, undefined, { prUrl: `` })
+    expect(cleared?.[0]).not.toHaveProperty(`prUrl`)
+    expect(upsertSessionResultText(null, `t`, `x`)?.[0]).not.toHaveProperty(`at`)
+  })
+
+  it(`names the listed paths the diff lacks, renames matching by their source`, () => {
+    expect(
+      missingGuideFiles([`a.ts`, `old.ts`, `gone.ts`], [
+        { path: `a.ts` },
+        { path: `new.ts`, previousPath: `old.ts` },
+      ])
+    ).toEqual([`gone.ts`])
+    expect(missingGuideFiles([], [])).toEqual([])
+  })
+
+  it(`tags only the untagged text topics with a new PR`, () => {
+    const list: CodingSessionResult[] = [
+      { topic: `a`, label: null, attachmentId: null, width: null, height: null, text: `x` },
+      { topic: `b`, label: null, attachmentId: null, width: null, height: null, text: `y`, prUrl: `p1` },
+      entry(`a`, `web`, `img`),
+    ]
+    const out = stampUntaggedResults(list, `p2`)
+    expect(out.changed).toBe(true)
+    expect(out.results.map((row) => row.prUrl ?? null)).toEqual([`p2`, `p1`, null])
+    expect(stampUntaggedResults(out.results, `p3`).changed).toBe(false)
+    expect(stampUntaggedResults(null, `p3`)).toEqual({ results: [], changed: false })
   })
 })

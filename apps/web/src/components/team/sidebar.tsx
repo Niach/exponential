@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Badge,
+  Pill,
   ResizeHandle,
   Separator,
   Sidebar,
@@ -457,7 +457,7 @@ export function TeamSidebar({
                                 >
                                   <NavDraftsIcon className="h-4 w-4" />
                                   <span className="flex-1">{DRAFTS_LABEL}</span>
-                                  <Badge count={draftCount} data-testid="drafts-count-badge" />
+                                  <Pill size="sm" className="tabular-nums" data-testid="drafts-count-badge">{draftCount}</Pill>
                                 </Link>
                               </SidebarMenuButton>
                             </SidebarMenuItem>

@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { guideFileOpener, SessionResultsView } from "./session-results-view"
-import { parseSessionResultGroups, type SessionResultEntry } from "./session-results"
+import {
+  parseSessionResultGroups,
+  type SessionResultEntry,
+  type SessionResultGroup,
+} from "./session-results"
 
 // EXP-879: the results face — one band per topic, one tile per entry, the
 // label under the shot and the shared lightbox behind a tap.
@@ -17,12 +21,26 @@ const entry = (over: Partial<SessionResultEntry>): SessionResultEntry => ({
   ...over,
 })
 
+/** Pictures as groups by topic, first-seen (the face takes groups only). */
+const asGroups = (entries: SessionResultEntry[]): SessionResultGroup[] => {
+  const groups: SessionResultGroup[] = []
+  for (const item of entries) {
+    let group = groups.find((candidate) => candidate.topic === item.topic)
+    if (!group) {
+      group = { topic: item.topic, text: null, entries: [], earlier: [], files: [] }
+      groups.push(group)
+    }
+    group.entries.push(item)
+  }
+  return groups
+}
+
 describe(`SessionResultsView`, () => {
   it(`bands the topics and draws one tile per entry`, () => {
     render(
       <SessionResultsView
         attachmentSrc={(id) => `/api/attachments/${id}`}
-        results={[
+        groups={asGroups([
           entry({}),
           entry({ label: `ios`, attachmentId: `att-2` }),
           entry({
@@ -32,7 +50,7 @@ describe(`SessionResultsView`, () => {
             width: null,
             height: null,
           }),
-        ]}
+        ])}
       />
     )
     const bands = document.querySelectorAll(`[data-slot="glass-section-header"]`)
@@ -61,7 +79,7 @@ describe(`SessionResultsView`, () => {
     render(
       <SessionResultsView
         attachmentSrc={(id) => `/api/attachments/${id}`}
-        results={[entry({ label: `android` })]}
+        groups={asGroups([entry({ label: `android` })])}
       />
     )
     expect(document.querySelector(`[role="dialog"]`)).toBeNull()
@@ -80,10 +98,10 @@ describe(`SessionResultsView`, () => {
     render(
       <SessionResultsView
         attachmentSrc={(id) => `/api/attachments/${id}`}
-        results={[
+        groups={asGroups([
           entry({ label: `web-mobile`, attachmentId: `tall-1`, width: 780, height: 25094 }),
           entry({ attachmentId: `att-2` }),
-        ]}
+        ])}
       />
     )
     const images = Array.from(document.querySelectorAll(`img`))
@@ -108,7 +126,7 @@ describe(`SessionResultsView`, () => {
     render(
       <SessionResultsView
         attachmentSrc={(id) => `/api/attachments/${id}`}
-        results={[]}
+        groups={[]}
       />
     )
     expect(document.querySelectorAll(`img`).length).toBe(0)
@@ -189,17 +207,20 @@ describe(`SessionResultsView inline pictures`, () => {
   })
 })
 
-// EXP-1154: the Guide — Summary leads unbanded, the rest are numbered bands
-// with their files; a file row opens the file.
+// EXP-1154 + EXP-1251: the Guide — Summary leads unbanded, the rest are
+// numbered bands, each with ONE Changes row over the files it names; the
+// unnamed files land in Other changes, Show complete diff closes the page.
 describe(`SessionResultsView guide`, () => {
   const groups = parseSessionResultGroups([
-    { topic: `Error state`, text: `The error`, files: [`src/a.ts`, `src/missing.ts`] },
+    { topic: `Error state`, text: `The error`, files: [`src/a.ts`, `src/old.ts`, `src/missing.ts`] },
     { topic: `Summary`, text: `Did it` },
     { topic: `Test`, text: `The test`, files: [`src/b.ts`] },
   ])
   const files = [
     { path: `src/a.ts`, additions: 12, deletions: 2 },
+    { path: `src/new.ts`, previousPath: `src/old.ts`, additions: 1, deletions: 1 },
     { path: `src/b.ts`, additions: 4, deletions: 0 },
+    { path: `src/c.ts`, additions: 7, deletions: 3 },
   ] as never
 
   it(`leads with the summary and numbers the rest`, () => {
@@ -212,50 +233,91 @@ describe(`SessionResultsView guide`, () => {
     )
     expect(getByTestId(`guide-lead`).textContent).toContain(`Did it`)
     expect(getByTestId(`guide-lead`).querySelector(`[data-slot="glass-section-header"]`)).toBeNull()
-    const bands = document.querySelectorAll(`[data-slot="glass-section-header"]`)
-    expect(bands).toHaveLength(2)
     expect(getAllByTestId(`guide-section-caption`).map((node) => node.textContent)).toEqual([
       `01 / 02`,
       `02 / 02`,
     ])
-    const rows = getAllByTestId(`guide-file-row`)
-    expect(rows).toHaveLength(3)
-    expect(rows[0].textContent).toContain(`+12`)
-    // An unknown path carries no counts.
-    expect(rows[1].textContent).toBe(`src/missing.ts`)
-    // Without onOpenFile the rows are plain text.
-    expect(rows[0].tagName).not.toBe(`BUTTON`)
   })
 
-  it(`opens a file from its row`, () => {
+  it(`draws one Changes row per section, Other changes and the complete row`, () => {
+    const { getAllByTestId, getByTestId } = render(
+      <SessionResultsView
+        groups={groups}
+        files={files}
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+      />
+    )
+    const rows = getAllByTestId(`guide-changes-row`)
+    // Error state (a.ts + the rename), Test (b.ts), Other changes (c.ts).
+    expect(rows).toHaveLength(3)
+    expect(rows[0].textContent).toContain(`Changes`)
+    expect(rows[0].textContent).toContain(`2 files`)
+    expect(rows[0].textContent).toContain(`+13`)
+    expect(rows[1].textContent).toContain(`1 file`)
+    const other = getByTestId(`guide-other-changes`)
+    expect(other.textContent).toContain(`Other changes`)
+    expect(other.querySelector(`[data-testid="guide-section-caption"]`)).toBeNull()
+    expect(getByTestId(`guide-complete-diff`).textContent).toContain(`Show complete diff`)
+    expect(getByTestId(`guide-complete-diff`).textContent).toContain(`4 files`)
+    // Without an opener every row is inert.
+    expect(rows.every((row) => row.tagName !== `BUTTON`)).toBe(true)
+  })
+
+  it(`opens a section, the other changes and the whole diff`, () => {
+    const opened: Array<{ section: unknown; files: string[] }> = []
+    const { getAllByTestId, getByTestId } = render(
+      <SessionResultsView
+        groups={groups}
+        files={files}
+        onOpenChanges={(target) =>
+          opened.push({ section: target.section, files: target.files.map((f) => f.path) })
+        }
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+      />
+    )
+    const rows = getAllByTestId(`guide-changes-row`)
+    fireEvent.click(rows[0])
+    fireEvent.click(rows[2])
+    fireEvent.click(getByTestId(`guide-complete-diff`))
+    expect(opened).toEqual([
+      { section: 1, files: [`src/a.ts`, `src/new.ts`] },
+      { section: `other`, files: [`src/c.ts`] },
+      { section: `all`, files: [`src/a.ts`, `src/new.ts`, `src/b.ts`, `src/c.ts`] },
+    ])
+  })
+
+  it(`with no report, one Changes band holds the whole diff`, () => {
+    const { getByTestId, getAllByTestId } = render(
+      <SessionResultsView groups={[]} files={files} attachmentSrc={(id) => id} />
+    )
+    expect(getByTestId(`guide-other-changes`).textContent).toContain(`Changes`)
+    expect(getByTestId(`guide-other-changes`).textContent).not.toContain(`Other`)
+    expect(getAllByTestId(`guide-changes-row`)).toHaveLength(1)
+  })
+
+  it(`draws no Changes rows while no diff is loaded`, () => {
+    const { queryAllByTestId, queryByTestId } = render(
+      <SessionResultsView groups={groups} attachmentSrc={(id) => id} />
+    )
+    expect(queryAllByTestId(`guide-changes-row`)).toHaveLength(0)
+    expect(queryByTestId(`guide-complete-diff`)).toBeNull()
+  })
+
+  it(`keeps the pre-Guide file opener working until its callers move`, () => {
+    const open = (_path: string) => {}
+    expect(guideFileOpener(files, open)).toBe(open)
+    expect(guideFileOpener([], open)).toBeUndefined()
+    expect(guideFileOpener(null, open)).toBeUndefined()
     const opened: string[] = []
     const { getAllByTestId } = render(
       <SessionResultsView
         groups={groups}
         files={files}
         onOpenFile={(path) => opened.push(path)}
-        attachmentSrc={(id) => `/api/attachments/${id}`}
+        attachmentSrc={(id) => id}
       />
     )
-    fireEvent.click(getAllByTestId(`guide-file-row`)[2])
+    fireEvent.click(getAllByTestId(`guide-changes-row`)[1])
     expect(opened).toEqual([`src/b.ts`])
-  })
-
-  it(`renders inert rows when there is no diff to open them on`, () => {
-    const open = () => {}
-    expect(guideFileOpener(files, open)).toBe(open)
-    expect(guideFileOpener([], open)).toBeUndefined()
-    expect(guideFileOpener(null, open)).toBeUndefined()
-    const { getAllByTestId } = render(
-      <SessionResultsView
-        groups={groups}
-        files={[]}
-        onOpenFile={guideFileOpener([], open)}
-        attachmentSrc={(id) => `/api/attachments/${id}`}
-      />
-    )
-    const rows = getAllByTestId(`guide-file-row`)
-    expect(rows.every((row) => row.tagName !== `BUTTON`)).toBe(true)
-    expect(rows[0].textContent).toBe(`src/a.ts`)
   })
 })

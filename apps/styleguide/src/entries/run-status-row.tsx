@@ -2,8 +2,9 @@ import { RunStatusRow } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1175: the Run face's ONE status row — the REAL `RunStatusRow` in its
-// three everyday states. The words come from the app's `runRowCaption` /
+// EXP-1175: the Run face's status row — the REAL `RunStatusRow` in its
+// three everyday states, plus (EXP-1245) a settled turn's row in the owner's
+// thread of turns, which carries no toggle. The words come from the app's `runRowCaption` /
 // `lastToolLine` (fixture `run-row.json` ×4); the island passes them literal.
 
 export const entry: StyleguideEntry = {
@@ -11,7 +12,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1175`,
   title: `Run status row`,
-  blurb: `The Run face opens as the THREAD, not the transcript: one status row over the run's published results. The row = the run mark as the spinner, the caption in its tone (\`Building on <device> · <elapsed>\` while it works, \`Needs input\` amber, \`Ready for review\` emerald, \`Done\` sky, \`Paused\`, \`Ended on <device> · <elapsed>\`), the last tool line muted under it (live only) and \`Show work\` on the right. Show work swaps the thread for the full transcript IN PLACE (same scroller, strips and composer) and is remembered per user. Pending questions and plans never hide. Label + state only (fixture \`run-row.json\`).`,
+  blurb: `The Run face opens as the THREAD, not the transcript: one status row over the run's published results. The row = the run mark as the spinner, the caption in its tone (\`Building on <device> · <elapsed>\` while it works, \`Needs input\` amber, \`Ready for review\` emerald, \`Done\` sky, \`Paused\`, \`Ended on <device> · <elapsed>\`), the last tool line muted under it (live only) and \`Show work\` on the right. Show work swaps the thread for the full transcript IN PLACE (same scroller, strips and composer) and is remembered per user. Pending questions and plans never hide. EXP-1245: in the owner's thread of turns every turn draws its own row (\`turnRowCaption\`: \`Done on <device> · <turn time>\` once settled, the open turn timed from its own start). Label + state only (fixture \`run-row.json\` \`captions\` + \`turnCaptions\`).`,
   status: {
     web: {
       state: `ok`,
@@ -67,6 +68,12 @@ export const entry: StyleguideEntry = {
         showWork
         toggleLabel="Hide work"
         onToggle={() => {}}
+      />
+      <RunStatusRow
+        agent="claude"
+        markState="ended"
+        caption="Done on macbook · 7m 17s"
+        tone="muted"
       />
     </div>
   ),

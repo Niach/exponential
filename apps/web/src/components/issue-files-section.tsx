@@ -5,7 +5,7 @@ import { Download, ExternalLink, Eye, LoaderCircle, Trash2 } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { attachmentCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { uploadIssueFile } from "@/lib/storage/issue-image-upload"
+import { uploadIssueAttachment } from "@/lib/storage/issue-image-upload"
 import {
   buildAttachmentDownloadUrl,
   formatAttachmentSize,
@@ -26,25 +26,18 @@ import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdow
 interface IssueFilesSectionProps {
   issueId: string
   readOnly?: boolean
-  /**
-   * Receives INLINE files picked via the attach button — images (EXP-316)
-   * and video/audio (EXP-824) are embedded in the description instead of
-   * living here. When absent, such picks are rejected with a pointer to the
-   * editor's image button.
-   */
-  onInlineFiles?: (files: File[]) => void | Promise<void>
 }
 
 /**
  * EXP-297 Files rail: the issue's attachments that are neither inline images
- * nor inline media (EXP-824), rendered straight from the synced `attachments`
- * shape (they never appear in the description markdown). Members can attach
- * any file type, open/download it, or delete the row.
+ * nor inline media (EXP-824), plus every row uploaded through a FILE path
+ * (EXP-1247 `asFile`, e.g. a png picked with the paperclip), rendered
+ * straight from the synced `attachments` shape. Members can attach any file
+ * type, open/download it, or delete the row.
  */
 export function IssueFilesSection({
   issueId,
   readOnly = false,
-  onInlineFiles,
 }: IssueFilesSectionProps) {
   const { data } = useLiveQuery(
     (query) =>
@@ -57,7 +50,7 @@ export function IssueFilesSection({
   const files = useMemo(() => {
     const rows = (data ?? []) as Attachment[]
     return rows
-      .filter((row) => isFileAttachment(row.contentType))
+      .filter((row) => isFileAttachment(row))
       // Comment attachments (EXP-554) render under their comment, not here.
       .filter((row) => row.commentId === null)
       .sort(
@@ -71,32 +64,16 @@ export function IssueFilesSection({
 
   const handleFiles = async (selected: File[]) => {
     setError(null)
-
-    // Inline types (images, video, audio) never live in the Files section —
-    // every client filters them out (EXP-297/EXP-824). With an onInlineFiles
-    // handler they are embedded in the description instead (EXP-316); without
-    // one they are deflected so the sweep can't silently delete an
-    // unreferenced upload.
-    const inline = selected.filter((file) => !isFileAttachment(file.type))
-    const uploadable = selected.filter((file) => isFileAttachment(file.type))
-    const failures: string[] = onInlineFiles
-      ? []
-      : inline.map(
-          (file) =>
-            `${file.name}: images and clips go in the description. Add them with the editor's image button.`
-        )
+    const failures: string[] = []
 
     setUploading(true)
-    if (onInlineFiles && inline.length > 0) {
-      // The handler owns its own error surface (the description editor's
-      // upload status) — failures there don't join this section's list.
-      await onInlineFiles(inline)
-    }
+    // EXP-1247: the paperclip is a FILE path — every pick, images and clips
+    // included, lands here as a Files row (`asFile`) and is never inlined.
     // Every pick is attempted; failures are collected per file so one oversize
     // upload never silently drops the rest (parity with the native clients).
-    for (const file of uploadable) {
+    for (const file of selected) {
       try {
-        await uploadIssueFile(issueId, file)
+        await uploadIssueAttachment(issueId, file, { asFile: true })
       } catch (uploadError) {
         failures.push(
           uploadError instanceof Error
@@ -140,6 +117,8 @@ export interface FilesSectionFile {
   contentType: string
   sizeBytes: number
   url: string
+  /** EXP-1247: uploaded through a FILE path (lists here even as an image). */
+  asFile?: boolean
 }
 
 /**

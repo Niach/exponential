@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Pill, Card, CardContent, CardDescription, CardHeader } from "@exp/ui"
+import { useState, type ReactNode } from "react"
+import { GlassCard, Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // Admin console formatting helpers. tRPC serializes with plain JSON, so Date
@@ -29,19 +29,53 @@ export function StatCard({
   tone?: StatTone
 }) {
   return (
-    <Card className="gap-1 py-4">
-      <CardHeader className="px-4">
-        <CardDescription className="text-xs">{label}</CardDescription>
-      </CardHeader>
-      <CardContent className="px-4">
-        <div className={cn(`text-2xl font-bold tabular-nums`, TONE_CLASS[tone])}>
-          {value}
+    <GlassCard className="flex flex-col gap-1 px-4 py-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={cn(`text-2xl font-bold tabular-nums`, TONE_CLASS[tone])}>
+        {value}
+      </div>
+      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+    </GlassCard>
+  )
+}
+
+// The admin console's ONE card: the glass card with a title + description
+// head over its body.
+export function AdminCard({
+  title,
+  description,
+  titleClassName,
+  headerClassName,
+  className,
+  contentClassName,
+  children,
+}: {
+  title?: ReactNode
+  description?: ReactNode
+  titleClassName?: string
+  headerClassName?: string
+  className?: string
+  contentClassName?: string
+  children?: ReactNode
+}) {
+  return (
+    <GlassCard className={cn(`flex flex-col gap-6 py-6 backdrop-blur-md`, className)}>
+      {(title || description) && (
+        <div className={cn(`grid gap-2 px-6`, headerClassName)}>
+          {title && (
+            <div className={cn(`text-sm leading-none font-semibold`, titleClassName)}>
+              {title}
+            </div>
+          )}
+          {description && (
+            <div className="text-xs text-muted-foreground">{description}</div>
+          )}
         </div>
-        {hint && (
-          <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>
-        )}
-      </CardContent>
-    </Card>
+      )}
+      {children !== undefined && (
+        <div className={cn(`px-6`, contentClassName)}>{children}</div>
+      )}
+    </GlassCard>
   )
 }
 

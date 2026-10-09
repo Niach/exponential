@@ -1,7 +1,7 @@
 import { Megaphone } from "lucide-react"
 import {
   conceptIcon,
-  Combobox,
+  Picker,
   Pill,
   DatePicker,
   BoardGlyph,
@@ -17,9 +17,11 @@ import {
 } from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
 import {
-  estimatePickerOptions,
   estimateShortLabel,
   parseEstimatePick,
+  estimatePickerValues,
+  estimateLabel,
+  NO_ESTIMATE,
 } from "@/lib/issue-estimate"
 import {
   getPriorityConfig,
@@ -104,15 +106,20 @@ function EstimateControl({
   onEstimateChange: (estimate: number | null) => void | Promise<void>
 }) {
   return (
-    <Combobox
-      searchable={false}
-      value={estimate === null ? `` : String(estimate)}
+    <Picker
+      mode="single"
+      value={estimate === null ? null : String(estimate)}
       disabled={disabled}
-      options={estimatePickerOptions(estimate, estimation)}
+      items={estimatePickerValues(estimate, estimation).map((value) => ({
+        value: String(value),
+        label: estimateLabel(value, estimation),
+      }))}
+      noneLabel={NO_ESTIMATE}
+      onNone={() => void onEstimateChange(null)}
       width="sm"
       onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
       mobileTitle="Estimate"
-      renderTrigger={() => (
+      trigger={() => (
         <Pill mode="action" disabled={disabled}>
           <EstimateGlyph className="size-3" />
           {estimate === null ? `Estimate` : estimateShortLabel(estimate, estimation)}

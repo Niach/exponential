@@ -61,7 +61,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   }
 })
 
-import { useStackMergeChoice } from "@/hooks/use-stack-merge-choice"
+import { useStackMergeConfirm } from "@/hooks/use-stack-merge-choice"
 
 const row = (
   id: string,
@@ -79,13 +79,13 @@ const row = (
   prUrl: `https://github.com/o/r/pull/${id}`,
 })
 
-describe(`useStackMergeChoice`, () => {
+describe(`useStackMergeConfirm`, () => {
   it(`is idle and query-free while disarmed`, () => {
     liveRows.calls = 0
     liveRows.issues = [row(`b`, `EXP-1`, `exp/EXP-1`, `master`)]
     liveRows.boards = [{ id: `b1`, teamId: `t1` }]
-    const { result } = renderHook(() => useStackMergeChoice(`b`, false))
-    expect(result.current).toEqual({ ready: true, choice: null })
+    const { result } = renderHook(() => useStackMergeConfirm(`b`, false))
+    expect(result.current).toEqual({ ready: true, confirm: null })
     expect(liveRows.calls).toBe(0)
   })
 
@@ -96,26 +96,41 @@ describe(`useStackMergeChoice`, () => {
       row(`t`, `EXP-3`, `exp/EXP-3`, `exp/EXP-2`, `merged`),
     ]
     liveRows.boards = [{ id: `b1`, teamId: `t1` }]
-    const { result } = renderHook(() => useStackMergeChoice(`b`, true))
+    const { result } = renderHook(() => useStackMergeConfirm(`b`, true))
     expect(result.current.ready).toBe(true)
-    expect(result.current.choice).toMatchObject({
-      members: [`EXP-1`, `EXP-2`],
-      position: 1,
-      topIssueId: `m`,
+    expect(result.current.confirm).toMatchObject({
+      title: `Merge stack`,
+      landing: [`EXP-1`, `EXP-2`],
+      input: { issueId: `m`, mergeStack: true },
     })
   })
 
   it(`answers a lone pull request with a plain merge`, () => {
     liveRows.issues = [row(`b`, `EXP-1`, `exp/EXP-1`, `master`)]
     liveRows.boards = [{ id: `b1`, teamId: `t1` }]
-    const { result } = renderHook(() => useStackMergeChoice(`b`, true))
-    expect(result.current).toEqual({ ready: true, choice: null })
+    const { result } = renderHook(() => useStackMergeConfirm(`b`, true))
+    expect(result.current).toEqual({ ready: true, confirm: null })
+  })
+
+  it(`answers Merge through here on the bottom with the bottom alone`, () => {
+    liveRows.issues = [
+      row(`b`, `EXP-1`, `exp/EXP-1`, `master`),
+      row(`m`, `EXP-2`, `exp/EXP-2`, `exp/EXP-1`),
+    ]
+    liveRows.boards = [{ id: `b1`, teamId: `t1` }]
+    const { result } = renderHook(() => useStackMergeConfirm(`b`, true, `through`))
+    expect(result.current.confirm).toMatchObject({
+      title: `Merge through here`,
+      landing: [`EXP-1`],
+      staysOpen: [`EXP-2`],
+      input: { issueId: `b`, mergeStack: true },
+    })
   })
 
   it(`is not ready while the issue row has not synced`, () => {
     liveRows.issues = []
     liveRows.boards = [{ id: `b1`, teamId: `t1` }]
-    const { result } = renderHook(() => useStackMergeChoice(`ghost`, true))
-    expect(result.current).toEqual({ ready: false, choice: null })
+    const { result } = renderHook(() => useStackMergeConfirm(`ghost`, true))
+    expect(result.current).toEqual({ ready: false, confirm: null })
   })
 })

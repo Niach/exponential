@@ -6,6 +6,7 @@ import {
   AccountLimitBars,
   AccountPicker,
   accountLimitBars,
+  accountLimitWindows,
   limitTone,
   type AccountPickerOption,
 } from "./account-picker"
@@ -145,6 +146,16 @@ describe(`account limit bars`, () => {
     expect(limitTone(0.1)).toBe(`normal`)
     expect(limitTone(0.75)).toBe(`warning`)
     expect(limitTone(0.95)).toBe(`danger`)
+  })
+
+  it(`maps the fractions onto clamped UsageWindows rows`, () => {
+    expect(
+      accountLimitWindows({ fiveHour: 1.4, week: -0.1, model: { label: `Fable`, used: 0.97 } })
+    ).toEqual([
+      { key: `fiveHour`, label: `5h`, percent: 100, tone: `danger` },
+      { key: `week`, label: `week`, percent: 0, tone: `normal` },
+      { key: `model`, label: `fable`, percent: 97, tone: `danger` },
+    ])
   })
 
   it(`renders one meter per bar`, () => {

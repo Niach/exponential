@@ -33,6 +33,20 @@ const h = vi.hoisted(() => ({
   retargetChildrenOfMergedPr: vi.fn(
     async (_opts: { prUrl: string; headBranch: string; teamId?: string }) => {}
   ),
+  // EXP-1248: stack membership (null = a lone PR) and the run PR's children.
+  openStackMember: vi.fn(async (): Promise<unknown> => null),
+  openChildPrUrls: vi.fn(async (): Promise<Set<string>> => new Set()),
+  ensureGithubStack: vi.fn(async () => ({ number: 7, baseRef: `master`, open: true, pulls: [] })),
+  mergeThrough: vi.fn(
+    async (
+      _opts: Record<string, unknown>
+    ): Promise<{ merged: boolean; queued: boolean; sha: string | null; mergedBy: null }> => ({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      mergedBy: null,
+    })
+  ),
 }))
 
 vi.mock(`@/db/connection`, () => ({
@@ -83,6 +97,15 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: h.applyPrMergeState,
   retargetChildrenOfMergedPr: h.retargetChildrenOfMergedPr,
 }))
+vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  openStackMember: h.openStackMember,
+  openChildPrUrls: h.openChildPrUrls,
+}))
+vi.mock(`@/lib/pr-stacks`, () => ({
+  ensureGithubStack: h.ensureGithubStack,
+  mergeThrough: h.mergeThrough,
+}))
 vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: vi.fn(),
   getIssueTeamContext: vi.fn(),
@@ -129,6 +152,8 @@ beforeEach(() => {
   h.updates.length = 0
   vi.clearAllMocks()
   _clearPrActorClaims()
+  h.openStackMember.mockResolvedValue(null)
+  h.openChildPrUrls.mockResolvedValue(new Set())
 })
 
 describe(`mergeRepositoryPull on a PR stacked on an open PR (EXP-1145)`, () => {
@@ -429,6 +454,96 @@ describe(`the merge guard's default-branch exit with no repositories row`, () =>
       mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
     ).rejects.toMatchObject({
       message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
+    })
+  })
+})
+
+// EXP-1248: an open-stack member never merges plainly; `mergeStack` lands it
+// and everything beneath it in ONE merge-async, after making the line a
+// GitHub stack.
+describe(`mergeRepositoryPull on an open-stack member`, () => {
+  const member = (n: number) => ({
+    issueId: `issue-${n}`,
+    identifier: `EXP-${n}`,
+    boardId: `board-1`,
+    prNumber: 230 + n,
+    prUrl: `https://github.com/owner/repo/pull/${230 + n}`,
+    branch: `exp/EXP-${n}`,
+    prBaseBranch: n === 11 ? `master` : `exp/EXP-${n - 1}`,
+  })
+
+  it(`refuses a plain merge, naming what a merge through it lands`, async () => {
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11), member(12)] })
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `This pull request is part of an open stack. Merging through it lands EXP-11 (#241), EXP-12 (#242); merge with mergeStack to land them.`,
+    })
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(h.mergeThrough).not.toHaveBeenCalled()
+  })
+
+  it(`merges through it with mergeStack: one stack ensure, one merge-async, every landed PR written`, async () => {
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11), member(12)] })
+    // Stop branches (repo row, pins), then the linked issues of each landed PR.
+    h.selectQueue.push(
+      [{ id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null }],
+      [],
+      [{ id: `issue-11` }],
+      [{ id: `issue-12` }]
+    )
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true, mergeStack: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 241, newPrNumber: 242, stopBranches: [`master`] })
+    )
+    expect(h.mergeThrough).toHaveBeenCalledTimes(1)
+    expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
+    expect(h.applySessionPrState).toHaveBeenCalledTimes(2)
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
+  })
+
+  it(`surfaces a failed stack call instead of merging`, async () => {
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11), member(12)] })
+    h.selectQueue.push([], [])
+    h.ensureGithubStack.mockRejectedValueOnce(new Error(`GitHub could not stack PRs #241, #242 (422): nope`))
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true, mergeStack: true })
+    ).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `GitHub could not stack PRs #241, #242 (422): nope`,
+    })
+    expect(h.mergeThrough).not.toHaveBeenCalled()
+    expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+  })
+
+  it(`refuses a tree child, naming its parent`, async () => {
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.openStackMember.mockResolvedValue({ kind: `tree`, parent: `EXP-11`, landing: [] })
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true, mergeStack: true })
+    ).rejects.toMatchObject({
+      message: `This pull request is stacked on EXP-11; merge EXP-11 first`,
+    })
+  })
+
+  it(`an issue-less run PR with a PR on its branch is a stack bottom`, async () => {
+    h.selectQueue.push([], [{ prBaseBranch: null, branch: `exp/chat-1a2b3c4d` }])
+    h.openChildPrUrls.mockResolvedValue(new Set([`https://github.com/owner/repo/pull/301`]))
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
+    ).rejects.toMatchObject({
+      message: `This pull request is part of an open stack. Merging through it lands #300; merge with mergeStack to land them.`,
     })
   })
 })

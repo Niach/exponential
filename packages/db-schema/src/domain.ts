@@ -494,6 +494,9 @@ export const SESSION_RESULTS_FILES_TOTAL_MAX = 120
 // short `caption` (the call's `text`). Old readers ignore both fields.
 export const SESSION_RESULT_CAPTION_MAX = 200
 export const SESSION_SHOW_DEFAULT_TOPIC = `Progress`
+// EXP-1251: a text entry's `prUrl` (the PR its topic belongs to) and every
+// entry's server write stamp `at` (epoch ms, EXP-1245: the thread's turns).
+export const SESSION_RESULT_PR_URL_MAX = 300
 
 export interface CodingSessionResult {
   topic: string
@@ -511,6 +514,13 @@ export interface CodingSessionResult {
   inline?: boolean
   /** EXP-1172: the show call's caption; absent without one. */
   caption?: string | null
+  /** EXP-1245: the server's write stamp (epoch ms), set on every write so a
+   *  client slots the entry into the turn it was filed in; absent on entries
+   *  filed before it. */
+  at?: number | null
+  /** EXP-1251: on a TEXT entry, the PR its topic belongs to (a run that
+   *  stacks a second PR scopes its topics); absent = every PR of the run. */
+  prUrl?: string | null
 }
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed
@@ -528,6 +538,8 @@ export const codingSessionResultSchema = z.object({
     .nullish(),
   inline: z.boolean().nullish(),
   caption: z.string().max(SESSION_RESULT_CAPTION_MAX).nullish(),
+  at: z.number().int().nonnegative().nullish(),
+  prUrl: z.string().max(SESSION_RESULT_PR_URL_MAX).nullish(),
 })
 
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).

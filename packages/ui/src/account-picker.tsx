@@ -3,13 +3,14 @@ import * as React from "react"
 import { AgentMark, agentLabel } from "./agent-picker"
 import { cn } from "./cn"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
-import { Meter, type MeterTone } from "./meter"
+import type { MeterTone } from "./meter"
 import { Picker, type PickerItem } from "./picker/picker"
 import {
   PICKER_INLINE_WORD,
   PickerTrigger,
 } from "./picker/picker-trigger"
 import { useIsMobile } from "./use-mobile"
+import { UsageWindows, usageTone, type UsageWindow } from "./usage-windows"
 
 // EXP-872: ONE account picker per platform (web here, desktop
 // `coding_selects::account_picker`, iOS `AccountPickerMenu`, Android
@@ -54,9 +55,7 @@ export const ACCOUNT_LIMIT_LABELS = { fiveHour: `5h`, week: `week` } as const
 
 /** EXP-909's thresholds as fractions: ≥ 0.75 warning, ≥ 0.95 danger. */
 export function limitTone(used: number): MeterTone {
-  if (used >= 0.95) return `danger`
-  if (used >= 0.75) return `warning`
-  return `normal`
+  return usageTone(used * 100)
 }
 
 /** The bars in order: 5h, week, then the model window when there is one. */
@@ -77,7 +76,17 @@ export function accountLimitBars(
   return bars
 }
 
-/** The compact three-bar block: a 10px label column, a 4px meter per row. */
+/** The login's bars as `UsageWindows` rows (fractions → clamped percents). */
+export function accountLimitWindows(limits: AccountLimits): UsageWindow[] {
+  return accountLimitBars(limits).map((bar) => ({
+    key: bar.key,
+    label: bar.label,
+    percent: Math.round(Math.min(1, Math.max(0, bar.used)) * 100),
+    tone: limitTone(bar.used),
+  }))
+}
+
+/** @deprecated `UsageWindows density="hover"` over `accountLimitWindows`. */
 export function AccountLimitBars({
   limits,
   className,
@@ -86,23 +95,11 @@ export function AccountLimitBars({
   className?: string
 }) {
   return (
-    <div
-      data-slot="account-limit-bars"
-      className={cn(`flex w-full flex-col gap-1`, className)}
-    >
-      {accountLimitBars(limits).map((bar) => (
-        <div key={bar.key} className="flex items-center gap-1.5">
-          <span className="w-8 shrink-0 truncate text-[10px] leading-none text-muted-foreground">
-            {bar.label}
-          </span>
-          <Meter
-            value={Math.round(Math.min(1, Math.max(0, bar.used)) * 100)}
-            tone={limitTone(bar.used)}
-            className="h-1 min-w-8 flex-1"
-          />
-        </div>
-      ))}
-    </div>
+    <UsageWindows
+      windows={accountLimitWindows(limits)}
+      density="hover"
+      className={className}
+    />
   )
 }
 
@@ -143,7 +140,9 @@ function AccountOptionRow({
   const body = (
     <span className="flex min-w-0 flex-1 flex-col gap-1 py-0.5 text-sm">
       <AccountOptionLabel option={option} />
-      {touch && option.limits && <AccountLimitBars limits={option.limits} />}
+      {touch && option.limits && (
+        <UsageWindows windows={accountLimitWindows(option.limits)} density="hover" />
+      )}
     </span>
   )
   if (touch || !option.limits) return body
@@ -157,7 +156,7 @@ function AccountOptionRow({
         data-slot="account-limits-preview"
         className="w-36 p-2"
       >
-        <AccountLimitBars limits={option.limits} />
+        <UsageWindows windows={accountLimitWindows(option.limits)} density="hover" />
       </HoverCardContent>
     </HoverCard>
   )

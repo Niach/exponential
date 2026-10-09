@@ -978,25 +978,24 @@ describe(`leftovers (EXP-941)`, () => {
 })
 
 describe(`the Tier A pickers (EXP-941)`, () => {
-  test(`the combobox demo shows BOTH selection languages and the none row`, () => {
+  test(`the combobox demo speaks the ONE highlight language and keeps the none row`, () => {
     const markup = islandBody(`combobox`)
     // Single select marks the picked row with a trailing check…
     expect(occurrences(markup, `data-selected-glyph="check"`)).toBe(1)
-    // …multi marks EVERY row with the leading circle pair, never a checkbox.
-    expect(occurrences(markup, `data-selected-glyph="selected"`)).toBe(2)
-    expect(occurrences(markup, `data-selected-glyph="unselected"`)).toBe(1)
-    // …and a row that is on SOME of the edited issues wears the third glyph
-    // (EXP-957), never a Minus beside a blank gutter.
-    expect(occurrences(markup, `data-selected-glyph="indeterminate"`)).toBe(1)
+    // …multi marks a picked row by its own wash, never a circle pair or a box…
+    expect(occurrences(markup, `data-picked="true"`)).toBeGreaterThan(1)
+    expect(markup).not.toContain(`data-selected-glyph="selected"`)
+    expect(markup).not.toContain(`data-selected-glyph="unselected"`)
     expect(markup).not.toContain(`data-slot="checkbox"`)
-    expect(spec(`combobox`).blurb).toContain(`ComboboxMenuItems`)
+    // …and a row on SOME of the edited issues is mixed (EXP-957).
+    expect(occurrences(markup, `data-picked="mixed"`)).toBe(1)
+    expect(spec(`combobox`).blurb).toContain(`PickerMenuRows`)
     // And "nothing picked" is a ROW that reports null, not a sentinel string.
     expect(occurrences(markup, `data-combobox-none="true"`)).toBe(1)
     // A closed portal renders nothing, so the demo carries the trigger AND
     // the bare list (the icon-picker pattern).
     expect(occurrences(markup, `data-slot="combobox-list"`)).toBe(2)
     expect(markup).toContain(`data-slot="popover-trigger"`)
-    expect(spec(`combobox`).blurb).toContain(`ui-selected`)
   })
 
   test(`the search field shows the glyph always and the clear only when filled`, () => {

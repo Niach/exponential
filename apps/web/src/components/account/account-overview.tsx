@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import {
-  Combobox,
+  Picker,
   GlassGroup,
   UserAvatar,
 } from "@exp/ui"
@@ -75,18 +75,20 @@ export function AccountOverview({
           {/* EXP-958: the ONE settings row that keeps its search field — the
               tz database is hundreds of zones, and the Select this replaced
               had type-ahead of its own. */}
-          <Combobox
+          <Picker
+            mode="single"
+            search
             triggerVariant="row"
             mobileTitle="Timezone"
             value={timezone}
             onChange={(zone) => {
               if (zone !== null) handleTimezone(zone)
             }}
-            options={timezoneOptions(timezone).map((zone) => ({
+            items={timezoneOptions(timezone).map((zone) => ({
               value: zone,
               label: zone,
             }))}
-            placeholder="Search zones…"
+            searchPlaceholder="Search zones…"
             emptyText="No matching timezone."
             width="lg"
           />

@@ -220,6 +220,8 @@ describe(`POST /api/session-results/$token`, () => {
             attachmentId: prepared.attachmentId,
             width: 1600,
             height: 900,
+            // EXP-1245: every entry is stamped when it is written.
+            at: expect.any(Number),
           },
         ],
       })

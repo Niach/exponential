@@ -4,73 +4,83 @@ import { conceptIcon } from "@exp/ui"
 import { PromptSpecimen } from "./dialog-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1145: the stack merge dialog, Cancel · Merge this pull request · Merge
-// stack.
-//
-// The app's dialog (`apps/web/src/components/stack-merge-choice-dialog.tsx`)
-// is the shared `Prompt` (EXP-1215), a Radix portal that renders nothing at
-// rest, and no entry here imports an app composition. So the specimen draws
-// the prompt's inside (`PromptSpecimen`) with the dialog's answers in order, and its words are the contract fixture's
-// (`stack-merge-choice.json`, byte-locked ×4): the labels and the body of the
-// "middle of a three-stack" case, the one that shows both sentences at work.
+// EXP-1248: the ONE stack merge confirm (it replaced EXP-1145's 3-way
+// dialog). The app's dialog (`apps/web/src/components/stack-merge-choice-dialog.tsx`
+// `StackMergeConfirmDialog`) is the shared `Prompt`, a Radix portal that
+// renders nothing at rest, and no entry imports an app composition. So the
+// specimens draw the prompt's inside (`PromptSpecimen`) with the words of the
+// contract fixture's `confirm` cases (`stack-merge-choice.json`, ×4): Merge
+// stack from a member, and Merge through here on the middle of three.
 
-const { labels, cases } = stackMergeChoice
+const { confirm } = stackMergeChoice
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
 
-/** The fixture's body for a merge pressed mid-stack. */
-function midStackBody(): string {
-  const found = cases.find(
-    (row) => row.choice !== null && row.choice.position === 2 && row.choice.members.length === 3
+function confirmCase(mode: `stack` | `through`, staysOpen: number) {
+  const found = confirm.cases.find(
+    (row) =>
+      row.mode === mode &&
+      row.confirm !== null &&
+      row.confirm.landing.length > 1 &&
+      row.confirm.staysOpen.length === staysOpen
   )
-  if (!found?.choice) {
-    throw new Error(`stack-merge-choice.json has no middle-of-three case`)
+  if (!found?.confirm) {
+    throw new Error(`stack-merge-choice.json has no ${mode} confirm case`)
   }
-  return found.choice.body
+  return found.confirm
+}
+
+function Specimen({ mode, staysOpen }: { mode: `stack` | `through`; staysOpen: number }) {
+  const words = confirmCase(mode, staysOpen)
+  return (
+    <PromptSpecimen
+      className="max-w-lg"
+      title={words.title}
+      body={words.body}
+      actions={[
+        { label: confirm.labels.cancel },
+        { label: words.title, role: `primary`, leading: <PrMergedIcon /> },
+      ]}
+    />
+  )
 }
 
 export const entry: StyleguideEntry = {
   id: `stack-merge-choice-dialog`,
   section: `special`,
   owner: `EXP-1145`,
-  title: `Stack merge dialog`,
-  blurb: `What a plain Merge asks when its pull request is a member of an OPEN stack (EXP-1145), instead of the one-line confirm: the issue header, the Changes face, the review page, the run view and, since SLOP-3, every Reviews row. The title says so; the body lists the chain bottom to top joined by arrows, the pressed one marked "(this one)" and a batch pull request named with its count (\`EXP-874 +2\`), then one sentence per answer saying exactly what lands. Three answers, in this order: "${labels.cancel}", "${labels.mergeThis}" (a plain pill: the bottom member merges alone, any other one lands itself and everything below, and what sits above is retargeted onto the base branch and stays open), "${labels.mergeStack}" (the primary pill, the whole open chain, bottom-up). It is the shared prompt card (EXP-1215): one row of 32px pills, no ✕. The primary LEADS with the merge glyph on every client that draws button glyphs: web and the desktop alert (EXP-1167 settled it: the desktop alert was label-only). While a merge is in flight all three are disabled and the primary's glyph spins. A pull request with no other OPEN member in its chain never sees this dialog. The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\`).`,
+  title: `Stack merge confirm`,
+  blurb: `What a merge on a member of an OPEN linear stack asks (EXP-1248, replacing EXP-1145's three answers). ONE merge control: on any stack member it reads "${confirm.labels.mergeStack}" and lands the whole open chain (through its top); hovering a member row of the stack rail shows a ghost "${confirm.labels.mergeThrough}" (a phone row's long-press menu) that lands that member and every open member beneath it. Either opens this confirm: the title is the action, the body says what lands bottom-up ("Lands 2 pull requests, bottom-up: …") and what stays open above it (GitHub retargets it), a batch pull request named with its count (\`EXP-874 +2\`). Two answers: "${confirm.labels.cancel}" and the primary pill repeating the title, leading with the merge glyph. The server lands it with ONE GitHub merge-async on that member, after making the line a GitHub stack; a PR TREE (any fork) never gets this confirm (its root merges plainly first). The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\` \`confirm\`).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `StackMergeChoiceDialog`,
+      symbol: `StackMergeConfirmDialog`,
       file: `apps/web/src/components/stack-merge-choice-dialog.tsx`,
-      note: `the copy is lib/pr-stack.ts stackMergeChoice; SessionMergeButton and the Reviews rows open it`,
+      note: `the copy is lib/pr-stack.ts stackMergeConfirm; SessionMergeButton opens it (the Reviews page and the Guide stack rail move in wave B)`,
     },
     desktop: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `pr_merge::ask_stack_merge`,
       file: `apps/desktop/crates/ui/src/pr_merge.rs`,
-      note: `a native alert whose primary wears the merge glyph (AlertSpec::ok_icon); the copy is domain pr_stack::stack_merge_choice`,
+      note: `still the 3-way alert over pr_stack::stack_merge_choice; ports to stack_merge_confirm in wave B`,
     },
     ios: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `WorkMergePill`,
       file: `apps/ios/Exponential/UI/Work/WorkMergePill.swift`,
-      note: `the shared GlassAlert over PrStack.stackMergeChoice; ReviewsView asks the same way`,
+      note: `still the 3-way GlassAlert over PrStack.stackMergeChoice; ports in wave B`,
     },
     android: {
-      state: `ok`,
+      state: `leftover`,
       symbol: `StackMergeDialog`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/issue/ChangesScreen.kt`,
-      note: `the shared GlassAlert over PrStack.stackMergeChoice`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/work/StackMergeDialog.kt`,
+      note: `still the 3-way GlassAlert over PrStack.stackMergeChoice; ports in wave B`,
     },
   },
   island: () => (
-    <PromptSpecimen
-      className="max-w-lg"
-      title={labels.title}
-      body={<span className="whitespace-pre-line">{midStackBody()}</span>}
-      actions={[
-        { label: labels.cancel },
-        { label: labels.mergeThis },
-        { label: labels.mergeStack, role: `primary`, leading: <PrMergedIcon /> },
-      ]}
-    />
+    <div className="flex flex-col gap-4">
+      <Specimen mode="stack" staysOpen={0} />
+      <Specimen mode="through" staysOpen={1} />
+    </div>
   ),
 }

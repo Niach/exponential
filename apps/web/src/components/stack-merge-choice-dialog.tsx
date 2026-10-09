@@ -2,40 +2,93 @@ import { conceptIcon, Prompt } from "@exp/ui"
 import {
   MERGE_STACK_LABEL,
   MERGE_THIS_PR_LABEL,
+  STACK_CONFIRM_CANCEL_LABEL,
   STACK_MERGE_CANCEL_LABEL,
   STACK_MERGE_CHOICE_TITLE,
   type StackMergeChoice,
+  type StackMergeConfirm,
 } from "@/lib/pr-stack"
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 
-/** The `issues.mergePr` input a button of the stack dialog sends. */
+/** The `issues.mergePr` input a stack merge sends. */
 export interface StackMergeInput {
   issueId: string
   mergeStack?: boolean
 }
 
-/** "Merge stack": the whole open chain, from its TOP member. */
+// EXP-1248: the ONE confirm a stack merge asks (Merge stack from the merge
+// control, Merge through here from a stack-rail row). Copy =
+// `stackMergeConfirm`, ×4 by the contract fixture `stack-merge-choice.json`
+// (`confirm`). The caller runs the merge: it owns the spinner, the echo and
+// the failure caption.
+export function StackMergeConfirmDialog({
+  confirm,
+  busy = false,
+  onCancel,
+  onConfirm,
+}: {
+  /** null = closed. */
+  confirm: StackMergeConfirm | null
+  busy?: boolean
+  onCancel: () => void
+  onConfirm: (input: StackMergeInput) => void
+}) {
+  return (
+    // The card is portalled, but React still bubbles its clicks through this
+    // tree: the span keeps them off the list row the Merge sits in.
+    <span className="contents" onClick={(e) => e.stopPropagation()}>
+      <Prompt
+        open={confirm !== null}
+        onOpenChange={(next) => {
+          if (!next && !busy) onCancel()
+        }}
+        busy={busy}
+        className="sm:max-w-lg"
+        data-testid="stack-merge-confirm-dialog"
+        title={confirm?.title ?? MERGE_STACK_LABEL}
+        body={confirm?.body}
+        actions={[
+          { label: STACK_CONFIRM_CANCEL_LABEL, role: `cancel` },
+          {
+            label: confirm?.title ?? MERGE_STACK_LABEL,
+            role: `primary`,
+            leading: busy ? (
+              <UiLoadingIcon className="animate-spin" />
+            ) : (
+              <PrMergedIcon />
+            ),
+            onSelect: () => {
+              if (confirm) onConfirm(confirm.input)
+            },
+          },
+        ]}
+      />
+    </span>
+  )
+}
+
+/** @deprecated EXP-1248: "Merge stack" off the old choice (the Reviews page
+ *  until its wave-B rewrite moves to `stackMergeConfirm`). */
 export function mergeStackInput(choice: StackMergeChoice): StackMergeInput {
   return { issueId: choice.topIssueId, mergeStack: true }
 }
 
-/** "Merge this pull request": the bottom member merges plainly; any other
- *  member merges the chain bottom-up THROUGH itself (`thisSentence`), which
- *  the server does for `mergeStack` on that member. */
+/** @deprecated EXP-1248: "Merge this pull request" = a merge THROUGH this
+ *  member, the bottom included (a plain merge of any open-stack member is
+ *  refused by the server now). */
 export function mergeThisInput(
-  choice: StackMergeChoice,
+  _choice: StackMergeChoice,
   issueId: string
 ): StackMergeInput {
-  return choice.position === 1 ? { issueId } : { issueId, mergeStack: true }
+  return { issueId, mergeStack: true }
 }
 
-// EXP-1145: the ONE dialog a Merge control on a member of an open PR stack
-// opens instead of its plain confirm (`SessionMergeButton` and the Reviews
-// rows). Copy = `stackMergeChoice`, byte-locked ×4 by the contract fixture
-// `stack-merge-choice.json`. The caller runs the merges: it owns the spinner,
-// the echo and the failure caption.
+/**
+ * @deprecated EXP-1248: EXP-1145's 3-way dialog, kept ONLY for the Reviews
+ * page until its wave-B rewrite moves to `StackMergeConfirmDialog`.
+ */
 export function StackMergeChoiceDialog({
   choice,
   issueId,
@@ -53,8 +106,6 @@ export function StackMergeChoiceDialog({
   onMerge: (input: StackMergeInput, which: `stack` | `this`) => void
 }) {
   return (
-    // The card is portalled, but React still bubbles its clicks through this
-    // tree: the span keeps them off the list row the Merge sits in.
     <span className="contents" onClick={(e) => e.stopPropagation()}>
       <Prompt
         open={choice !== null}

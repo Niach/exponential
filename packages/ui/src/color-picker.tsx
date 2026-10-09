@@ -1,7 +1,11 @@
 import { useState } from "react"
 import { Button } from "./button"
 import { ColorSwatchGrid } from "./color-swatch-grid"
-import { Popover, PopoverContent, PopoverTrigger } from "./popover"
+import {
+  MobilePopover,
+  MobilePopoverContent,
+  MobilePopoverTrigger,
+} from "./mobile-popover"
 
 interface ColorPickerProps {
   /** The picked colour (a `LABEL_COLORS` hex). Empty = nothing picked. */
@@ -24,7 +28,8 @@ interface ColorPickerProps {
 // EXP-862: THE colour picker — the twin of `IconPicker`, so the board form's
 // icon and colour triggers are ONE control repeated: the same rounded square
 // showing the current pick, opening the existing `ColorSwatchGrid` in a
-// popover. Mirrored on desktop (`board_form::color_picker`), iOS and Android.
+// popover (a bottom sheet on a phone, through `MobilePopover`, like every
+// other picker). Mirrored on desktop (`board_form::color_picker`), iOS and Android.
 export function ColorPicker({
   value,
   onChange,
@@ -36,8 +41,8 @@ export function ColorPicker({
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false)
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+    <MobilePopover open={open} onOpenChange={setOpen}>
+      <MobilePopoverTrigger asChild>
         {renderTrigger ? (
           renderTrigger(value)
         ) : (
@@ -63,11 +68,15 @@ export function ColorPicker({
           )}
         </Button>
         )}
-      </PopoverTrigger>
-      <PopoverContent align={align} className="w-auto p-3">
+      </MobilePopoverTrigger>
+      <MobilePopoverContent
+        align={align}
+        className="w-auto p-3"
+        mobileTitle="Color"
+      >
         {/* 8 × 28px cells + 7 × 6px gaps — the icon grid's column count, so
             the two popovers line up swatch for swatch. */}
-        <div className="w-[266px]">
+        <div className="w-[266px] max-md:mx-auto max-md:pb-4">
           <ColorSwatchGrid
             colors={colors}
             value={value}
@@ -77,7 +86,7 @@ export function ColorPicker({
             }}
           />
         </div>
-      </PopoverContent>
-    </Popover>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
 }

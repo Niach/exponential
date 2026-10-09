@@ -85,8 +85,10 @@ describe(`AgentPicker`, () => {
       />
     )
     openMenu(screen.getByLabelText(`Claude Code`))
-    const items = screen.getAllByRole(`menuitem`)
+    // Choice rows of the shared Menu: `menuitemradio`, the pick checked.
+    const items = screen.getAllByRole(`menuitemradio`)
     expect(items).toHaveLength(2)
+    expect(items[0]!.getAttribute(`aria-checked`)).toBe(`true`)
     for (const item of items) {
       expect(item.querySelector(`svg`)).not.toBeNull()
     }

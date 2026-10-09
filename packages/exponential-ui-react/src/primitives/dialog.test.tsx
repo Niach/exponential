@@ -236,3 +236,50 @@ describe(`DialogContent / SheetContent outside interactions`, () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
+
+// UI cleanup batch — ONE phone sheet: below `sm` a sheet-arm dialog renders
+// THROUGH `SheetContent` (its grabber, drag, overlay close and surface), not
+// a second copy of that chrome on the centred panel. The alert arm stays the
+// compact card.
+describe(`DialogContent below sm`, () => {
+  function phone(matches: boolean) {
+    vi.stubGlobal(`matchMedia`, (query: string) => ({
+      matches: matches && query.includes(`max-width: 639px`),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+  }
+
+  it(`renders the sheet arm as the bottom sheet`, () => {
+    phone(true)
+    render(
+      <Dialog open>
+        <DialogContent mobile="sheet-full">
+          <DialogTitle>Tall</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    )
+    const content = panel(`dialog-content`)
+    expect(content.getAttribute(`data-side`)).toBe(`bottom`)
+    expect(content.getAttribute(`data-mobile`)).toBe(`sheet-full`)
+    expect(content.className).toContain(`h-[94dvh]`)
+    expect(grabber()).toBeTruthy()
+    // No ✕ on a phone sheet.
+    expect(screen.queryByText(`Close`)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it(`keeps the alert arm a centred card`, () => {
+    phone(true)
+    render(
+      <Dialog open>
+        <DialogContent mobile="alert">
+          <DialogTitle>Sure?</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    )
+    expect(panel(`dialog-content`).getAttribute(`data-side`)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+})

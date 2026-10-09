@@ -23,6 +23,10 @@ const h = vi.hoisted(() => ({
     async (): Promise<Array<{ number: number; url: string; headRef: string }>> => []
   ),
   retargetPullRequest: vi.fn(async () => {}),
+  // EXP-1248: a child's native `stack` field (null = a plain base chain).
+  fetchPullStack: vi.fn(
+    async (_opts: { prNumber: number }): Promise<{ number: number } | null> => null
+  ),
   // The linked-issue → repo-row lookup (EXP-462 override resolution + the
   // EXP-466 raw-default guard): rows the chainable select mock below
   // resolves with.
@@ -83,6 +87,7 @@ vi.mock(`@/db/connection`, () => {
   return { db }
 })
 vi.mock(`@/lib/integrations/github-pr`, () => ({
+  fetchPullStack: h.fetchPullStack,
   listOpenPullsByBase: h.listOpenPullsByBase,
   retargetPullRequest: h.retargetPullRequest,
 }))
@@ -121,6 +126,7 @@ beforeEach(() => {
     expiresAt: null,
   })
   h.listOpenPullsByBase.mockResolvedValue([])
+  h.fetchPullStack.mockResolvedValue(null)
   h.getSteerRelayConfig.mockReturnValue(null)
   h.linkedRepoRows = []
   h.plainSelects = []
@@ -130,6 +136,31 @@ beforeEach(() => {
 })
 
 describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
+  it(`EXP-1248: skips a child GitHub holds in a native stack, retargets the plain one`, async () => {
+    h.listOpenPullsByBase.mockResolvedValue([
+      { number: 241, url: `https://github.com/owner/repo/pull/241`, headRef: `exp/EXP-1` },
+      { number: 242, url: `https://github.com/owner/repo/pull/242`, headRef: `exp/EXP-2` },
+    ])
+    h.fetchPullStack.mockImplementation(async ({ prNumber }) =>
+      prNumber === 241 ? { number: 7 } : null
+    )
+    await retargetChildrenOfMergedPr({ prUrl: PARENT_PR_URL, headBranch: `exp/EXP-320` })
+    expect(h.retargetPullRequest).toHaveBeenCalledTimes(1)
+    expect(h.retargetPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ prNumber: 242, base: `master` })
+    )
+  })
+
+  it(`EXP-1248: a stack read that fails retargets like before`, async () => {
+    h.listOpenPullsByBase.mockResolvedValue([
+      { number: 241, url: `https://github.com/owner/repo/pull/241`, headRef: `exp/EXP-1` },
+    ])
+    h.fetchPullStack.mockRejectedValue(new Error(`GitHub returned 502`))
+    vi.spyOn(console, `error`).mockImplementation(() => {})
+    await retargetChildrenOfMergedPr({ prUrl: PARENT_PR_URL, headBranch: `exp/EXP-320` })
+    expect(h.retargetPullRequest).toHaveBeenCalledTimes(1)
+  })
+
   it(`retargets every open child onto the default branch`, async () => {
     h.listOpenPullsByBase.mockResolvedValue([
       {

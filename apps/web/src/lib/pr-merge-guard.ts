@@ -1,3 +1,9 @@
+// EXP-1248: a PR in an open STACK (a linear base chain, GitHub stacks it
+// natively) never merges plainly: `openStackMember` refuses it on every
+// member, the bottom included, naming what a merge through it would land;
+// `mergeStack` lands it through ONE merge-async (lib/pr-stacks.ts). A FORK
+// is a tree: its children wait for the root (the EXP-1145 rule below).
+//
 // EXP-1145 (kept by SLOP-3): a PR whose recorded base (`issues.pr_base_branch`,
 // or for an issue-less run PR `coding_sessions.pr_base_branch`, EXP-1165)
 // is the head branch of ANOTHER open PR in the same repository is a follow-up
@@ -21,6 +27,25 @@ import { getPullRequest } from "@/lib/integrations/github-pr"
  *  `exponential_pr_merge`. */
 export function stackedOnMessage(parent: string): string {
   return `This pull request is stacked on ${parent}; merge ${parent} first`
+}
+
+/** A landing PR as the refusal names it; an issue-less run PR has no
+ *  identifier. */
+export interface LandingPr {
+  identifier: string | null
+  prNumber: number
+}
+
+function stackPrName(member: LandingPr): string {
+  return member.identifier
+    ? `${member.identifier} (#${member.prNumber})`
+    : `#${member.prNumber}`
+}
+
+/** Byte-locked like `stackedOnMessage`: a plain merge on an open-stack
+ *  member, naming what a merge through it lands (bottom first). */
+export function openStackMessage(landing: ReadonlyArray<LandingPr>): string {
+  return `This pull request is part of an open stack. Merging through it lands ${landing.map(stackPrName).join(`, `)}; merge with mergeStack to land them.`
 }
 
 /** The squash commit's title for an issue's PR, on every merge path. */
@@ -390,4 +415,115 @@ export async function openStackThrough(
     base = lower.prBaseBranch
   }
   return chain
+}
+
+/** What a merge of this issue's PR is, stack-wise (EXP-1248). */
+export type StackMembership =
+  /** A linear stack member: refused plainly, `mergeStack` lands `landing`
+   *  (bottom first, this PR last) in one merge-async. */
+  | { kind: `stack`; landing: StackMember[] }
+  /** A fork somewhere in its line: a tree. `parent` (the PR below) merges
+   *  first; null = the root, which merges plainly. */
+  | { kind: `tree`; parent: string | null; landing: StackMember[] }
+
+/** The OPEN PRs (issue or run rows, same team + repo) based on `branch`. */
+export async function openChildPrUrls(
+  db: Pick<Context[`db`], `select`>,
+  opts: { teamId: string; pattern: string; branch: string }
+): Promise<Set<string>> {
+  const issueRows = await db
+    .select({ prUrl: issues.prUrl })
+    .from(issues)
+    .where(
+      and(
+        eq(issues.teamId, opts.teamId),
+        eq(issues.prBaseBranch, opts.branch),
+        eq(issues.prState, `open`),
+        like(issues.prUrl, opts.pattern)
+      )
+    )
+  const runRows = await db
+    .select({ prUrl: codingSessions.prUrl })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.teamId, opts.teamId),
+        eq(codingSessions.prBaseBranch, opts.branch),
+        eq(codingSessions.prState, `open`),
+        like(codingSessions.prUrl, opts.pattern)
+      )
+    )
+  return new Set(
+    [...issueRows, ...runRows].flatMap((row) => (row.prUrl ? [row.prUrl] : []))
+  )
+}
+
+/**
+ * EXP-1248: is this issue's open PR a member of an open stack? `null` = a
+ * lone PR (nothing open below, nothing open on its branch) or no open PR.
+ * The line below comes from `openStackThrough`; a member below with two
+ * open children, or this PR with two, makes it a `tree`.
+ */
+export async function openStackMember(
+  db: Pick<Context[`db`], `select`>,
+  opts: { issueId: string; teamId: string }
+): Promise<StackMembership | null> {
+  const chain = await openStackThrough(db, opts)
+  const self = chain[chain.length - 1]
+  if (!self) return null
+  const repoFullName = self.prUrl.match(
+    /github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
+  )?.[1]
+  if (!repoFullName) return null
+  const pattern = repoPrUrlPattern(repoFullName)
+  let defaults: RepoDefaultBranches | null | undefined
+  const childrenOf = async (member: StackMember): Promise<Set<string>> => {
+    if (!member.branch) return new Set()
+    if (defaults === undefined) {
+      defaults = await loadGuardDefaultBranches(db, {
+        teamId: opts.teamId,
+        repoFullName,
+      })
+    }
+    if (isRepoDefaultBranch(defaults, member.branch)) return new Set()
+    const urls = await openChildPrUrls(db, {
+      teamId: opts.teamId,
+      pattern,
+      branch: member.branch,
+    })
+    urls.delete(member.prUrl)
+    return urls
+  }
+  let fork = false
+  for (const member of chain.slice(0, -1)) {
+    if ((await childrenOf(member)).size > 1) {
+      fork = true
+      break
+    }
+  }
+  const above = (await childrenOf(self)).size
+  if (fork || above > 1) {
+    return {
+      kind: `tree`,
+      parent: chain.length > 1 ? chain[chain.length - 2]!.identifier : null,
+      landing: chain,
+    }
+  }
+  if (chain.length > 1 || above === 1) return { kind: `stack`, landing: chain }
+  return null
+}
+
+/** The branches `ensureGithubStack` must never walk below. */
+export function stackStopBranches(branches: RepoDefaultBranches | null): string[] {
+  if (!branches) return []
+  return [
+    branches.defaultBranch,
+    ...(branches.defaultBranchOverride ? [branches.defaultBranchOverride] : []),
+    ...branches.boardDefaultBranches,
+  ]
+}
+
+/** `repoPrUrlPattern` for callers outside this module. */
+export function repoPrUrlLike(repoFullName: string): string {
+  return repoPrUrlPattern(repoFullName)
 }

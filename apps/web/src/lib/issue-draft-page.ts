@@ -107,24 +107,24 @@ export function draftOriginFrom(
 }
 
 /**
- * EXP-1212: how the page leaves. `discard` = its own close button, `leave` =
- * any other in-app navigation (Back, a nav entry, another screen). The page's
- * own exits after a successful Create or a confirmed Discard never ask.
+ * EXP-1212: how the page leaves — any in-app navigation (Back, a nav entry,
+ * another screen). EXP-1247: the `×` discard trigger is gone ×4; discarding
+ * is the leave dialog's answer. The page's own exits after a successful
+ * Create never ask.
  */
-export type DraftExitTrigger = `discard` | `leave`
+export type DraftExitTrigger = `leave`
 
-/** Which prompt an exit raises: none (go at once), the destructive discard
- *  confirm, or the three-choice leave dialog. */
-export type DraftExitPrompt = `none` | `discardConfirm` | `leave`
+/** Which prompt an exit raises: none (go at once) or the three-choice leave
+ *  dialog. */
+export type DraftExitPrompt = `none` | `leave`
 
 /** A draft WITH content (title, description or attachment) never goes
  *  silently; an empty one goes at once, as before. */
 export function draftExitPrompt(
-  trigger: DraftExitTrigger,
+  _trigger: DraftExitTrigger,
   hasContent: boolean
 ): DraftExitPrompt {
-  if (!hasContent) return `none`
-  return trigger === `discard` ? `discardConfirm` : `leave`
+  return hasContent ? `leave` : `none`
 }
 
 /** The page's Create (and the leave dialog's): a title, nothing filing yet,

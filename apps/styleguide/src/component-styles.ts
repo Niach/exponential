@@ -640,26 +640,34 @@ export const componentStyles = `
 }
 .cmp-bulk-bar .glyph { width: 16px; height: 16px; }
 
-/* ------------------------------------------------------------- usage bar */
-.cmp-usage-bar { display: grid; gap: 6px; }
-.cmp-usage-bar .line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-.cmp-usage-bar .amount { margin-left: auto; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
-.cmp-usage-bar .track { height: 6px; border-radius: 9999px; background: var(--stroke-strong); overflow: hidden; }
-.cmp-usage-bar .fill { width: 62%; height: 100%; border-radius: 9999px; background: var(--fg-30); }
-.cmp-usage-bar.warn .fill { width: 88%; background: var(--warn); }
-
-/* EXP-909: the same report in ONE line — three wire labels, three 4px meters,
-   three percents. The fills are fixed here because a demo may carry no inline
-   style; the real component reads them off miniWindows. */
-.cmp-usage-mini { display: flex; align-items: center; gap: 12px; }
-.cmp-usage-mini .line { display: flex; flex: 1; align-items: center; gap: 6px; font-size: 11px; }
-.cmp-usage-mini .label { color: var(--muted-fg); }
-.cmp-usage-mini .amount { color: var(--muted-fg); font-variant-numeric: tabular-nums; }
-.cmp-usage-mini .track { flex: 1; height: 4px; border-radius: 9999px; background: var(--stroke-strong); overflow: hidden; }
-.cmp-usage-mini .fill { display: block; height: 100%; border-radius: 9999px; background: var(--fg-30); }
-.cmp-usage-mini .line:nth-child(1) .fill { width: 4%; }
-.cmp-usage-mini .line:nth-child(2) .fill { width: 73%; }
-.cmp-usage-mini .line:nth-child(3) .fill { width: 100%; background: var(--destructive); }
+/* ---------------------------------------------------- tooltip + hover card */
+/* Both are Radix portals that render nothing at rest, so the specimen draws
+   the open panel above its trigger. */
+.cmp-tooltip-demo { display: flex; align-items: flex-end; gap: 28px; }
+.cmp-tooltip-anchor { display: grid; justify-items: center; gap: 6px; }
+.cmp-tooltip {
+  width: fit-content;
+  padding: 6px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--popover-85);
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cmp-hover-card {
+  display: grid;
+  gap: 6px;
+  width: 320px;
+  padding: 12px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  background: var(--menu-bg);
+}
+.cmp-hover-card .header { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+.cmp-hover-card .id { color: var(--muted-fg); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.cmp-hover-card .title { font-weight: 500; }
+.cmp-hover-card .text { margin: 0; color: var(--muted-fg); font-size: 12px; line-height: 1.45; }
 
 /* -------------------------------------------------------------- divider */
 .cmp-divider { height: 1px; background: var(--stroke-soft); }

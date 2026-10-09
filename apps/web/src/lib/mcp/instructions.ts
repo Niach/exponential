@@ -87,9 +87,11 @@ export function mcpServerInstructions(gates: {
   // EXP-1144: the screenshot half is a RULE with a deadline (before the PR),
   // not a description — the descriptive line was read and skipped.
   // EXP-1154: the report IS the PR body (`pr-body-from-results.ts`).
+  // EXP-1251: the report is the GUIDE (`exponential_sessions_guide`), whose
+  // sections together cover the diff.
   if (gates.sessionResults) {
     paragraphs.push(
-      `Close out with a report, never a chat summary: exponential_sessions_results files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first: what you did) and screenshots (one topic per screen, one label each). The report IS your PR body: write it and screenshot every visible change BEFORE exponential_pr_open. exponential_notifications_send pings a person (default you) when a long task ends or a decision waits.`
+      `Close out with a Guide, never a chat summary: exponential_sessions_guide files per topic 2-3 sentences of GFM plus the files it touched ('Summary' first: what you did; sections together cover every changed file) and screenshots (one topic per screen, one label each). The Guide IS your PR body: write it and screenshot every visible change BEFORE exponential_pr_open. exponential_notifications_send pings a person (default you) when a long task ends or a decision waits.`
     )
   }
   return paragraphs.join(`\n\n`)

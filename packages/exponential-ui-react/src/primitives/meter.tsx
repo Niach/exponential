@@ -29,8 +29,9 @@ export function Meter({
   className,
   ...props
 }: Omit<React.ComponentProps<typeof Progress>, `value`> & {
-  /** 0-100. The caller clamps (`parseWindow` already does). */
-  value: number
+  /** 0-100, the caller clamps (`parseWindow` already does). `null` =
+   *  indeterminate: work with a duration but no measurable progress. */
+  value: number | null
   tone?: MeterTone
 }) {
   return (

@@ -2,21 +2,27 @@ import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
-import { stackMergeChoice, type StackMergeChoice } from "@/lib/pr-stack"
+import {
+  stackMergeConfirm,
+  type StackConfirmMode,
+  type StackMergeConfirm,
+} from "@/lib/pr-stack"
 import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 
-export interface StackMergeChoiceState {
+export interface StackMergeConfirmState {
   /** False while the rows the decision needs have not arrived. */
   ready: boolean
-  /** The dialog's content; null = a plain merge. */
-  choice: StackMergeChoice | null
+  /** The stack confirm's content; null = a plain merge. */
+  confirm: StackMergeConfirm | null
 }
 
-const IDLE: StackMergeChoiceState = { ready: true, choice: null }
+const IDLE: StackMergeConfirmState = { ready: true, confirm: null }
 
 /**
- * EXP-1145: whether merging this issue's pull request from a plain Merge
- * control must ask about its stack first, off the synced rows alone.
+ * EXP-1248: whether merging this issue's pull request is a STACK merge (the
+ * one confirm, `stackMergeConfirm`), off the synced rows alone. `mode`
+ * `stack` = the merge control (Merge stack), `through` = a stack-rail row's
+ * Merge through here.
  *
  * The control knows only an `issueId` (an issue row carries no `team_id` on
  * the client, REV2-5), so the team is reached through the issue's board, and
@@ -25,10 +31,11 @@ const IDLE: StackMergeChoiceState = { ready: true, choice: null }
  * four live queries per row: the control arms this on the click and reads
  * the answer before it opens anything.
  */
-export function useStackMergeChoice(
+export function useStackMergeConfirm(
   issueId: string | undefined,
-  enabled: boolean
-): StackMergeChoiceState {
+  enabled: boolean,
+  mode: StackConfirmMode = `stack`
+): StackMergeConfirmState {
   const active = enabled && issueId !== undefined
   const { data: issueRows } = useLiveQuery(
     (query) =>
@@ -63,16 +70,16 @@ export function useStackMergeChoice(
   return useMemo(() => {
     if (!active) return IDLE
     // Nothing synced yet for the issue itself: wait, do not guess.
-    if (!issue) return { ready: false, choice: null }
+    if (!issue) return { ready: false, confirm: null }
     // An issue without an open PR is a plain merge, whatever the team looks
     // like; otherwise the team's open rows decide.
     if (issue.prState !== `open`) return IDLE
     if (!teamId || boardIds.length === 0 || openRows === undefined) {
-      return { ready: false, choice: null }
+      return { ready: false, confirm: null }
     }
     return {
       ready: true,
-      choice: stackMergeChoice(issue, (openRows ?? []) as Issue[]),
+      confirm: stackMergeConfirm(issue, (openRows ?? []) as Issue[], mode),
     }
-  }, [active, issue, teamId, boardIds, openRows])
+  }, [active, issue, teamId, boardIds, openRows, mode])
 }

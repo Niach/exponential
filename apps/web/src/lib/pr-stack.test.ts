@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest"
 import stackMergeFixture from "@exp/domain-contract/fixtures/stack-merge-choice.json"
+import stackViewFixture from "@exp/domain-contract/fixtures/pr-stack-view.json"
+import { contract } from "@exp/domain-contract"
 import {
+  MERGE_THROUGH_LABEL,
+  openPrShape,
+  prComponent,
+  prGraphShape,
+  STACK_CONFIRM_CANCEL_LABEL,
+  stackMergeConfirm,
+  stackView,
+  type StackConfirmMode,
+  type StackViewNode,
   MERGE_STACK_LABEL,
   MERGE_THIS_PR_LABEL,
   STACK_MERGE_CANCEL_LABEL,
@@ -89,4 +100,57 @@ describe(`stackMergeChoice (contract fixture)`, () => {
     const issue = issues.find((row) => row.id === three.issue)!
     expect(stackMergeChoice(issue, [...issues].reverse())).toEqual(three.choice)
   })
+})
+
+// EXP-1248: tree vs stack + the stack rail, replayed ×4 off
+// `pr-stack-view.json` (desktop `stack_view_matches_the_fixture`, iOS
+// `PrStackViewTests`, Android `PrStackViewTest`).
+describe(`openPrShape + stackView (contract fixture)`, () => {
+  for (const entry of stackViewFixture.cases) {
+    it(entry.name, () => {
+      const issues = entry.issues as StackViewNode[]
+      const issue = issues.find((row) => row.id === entry.issue)!
+      expect(openPrShape(issue, issues)).toBe(entry.shape)
+      expect(stackView(issue, issues)).toEqual(entry.view)
+    })
+  }
+})
+
+describe(`prGraphShape`, () => {
+  it(`tells a fork from a line`, () => {
+    expect(prGraphShape([bottom])).toBe(`single`)
+    expect(prGraphShape(chain)).toBe(`stack`)
+    const left = member(`left`, `exp/LEFT`, `exp/BOTTOM`)
+    expect(prGraphShape([bottom, middle, left])).toBe(`tree`)
+  })
+
+  it(`walks the whole component from any member`, () => {
+    const stray = member(`stray`, `exp/STRAY`, `main`)
+    expect(ids(prComponent(top, [stray, ...chain]))).toEqual([`top`, `bottom`, `middle`])
+  })
+})
+
+// EXP-1248: the ONE stack merge confirm (replaces the 3-way dialog), ×4 off
+// `stack-merge-choice.json` `confirm` (desktop
+// `stack_merge_confirm_matches_the_fixture`, iOS `StackMergeConfirmTests`,
+// Android `StackMergeConfirmTest`).
+describe(`stackMergeConfirm (contract fixture)`, () => {
+  it(`locks the words to the contract`, () => {
+    const labels = stackMergeFixture.confirm.labels
+    expect(MERGE_STACK_LABEL).toBe(labels.mergeStack)
+    expect(MERGE_THROUGH_LABEL).toBe(labels.mergeThrough)
+    expect(STACK_CONFIRM_CANCEL_LABEL).toBe(labels.cancel)
+    expect(labels.mergeStack).toBe(contract.diffUi.mergeStack)
+    expect(labels.mergeThrough).toBe(contract.diffUi.mergeThrough)
+  })
+
+  for (const entry of stackMergeFixture.confirm.cases) {
+    it(entry.name, () => {
+      const issues = entry.issues as StackMergeNode[]
+      const issue = issues.find((row) => row.id === entry.issue)!
+      expect(
+        stackMergeConfirm(issue, issues, entry.mode as StackConfirmMode)
+      ).toEqual(entry.confirm)
+    })
+  }
 })

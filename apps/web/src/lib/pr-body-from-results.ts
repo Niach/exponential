@@ -1,10 +1,12 @@
 import { SESSION_RESULT_FILES_MAX } from "@exp/db-schema/domain"
 
-// EXP-1154: a run's PR body = a TEXT projection of its Results report
-// (`coding_sessions.results`). GitHub cannot render our pictures (every
-// attachment read is member-only), so the body carries the report's words
-// and file lists and closes with one link to the issue's Results page, where
-// the screenshots live. Pure + fixture-locked
+// EXP-1154: a run's PR body = a TEXT projection of its Guide (EXP-1251,
+// formerly the Results report; `coding_sessions.results`). GitHub cannot
+// render our pictures (every attachment read is member-only), so the body
+// carries the Guide's words and file lists and closes with one link to the
+// issue's Guide, where the screenshots live. EXP-1251: a run that stacks a
+// second PR tags topics with `prUrl`; each PR's body keeps its own topics
+// plus the untagged ones. Pure + fixture-locked
 // (`packages/domain-contract/fixtures/pr-body.json`); the I/O half is
 // `run-pr-body.ts`.
 //
@@ -16,12 +18,13 @@ import { SESSION_RESULT_FILES_MAX } from "@exp/db-schema/domain"
 /** The `pr_open` / `pr_update` body limit. */
 export const PR_BODY_MAX = 60_000
 
-export const PR_BODY_RESULTS_LINK_LABEL = `Report and screenshots in Exponential`
+export const PR_BODY_RESULTS_LINK_LABEL = `Guide and screenshots in Exponential`
 
 interface ReportSection {
   topic: string
   text: string
   files: string[]
+  prUrl: string | null
 }
 
 function cleanFiles(raw: unknown): string[] {
@@ -62,7 +65,8 @@ function parseReportSections(raw: unknown): ReportSection[] {
     const text = entry.text.trim()
     if (!text || seen.has(entry.topic)) continue
     seen.add(entry.topic)
-    sections.push({ topic: entry.topic, text, files: cleanFiles(entry.files) })
+    const prUrl = typeof entry.prUrl === `string` ? entry.prUrl.trim() || null : null
+    sections.push({ topic: entry.topic, text, files: cleanFiles(entry.files), prUrl })
   }
   return sections
 }
@@ -102,12 +106,19 @@ function renderSection(section: ReportSection, heading: boolean): string {
  * (case-insensitive) leads without a heading wherever it was filed; every
  * other topic is a `###` section. Over `max` the sections are cut at the last
  * line that fits and end in `…`; the footer link is always kept.
+ *
+ * `prUrl` (EXP-1251) = the PR the body is for: a topic tagged with another PR
+ * is left out; null = untagged topics only (a PR not opened yet); absent =
+ * every topic.
  */
 export function prBodyFromResults(
   raw: unknown,
-  opts: { resultsUrl: string | null; max?: number }
+  opts: { resultsUrl: string | null; max?: number; prUrl?: string | null }
 ): string | null {
-  const sections = parseReportSections(raw)
+  const want = opts.prUrl === undefined ? undefined : opts.prUrl?.trim() || null
+  const sections = parseReportSections(raw).filter(
+    (section) => want === undefined || section.prUrl === null || section.prUrl === want
+  )
   if (!sections.length) return null
   const leadIndex = sections.findIndex((section) => isSummary(section.topic))
   const ordered =

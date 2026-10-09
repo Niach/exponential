@@ -21,7 +21,7 @@ import {
   toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
-  Combobox,
+  Picker,
   PriorityPicker,
   StatusPicker,
   conceptIcon,
@@ -33,8 +33,9 @@ import {
 } from "@exp/ui"
 import {
   estimateLabel,
-  estimatePickerOptions,
   parseEstimatePick,
+  estimatePickerValues,
+  NO_ESTIMATE,
 } from "@/lib/issue-estimate"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
@@ -273,14 +274,21 @@ export function IssueEditorMobileProperties({
         )}
 
         {onEstimateChange && estimation && estimation !== `none` && (
-          <Combobox
-            searchable={false}
-            value={estimate == null ? `` : String(estimate)}
+          <Picker
+            mode="single"
+            value={estimate == null ? null : String(estimate)}
             disabled={disabled}
-            options={estimatePickerOptions(estimate ?? null, estimation)}
+            items={estimatePickerValues(estimate ?? null, estimation).map(
+              (value) => ({
+                value: String(value),
+                label: estimateLabel(value, estimation),
+              })
+            )}
+            noneLabel={NO_ESTIMATE}
+            onNone={() => void onEstimateChange(null)}
             onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
             mobileTitle="Estimate"
-            renderTrigger={() => (
+            trigger={() => (
               <PropertyRow
                 label="Estimate"
                 disabled={disabled}

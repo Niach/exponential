@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-933: the Results face as a REPORT. coding_sessions.results entries are pictures {topic,label,attachmentId,width,height} or a topic's GFM text {topic,label:null,attachmentId:null,text}. parseSessionResultGroups folds both into groups in FIRST-SEEN topic order (either kind opens a topic); a group's text is its FIRST text entry, trimmed at both ends, null without one; pictures keep publish order and the 60-picture cap. A text entry needs a non-blank text; a picture needs topic+label+attachmentId (a picture with a text field is still a picture). issueResultsRun picks the run whose results an ISSUE shows: codingTarget (bound live own run, else newest live own run, else newest own run) when that run has any group, else the NEWEST run on the issue by startedAt (ties: larger id) by ANY member with at least one group, else null. Mirrored by packages/ui session-results.ts + apps/web work-faces.ts, desktop, iOS and Android.",
+  "$comment": "EXP-933: the Results face as a REPORT. coding_sessions.results entries are pictures {topic,label,attachmentId,width,height} or a topic's GFM text {topic,label:null,attachmentId:null,text}. parseSessionResultGroups folds both into groups in FIRST-SEEN topic order (either kind opens a topic); a group's text is its FIRST text entry, trimmed at both ends, null without one; pictures keep publish order and the 60-picture cap. A text entry needs a non-blank text; a picture needs topic+label+attachmentId (a picture with a text field is still a picture). issueResultsRun picks the run whose results an ISSUE shows: codingTarget (bound live own run, else newest live own run, else newest own run) when that run has any group, else the NEWEST run on the issue by startedAt (ties: larger id) by ANY member with at least one group, else null. Mirrored by packages/ui session-results.ts + apps/web work-faces.ts, desktop, iOS and Android. EXP-1251/1245: entries may also carry at (server write stamp, ms) and, on a text entry, prUrl; see coverage, prScope and turns.",
   "groups": [
     {
       "name": "null blob",
@@ -104,7 +104,7 @@
     ]
   },
   "guide": {
-    "$comment": "EXP-1154: the Results face as the GUIDE. guideSections(groups): lead = the FIRST group whose trimmed topic equals 'Summary' case-insensitively (null without one); sections = every other group in order with 1-based index and total (the lead never counts). guideSectionCaption(index,total) = two-digit zero-padded 'NN / NN'. guideFileRows(paths, diffFiles): one row per path in order, counts {additions,deletions} from the diff file whose path matches exactly, else null. Mirrored x4.",
+    "$comment": "EXP-1154: the Results face as the GUIDE. guideSections(groups): lead = the FIRST group whose trimmed topic equals 'Summary' case-insensitively (null without one); sections = every other group in order with 1-based index and total (the lead never counts). guideSectionCaption(index,total) = two-digit zero-padded 'NN / NN'. guideFileRows(paths, diffFiles): one row per path in order, counts {additions,deletions} from the diff file whose path matches exactly, else null. Mirrored x4. fileRows is LEGACY (EXP-1251 replaced guideFileRows with coverage below; kept until every client moved).",
     "sections": [
       { "name": "summary leads wherever it sits", "topics": ["nav", "Summary", "chat"], "lead": "Summary", "sections": [["nav", 1, 2], ["chat", 2, 2]] },
       { "name": "no summary", "topics": ["nav"], "lead": null, "sections": [["nav", 1, 1]] },
@@ -133,6 +133,7 @@
     ]
   },
   "issueResultsRun": {
+    "$comment": "EXP-1251: after the issue's own runs, the NEWEST run (any issue, any member) with a topic tagged exactly the issue's prUrl (cases may carry prUrl; absent = null, the step is skipped).",
     "now": "2026-09-29T12:00:00Z",
     "cases": [
       {
@@ -208,6 +209,18 @@
           { "id": "r2", "issueId": "i1", "userId": "u3", "status": "ended", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T09:00:00Z", "results": [{ "topic": "Summary", "text": "y" }] }
         ],
         "expected": "r2"
+      },
+      {
+        "name": "a run whose topics are tagged with the issue's PR carries it",
+        "issueId": "i2",
+        "me": "u1",
+        "boundId": null,
+        "prUrl": "https://github.com/o/r/pull/1012",
+        "rows": [
+          {"id": "r1", "issueId": "i1", "userId": "u1", "status": "in_review", "startedAt": "2026-09-29T08:00:00Z", "updatedAt": "2026-09-29T11:59:00Z", "results": [{"topic": "Summary", "text": "iOS"}, {"topic": "Reviews", "text": "fix", "prUrl": "https://github.com/o/r/pull/1012"}]},
+          {"id": "r2", "issueId": "i3", "userId": "u1", "status": "ended", "startedAt": "2026-09-29T09:00:00Z", "updatedAt": "2026-09-29T10:00:00Z", "results": [{"topic": "Summary", "text": "other"}]}
+        ],
+        "expected": "r1"
       }
     ]
   },
@@ -266,6 +279,35 @@
           "reply": null
         }
       }
+    ]
+  },
+  "coverage": {
+    "$comment": "EXP-1251: guideCoverage(groups, diffFiles). A group's listed path matches a diff file whose path equals it OR whose previousPath equals it; a section's files = the matched diff files in LISTED order (a file once), additions/deletions summed, fileCount = files; missing = listed paths no diff file matches. lead + sections come from guideSections (same numbering; the automatic section is never numbered). other = every diff file no group (lead included) matched, diff order, titled 'Other changes' (contract diffUi.guideOtherChanges) when there is at least one group, 'Changes' (diffUi.guideChangesRow) with none; null when nothing is left. complete = every diff file (the 'Show complete diff' row). diff null = not loaded: every changes null, missing [], other null, complete null. A file two sections name counts in both. Mirrored x4. guideFileCountLabel(n) = the row's muted count: '1 file' for one, else '<n> files' (fileCountLabels).",
+    "fileCountLabels": [[0, "0 files"], [1, "1 file"], [6, "6 files"]],
+    "cases": [
+      {"name": "exact paths, a missing path and an unassigned file", "groups": [{"topic": "Summary", "files": ["a.ts"]}, {"topic": "nav", "files": ["b.ts", "gone.ts"]}], "diff": [{"path": "a.ts", "additions": 3, "deletions": 1}, {"path": "b.ts", "additions": 10, "deletions": 2}, {"path": "d.ts", "additions": 1, "deletions": 0}], "expected": {"lead": {"topic": "Summary", "files": ["a.ts"], "additions": 3, "deletions": 1, "missing": []}, "sections": [{"topic": "nav", "index": 1, "total": 1, "files": ["b.ts"], "additions": 10, "deletions": 2, "missing": ["gone.ts"]}], "other": {"topic": "Other changes", "files": ["d.ts"], "additions": 1, "deletions": 0}, "complete": {"fileCount": 3, "additions": 14, "deletions": 3}}},
+      {"name": "a rename matches by its previous path, listed order wins", "groups": [{"topic": "move", "files": ["z.ts", "old/name.ts"]}], "diff": [{"path": "new/name.ts", "previousPath": "old/name.ts", "additions": 2, "deletions": 2}, {"path": "z.ts", "additions": 5, "deletions": 0}], "expected": {"lead": null, "sections": [{"topic": "move", "index": 1, "total": 1, "files": ["z.ts", "new/name.ts"], "additions": 7, "deletions": 2, "missing": []}], "other": null, "complete": {"fileCount": 2, "additions": 7, "deletions": 2}}},
+      {"name": "a file two sections name counts in both", "groups": [{"topic": "one", "files": ["a.ts"]}, {"topic": "two", "files": ["a.ts", "b.ts"]}], "diff": [{"path": "a.ts", "additions": 1, "deletions": 1}, {"path": "b.ts", "additions": 4, "deletions": 0}], "expected": {"lead": null, "sections": [{"topic": "one", "index": 1, "total": 2, "files": ["a.ts"], "additions": 1, "deletions": 1, "missing": []}, {"topic": "two", "index": 2, "total": 2, "files": ["a.ts", "b.ts"], "additions": 5, "deletions": 1, "missing": []}], "other": null, "complete": {"fileCount": 2, "additions": 5, "deletions": 1}}},
+      {"name": "no report: one Changes section holds the whole diff", "groups": [], "diff": [{"path": "a.ts", "additions": 1, "deletions": 0}, {"path": "b.ts", "additions": 0, "deletions": 6}], "expected": {"lead": null, "sections": [], "other": {"topic": "Changes", "files": ["a.ts", "b.ts"], "additions": 1, "deletions": 6}, "complete": {"fileCount": 2, "additions": 1, "deletions": 6}}},
+      {"name": "a section without files claims nothing", "groups": [{"topic": "Verification", "files": []}], "diff": [{"path": "a.ts", "additions": 2, "deletions": 0}], "expected": {"lead": null, "sections": [{"topic": "Verification", "index": 1, "total": 1, "files": [], "additions": 0, "deletions": 0, "missing": []}], "other": {"topic": "Other changes", "files": ["a.ts"], "additions": 2, "deletions": 0}, "complete": {"fileCount": 1, "additions": 2, "deletions": 0}}},
+      {"name": "an empty diff: every listed path is missing, nothing else", "groups": [{"topic": "nav", "files": ["a.ts"]}], "diff": [], "expected": {"lead": null, "sections": [{"topic": "nav", "index": 1, "total": 1, "files": [], "additions": 0, "deletions": 0, "missing": ["a.ts"]}], "other": null, "complete": {"fileCount": 0, "additions": 0, "deletions": 0}}},
+      {"name": "no diff loaded", "groups": [{"topic": "Summary", "files": ["a.ts"]}, {"topic": "nav", "files": ["b.ts"]}], "diff": null, "expected": {"lead": {"topic": "Summary", "changes": null, "missing": []}, "sections": [{"topic": "nav", "index": 1, "total": 1, "changes": null, "missing": []}], "other": null, "complete": null}}
+    ]
+  },
+  "prScope": {
+    "$comment": "EXP-1251: a text entry may carry prUrl (the PR its topic belongs to, set when a run stacks a second PR). A topic's tag = its FIRST non-blank text entry's prUrl, trimmed (blank = untagged); its pictures follow it. sessionResultsForPr(raw, prUrl) keeps every entry of an untagged topic plus the topics tagged exactly prUrl, in order (prUrl null = untagged only); sessionResultPrUrls(raw) = every tag, first-seen. Mirrored x4.",
+    "cases": [
+      {"name": "a stacked second PR keeps its own topics", "raw": [{"topic": "Summary", "text": "iOS fix", "prUrl": "https://github.com/o/r/pull/1011"}, {"topic": "Verification", "text": "tests pass"}, {"topic": "Reviews", "text": "linked by pr_url", "prUrl": "https://github.com/o/r/pull/1012"}, {"topic": "Reviews", "label": "web", "attachmentId": "a1"}, {"topic": "Summary", "label": "ios", "attachmentId": "a2"}], "prUrls": ["https://github.com/o/r/pull/1011", "https://github.com/o/r/pull/1012"], "byPr": [{"prUrl": "https://github.com/o/r/pull/1011", "topics": ["Summary", "Verification", "Summary"]}, {"prUrl": "https://github.com/o/r/pull/1012", "topics": ["Verification", "Reviews", "Reviews"]}, {"prUrl": null, "topics": ["Verification"]}]},
+      {"name": "an untagged report shows on every PR", "raw": [{"topic": "Summary", "text": "x", "prUrl": "  "}, {"topic": "nav", "label": "web", "attachmentId": "a1"}], "prUrls": [], "byPr": [{"prUrl": "https://github.com/o/r/pull/7", "topics": ["Summary", "nav"]}]}
+    ]
+  },
+  "turns": {
+    "$comment": "EXP-1245: sessionTurns(raw, feed) = the thread as TURNS for the run's owner. feed events: {kind:'user_message', at, text, images?} and {kind:'turn', state:'started'|'ended', at}, walked in at order (ties keep feed order). A user_message opens a new turn {message, startedAt: null}; when a turn was still running (started, not ended) it ends at the message's at and the new turn starts at that same at. A 'started' edge starts the newest turn if it has neither started nor ended, else opens a message-less turn unless one is running. An 'ended' edge ends the running turn (else ignored). Results entries carry the server's write stamp at (ms): each thread piece (sessionThread rules: a topic's first text, every picture, the Summary text = reply) lands in the LAST turn whose boundary (message at, else startedAt) <= at; a piece without at, or older than every boundary, lands in the first turn. No usable event (no feed) = ONE turn with today's thread and perTurn false. Mirrored x4.",
+    "cases": [
+      {"name": "no feed keeps the single thread", "raw": [{"topic": "Summary", "text": "Done", "at": 1760000000000}, {"topic": "nav", "text": "Nav"}], "feed": null, "expected": {"perTurn": false, "turns": [{"message": null, "startedAt": null, "endedAt": null, "items": [{"kind": "text", "topic": "nav", "text": "Nav"}], "reply": "Done"}]}},
+      {"name": "two turns and the person's bubble", "raw": [{"topic": "Summary", "text": "The x is gone.", "at": 1760000300000}, {"topic": "Reviews", "text": "Resolved by pr_url.", "at": 1760000900000}, {"topic": "Reviews", "label": "web", "attachmentId": "a1", "at": 1760000905000}], "feed": [{"kind": "turn", "state": "started", "at": 1760000000000}, {"kind": "turn", "state": "ended", "at": 1760000437000}, {"kind": "user_message", "at": 1760000600000, "text": "why is this PR not connected?", "images": ["/api/attachments/i1"]}, {"kind": "turn", "state": "started", "at": 1760000601000}], "expected": {"perTurn": true, "turns": [{"message": null, "startedAt": 1760000000000, "endedAt": 1760000437000, "items": [], "reply": "The x is gone."}, {"message": {"text": "why is this PR not connected?", "at": 1760000600000, "images": ["/api/attachments/i1"]}, "startedAt": 1760000601000, "endedAt": null, "items": [{"kind": "text", "topic": "Reviews", "text": "Resolved by pr_url."}, {"kind": "picture", "attachmentId": "a1"}], "reply": null}]}},
+      {"name": "a message sent mid-turn cuts the running turn", "raw": [{"topic": "a", "text": "first", "at": 1760000001000}, {"topic": "b", "text": "second", "at": 1760000006000}], "feed": [{"kind": "user_message", "at": 1760000000000, "text": "go"}, {"kind": "turn", "state": "started", "at": 1760000000010}, {"kind": "user_message", "at": 1760000005000, "text": "also this"}, {"kind": "turn", "state": "ended", "at": 1760000009000}], "expected": {"perTurn": true, "turns": [{"message": {"text": "go", "at": 1760000000000, "images": []}, "startedAt": 1760000000010, "endedAt": 1760000005000, "items": [{"kind": "text", "topic": "a", "text": "first"}], "reply": null}, {"message": {"text": "also this", "at": 1760000005000, "images": []}, "startedAt": 1760000005000, "endedAt": 1760000009000, "items": [{"kind": "text", "topic": "b", "text": "second"}], "reply": null}]}},
+      {"name": "unstamped results land in the first turn, a waiting message has no start", "raw": [{"topic": "old", "text": "legacy"}, {"topic": "late", "text": "after", "at": 1760000020000}], "feed": [{"kind": "turn", "state": "started", "at": 1760000001000}, {"kind": "turn", "state": "ended", "at": 1760000002000}, {"kind": "turn", "state": "ended", "at": 1760000003000}, {"kind": "user_message", "at": 1760000010000, "text": "next"}], "expected": {"perTurn": true, "turns": [{"message": null, "startedAt": 1760000001000, "endedAt": 1760000002000, "items": [{"kind": "text", "topic": "old", "text": "legacy"}], "reply": null}, {"message": {"text": "next", "at": 1760000010000, "images": []}, "startedAt": null, "endedAt": null, "items": [{"kind": "text", "topic": "late", "text": "after"}], "reply": null}]}}
     ]
   }
 }

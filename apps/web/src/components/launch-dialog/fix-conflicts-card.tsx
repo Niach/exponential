@@ -1,11 +1,11 @@
 import { useMemo } from "react"
 import { contract } from "@exp/domain-contract"
 import {
-  Combobox,
+  Picker,
   FixConflictsCard as FixConflictsCardView,
   FixConflictsNote,
   FixConflictsPrRow,
-  type PickerOption,
+  type PickerItem,
 } from "@exp/ui"
 
 import {
@@ -52,7 +52,7 @@ export function FixConflictsCard({
   disabled?: boolean
 }) {
   const pulls = useOpenPrOptions(teamId)
-  const options = useMemo<PickerOption[]>(
+  const options = useMemo<PickerItem[]>(
     () => pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
     [pulls]
   )
@@ -61,16 +61,18 @@ export function FixConflictsCard({
 
   return (
     <FixConflictsCardView data-testid="agent-composer-fix-conflicts">
-      <Combobox
-        options={options}
+      <Picker
+        mode="single"
+        search
+        items={options}
         value={value === `` ? null : value}
-        onChange={(issueId) => onChange(issueId ?? ``)}
+        onChange={onChange}
         width="lg"
         mobileTitle="Select a pull request"
-        placeholder="Select a pull request..."
+        searchPlaceholder="Select a pull request..."
         emptyText="No open pull requests."
         disabled={disabled}
-        renderTrigger={({ open }) => (
+        trigger={({ open }) => (
           <FixConflictsPrRow
             pr={pr}
             placeholder={contract.composerUi.prPlaceholder}

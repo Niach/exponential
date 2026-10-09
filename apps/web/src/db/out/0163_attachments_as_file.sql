@@ -1,0 +1,1 @@
+ALTER TABLE "attachments" ADD COLUMN "as_file" boolean DEFAULT false NOT NULL;

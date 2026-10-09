@@ -18,9 +18,7 @@ vi.mock(`@tanstack/react-router`, () => ({
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/components/issue-actions-menu`, () => ({
   issueUrlFor: () => `https://exp.test/issue`,
-}))
-vi.mock(`@/components/issue-detail-mobile-menu`, () => ({
-  IssueDetailMobileMenu: () => <button type="button">More</button>,
+  IssueActionsMenu: () => <button type="button">More</button>,
 }))
 vi.mock(`@/components/pin-toggle-button`, () => ({
   PinToggleButton: () => <button type="button">Pin</button>,
@@ -30,7 +28,7 @@ vi.mock(`@/components/pin-toggle-button`, () => ({
 vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 vi.mock(`@/components/issue-chip`, () => ({ IssueChip: () => null }))
 vi.mock(`@/components/issue-coding-rows`, () => ({ PrStateBadge: () => null }))
-vi.mock(`@/components/agent-session-row`, () => ({}))
+vi.mock(`@/lib/session-row-caption`, () => ({}))
 vi.mock(`@/lib/collections`, () => ({
   codingSessionCollection: {},
   issueCollection: {},

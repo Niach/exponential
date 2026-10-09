@@ -1,4 +1,4 @@
-import { AccountLimitBars, AccountPicker, PickerTrigger } from "@exp/ui"
+import { AccountPicker, PickerTrigger, UsageWindows, accountLimitWindows } from "@exp/ui"
 
 import { typedPickerStatus } from "./picker-shared.tsx"
 import type { StyleguideEntry } from "./types.ts"
@@ -58,7 +58,7 @@ export const entry: StyleguideEntry = {
       {/* The preview a row carries, at the size it draws inside the surface. */}
       <div className="flex items-center gap-3">
         <PickerTrigger variant="pill" label="Account" value="danny@yourev.at" />
-        <AccountLimitBars limits={LIMITS} />
+        <UsageWindows density="hover" windows={accountLimitWindows(LIMITS)} />
       </div>
     </div>
   ),

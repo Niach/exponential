@@ -1,13 +1,10 @@
 import type { ReactNode, Ref } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import type { Board, Issue } from "@/db/schema"
-import { trpc } from "@/lib/trpc-client"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { CollapsedTitle } from "@exp/ui"
 import { faceShowsContextMenu, type WorkFaceKind } from "@/lib/work-faces"
-import { issueUrlFor } from "@/components/issue-actions-menu"
-import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
-import { useClosePr } from "@/components/close-pr-dialog"
+import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -73,8 +70,6 @@ export function IssueMobileHeader({
   headerRef?: Ref<HTMLDivElement>
 }) {
   const navigate = useNavigate()
-  // EXP-1154: the `…` carries Close PR (EXP-248's control, once the review page's).
-  const closePr = useClosePr(issue, { readOnly })
 
   // EXP-851 / EXP-870: back returns to the LIST this issue was opened from
   // (`originListNavigation`, the list nav's own back row), else the board.
@@ -86,17 +81,6 @@ export function IssueMobileHeader({
         search: {},
       }) as never
     )
-  }
-
-  // Delete is a hard delete (issues.delete cleans up attachments server-side);
-  // once it commits, land back on the board.
-  const handleDeleteIssue = async () => {
-    await trpc.issues.delete.mutate({ id: issue.id })
-    void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug`,
-      params: { teamSlug, boardSlug: board.slug },
-      search: {},
-    })
   }
 
   return (
@@ -136,29 +120,23 @@ export function IssueMobileHeader({
                   targetId={issue.id}
                   variant="ghost"
                 />
-                <IssueDetailMobileMenu
-                  issueTitle={issue.title}
-                  issueUrl={issueUrlFor(teamSlug, board.slug, issue.identifier)}
+                {/* THE issue `…` (the md+ header's, a bottom sheet here):
+                    Share · Add relation · Move to board · Unmark duplicate
+                    · Close PR · Delete. */}
+                <IssueActionsMenu
+                  issue={issue}
+                  board={board}
+                  teamSlug={teamSlug}
                   teamId={teamId}
-                  boardId={issue.boardId}
-                  issueIdentifier={issue.identifier}
-                  duplicateOfId={issue.duplicateOfId ?? null}
                   readOnly={readOnly}
-                  onDelete={handleDeleteIssue}
                   onMoveBoard={handlers.handleBoardChange}
                   onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
-                  closePr={
-                    closePr.canClose
-                      ? { onSelect: closePr.request, disabled: closePr.closing }
-                      : undefined
-                  }
                 />
               </>
             )}
           </div>
         }
       />
-      {closePr.dialog}
     </>
   )
 }

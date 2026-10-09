@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1175: the Run face's STATUS ROW and its Show work switch, mirrored x4 (web lib/work-faces.ts + lib/agent-feed.ts, iOS WorkFaces.swift + AgentFeed.swift, Android WorkFaces.kt + AgentFeed.kt, desktop run_rows.rs + steer feed.rs). The Run face opens as the THREAD (the status row over the run's published results, newest at the bottom, pending plan/question cards still in place) unless the viewer's per-user Show work preference (default showWorkDefault, remembered per user id on every client) is on, in which case the same row sits over the full transcript; the row's trailing text button reads showWorkLabel while the thread shows and hideWorkLabel while the transcript shows. runRowCaption({state, device, startedAt, endedAt, now}) = the row's first line + tone: working -> 'Building on <device> · <elapsed>' (elapsed = now - startedAt), ended -> 'Ended on <device> · <elapsed>' (elapsed = endedAt - startedAt; the caller passes ended_at, else updated_at), paused/needs_input/review/done = the session list row's status line words and tones. The elapsed ladder is the working caption's ('37s', '2m 04s', '1h 03m'); a missing or unparsable timestamp drops the ' · <elapsed>' part. lastToolLine(feed) = the row's muted second line: the NEWEST tool item of the feed (anything after it is ignored); an Exponential MCP tool reads the contract expToolDisplay caption for its settled state plus its subject (settled: the single preview ref's title, else identifier, else the preview title/identifier, else the call's detail; unsettled: the detail), any other tool its name plus its detail; both joined by ONE space, a missing part dropped; no tool item = null. Only a LIVE run shows the line. runRowState({paused, ended, awaitingInput, working, display}) = the row's state, the VIEWER's live signals folded over the synced display state (sessionDisplayState, session-display.json) so the row never contradicts the Run tab's mark: paused (offline host) first, then ended, then needs_input when the viewer sees a pending plan/question (awaitingInput) OR the display state says so, then working when the viewer's working predicate (sessionIsWorking / agentWorking) OR the display state says so, else the display state (review | done).",
+  "$comment": "EXP-1175: the Run face's STATUS ROW and its Show work switch, mirrored x4 (web lib/work-faces.ts + lib/agent-feed.ts, iOS WorkFaces.swift + AgentFeed.swift, Android WorkFaces.kt + AgentFeed.kt, desktop run_rows.rs + steer feed.rs). The Run face opens as the THREAD (the status row over the run's published results, newest at the bottom, pending plan/question cards still in place) unless the viewer's per-user Show work preference (default showWorkDefault, remembered per user id on every client) is on, in which case the same row sits over the full transcript; the row's trailing text button reads showWorkLabel while the thread shows and hideWorkLabel while the transcript shows. runRowCaption({state, device, startedAt, endedAt, now}) = the row's first line + tone: working -> 'Building on <device> · <elapsed>' (elapsed = now - startedAt), ended -> 'Ended on <device> · <elapsed>' (elapsed = endedAt - startedAt; the caller passes ended_at, else updated_at), paused/needs_input/review/done = the session list row's status line words and tones. The elapsed ladder is the working caption's ('37s', '2m 04s', '1h 03m'); a missing or unparsable timestamp drops the ' · <elapsed>' part. lastToolLine(feed) = the row's muted second line: the NEWEST tool item of the feed (anything after it is ignored); an Exponential MCP tool reads the contract expToolDisplay caption for its settled state plus its subject (settled: the single preview ref's title, else identifier, else the preview title/identifier, else the call's detail; unsettled: the detail), any other tool its name plus its detail; both joined by ONE space, a missing part dropped; no tool item = null. Only a LIVE run shows the line. runRowState({paused, ended, awaitingInput, working, display}) = the row's state, the VIEWER's live signals folded over the synced display state (sessionDisplayState, session-display.json) so the row never contradicts the Run tab's mark: paused (offline host) first, then ended, then needs_input when the viewer sees a pending plan/question (awaitingInput) OR the display state says so, then working when the viewer's working predicate (sessionIsWorking / agentWorking) OR the display state says so, else the display state (review | done). EXP-1245 turnCaptions: the OWNER's thread draws one status row PER TURN (sessionTurns, session-results.json turns). turnRowCaption({turn:{startedAt,endedAt}, state, device, runEndedAt, now}): a turn without a start (a sent message waiting) has NO row (null); a settled turn (endedAt set) reads 'Done on <device> · <endedAt - startedAt>' muted on the same elapsed ladder; the open turn reads runRowCaption with the run's state, startedAt = the TURN's start and endedAt = runEndedAt (so a working turn counts from its own start, not the run's).",
   "showWorkLabel": "Show work",
   "hideWorkLabel": "Hide work",
   "showWorkDefault": false,
@@ -318,6 +318,80 @@
         }
       ],
       "expected": "Showed picture"
+    }
+  ],
+  "turnCaptions": [
+    {
+      "name": "a settled turn says it is done and how long it took",
+      "turn": {
+        "startedAt": "2026-10-06T21:16:00Z",
+        "endedAt": "2026-10-06T21:23:17Z"
+      },
+      "state": "working",
+      "device": "macbook",
+      "runEndedAt": null,
+      "now": "2026-10-06T21:47:02Z",
+      "expected": {
+        "text": "Done on macbook · 7m 17s",
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "the open turn builds from its own start",
+      "turn": {
+        "startedAt": "2026-10-06T21:40:00Z",
+        "endedAt": null
+      },
+      "state": "working",
+      "device": "macbook",
+      "runEndedAt": null,
+      "now": "2026-10-06T21:47:02Z",
+      "expected": {
+        "text": "Building on macbook · 7m 02s",
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "the open turn waiting on a person is amber",
+      "turn": {
+        "startedAt": "2026-10-06T21:40:00Z",
+        "endedAt": null
+      },
+      "state": "needs_input",
+      "device": "macbook",
+      "runEndedAt": null,
+      "now": "2026-10-06T21:47:02Z",
+      "expected": {
+        "text": "Needs input · macbook",
+        "tone": "amber"
+      }
+    },
+    {
+      "name": "an ended run's open turn ends with the run",
+      "turn": {
+        "startedAt": "2026-10-06T21:40:00Z",
+        "endedAt": null
+      },
+      "state": "ended",
+      "device": "macbook",
+      "runEndedAt": "2026-10-06T21:45:30Z",
+      "now": "2026-10-07T08:00:00Z",
+      "expected": {
+        "text": "Ended on macbook · 5m 30s",
+        "tone": "muted"
+      }
+    },
+    {
+      "name": "a message still waiting for its turn has no row",
+      "turn": {
+        "startedAt": null,
+        "endedAt": null
+      },
+      "state": "working",
+      "device": "macbook",
+      "runEndedAt": null,
+      "now": "2026-10-06T21:47:02Z",
+      "expected": null
     }
   ]
 }

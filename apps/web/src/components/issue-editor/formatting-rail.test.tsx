@@ -183,6 +183,36 @@ describe(`FormattingRail button order`, () => {
     expect(railLabels(container)).toContain(`Insert image`)
   })
 
+  // EXP-1247: "Attach file" never inlines; the image input still does.
+  it(`routes every file-picker pick to onOtherFiles as a file`, () => {
+    const { editor } = makeEditor()
+    const onFiles = vi.fn(async () => {})
+    const onMediaFiles = vi.fn()
+    const onOtherFiles = vi.fn()
+    const { container } = render(
+      <EditorInsertBar
+        editor={editor}
+        imageUpload={{ enabled: true, onFiles, onMediaFiles, onOtherFiles }}
+      />
+    )
+    const [imageInput, fileInput] = Array.from(
+      container.querySelectorAll<HTMLInputElement>(`input[type=file]`)
+    )
+    const png = new File([`x`], `mock.png`, { type: `image/png` })
+    const clip = new File([`x`], `clip.mp4`, { type: `video/mp4` })
+    const pdf = new File([`x`], `notes.pdf`, { type: `application/pdf` })
+
+    fireEvent.change(fileInput, { target: { files: [png, clip, pdf] } })
+    expect(onOtherFiles).toHaveBeenCalledWith([png, clip, pdf], {
+      asFile: true,
+    })
+    expect(onFiles).not.toHaveBeenCalled()
+    expect(onMediaFiles).not.toHaveBeenCalled()
+
+    fireEvent.change(imageInput, { target: { files: [png] } })
+    expect(onFiles).toHaveBeenCalledWith([png])
+  })
+
   it(`drops both pickers when uploads are off`, () => {
     const { editor } = makeEditor()
     const { container } = render(<EditorInsertBar editor={editor} />)

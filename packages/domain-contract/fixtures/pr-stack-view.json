@@ -1,0 +1,598 @@
+{
+  "_doc": "EXP-1248: the stack rail + tree/stack rule x4 (web lib/pr-stack.ts openPrShape/stackView; desktop domain::pr_stack::{open_pr_shape,stack_view}; iOS PrStack.{openPrShape,stackView}; Android PrStack.{openPrShape,stackView}). Input: the subject issue + the synced issue rows (id, identifier, title, prNumber, branch, prBaseBranch, prState, prUrl). Only OPEN pull requests count, ONE representative per pr_url (identifier order: a batch PR = its lowest identifier). Edges: upper.prBaseBranch == lower.branch (non-empty). shape over the subject's open component: 'single' (one PR, or the subject has no open PR), 'tree' (any PR with two open PRs on its branch: follow-up trees NEST with tree guides, never a rail), 'stack' (linear: GitHub native stack). view = null unless shape is 'stack': rows TOP first {issueId, identifier, title, prNumber, isCurrent (the subject's PR = the active wash)} + baseBranch = the bottom row's prBaseBranch (the trailing muted base row; null when unknown). No position numbers, no PR numbers drawn, no counts.",
+  "cases": [
+    {
+      "name": "the VAPP chain from a mid member: top first, the current row marked, master below",
+      "issue": "v91",
+      "issues": [
+        {
+          "id": "v100",
+          "identifier": "VAPP-100",
+          "title": "SwiftUI parity with the round-1/2 contract",
+          "prNumber": 1010,
+          "branch": "exp/VAPP-100",
+          "prBaseBranch": "exp/chat-76b77687",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1010"
+        },
+        {
+          "id": "v98",
+          "identifier": "VAPP-98",
+          "title": "Exponential UI renderer hardening round 1",
+          "prNumber": 1007,
+          "branch": "exp/chat-76b77687",
+          "prBaseBranch": "exp/VAPP-93",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1007"
+        },
+        {
+          "id": "v93",
+          "identifier": "VAPP-93",
+          "title": "ui.exponential.at: the Exponential UI site",
+          "prNumber": 1009,
+          "branch": "exp/VAPP-93",
+          "prBaseBranch": "exp/VAPP-91",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1009"
+        },
+        {
+          "id": "v91",
+          "identifier": "VAPP-91",
+          "title": "Exponential UI host API ×4",
+          "prNumber": 1008,
+          "branch": "exp/VAPP-91",
+          "prBaseBranch": "exp/VAPP-89",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1008"
+        },
+        {
+          "id": "v89",
+          "identifier": "VAPP-89",
+          "title": "Exponential UI Compose renderer",
+          "prNumber": 1006,
+          "branch": "exp/VAPP-89",
+          "prBaseBranch": "exp/VAPP-88",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1006"
+        },
+        {
+          "id": "v88",
+          "identifier": "VAPP-88",
+          "title": "Exponential UI SwiftUI renderer",
+          "prNumber": 1004,
+          "branch": "exp/VAPP-88",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1004"
+        },
+        {
+          "id": "v90",
+          "identifier": "VAPP-90",
+          "title": "Merged earlier",
+          "prNumber": 1003,
+          "branch": "exp/VAPP-90",
+          "prBaseBranch": null,
+          "prState": "merged",
+          "prUrl": "https://github.com/Niach/exponential/pull/1003"
+        }
+      ],
+      "shape": "stack",
+      "view": {
+        "rows": [
+          {
+            "issueId": "v100",
+            "identifier": "VAPP-100",
+            "title": "SwiftUI parity with the round-1/2 contract",
+            "prNumber": 1010,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v98",
+            "identifier": "VAPP-98",
+            "title": "Exponential UI renderer hardening round 1",
+            "prNumber": 1007,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v93",
+            "identifier": "VAPP-93",
+            "title": "ui.exponential.at: the Exponential UI site",
+            "prNumber": 1009,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v91",
+            "identifier": "VAPP-91",
+            "title": "Exponential UI host API ×4",
+            "prNumber": 1008,
+            "isCurrent": true
+          },
+          {
+            "issueId": "v89",
+            "identifier": "VAPP-89",
+            "title": "Exponential UI Compose renderer",
+            "prNumber": 1006,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v88",
+            "identifier": "VAPP-88",
+            "title": "Exponential UI SwiftUI renderer",
+            "prNumber": 1004,
+            "isCurrent": false
+          }
+        ],
+        "baseBranch": "master"
+      }
+    },
+    {
+      "name": "the VAPP chain from its top",
+      "issue": "v100",
+      "issues": [
+        {
+          "id": "v100",
+          "identifier": "VAPP-100",
+          "title": "SwiftUI parity with the round-1/2 contract",
+          "prNumber": 1010,
+          "branch": "exp/VAPP-100",
+          "prBaseBranch": "exp/chat-76b77687",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1010"
+        },
+        {
+          "id": "v98",
+          "identifier": "VAPP-98",
+          "title": "Exponential UI renderer hardening round 1",
+          "prNumber": 1007,
+          "branch": "exp/chat-76b77687",
+          "prBaseBranch": "exp/VAPP-93",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1007"
+        },
+        {
+          "id": "v93",
+          "identifier": "VAPP-93",
+          "title": "ui.exponential.at: the Exponential UI site",
+          "prNumber": 1009,
+          "branch": "exp/VAPP-93",
+          "prBaseBranch": "exp/VAPP-91",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1009"
+        },
+        {
+          "id": "v91",
+          "identifier": "VAPP-91",
+          "title": "Exponential UI host API ×4",
+          "prNumber": 1008,
+          "branch": "exp/VAPP-91",
+          "prBaseBranch": "exp/VAPP-89",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1008"
+        },
+        {
+          "id": "v89",
+          "identifier": "VAPP-89",
+          "title": "Exponential UI Compose renderer",
+          "prNumber": 1006,
+          "branch": "exp/VAPP-89",
+          "prBaseBranch": "exp/VAPP-88",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1006"
+        },
+        {
+          "id": "v88",
+          "identifier": "VAPP-88",
+          "title": "Exponential UI SwiftUI renderer",
+          "prNumber": 1004,
+          "branch": "exp/VAPP-88",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1004"
+        },
+        {
+          "id": "v90",
+          "identifier": "VAPP-90",
+          "title": "Merged earlier",
+          "prNumber": 1003,
+          "branch": "exp/VAPP-90",
+          "prBaseBranch": null,
+          "prState": "merged",
+          "prUrl": "https://github.com/Niach/exponential/pull/1003"
+        }
+      ],
+      "shape": "stack",
+      "view": {
+        "rows": [
+          {
+            "issueId": "v100",
+            "identifier": "VAPP-100",
+            "title": "SwiftUI parity with the round-1/2 contract",
+            "prNumber": 1010,
+            "isCurrent": true
+          },
+          {
+            "issueId": "v98",
+            "identifier": "VAPP-98",
+            "title": "Exponential UI renderer hardening round 1",
+            "prNumber": 1007,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v93",
+            "identifier": "VAPP-93",
+            "title": "ui.exponential.at: the Exponential UI site",
+            "prNumber": 1009,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v91",
+            "identifier": "VAPP-91",
+            "title": "Exponential UI host API ×4",
+            "prNumber": 1008,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v89",
+            "identifier": "VAPP-89",
+            "title": "Exponential UI Compose renderer",
+            "prNumber": 1006,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v88",
+            "identifier": "VAPP-88",
+            "title": "Exponential UI SwiftUI renderer",
+            "prNumber": 1004,
+            "isCurrent": false
+          }
+        ],
+        "baseBranch": "master"
+      }
+    },
+    {
+      "name": "a merged foundation drops out; the base row names the branch the bottom still records",
+      "issue": "v91",
+      "issues": [
+        {
+          "id": "v100",
+          "identifier": "VAPP-100",
+          "title": "SwiftUI parity with the round-1/2 contract",
+          "prNumber": 1010,
+          "branch": "exp/VAPP-100",
+          "prBaseBranch": "exp/chat-76b77687",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1010"
+        },
+        {
+          "id": "v98",
+          "identifier": "VAPP-98",
+          "title": "Exponential UI renderer hardening round 1",
+          "prNumber": 1007,
+          "branch": "exp/chat-76b77687",
+          "prBaseBranch": "exp/VAPP-93",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1007"
+        },
+        {
+          "id": "v93",
+          "identifier": "VAPP-93",
+          "title": "ui.exponential.at: the Exponential UI site",
+          "prNumber": 1009,
+          "branch": "exp/VAPP-93",
+          "prBaseBranch": "exp/VAPP-91",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1009"
+        },
+        {
+          "id": "v91",
+          "identifier": "VAPP-91",
+          "title": "Exponential UI host API ×4",
+          "prNumber": 1008,
+          "branch": "exp/VAPP-91",
+          "prBaseBranch": "exp/VAPP-89",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1008"
+        },
+        {
+          "id": "v89",
+          "identifier": "VAPP-89",
+          "title": "Exponential UI Compose renderer",
+          "prNumber": 1006,
+          "branch": "exp/VAPP-89",
+          "prBaseBranch": "exp/VAPP-88",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1006"
+        },
+        {
+          "id": "v88",
+          "identifier": "VAPP-88",
+          "title": "Exponential UI SwiftUI renderer",
+          "prNumber": 1004,
+          "branch": "exp/VAPP-88",
+          "prBaseBranch": "master",
+          "prState": "merged",
+          "prUrl": "https://github.com/Niach/exponential/pull/1004"
+        },
+        {
+          "id": "v90",
+          "identifier": "VAPP-90",
+          "title": "Merged earlier",
+          "prNumber": 1003,
+          "branch": "exp/VAPP-90",
+          "prBaseBranch": null,
+          "prState": "merged",
+          "prUrl": "https://github.com/Niach/exponential/pull/1003"
+        }
+      ],
+      "shape": "stack",
+      "view": {
+        "rows": [
+          {
+            "issueId": "v100",
+            "identifier": "VAPP-100",
+            "title": "SwiftUI parity with the round-1/2 contract",
+            "prNumber": 1010,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v98",
+            "identifier": "VAPP-98",
+            "title": "Exponential UI renderer hardening round 1",
+            "prNumber": 1007,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v93",
+            "identifier": "VAPP-93",
+            "title": "ui.exponential.at: the Exponential UI site",
+            "prNumber": 1009,
+            "isCurrent": false
+          },
+          {
+            "issueId": "v91",
+            "identifier": "VAPP-91",
+            "title": "Exponential UI host API ×4",
+            "prNumber": 1008,
+            "isCurrent": true
+          },
+          {
+            "issueId": "v89",
+            "identifier": "VAPP-89",
+            "title": "Exponential UI Compose renderer",
+            "prNumber": 1006,
+            "isCurrent": false
+          }
+        ],
+        "baseBranch": "exp/VAPP-88"
+      }
+    },
+    {
+      "name": "a fork is a tree: no stack rail",
+      "issue": "e1252",
+      "issues": [
+        {
+          "id": "e1250",
+          "identifier": "EXP-1250",
+          "title": "opening tabs closes all at some point",
+          "prNumber": 1020,
+          "branch": "exp/EXP-1250",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1020"
+        },
+        {
+          "id": "e1252",
+          "identifier": "EXP-1252",
+          "title": "tabs per team on desktop",
+          "prNumber": 1021,
+          "branch": "exp/EXP-1252",
+          "prBaseBranch": "exp/EXP-1250",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1021"
+        },
+        {
+          "id": "e1253",
+          "identifier": "EXP-1253",
+          "title": "inbox stepping reuses one tab",
+          "prNumber": 1022,
+          "branch": "exp/EXP-1253",
+          "prBaseBranch": "exp/EXP-1250",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1022"
+        }
+      ],
+      "shape": "tree",
+      "view": null
+    },
+    {
+      "name": "the tree root is a tree too",
+      "issue": "e1250",
+      "issues": [
+        {
+          "id": "e1250",
+          "identifier": "EXP-1250",
+          "title": "opening tabs closes all at some point",
+          "prNumber": 1020,
+          "branch": "exp/EXP-1250",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1020"
+        },
+        {
+          "id": "e1252",
+          "identifier": "EXP-1252",
+          "title": "tabs per team on desktop",
+          "prNumber": 1021,
+          "branch": "exp/EXP-1252",
+          "prBaseBranch": "exp/EXP-1250",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1021"
+        },
+        {
+          "id": "e1253",
+          "identifier": "EXP-1253",
+          "title": "inbox stepping reuses one tab",
+          "prNumber": 1022,
+          "branch": "exp/EXP-1253",
+          "prBaseBranch": "exp/EXP-1250",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1022"
+        }
+      ],
+      "shape": "tree",
+      "view": null
+    },
+    {
+      "name": "a lone pull request is single",
+      "issue": "v90x",
+      "issues": [
+        {
+          "id": "v90x",
+          "identifier": "EXP-1",
+          "title": "Lone",
+          "prNumber": 5,
+          "branch": "exp/EXP-1",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/5"
+        }
+      ],
+      "shape": "single",
+      "view": null
+    },
+    {
+      "name": "an issue without an open pull request is single",
+      "issue": "v90",
+      "issues": [
+        {
+          "id": "v100",
+          "identifier": "VAPP-100",
+          "title": "SwiftUI parity with the round-1/2 contract",
+          "prNumber": 1010,
+          "branch": "exp/VAPP-100",
+          "prBaseBranch": "exp/chat-76b77687",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1010"
+        },
+        {
+          "id": "v98",
+          "identifier": "VAPP-98",
+          "title": "Exponential UI renderer hardening round 1",
+          "prNumber": 1007,
+          "branch": "exp/chat-76b77687",
+          "prBaseBranch": "exp/VAPP-93",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1007"
+        },
+        {
+          "id": "v93",
+          "identifier": "VAPP-93",
+          "title": "ui.exponential.at: the Exponential UI site",
+          "prNumber": 1009,
+          "branch": "exp/VAPP-93",
+          "prBaseBranch": "exp/VAPP-91",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1009"
+        },
+        {
+          "id": "v91",
+          "identifier": "VAPP-91",
+          "title": "Exponential UI host API ×4",
+          "prNumber": 1008,
+          "branch": "exp/VAPP-91",
+          "prBaseBranch": "exp/VAPP-89",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1008"
+        },
+        {
+          "id": "v89",
+          "identifier": "VAPP-89",
+          "title": "Exponential UI Compose renderer",
+          "prNumber": 1006,
+          "branch": "exp/VAPP-89",
+          "prBaseBranch": "exp/VAPP-88",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1006"
+        },
+        {
+          "id": "v88",
+          "identifier": "VAPP-88",
+          "title": "Exponential UI SwiftUI renderer",
+          "prNumber": 1004,
+          "branch": "exp/VAPP-88",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/1004"
+        },
+        {
+          "id": "v90",
+          "identifier": "VAPP-90",
+          "title": "Merged earlier",
+          "prNumber": 1003,
+          "branch": "exp/VAPP-90",
+          "prBaseBranch": null,
+          "prState": "merged",
+          "prUrl": "https://github.com/Niach/exponential/pull/1003"
+        }
+      ],
+      "shape": "single",
+      "view": null
+    },
+    {
+      "name": "a batch pull request is ONE row, its lowest identifier",
+      "issue": "b3",
+      "issues": [
+        {
+          "id": "b2",
+          "identifier": "EXP-2",
+          "title": "Batch one",
+          "prNumber": 9,
+          "branch": "exp/batch-1",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/9"
+        },
+        {
+          "id": "b3",
+          "identifier": "EXP-3",
+          "title": "Batch two",
+          "prNumber": 9,
+          "branch": "exp/batch-1",
+          "prBaseBranch": "master",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/9"
+        },
+        {
+          "id": "t4",
+          "identifier": "EXP-4",
+          "title": "On the batch",
+          "prNumber": 10,
+          "branch": "exp/EXP-4",
+          "prBaseBranch": "exp/batch-1",
+          "prState": "open",
+          "prUrl": "https://github.com/Niach/exponential/pull/10"
+        }
+      ],
+      "shape": "stack",
+      "view": {
+        "rows": [
+          {
+            "issueId": "t4",
+            "identifier": "EXP-4",
+            "title": "On the batch",
+            "prNumber": 10,
+            "isCurrent": false
+          },
+          {
+            "issueId": "b2",
+            "identifier": "EXP-2",
+            "title": "Batch one",
+            "prNumber": 9,
+            "isCurrent": true
+          }
+        ],
+        "baseBranch": "master"
+      }
+    }
+  ]
+}

@@ -22,6 +22,7 @@ import {
   SESSION_RESULT_FILE_PATH_MAX,
   SESSION_RESULT_FILES_MAX,
   SESSION_RESULTS_FILES_TOTAL_MAX,
+  SESSION_RESULT_PR_URL_MAX,
   SESSION_SHOW_DEFAULT_TOPIC,
   UUID_RE,
 } from "@exp/db-schema/domain"
@@ -125,13 +126,26 @@ import {
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { mintSessionResultToken } from "@/lib/storage/session-result-token"
 import {
+  cleanSessionResultFiles,
   isTextEntry,
+  missingGuideFiles,
   removeSessionResults,
   upsertSessionResultText,
   resultsSummary,
 } from "@/lib/session-result-writes"
+import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { publishSessionResultPicture } from "@/lib/session-result-publish"
-import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
+import {
+  runHasReportBody,
+  runPrBody,
+  stampRunResultsPrUrl,
+  syncRunPrBody,
+} from "@/lib/run-pr-body"
+import { ensureGithubStack, inferBaseBranch } from "@/lib/pr-stacks"
+import {
+  loadGuardDefaultBranches,
+  stackStopBranches,
+} from "@/lib/pr-merge-guard"
 import { prepareSessionImageBytes } from "@/lib/storage/session-attachment-upload"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
@@ -354,6 +368,58 @@ const REUSED_PR_NOTE = (head: string) =>
 // same head AND base, so a different base would silently open a second PR
 // from the same head. A failed pre-lookup just falls through to the create;
 // the 422 catch stays as the race fallback.
+/**
+ * EXP-1248: after `pr_open`, a PR whose base is another OPEN PR's head joins
+ * that PR's GitHub stack (creating the line bottom→top when there is none).
+ * The lower PR is the issue row's PR when a same-team issue owns the branch,
+ * else the open PR GitHub lists on that head. A base that is a default
+ * branch is no stack. Returns the stack's `{number, position, size}` or null.
+ */
+async function joinGithubStack(opts: {
+  repo: string
+  token: string
+  teamId: string
+  defaultBranch: string
+  base: string
+  lowerPrNumber: number | null
+  newPrNumber: number
+}): Promise<{ number: number; position: number; size: number } | null> {
+  const branches = await loadGuardDefaultBranches(db, {
+    teamId: opts.teamId,
+    repoFullName: opts.repo,
+  })
+  const stop = new Set([opts.defaultBranch, ...stackStopBranches(branches)])
+  if (stop.has(opts.base)) return null
+  let lowerPrNumber = opts.lowerPrNumber
+  if (lowerPrNumber == null) {
+    const lowerPull = await findOpenPullByHead(opts.repo, opts.base, opts.token)
+    lowerPrNumber = lowerPull?.number ?? null
+  }
+  if (lowerPrNumber == null) return null
+  let stack: Awaited<ReturnType<typeof ensureGithubStack>>
+  try {
+    stack = await ensureGithubStack({
+      repo: opts.repo,
+      token: opts.token,
+      lowerPrNumber,
+      newPrNumber: opts.newPrNumber,
+      stopBranches: [...stop],
+    })
+  } catch (e) {
+    throw new Error(
+      `PR #${opts.newPrNumber} is open and linked, but joining the GitHub stack of #${lowerPrNumber} failed: ${e instanceof Error ? e.message : String(e)}`
+    )
+  }
+  const position = stack.pulls.findIndex(
+    (pr: { number: number }) => pr.number === opts.newPrNumber
+  )
+  return {
+    number: stack.number,
+    position: position >= 0 ? position + 1 : stack.pulls.length,
+    size: stack.pulls.length,
+  }
+}
+
 async function openOrReusePull(
   opts: Parameters<typeof createPullRequest>[0]
 ): Promise<{ url: string; number: number; reusedBase: string | null }> {
@@ -646,6 +712,11 @@ const MAX_INLINE_TEXT_BYTES = 32 * 1024
 // adjacent evidence; the server is the only party that always knows the shape.
 // Serializes as additionalProperties:false (gated by api-conventions.test.ts).
 const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
+
+// EXP-1251: the Guide tool's description (always-loaded bytes: the budget in
+// context-budget.test.ts has ~10 bytes of headroom, keep it this short).
+const GUIDE_TOOL_DESCRIPTION = `Your run's GUIDE = its PR body. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes; a listed file missing from the branch diff is reported back. prUrl = the topic's PR. label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
+const MISSING_NOTE = `These listed files are not in the branch diff: fix the paths, push, or move them to the section they belong to.`
 
 // FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
 // plan mode (and any "ask before side effects" posture) raises a permission
@@ -2554,12 +2625,24 @@ export function registerExponentialTools(
             userId: user.id,
             viaAgent: true,
           })
+          // EXP-1248: no 'base' = the nearest open PR below the head, else the
+          // default branch; a PR opened on another open PR's branch joins its
+          // GitHub stack (no fallback: a failed stack call is the tool's error).
+          const inferredChore = base
+            ? { base, prNumber: null as number | null }
+            : await inferBaseBranch({
+                repo: repo.fullName,
+                token: resolvedRepo.token,
+                head: head!,
+                defaultBranch: repo.defaultBranch,
+              })
+          const choreBase = inferredChore.base
           let createdPr: Awaited<ReturnType<typeof openOrReusePull>>
           try {
             createdPr = await openOrReusePull({
               repo: repo.fullName,
               head: head!,
-              base: base ?? repo.defaultBranch,
+              base: choreBase,
               title,
               body: prBody.body ?? ``,
               token: resolvedRepo.token,
@@ -2579,11 +2662,13 @@ export function registerExponentialTools(
                 callerSessionId: callerSession.id,
                 prTeamId: repo.teamId,
                 headBranch: head!,
-                baseBranch:
-                  createdPr.reusedBase ?? base ?? repo.defaultBranch,
+                baseBranch: createdPr.reusedBase ?? choreBase,
                 pr: { url: createdPr.url, number: createdPr.number },
               })
             })
+            if (createdPr.reusedBase == null) {
+              await stampRunResultsPrUrl(callerSession.id, createdPr.url)
+            }
             // A reused PR kept its old body: bring it to the report.
             // Only the PR the row actually got (a team mismatch skips the stamp).
             if (createdPr.reusedBase != null && prBody.fromResults) {
@@ -2593,9 +2678,22 @@ export function registerExponentialTools(
             }
           }
 
+          const choreFinalBase = createdPr.reusedBase ?? choreBase
+          const choreStack = await joinGithubStack({
+            repo: repo.fullName,
+            token: resolvedRepo.token,
+            teamId: repo.teamId,
+            defaultBranch: repo.defaultBranch,
+            base: choreFinalBase,
+            lowerPrNumber:
+              createdPr.reusedBase == null ? inferredChore.prNumber : null,
+            newPrNumber: createdPr.number,
+          })
+
           return ok({
             url: createdPr.url,
             number: createdPr.number,
+            ...(choreStack ? { stack: choreStack } : {}),
             ...(prBody.fromResults ? { body: `report` } : {}),
             ...(createdPr.reusedBase != null
               ? { reused: true, note: REUSED_PR_NOTE(head!) }
@@ -2663,8 +2761,12 @@ export function registerExponentialTools(
         }
         // A follow-up run bases on its parent's branch: a `base` that is a
         // same-team issue's OPEN PR branch makes that issue block this one.
-        let lower: { issueId: string; teamId: string } | null = null
-        if (base && base !== repo.defaultBranch) {
+        let lower: {
+          issueId: string
+          teamId: string
+          prNumber: number | null
+        } | null = null
+        const lowerFor = async (baseName: string) => {
           const [candidate] = await db
             .select({
               id: issues.id,
@@ -2677,21 +2779,30 @@ export function registerExponentialTools(
             .where(
               and(
                 inArray(issues.teamId, [...new Set(teamIdByIssue.values())]),
-                eq(issues.branch, base),
+                eq(issues.branch, baseName),
                 like(issues.prUrl, prUrlPattern(repo.fullName))
               )
             )
             .limit(1)
           if (candidate?.prState === `merged`) {
             throw new Error(
-              `'${base}' is the branch of merged PR #${candidate.prNumber} (${candidate.identifier}). Rebase onto ${repo.defaultBranch} and pass no base.`
+              `'${baseName}' is the branch of merged PR #${candidate.prNumber} (${candidate.identifier}). Rebase onto ${repo.defaultBranch} and pass no base.`
             )
           }
           if (candidate?.prState === `open` && !ids.includes(candidate.id)) {
-            lower = { issueId: candidate.id, teamId: candidate.teamId }
+            return {
+              issueId: candidate.id,
+              teamId: candidate.teamId,
+              prNumber: candidate.prNumber ?? null,
+            }
           }
+          return null
         }
+        if (base && base !== repo.defaultBranch) lower = await lowerFor(base)
         let baseBranch = base ?? repo.defaultBranch
+        // EXP-1248: the lower PR's number when the base is another open PR's
+        // head but no same-team issue owns it (a chat/action run's PR).
+        let inferredLowerPr: number | null = null
 
         const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
         if (!resolved) {
@@ -2738,6 +2849,21 @@ export function registerExponentialTools(
         // the `head` GitHub reports back. The issue-keyed record has no such
         // dependency, and it only ever suppresses — never names.
         for (const id of ids) noteAgentIssueActivity(id, user.id)
+        // EXP-1248: no 'base' = the nearest open PR whose head is an ancestor
+        // of ours, else the default branch (`inferBaseBranch`).
+        if (!base) {
+          const inferred = await inferBaseBranch({
+            repo: repo.fullName,
+            token,
+            head: headBranch,
+            defaultBranch: repo.defaultBranch,
+          })
+          baseBranch = inferred.base
+          if (inferred.prNumber != null) {
+            lower = await lowerFor(inferred.base)
+            inferredLowerPr = inferred.prNumber
+          }
+        }
         let created: Awaited<ReturnType<typeof openOrReusePull>>
         try {
           created = await openOrReusePull({
@@ -2771,7 +2897,10 @@ export function registerExponentialTools(
         const reused = created.reusedBase != null
         if (reused) {
           releasePrOpenClaim(repo.fullName, headBranch)
-          if (created.reusedBase !== baseBranch) lower = null
+          if (created.reusedBase !== baseBranch) {
+            lower = null
+            inferredLowerPr = null
+          }
           baseBranch = created.reusedBase!
         }
 
@@ -2887,6 +3016,25 @@ export function registerExponentialTools(
         // would list it as "not linked to an issue".
         invalidateOpenPulls(teamIdByIssue.get(ids[0]!)!)
 
+        // EXP-1251: the Guide topics written before this PR opened belong to
+        // it (a later stacked PR's body leaves them out).
+        if (!reused && callerSession) {
+          await stampRunResultsPrUrl(callerSession.id, created.url)
+        }
+
+        // EXP-1248: a PR opened on another open PR's branch joins (or starts)
+        // its GitHub stack. The PR is open and linked either way; a failed
+        // stack call is the tool's error, never a silent plain chain.
+        const stack = await joinGithubStack({
+          repo: repo.fullName,
+          token,
+          teamId: teamIdByIssue.get(ids[0]!)!,
+          defaultBranch: repo.defaultBranch,
+          base: baseBranch,
+          lowerPrNumber: lower?.prNumber ?? inferredLowerPr,
+          newPrNumber: created.number,
+        })
+
         // EXP-1154: a reused PR kept its old body: bring it to the report.
         // Only the PR the row actually got (a team mismatch skips the stamp).
         if (reused && prBody.fromResults && callerSession) {
@@ -2910,6 +3058,7 @@ export function registerExponentialTools(
           url: created.url,
           number: created.number,
           base: baseBranch,
+          ...(stack ? { stack } : {}),
           ...(prBody.fromResults ? { body: `report` } : {}),
           ...(reused ? { reused: true, note: REUSED_PR_NOTE(headBranch) } : {}),
         })
@@ -2922,7 +3071,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Body = your run's report ('body' only without one). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the default branch; a 'base' that is another issue's open PR branch marks that issue as blocking yours. Linked issues move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Body = your run's report ('body' only without one). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the nearest open PR below 'head' or the default branch; basing on an open PR joins its GitHub stack. Linked issues move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -2963,10 +3112,6 @@ export function registerExponentialTools(
         }
         if (Boolean(repositoryId) !== (prNumber !== undefined)) {
           throw new Error(`repositoryId and prNumber must be passed together`)
-        }
-        // SLOP-3: a stack is a chain of ISSUE PRs; a chore PR records no base.
-        if (mergeStack && repositoryId) {
-          throw new Error(`mergeStack applies to issue PRs only`)
         }
 
         // EXP-637 decision 6, corrected in EXP-639. A run that merges the PR
@@ -3021,6 +3166,7 @@ export function registerExponentialTools(
             chore = await caller(user, request).repositories.mergePull({
               repositoryId,
               prNumber: prNumber!,
+              ...(mergeStack ? { mergeStack: true } : {}),
               ...endSessionsInput,
             })
           } catch (e) {
@@ -3216,7 +3362,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (never 'gh'). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl) or 'repositoryId' + 'prNumber' (a PR with no issue). Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team setting is off or 'endSessions' overrides it; YOUR OWN session keeps running. 'mergeStack' also lands the open PRs it is stacked on, bottom-up. Each results[] element: 'merged' + optional 'error' or 'queued' (merge queue) + its issueId/identifier or repositoryId/prNumber; one unmergeable PR never blocks the rest. Stale base: exponential_pr_retarget first. Idempotent.`,
+      description: `Squash-merge open PRs via the GitHub App (never 'gh'). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl) or 'repositoryId' + 'prNumber' (a PR with no issue). Linked issues flip to merged and the team's PR-merge status (default 'done'); their live sessions end unless the team setting is off or 'endSessions' overrides it; YOUR OWN session keeps running. 'mergeStack' lands a stack member + every open PR beneath it. Each results[] element: 'merged' + optional 'error' or 'queued' (merge queue) + its issueId/identifier or repositoryId/prNumber; one unmergeable PR never blocks the rest. Stale base: exponential_pr_retarget first. Idempotent.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prMergeInput,
     },
@@ -3272,7 +3418,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_update`,
     {
-      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all for this run's own PR, whose body is its report ('body' ignored: edit exponential_sessions_results). Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
+      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all for this run's own PR, whose body is its Guide ('body' ignored: edit exponential_sessions_guide). Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
       inputSchema: prUpdateInput,
     },
     async ({ issueId, issueIds, repositoryId, prNumber, title, body }) => {
@@ -3315,7 +3461,7 @@ export function registerExponentialTools(
             if (title === undefined) {
               return ok({
                 results: [],
-                note: `This run's PR body is its report: edit it with exponential_sessions_results (each text write re-syncs the PR).`,
+                note: `This run's PR body is its Guide: edit it with exponential_sessions_guide (each text write re-syncs the PR).`,
               })
             }
             fields = { title }
@@ -3661,27 +3807,41 @@ export function registerExponentialTools(
   // automation's. Bytes never come through MCP: the tool mints a signed,
   // ten-minute upload URL bound to (session, topic, label, user) and hands the
   // agent a curl line, so a 3 MB PNG never lands in the context window.
+  // EXP-1251: the tool is the GUIDE (`exponential_sessions_guide`); the old
+  // name stays registered as a deferred alias for shipped CLIs and daemons,
+  // routed to the same handler. Every write is stamped `at` (EXP-1245), a
+  // text may scope its topic to one PR (`prUrl`), and listed files the
+  // branch/PR diff lacks come back in the answer (`missingFromDiff`).
   if (gates.sessionResults) {
-    server.registerTool(
-      `exponential_sessions_results`,
-      {
-        description: `Publish your run's REPORT; it IS the PR body (text writes re-sync it). Per topic: text = 2-3 sentences of GFM (#IDENT refs), files = repo paths it touched; 'Summary' first. label asks for a picture (web/ios/android, Results only): an uploadUrl + curl line (PNG/JPEG/WebP, 10 MB); the same topic+label REPLACES it. remove: true deletes that label, the text (text: ''), or the whole topic. Viewport-sized shots.`,
-        _meta: ALWAYS_LOAD_META,
-        inputSchema: strictInput({
-          topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
-          label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
-          text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
-          // Limits checked in the handler: the schema is always-loaded bytes.
-          files: z.array(z.string()).optional(),
-          remove: z.boolean().optional(),
-        }),
-      },
-      async ({ topic, label, text, files, remove }) => {
+    const guideInput = strictInput({
+      topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
+      label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
+      text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
+      // Limits checked in the handler: the schema is always-loaded bytes.
+      files: z.array(z.string()).optional(),
+      prUrl: z.string().optional(),
+      remove: z.boolean().optional(),
+    })
+    const guideHandler = async ({
+      topic,
+      label,
+      text,
+      files,
+      prUrl,
+      remove,
+    }: {
+      topic: string
+      label?: string
+      text?: string
+      files?: string[]
+      prUrl?: string
+      remove?: boolean
+    }) => {
         try {
           if (!sessionId) {
             return err(
               new Error(
-                `No coding session: exponential_sessions_results only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+                `No coding session: exponential_sessions_guide only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
               )
             )
           }
@@ -3691,6 +3851,17 @@ export function registerExponentialTools(
               new Error(
                 `files rides a topic's text: pass it with text (the section it belongs to).`
               )
+            )
+          }
+          // EXP-1251: so does the topic's PR.
+          if (prUrl !== undefined && (text === undefined || remove)) {
+            return err(
+              new Error(`prUrl rides a topic's text: pass it with text.`)
+            )
+          }
+          if (prUrl !== undefined && prUrl.length > SESSION_RESULT_PR_URL_MAX) {
+            return err(
+              new Error(`prUrl takes at most ${SESSION_RESULT_PR_URL_MAX} characters.`)
             )
           }
           if (
@@ -3711,6 +3882,9 @@ export function registerExponentialTools(
               hostUserId: codingSessions.hostUserId,
               status: codingSessions.status,
               results: codingSessions.results,
+              prUrl: codingSessions.prUrl,
+              branch: codingSessions.branch,
+              boardId: codingSessions.boardId,
             })
             .from(codingSessions)
             .where(eq(codingSessions.id, sessionId))
@@ -3831,6 +4005,7 @@ export function registerExponentialTools(
           // lock the upload route and remove take (jsonb read-modify-write).
           let current = row.results
           let prSync: `synced` | `skipped` | `failed` = `skipped`
+          let missingFromDiff: string[] | null = null
           if (text !== undefined) {
             const trimmed = text.trim()
             if (!trimmed) {
@@ -3852,7 +4027,8 @@ export function registerExponentialTools(
                 locked.results,
                 topic,
                 trimmed,
-                files
+                files,
+                { at: Date.now(), prUrl }
               )
               if (!next) return null
               await tx
@@ -3871,11 +4047,23 @@ export function registerExponentialTools(
             current = written
             // EXP-1154: the report IS the PR body; an open PR follows it.
             prSync = await syncRunPrBody(sessionId)
+            // EXP-1251: listed files the branch/PR diff does not have.
+            const listed = files ? cleanSessionResultFiles(files) : []
+            if (listed.length > 0) {
+              const entry = written.find((r) => isTextEntry(r) && r.topic === topic)
+              const diff = await loadGuideDiff(
+                { prUrl: row.prUrl, branch: row.branch, boardId: row.boardId },
+                entry?.prUrl ?? null
+              )
+              const missing = diff ? missingGuideFiles(listed, diff) : []
+              if (missing.length > 0) missingFromDiff = missing
+            }
             if (!label) {
               return ok({
                 topic,
                 text: trimmed.length,
                 ...(prSync === `synced` ? { pr: `synced` } : {}),
+                ...(missingFromDiff ? { missingFromDiff, note: MISSING_NOTE } : {}),
                 results: resultsSummary(current),
               })
             }
@@ -3914,27 +4102,44 @@ export function registerExponentialTools(
             topic,
             label,
             ...(prSync === `synced` ? { pr: `synced` } : {}),
+            ...(missingFromDiff ? { missingFromDiff, note: MISSING_NOTE } : {}),
             results: resultsSummary(current),
           })
         } catch (e) {
           return err(e)
         }
       }
+    server.registerTool(
+      `exponential_sessions_guide`,
+      {
+        description: GUIDE_TOOL_DESCRIPTION,
+        _meta: ALWAYS_LOAD_META,
+        inputSchema: guideInput,
+      },
+      guideHandler
+    )
+    server.registerTool(
+      `exponential_sessions_results`,
+      {
+        description: `Old name of exponential_sessions_guide; same input and answer.`,
+        inputSchema: guideInput,
+      },
+      guideHandler
     )
   }
 
-  // EXP-1172: the EARLY form of sessions_results: one picture into the same
+  // EXP-1172: the EARLY form of sessions_guide: one picture into the same
   // `coding_sessions.results` list (topic default `Progress`) with `inline:
   // true` + the caption, so the run's transcript renders it at this call (the
   // answer's `id` = the attachment id, which the engine's preview carries)
-  // and the Results face folds it under "Earlier". ONE write behind both
+  // and the Guide folds it under "Earlier". ONE write behind both
   // tools (`publishSessionResultPicture`): `dataBase64` lands now, `file`
   // mints the same HMAC upload grant with a pre-allocated id.
   if (gates.sessionResults) {
     server.registerTool(
       `exponential_sessions_show`,
       {
-        description: `Show a screenshot in your run's transcript now (when a picture helps): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Results (topic default 'Progress', folded under Earlier).`,
+        description: `Show a screenshot in your run's transcript now (when a picture helps): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Guide (topic default 'Progress', folded under Earlier).`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           file: z.string().trim().min(1).max(1024).optional(),
@@ -3988,7 +4193,7 @@ export function registerExponentialTools(
           if (!replaces && published.length >= SESSION_RESULTS_MAX) {
             return err(
               new Error(
-                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (exponential_sessions_results with remove: true).`
+                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (exponential_sessions_guide with remove: true).`
               )
             )
           }
@@ -4050,7 +4255,7 @@ export function registerExponentialTools(
   }
 
   // EXP-988/EXP-936: the run asks its HOST to compact its context. Same gate
-  // as sessions_results: the tool acts on the caller's own run, so a caller
+  // as sessions_guide: the tool acts on the caller's own run, so a caller
   // with no run of its own (a human's MCP client) never sees it. The request
   // is relayed as a `compact_request` steer frame and executed by the device
   // at the next turn boundary; the handler file owns ownership, the refusal
@@ -5802,7 +6007,7 @@ export function registerExponentialTools(
   // -----------------------------------------------------------------------
   // EXP-988/EXP-929: three shapes of ONE tool. `dataBase64` present = the
   // inline path below (unchanged). Absent = a SIGNED upload: the call returns
-  // an upload URL + curl line (the sessions_results shape) and a later call
+  // an upload URL + curl line (the sessions_guide shape) and a later call
   // with `attachmentId` alone finalizes the row. The signed halves live in
   // handlers/attachments-upload.ts; the access checks stay here.
 

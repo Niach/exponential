@@ -109,12 +109,15 @@ import { recordIssueEvent } from "@/lib/integrations/activity"
 import {
   awaitRebaseOffMergedBranch,
   basedOnMergedPr,
-  openStackThrough,
+  loadGuardDefaultBranches,
+  openStackMember,
+  openStackMessage,
   squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
-  type StackMember,
+  stackStopBranches,
 } from "@/lib/pr-merge-guard"
+import { ensureGithubStack, mergeThrough } from "@/lib/pr-stacks"
 import {
   canonicalizeRelation,
   insertRelationInTx,
@@ -353,7 +356,8 @@ type MergePrResult = {
   merged: boolean
   queued?: boolean
   note?: string
-  /** `mergeStack` only: the PRs this call landed, bottom first. */
+  /** `mergeStack` on a stack member: the PRs this call landed, bottom
+   *  first (this one last). */
   stack?: StackMergedPr[]
 }
 
@@ -368,10 +372,13 @@ interface MergeOneInput {
   teamId: string
   boardId: string
   endSessions: boolean | undefined
+  /** EXP-1248: merge THROUGH this open-stack member (it lands with every
+   *  open member beneath it, one merge-async). Without it a member refuses. */
+  mergeStack?: boolean
 }
 
-/** The single-PR merge (guards, claim, squash, status automation, session
- *  ending). `issues.mergePr` runs it once; `mergeStack` once per member. */
+/** The merge (guards, claims, squash, status automation, session ending).
+ *  A stack member merges through itself only with `mergeStack`. */
 async function mergeOneIssuePr(
   ctx: MergeCtx,
   input: MergeOneInput
@@ -431,19 +438,40 @@ async function mergeOneIssuePr(
       message: `The linked pull request URL is not a GitHub PR URL`,
     })
   }
-  // EXP-1145: a PR based on another OPEN PR's branch would squash INTO
-  // that branch; refused before any claim or GitHub call.
-  const parent = await stackedOnOpenPr(ctx.db, {
+  // EXP-1248: an open-stack member (bottom included) never merges plainly;
+  // `mergeStack` lands it and everything beneath it. A tree's child waits
+  // for its parent (EXP-1145). Both before any claim or GitHub call.
+  const membership = await openStackMember(ctx.db, {
     issueId: input.issueId,
     teamId,
-    repoFullName,
-    prBaseBranch: row.prBaseBranch,
   })
-  if (parent) {
+  if (membership?.kind === `tree` && membership.parent) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: stackedOnMessage(parent),
+      message: stackedOnMessage(membership.parent),
     })
+  }
+  if (membership?.kind === `stack` && !input.mergeStack) {
+    throw new TRPCError({
+      code: `PRECONDITION_FAILED`,
+      message: openStackMessage(membership.landing),
+    })
+  }
+  const landing = membership?.kind === `stack` ? membership.landing : null
+  if (!landing) {
+    // EXP-1145: based on an issue-LESS run's open PR (no issue row to walk).
+    const parent = await stackedOnOpenPr(ctx.db, {
+      issueId: input.issueId,
+      teamId,
+      repoFullName,
+      prBaseBranch: row.prBaseBranch,
+    })
+    if (parent) {
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: stackedOnMessage(parent),
+      })
+    }
   }
   if (!githubAppConfigured()) {
     throw new TRPCError({
@@ -464,11 +492,15 @@ async function mergeOneIssuePr(
   // this merge call would beat it, squashing INTO the parent's kept branch
   // (the EXP-320 incident). Await the heal, then refuse while GitHub still
   // reports the merged branch as the base. Before any claim.
-  const mergedParent = await basedOnMergedPr(ctx.db, {
-    teamId,
-    repoFullName,
-    prBaseBranch: row.prBaseBranch,
-  })
+  // A merge through a stack sits on an OPEN PR: no merged parent to heal.
+  const mergedParent =
+    landing && landing.length > 1
+      ? null
+      : await basedOnMergedPr(ctx.db, {
+          teamId,
+          repoFullName,
+          prBaseBranch: row.prBaseBranch,
+        })
   if (mergedParent && row.prBaseBranch) {
     try {
       await retargetChildrenOfMergedPr({
@@ -503,18 +535,50 @@ async function mergeOneIssuePr(
     // EXP-711: the webhook's sweep must honour the same override.
     endSessions: input.endSessions,
   }
-  claimPrMerge(repoFullName, row.prNumber, claimActor)
+  // A merge through a stack member needs the line to BE a GitHub stack, or
+  // merge-async would squash it INTO the branch below. No fallback.
+  if (landing && landing.length > 1) {
+    const lower = landing[landing.length - 2]!
+    const defaults = await loadGuardDefaultBranches(ctx.db, {
+      teamId,
+      repoFullName,
+    })
+    try {
+      await ensureGithubStack({
+        repo: repoFullName,
+        token: resolved.token,
+        lowerPrNumber: lower.prNumber,
+        newPrNumber: row.prNumber,
+        stopBranches: stackStopBranches(defaults),
+      })
+    } catch (err) {
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+  // Every PR the merge lands (just this one off a stack).
+  const landingPrs = landing ?? [
+    { prNumber: row.prNumber, prUrl: row.prUrl, identifier: row.identifier },
+  ]
+  for (const pr of landingPrs) claimPrMerge(repoFullName, pr.prNumber, claimActor)
+  const releaseClaims = () => {
+    for (const pr of landingPrs) releasePrMergeClaim(repoFullName, pr.prNumber)
+  }
   let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
   try {
-    // FEED-43: a PR GitHub holds in a stack is refused by the legacy
-    // endpoint — `mergePullRequestSmart` finishes it through merge-async.
-    // Any PR that lands with it closes through its own webhook / the poller.
-    smart = await mergePullRequestSmart({
+    // Any PR that lands with it closes through its own webhook / the poller
+    // too; the writes below only beat them to it.
+    const mergeOpts = {
       repo: repoFullName,
       prNumber: row.prNumber,
       token: resolved.token,
       commitTitle: squashCommitTitle(row.identifier, row.title, row.prNumber),
-    })
+    }
+    smart = landing
+      ? await mergeThrough(mergeOpts)
+      : await mergePullRequestSmart(mergeOpts)
   } catch (err) {
     if (err instanceof GitHubAsyncMergePending) {
       // NOT a failure: GitHub's job is still running, so the claim STAYS
@@ -524,9 +588,9 @@ async function mergeOneIssuePr(
         message: asyncMergePendingMessage(err),
       })
     }
-    // The merge did not happen: drop the claim so it can't misattribute
+    // The merge did not happen: drop the claims so they can't misattribute
     // a later out-of-band merge of the same PR.
-    releasePrMergeClaim(repoFullName, row.prNumber)
+    releaseClaims()
     if (err instanceof GitHubMergeError) {
       // "Not mergeable" is actively misleading on a stacked PR whose base
       // is stale (EXP-324): the real fix is a retarget, not another
@@ -572,168 +636,64 @@ async function mergeOneIssuePr(
   // would credit this caller, EXP-617) and the state write is left to
   // that webhook / the poller. Still `merged: true`: the PR IS in.
   if (mergedByPerson(smart.mergedBy)) {
-    releasePrMergeClaim(repoFullName, row.prNumber)
+    releaseClaims()
     return {
       merged: true,
       note: mergedByPersonNote(row.prNumber, smart.mergedBy),
     }
   }
 
-  // Complete every issue the PR is linked to — not just the clicked one —
-  // so a batch PR's siblings don't wait on the webhook echo (self-hosted
-  // instances behind NAT may only have the slower polling cron).
-  const linked = await ctx.db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(eq(issues.prUrl, row.prUrl))
-  const linkedIds = linked.some((issue) => issue.id === input.issueId)
-    ? linked.map((issue) => issue.id)
-    : [input.issueId, ...linked.map((issue) => issue.id)]
-  for (const issueId of linkedIds) {
-    await applyPrMergeState({
-      issueId,
-      prUrl: row.prUrl,
-      mergedAt: new Date(),
-      actorUserId: ctx.session.user.id,
-      actorViaAgent: ctx.viaMcp === true,
-      endSessions: input.endSessions,
-    })
-  }
-  // Merge closes by default (EXP-498, team-configurable since EXP-711):
-  // applyPrMergeState's claim winner ends sessions in-tx; this sweep
-  // backstops the race where the webhook won the claim before this
-  // mutation got here.
-  await endMergedPrSessions(linkedIds, input.endSessions)
-  // EXP-734: the runs that opened it carry the PR on their own rows too.
-  await applySessionPrState({
-    prUrl: row.prUrl,
-    state: `merged`,
-    ...(input.endSessions !== undefined ? { endSessions: input.endSessions } : {}),
-  })
-
-  return { merged: true }
-}
-
-function stackPrName(pr: StackMergedPr): string {
-  return `${pr.identifier} (#${pr.prNumber})`
-}
-
-/** The stack failure sentence: what landed, which PR stopped it and why. */
-export function stackMergeFailureMessage(
-  merged: StackMergedPr[],
-  failed: StackMergedPr,
-  reason: string
-): string {
-  const landed = merged.length
-    ? `Merged ${merged.map(stackPrName).join(`, `)}.`
-    : `Merged nothing.`
-  return `${landed} ${stackPrName(failed)} did not merge: ${reason}`
-}
-
-/**
- * After the member below landed and the EXP-324 heal ran: the shared
- * `awaitRebaseOffMergedBranch` check, so this member never squashes INTO the
- * merged branch.
- */
-async function awaitStackRebase(
-  db: MergeCtx[`db`],
-  member: StackMember,
-  below: StackMember
-): Promise<void> {
-  const repo = repoFromPrUrl(member.prUrl)
-  if (!repo || !below.branch) return
-  const resolved = await resolveRepoInstallationTokenInfo(repo)
-  // No token: the member's own merge names the cause.
-  if (!resolved) return
-  await awaitRebaseOffMergedBranch(db, {
-    repoFullName: repo,
-    prNumber: member.prNumber,
-    prUrl: member.prUrl,
-    prBaseBranch: member.prBaseBranch,
-    mergedBranch: below.branch,
-    token: resolved.token,
-  })
-}
-
-/**
- * SLOP-3 `mergePr({mergeStack: true})`: the open chain BELOW AND INCLUDING
- * the issue, merged bottom-up one PR at a time through the single-PR path
- * (same claim, squash, status automation, session ending). After each merge
- * the EXP-324 heal is AWAITED so the next member sits on the default branch
- * before its turn. Stops at the first failure: earlier merges stand and the
- * error keeps the failing merge's code (CONFLICT still offers Fix merge
- * conflicts) with a message naming what landed and which PR stopped. A PR in
- * no stack is just the plain merge.
- */
-async function mergeStackThrough(
-  ctx: MergeCtx,
-  input: MergeOneInput
-): Promise<MergePrResult> {
-  const chain = await openStackThrough(ctx.db, {
-    issueId: input.issueId,
-    teamId: input.teamId,
-  })
-  if (chain.length <= 1) return mergeOneIssuePr(ctx, input)
-
-  const merged: StackMergedPr[] = []
-  for (const [index, member] of chain.entries()) {
-    const name = { identifier: member.identifier, prNumber: member.prNumber }
-    let result: MergePrResult
-    try {
-      const below = chain[index - 1]
-      if (below) await awaitStackRebase(ctx.db, member, below)
-      // Same team by construction; the gate also yields the member's board.
-      const { teamId, boardId } = await assertIssueAccess(
-        ctx.session.user.id,
-        member.issueId,
-        `write`
-      )
-      result = await mergeOneIssuePr(ctx, {
-        issueId: member.issueId,
-        teamId,
-        boardId,
+  // Complete every issue each landed PR is linked to — not just the clicked
+  // one — so a batch PR's siblings and the stack beneath don't wait on the
+  // webhook echo (self-hosted instances behind NAT may only have the
+  // slower polling cron).
+  for (const pr of landingPrs) {
+    const linked = await ctx.db
+      .select({ id: issues.id })
+      .from(issues)
+      .where(eq(issues.prUrl, pr.prUrl))
+    const own = pr.prUrl === row.prUrl
+    const linkedIds =
+      !own || linked.some((issue) => issue.id === input.issueId)
+        ? linked.map((issue) => issue.id)
+        : [input.issueId, ...linked.map((issue) => issue.id)]
+    for (const issueId of linkedIds) {
+      await applyPrMergeState({
+        issueId,
+        prUrl: pr.prUrl,
+        mergedAt: new Date(),
+        actorUserId: ctx.session.user.id,
+        actorViaAgent: ctx.viaMcp === true,
         endSessions: input.endSessions,
       })
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      throw new TRPCError({
-        code: err instanceof TRPCError ? err.code : `INTERNAL_SERVER_ERROR`,
-        message: stackMergeFailureMessage(merged, name, reason),
-      })
     }
-    if (!result.merged) {
-      // Queued (FEED-43): nothing above may land on an unlanded base.
-      const above = chain.slice(index + 1).map((pr) => pr.identifier)
-      return {
-        ...result,
-        stack: merged,
-        note: [
-          result.note,
-          above.length ? `${above.join(`, `)} wait for it.` : null,
-        ]
-          .filter(Boolean)
-          .join(` `),
-      }
-    }
-    merged.push(name)
-    if (index < chain.length - 1 && member.branch) {
-      try {
-        await retargetChildrenOfMergedPr({
-          prUrl: member.prUrl,
-          headBranch: member.branch,
-        })
-      } catch (err) {
-        // awaitStackRebase refuses a member left on the merged branch.
-        console.error(`stack merge retarget after ${member.identifier}:`, err)
-      }
-    }
+    // Merge closes by default (EXP-498, team-configurable since EXP-711):
+    // applyPrMergeState's claim winner ends sessions in-tx; this sweep
+    // backstops the race where the webhook won the claim before this
+    // mutation got here.
+    await endMergedPrSessions(linkedIds, input.endSessions)
+    // EXP-734: the runs that opened it carry the PR on their own rows too.
+    await applySessionPrState({
+      prUrl: pr.prUrl,
+      state: `merged`,
+      ...(input.endSessions !== undefined ? { endSessions: input.endSessions } : {}),
+    })
   }
-  return { merged: true, stack: merged }
+
+  return landing
+    ? {
+        merged: true,
+        stack: landing.map((pr) => ({
+          identifier: pr.identifier,
+          prNumber: pr.prNumber,
+        })),
+      }
+    : { merged: true }
 }
 
 /** The "GitHub is still working on it" sentence. */
 function asyncMergePendingMessage(err: GitHubAsyncMergePending): string {
-  return `GitHub is still merging PR #${err.prNumber}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`
+  return `GitHub is still merging PR #${err.prNumber}. It did not finish in time — check the PR on GitHub; the issue completes when the merge lands.`
 }
 
 export const issuesRouter = router({
@@ -1840,8 +1800,9 @@ export const issuesRouter = router({
         // setting — false keeps every live session on the PR's issues
         // running, true ends them even when the team switched that off.
         endSessions: z.boolean().optional(),
-        // SLOP-3: also land the open PRs this one is stacked on, bottom-up
-        // (mergeStackThrough). Absent = the plain merge, guard included.
+        // EXP-1248: merge THROUGH this open-stack member: it lands with every
+        // open member beneath it in one GitHub merge-async. Absent = the plain
+        // merge, which a stack member refuses.
         mergeStack: z.boolean().optional(),
       })
     )
@@ -1853,19 +1814,12 @@ export const issuesRouter = router({
         input.issueId,
         `write`
       )
-      if (input.mergeStack) {
-        return mergeStackThrough(ctx, {
-          issueId: input.issueId,
-          teamId,
-          boardId,
-          endSessions: input.endSessions,
-        })
-      }
       return mergeOneIssuePr(ctx, {
         issueId: input.issueId,
         teamId,
         boardId,
         endSessions: input.endSessions,
+        mergeStack: input.mergeStack,
       })
     }),
 

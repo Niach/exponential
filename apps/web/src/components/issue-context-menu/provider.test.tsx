@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from "react"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IssueContextMenuProvider } from "@/components/issue-context-menu/provider"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
@@ -14,8 +14,8 @@ import { issueMenuLabels } from "@exp/ui"
 // delete, relations) plus the host's own: the attribute gate, the estimate
 // submenu, the phone's Select through a registered list, re-targeting.
 
-// cmdk (the Combobox rows the submenus render) measures with ResizeObserver
-// and scrolls the active row into view; jsdom has neither.
+// Radix positions the menu (and its submenus) with ResizeObserver, and a
+// focused row scrolls into view; jsdom has neither.
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -83,62 +83,6 @@ vi.mock(`@/components/issue-picker-dialog`, () => ({
       </div>
     ) : null,
 }))
-
-vi.mock(`@exp/ui`, async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>()
-  // The DropdownMenu* wrappers below are plain divs, so there is no Radix
-  // menu root for the real `ComboboxMenuItems` rows to live in. Swap in the
-  // Combobox's OTHER arm — cmdk renders fine in jsdom — so the selection
-  // arithmetic and the row labels stay the primitive's, not a stub's.
-  const ComboboxList = actual.ComboboxList as (
-    props: Record<string, unknown>
-  ) => ReactNode
-  const passthrough = ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
-  )
-
-  return {
-    ...actual,
-    ComboboxMenuItems: ({
-      menu: _menu,
-      emptyText: _emptyText,
-      ...props
-    }: Record<string, unknown>) => (
-      <ComboboxList {...props} searchable={false} />
-    ),
-    DropdownMenu: passthrough,
-    DropdownMenuTrigger: passthrough,
-    DropdownMenuContent: ({ children }: { children?: ReactNode }) => (
-      <div role="menu">{children}</div>
-    ),
-    DropdownMenuLabel: passthrough,
-    DropdownMenuSeparator: () => <hr />,
-    DropdownMenuSub: passthrough,
-    DropdownMenuSubContent: passthrough,
-    DropdownMenuSubTrigger: passthrough,
-    DropdownMenuGroup: passthrough,
-    DropdownMenuShortcut: ({ children }: { children?: ReactNode }) => (
-      <span>{children}</span>
-    ),
-    DropdownMenuItem: ({
-      children,
-      disabled,
-      onSelect,
-    }: {
-      children: ReactNode
-      disabled?: boolean
-      onSelect?: (event: Event) => void
-    }) => (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onSelect?.({ preventDefault() {} } as Event)}
-      >
-        {children}
-      </button>
-    ),
-  }
-})
 
 // The synced shapes, answered by table and by the ONE `eq` the query names —
 // the session's own issue lookup, the issue's labels, the team's labels /
@@ -272,6 +216,22 @@ function openOn(testId = `row-issue-1`) {
   })
 }
 
+/** Opens the menu on the row and walks `path`: every label but the last
+ *  opens a submenu (a Radix sub-trigger opens on click), the last is picked
+ *  inside the innermost surface. */
+function choose(path: string[], testId = `row-issue-1`) {
+  openOn(testId)
+  let scope: HTMLElement = screen.getByRole(`menu`)
+  for (const label of path.slice(0, -1)) {
+    fireEvent.click(within(scope).getByText(label))
+    const subs = document.querySelectorAll<HTMLElement>(
+      `[data-slot="dropdown-menu-sub-content"]`
+    )
+    scope = subs[subs.length - 1]!
+  }
+  fireEvent.click(within(scope).getByText(path[path.length - 1]!))
+}
+
 describe(`IssueContextMenuProvider`, () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -321,10 +281,8 @@ describe(`IssueContextMenuProvider`, () => {
 
   it(`runs quick actions for opening the issue and copying the issue id only`, async () => {
     render(<Host>{row(`issue-1`, `board:app`)}</Host>)
-    openOn()
-
-    fireEvent.click(screen.getByText(`Open issue`))
-    fireEvent.click(screen.getByText(`Copy issue ID`))
+    choose([`Open issue`])
+    choose([`Copy issue ID`])
     await Promise.resolve()
     await Promise.resolve()
 
@@ -341,16 +299,19 @@ describe(`IssueContextMenuProvider`, () => {
       issueLabels: [{ issueId: `issue-1`, labelId: `label-1`, teamId: `team-1` }],
     })
     render(<Host>{row()}</Host>)
-    openOn()
 
-    fireEvent.click(screen.getByText(`Mark as done`))
-    fireEvent.click(screen.getByText(`In Progress`))
-    fireEvent.click(screen.getByText(`High`))
-    fireEvent.click(screen.getByText(`Unassigned`))
-    fireEvent.click(screen.getByText(`Bob Smith`))
-    fireEvent.click(screen.getByText(`Bug`))
-    fireEvent.click(screen.getByText(`Ops`))
-    fireEvent.click(screen.getByText(`Tomorrow`))
+    choose([`Mark as done`])
+    choose([`Status`, `In Progress`])
+    choose([`Priority`, `High`])
+    choose([`Assignee`, `Unassigned`])
+    choose([`Assignee`, `Bob Smith`])
+    choose([`Labels`, `Bug`])
+    // A multi pick keeps the submenu open: the next toggle lands in it.
+    const labels = document.querySelectorAll<HTMLElement>(
+      `[data-slot="dropdown-menu-sub-content"]`
+    )
+    fireEvent.click(within(labels[labels.length - 1]!).getByText(`Ops`))
+    choose([`Set due date`, `Tomorrow`])
     await Promise.resolve()
     await Promise.resolve()
 
@@ -368,10 +329,9 @@ describe(`IssueContextMenuProvider`, () => {
   it(`offers the estimate on the team's scale and hides it for a team without one`, async () => {
     seed({ issues: [issueRow({ estimate: 3 })] })
     const { unmount } = render(<Host>{row()}</Host>)
-    openOn()
 
-    fireEvent.click(screen.getByText(`5 points`))
-    fireEvent.click(screen.getByText(`No estimate`))
+    choose([`Estimate`, `5 points`])
+    choose([`Estimate`, `No estimate`])
     await Promise.resolve()
 
     expect(mockState.updateMutate).toHaveBeenCalledWith({ id: `issue-1`, estimate: 5 })
@@ -385,12 +345,11 @@ describe(`IssueContextMenuProvider`, () => {
 
   it(`intercepts the duplicate status: opens the picker instead of writing status`, async () => {
     render(<Host>{row()}</Host>)
-    openOn()
 
     // The picker is closed, so its search results are not mounted yet.
     expect(screen.queryByText(`No issues to pick from`)).toBeNull()
 
-    fireEvent.click(screen.getByText(`Duplicate`))
+    choose([`Status`, `Duplicate`])
     // Picker opens on a deferred tick (past the menu's focus restore).
     await act(async () => {
       vi.runAllTimers()
@@ -418,10 +377,9 @@ describe(`IssueContextMenuProvider`, () => {
 
   it(`confirms before moving the issue to another board (EXP-428)`, async () => {
     render(<Host>{row()}</Host>)
-    openOn()
     expect(screen.queryByTestId(`issue-move-board-confirm`)).toBeNull()
 
-    fireEvent.click(screen.getByText(`Platform`))
+    choose([`Move to board`, `Platform`])
     await act(async () => {
       vi.runAllTimers()
     })
@@ -445,10 +403,9 @@ describe(`IssueContextMenuProvider`, () => {
   // past the menu close like the move confirm), never on a submenu step.
   it(`deletes the issue once the delete prompt is answered`, async () => {
     render(<Host>{row()}</Host>)
-    openOn()
     expect(screen.queryByTestId(`issue-delete-confirm`)).toBeNull()
 
-    fireEvent.click(screen.getByText(`Delete issue`))
+    choose([`Delete issue`])
     await act(async () => {
       vi.runAllTimers()
     })
@@ -471,9 +428,8 @@ describe(`IssueContextMenuProvider`, () => {
   // SAME canonical row a pick made from the detail page would.
   it(`adds a relation from the picked side (inverse sides pass inverse)`, async () => {
     render(<Host>{row()}</Host>)
-    openOn()
 
-    fireEvent.click(screen.getByText(`Blocked by`))
+    choose([`Add relation`, `Blocked by`])
     await act(async () => {
       vi.runAllTimers()
     })
@@ -489,9 +445,8 @@ describe(`IssueContextMenuProvider`, () => {
 
   it(`routes "Duplicate of" through issues.update, not relations.create`, async () => {
     render(<Host>{row()}</Host>)
-    openOn()
 
-    fireEvent.click(screen.getByText(`Duplicate of`))
+    choose([`Add relation`, `Duplicate of`])
     await act(async () => {
       vi.runAllTimers()
     })
@@ -545,8 +500,7 @@ describe(`IssueContextMenuProvider`, () => {
       </Host>
     )
 
-    openOn(`row-issue-1`)
-    fireEvent.click(screen.getByText(`Select`))
+    choose([`Select`], `row-issue-1`)
     expect(toggle).toHaveBeenCalledWith(`issue-1`)
 
     openOn(`row-issue-2`)

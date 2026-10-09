@@ -21,11 +21,11 @@ import {
   conceptIcon,
   Button,
   BARE_FIELD_CLASS,
-  Combobox,
+  Picker,
   DisclosureHeader,
   Input,
   Pill,
-  type PickerOption,
+  type PickerItem,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
@@ -58,7 +58,6 @@ import {
   getMcpServerIcon,
   mcpServerPickerItems,
   type McpCatalogEntry,
-  type PickerItem,
   toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -1003,7 +1002,7 @@ function BuiltinToolsGroup() {
 
 // ── Add / edit dialog ────────────────────────────────────────────────────────
 
-const TRANSPORT_OPTIONS: PickerOption[] = [
+const TRANSPORT_OPTIONS: PickerItem[] = [
   { value: `http`, label: MCP_TRANSPORT_LABELS.http },
   { value: `stdio`, label: MCP_TRANSPORT_LABELS.stdio },
 ]
@@ -1047,7 +1046,7 @@ function McpServerDialog({
     setDraft((current) => ({ ...current, ...fields }))
   const http = draft.transport === `http`
   const validation = validateMcpServerDraft(draft)
-  const authOptions: PickerOption[] = [
+  const authOptions: PickerItem[] = [
     { value: `none`, label: MCP_AUTH_LABELS.none },
     ...(http ? [{ value: `oauth`, label: MCP_AUTH_LABELS.oauth }] : []),
     { value: `secret`, label: MCP_AUTH_LABELS.secret },
@@ -1153,22 +1152,22 @@ function McpServerDialog({
             </DisclosureHeader>
             {advanced && (
               <GlassGroup>
-                <Combobox
+                <Picker
+                  mode="single"
                   triggerVariant="row"
-                  searchable={false}
                   mobileTitle="Sign-in"
                   value={draft.auth}
-                  options={authOptions}
+                  items={authOptions}
                   onChange={(value) => {
                     if (value !== null) patch({ auth: value as McpAuth })
                   }}
                 />
-                <Combobox
+                <Picker
+                  mode="single"
                   triggerVariant="row"
-                  searchable={false}
                   mobileTitle="Transport"
                   value={draft.transport}
-                  options={TRANSPORT_OPTIONS}
+                  items={TRANSPORT_OPTIONS}
                   onChange={(value) => {
                     if (value === null) return
                     const transport = value as McpTransport

@@ -7,7 +7,9 @@ import { cn } from "./cn"
 // the last tool line muted under it (live runs only), and the Show work /
 // Hide work toggle on the right. Label + state only. The app owns the rules
 // (`runRowCaption`, `lastToolLine`, `showWorkLabel` in apps/web; fixture
-// `run-row.json` ×4); this component only draws them.
+// `run-row.json` ×4); this component only draws them. EXP-1245: the owner's
+// thread draws one per TURN (`turnRowCaption`); a row without `onToggle`
+// carries no Show work button.
 
 export type RunStatusRowTone = `muted` | `amber` | `emerald` | `sky`
 
@@ -24,7 +26,7 @@ export function RunStatusRow({
   caption,
   tone,
   toolLine,
-  showWork,
+  showWork = false,
   toggleLabel,
   onToggle,
   className,
@@ -35,10 +37,11 @@ export function RunStatusRow({
   tone: RunStatusRowTone
   /** The newest tool call's line; null = no second line. */
   toolLine?: string | null
-  showWork: boolean
+  showWork?: boolean
   /** What pressing the toggle does next (`showWorkLabel(showWork)`). */
-  toggleLabel: string
-  onToggle: () => void
+  toggleLabel?: string
+  /** Absent = no toggle (a settled turn's row). */
+  onToggle?: () => void
   className?: string
 }) {
   return (
@@ -68,16 +71,18 @@ export function RunStatusRow({
           </div>
         ) : null}
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 shrink-0 text-xs"
-        aria-pressed={showWork}
-        onClick={onToggle}
-      >
-        {toggleLabel}
-      </Button>
+      {onToggle && toggleLabel ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 text-xs"
+          aria-pressed={showWork}
+          onClick={onToggle}
+        >
+          {toggleLabel}
+        </Button>
+      ) : null}
     </div>
   )
 }

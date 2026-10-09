@@ -39,7 +39,7 @@ import {
   Button,
   Pill,
   Textarea,
-  Progress,
+  Meter,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
@@ -103,7 +103,7 @@ import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useSessionUsageRefreshOnOpen } from "@/hooks/use-session-usage-refresh"
 import { useKillSession } from "@/hooks/use-kill-session"
-import { UsageWindows } from "@/components/agent-usage-bar"
+import { AgentUsageWindows } from "@/components/agent-usage-windows"
 import { ContextWindowBlock } from "@/components/context-window-block"
 import {
   ACCOUNTS_SECTION_TITLE,
@@ -207,7 +207,7 @@ import {
   type WorkFaceItem,
 } from "@/components/team/work-face-toggle"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
-import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
+import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-tool-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
   mergeAgentCommands,
@@ -2023,10 +2023,7 @@ export function AgentSessionView({
                   )}
                   {/* EXP-1157: a short hairline track beside the label, not
                       a full-width bar. */}
-                  <Progress
-                    value={null}
-                    className="ml-1 h-0.5 w-[72px] shrink-0 bg-muted-foreground/12 [&>div]:bg-muted-foreground/55"
-                  />
+                  <Meter value={null} className="ml-1 h-0.5 w-[72px] shrink-0" />
                 </div>
               </div>
             </div>
@@ -2247,7 +2244,7 @@ function SessionUsageSections({
       </div>
       {activeUsage && !windowsPending ? (
         <div className={section}>
-          <UsageWindows usage={activeUsage} now={now} />
+          <AgentUsageWindows usage={activeUsage} now={now} />
         </div>
       ) : windowsPending ? (
         // The login is signed in and this machine simply has not read it yet

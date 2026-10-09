@@ -6,15 +6,13 @@ import {
   assigneePickerItems,
   conceptIcon,
   Button,
-  ComboboxMenuItems,
   labelPickerItems,
-  pickerMenuRows,
+  Menu,
+  PickerItemBody,
+  PickerMenuRows,
   priorityPickerItems,
   statusPickerItems,
   Pill,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
   Prompt,
   Separator,
   UserAvatar,
@@ -135,7 +133,7 @@ export function BulkActionBar({
   )
 
   // EXP-957/EXP-1021 — the menu rows and the value they mark. The rows are
-  // the TYPED pickers' rows bridged into the menu arm (`pickerMenuRows`), so
+  // the TYPED pickers' rows in the menu arm (`PickerMenuRows`), so
   // a status row here is the same row the status picker draws. `statusRows`
   // stays around beside them because a pick reports an id and `applyStatus`
   // needs the ROW (the fallback set's synthetic ids are not in `statusById`).
@@ -143,12 +141,12 @@ export function BulkActionBar({
     () => creatableStatusOptions(teamStatusOptions),
     [teamStatusOptions]
   )
-  const statusMenuRows = useMemo(
-    () => pickerMenuRows(statusPickerItems(toStatusPickerStatuses(statusRows))),
+  const statusMenuItems = useMemo(
+    () => statusPickerItems(toStatusPickerStatuses(statusRows)),
     [statusRows]
   )
-  const priorityMenuRows = useMemo(
-    () => pickerMenuRows(priorityPickerItems(issuePriorityOptions)),
+  const priorityMenuItems = useMemo(
+    () => priorityPickerItems(issuePriorityOptions),
     []
   )
   const sharedStatus = useMemo(
@@ -180,8 +178,8 @@ export function BulkActionBar({
   )
   // `Unassigned` is the menu arm's own `noneLabel` row here (it reports
   // `null`), so the picker's `allowsNone` row is left off.
-  const assigneeMenuRows = useMemo(
-    () => pickerMenuRows(assigneePickerItems(members)),
+  const assigneeMenuItems = useMemo(
+    () => assigneePickerItems(members),
     [members]
   )
 
@@ -265,9 +263,9 @@ export function BulkActionBar({
   // selection is `"indeterminate"`); `value` stays the honest membership array
   // the toggle arithmetic runs on, so `onChange` reports exactly one changed
   // id — the row that was picked.
-  const labelMenuRows = useMemo(() => {
+  const labelMenuItems = useMemo(() => {
     const labelsById = new Map(labels.map((label) => [label.id, label]))
-    return pickerMenuRows(
+    return (
       labelPickerItems(labels).map((item) => {
         const state = labelState(labelsById.get(item.value)!)
         return {
@@ -285,10 +283,10 @@ export function BulkActionBar({
   }, [labels, issues, issueLabelMap])
   const selectedLabelIds = useMemo(
     () =>
-      labelMenuRows.options
-        .filter((option) => option.checked === true)
-        .map((option) => option.value),
-    [labelMenuRows]
+      labelMenuItems
+        .filter((item) => item.checked === true)
+        .map((item) => item.value),
+    [labelMenuItems]
   )
 
   const toggleLabelId = (next: string[]) => {
@@ -368,8 +366,17 @@ export function BulkActionBar({
           <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />
         )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        {/* EXP-957: the mark shows what the whole selection ALREADY has;
+            nothing is marked when the selected issues disagree
+            (`indeterminate`). No duplicate-CATEGORY row: bulk marking has no
+            canonical-issue picker, and status='duplicate' without
+            duplicateOfId breaks the pairing invariant. */}
+        <Menu
+          side="bottom"
+          aria-label="Set status"
+          title="Status"
+          contentClassName="w-[11rem]"
+          trigger={
             <Button
               variant="ghost"
               size="sm"
@@ -380,39 +387,29 @@ export function BulkActionBar({
               <StatusIcon className="size-4" />
               {!iconOnly && <span className="hidden md:inline">Status</span>}
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="start"
-            collisionPadding={12}
-            className="w-[11rem]"
-          >
-            {/* EXP-957: the rows are the Combobox's MENU arm, so the mark
-              shows what the whole selection ALREADY has — a bulk menu used to
-              show no current value at all. Nothing is marked when the selected
-              issues disagree (`indeterminate`).
-              No duplicate-CATEGORY row here: bulk marking has no
-              canonical-issue picker, and status='duplicate' without
-              duplicateOfId breaks the pairing invariant (single-issue paths
-              intercept via the picker). */}
-            <ComboboxMenuItems
-              menu="dropdown"
-              {...statusMenuRows}
+          }
+          body={
+            <PickerMenuRows
+              mode="single"
+              items={statusMenuItems}
               value={sharedStatus.value}
               indeterminate={sharedStatus.mixed}
               onChange={(statusId) => {
-                if (statusId === null) return
                 const row =
                   statusById.get(statusId) ??
                   statusRows.find((option) => option.id === statusId)
                 if (row) void applyStatus(row)
               }}
             />
-          </DropdownMenuContent>
-        </DropdownMenu>
+          }
+        />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Menu
+          side="bottom"
+          aria-label="Set priority"
+          title="Priority"
+          contentClassName="w-[11rem]"
+          trigger={
             <Button
               variant="ghost"
               size="sm"
@@ -423,31 +420,27 @@ export function BulkActionBar({
               <Flag className="size-4" />
               {!iconOnly && <span className="hidden md:inline">Priority</span>}
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="start"
-            collisionPadding={12}
-            className="w-[11rem]"
-          >
-            <ComboboxMenuItems
-              menu="dropdown"
-              {...priorityMenuRows}
+          }
+          body={
+            <PickerMenuRows
+              mode="single"
+              items={priorityMenuItems}
               value={sharedPriority.value}
               indeterminate={sharedPriority.mixed}
-              onChange={(priority) => {
-                if (priority === null) return
-                void applyPriority(priority as IssuePriority)
-              }}
+              onChange={(priority) => void applyPriority(priority as IssuePriority)}
             />
-          </DropdownMenuContent>
-        </DropdownMenu>
+          }
+        />
 
         {/* Hidden on solo teams (nothing to reassign); length 0 = still
           loading, also hidden. */}
         {!isSolo && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <Menu
+            side="bottom"
+            aria-label="Set assignee"
+            title="Assignee"
+            contentClassName="w-[13rem]"
+            trigger={
               <Button
                 variant="ghost"
                 size="sm"
@@ -458,35 +451,35 @@ export function BulkActionBar({
                 <AssigneeIcon className="size-4" />
                 {!iconOnly && <span className="hidden md:inline">Assignee</span>}
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="bottom"
-              align="start"
-              collisionPadding={12}
-              className="w-[13rem]"
-            >
-              {/* "Unassigned" is the primitive's none row now, and it is
-                marked only when EVERY selected issue is unassigned. */}
-              <ComboboxMenuItems
-                menu="dropdown"
-                {...assigneeMenuRows}
+            }
+            body={
+              // "Unassigned" is the primitive's none row, marked only when
+              // EVERY selected issue is unassigned.
+              <PickerMenuRows
+                mode="single"
+                items={assigneeMenuItems}
                 value={sharedAssignee.value}
                 indeterminate={sharedAssignee.mixed}
                 noneLabel="Unassigned"
+                onNone={() => void applyAssignee(null)}
                 onChange={(assigneeId) => void applyAssignee(assigneeId)}
-                renderOption={(option) => (
+                renderItem={(item) => (
                   <>
-                    <UserAvatar size={20} user={membersById.get(option.value)} />
-                    {assigneeMenuRows.renderOption(option)}
+                    <UserAvatar size={20} user={membersById.get(item.value)} />
+                    <PickerItemBody item={item} />
                   </>
                 )}
               />
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          />
         )}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <Menu
+          side="bottom"
+          aria-label="Set labels"
+          title="Labels"
+          contentClassName="w-[13rem]"
+          trigger={
             <Button
               variant="ghost"
               size="sm"
@@ -497,27 +490,20 @@ export function BulkActionBar({
               <LabelsIcon className="size-4" />
               {!iconOnly && <span className="hidden md:inline">Labels</span>}
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="start"
-            collisionPadding={12}
-            className="w-[13rem]"
-          >
-            {/* The tri-state (on all / on some / on none of the selection) is
-              the primitive's circle-check / circle-minus / circle glyph, and
-              the multi arm keeps the menu open by itself, so a multi-label
-              sweep is still one visit. */}
-            <ComboboxMenuItems
-              menu="dropdown"
-              multiple
-              {...labelMenuRows}
+          }
+          body={
+            // The tri-state (on all / some / none of the selection) is the
+            // row's highlight (`mixed` on some), and the multi arm keeps the
+            // menu open, so a multi-label sweep is still one visit.
+            <PickerMenuRows
+              mode="multi"
+              items={labelMenuItems}
               value={selectedLabelIds}
               onChange={toggleLabelId}
               emptyText="No labels yet"
             />
-          </DropdownMenuContent>
-        </DropdownMenu>
+          }
+        />
 
         <BulkStartCodingButton
           teamId={teamId}

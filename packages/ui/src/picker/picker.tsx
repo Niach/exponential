@@ -1,9 +1,10 @@
-import type { LucideIcon } from "lucide-react"
-import type { ComponentType, ReactNode, SVGProps } from "react"
+import type { ReactNode } from "react"
 
-import { cn } from "../cn"
 import { Combobox } from "../combobox"
-import type { PickerOption } from "../picker-option"
+import { PickerItemBody, type PickerItem } from "./picker-item"
+import type { PickerTriggerVariant } from "./picker-trigger"
+
+export * from "./picker-item"
 
 // EXP-1029 contract, EXP-1021 implementation — THE picker primitive.
 //
@@ -36,49 +37,13 @@ import type { PickerOption } from "../picker-option"
 // single pick wearing it reads like a multi pick. Both halves are pinned in
 // picker.test.tsx, and the IDE, iOS and Android carry the same case.
 //
-// The two surfaces are `Combobox`'s (EXP-941): `MobilePopover` already is
-// the popover-or-sheet pair, cmdk already owns the filter and the keys, and
-// the sheet already closes on a drag down (EXP-687). What EXP-1021 adds is
-// the SELECTION LANGUAGE this issue asked for — a multi pick reads as the
-// row's own highlight, never a leading circle — so the picker that links a
-// relation and the picker that batches issues finally look like one thing.
-// That is `selectionStyle="highlight"`, and the primitive is the only
-// caller that passes it: the surfaces EXP-1021 does not own (the composer,
-// device settings, the workflow screens) keep the circles until the
-// integration node swaps them onto this API.
-
-/** What a row may lead with: a registry concept glyph, or one of the
- *  generated BRAND marks (`@exp/ui` `brandIcon()`, the MCP catalog). Both
- *  take SVG props and size through `className`; a brand mark keeps its own
- *  fills, so a row `color` tints a glyph and leaves a mark alone. */
-export type PickerGlyph = LucideIcon | ComponentType<SVGProps<SVGSVGElement>>
-
-export interface PickerItem<T extends string = string> {
-  /** The stable identity of the row; also what search matches on. */
-  value: T
-  /** What the row reads as. A string also seeds the search keywords. */
-  label: ReactNode
-  /** A leading glyph — a concept icon or a generated brand mark, never a
-   *  raw lucide import or a hand-drawn path. */
-  icon?: PickerGlyph
-  /** A colour for the glyph (a board's hex, a label's dot, a status tone).
-   *  A hex (or any CSS colour) tints the glyph; a Tailwind text class is
-   *  applied as-is. With no `icon` the colour draws as the row's DOT — that
-   *  is what makes a label row a coloured dot and a board row a tinted
-   *  glyph without the caller choosing a shape. */
-  color?: string
-  /** A muted second line or trailing note (an email, a branch age). */
-  description?: ReactNode
-  /** Rendered, never pickable. */
-  disabled?: boolean
-  /** Extra search terms when `label` is not a string (an identifier, an
-   *  email). */
-  keywords?: string[]
-  /** Multi mode only: what THIS row reads as when membership in `value` is
-   *  not the whole story — a bulk edit over rows that disagree marks a
-   *  label on all of them `true`, on some `"indeterminate"`. */
-  checked?: boolean | `indeterminate`
-}
+// The surfaces are the internal `Combobox`'s (EXP-941, no longer exported):
+// `MobilePopover` is the popover-or-sheet pair, cmdk owns the filter and the
+// keys, the sheet closes on a drag down (EXP-687). `PickerList` is the same
+// body for a host that already is a surface, `PickerMenuRows` the same rows
+// inside a `Menu` submenu. The UI cleanup batch made this the ONLY public
+// picker: the typed pickers (board, status, model, effort, repository,
+// branch …) all sit on it.
 
 export type PickerMode = `single` | `multi`
 
@@ -109,8 +74,24 @@ export interface PickerSurfaceProps {
 interface PickerPropsBase<T extends string> extends PickerSurfaceProps {
   items: readonly PickerItem<T>[]
   /** The chip or button that opens the picker. The primitive renders it as
-   *  the anchor and wires the open state; the caller styles it. */
-  trigger: ReactNode
+   *  the anchor and wires the open state; the caller styles it. A function
+   *  gets the picked rows and their one-line summary. Omitted = the
+   *  primitive's own `PickerTrigger` in `triggerVariant`. */
+  trigger?:
+    | ReactNode
+    | ((state: {
+        selected: PickerItem<T>[]
+        summary: string
+        open: boolean
+      }) => ReactNode)
+  /** The primitive's own trigger when no `trigger` is given: `pill` (the
+   *  property chip), `field` (a full-width form row), `row` (the glass form
+   *  ladder: `mobileTitle` leading, the pick trailing) or `inline` (one word
+   *  of a muted sentence, which collapses to plain text while there is at
+   *  most one item). Defaults to `pill`. */
+  triggerVariant?: PickerTriggerVariant
+  /** The trigger's text while nothing is picked; defaults to `mobileTitle`. */
+  triggerLabel?: string
   /** A filter field at the top of the surface. */
   search?: boolean
   /** What an empty `items` (or an empty search) reads as. */
@@ -180,54 +161,6 @@ export type PickerProps<T extends string = string> = PickerPropsBase<T> &
       }
   )
 
-/** A row's glyph tint: a CSS colour tints, a Tailwind class is a class. */
-function isColorClass(color: string) {
-  return !color.startsWith(`#`) && !color.includes(`(`)
-}
-
-/** THE row body: the dot or the tinted glyph, the label, the muted second
- *  line. Plain — a picker row is never a card, on any surface. Exported for
- *  the MENU arm alone (`pickerMenuRows`). */
-export function PickerItemBody<T extends string>({ item }: { item: PickerItem<T> }) {
-  const Glyph = item.icon
-  return (
-    <>
-      {Glyph ? (
-        <Glyph
-          aria-hidden
-          className={cn(
-            `size-4 shrink-0`,
-            item.color && isColorClass(item.color) ? item.color : undefined
-          )}
-          style={
-            item.color && !isColorClass(item.color)
-              ? { color: item.color }
-              : undefined
-          }
-        />
-      ) : item.color !== undefined ? (
-        <span
-          aria-hidden
-          data-slot="picker-dot"
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: item.color }}
-        />
-      ) : null}
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left">
-        <span className="min-w-0 truncate text-sm">{item.label}</span>
-        {item.description !== undefined && item.description !== null ? (
-          <span
-            data-slot="picker-description"
-            className="min-w-0 text-xs text-muted-foreground"
-          >
-            {item.description}
-          </span>
-        ) : null}
-      </span>
-    </>
-  )
-}
-
 /**
  * THE picker: a popover at the trigger on a pointer device, a bottom sheet
  * of plain rows on a phone, `data-slot="picker"` either way (what every
@@ -237,6 +170,8 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
   const {
     items,
     trigger,
+    triggerVariant,
+    triggerLabel,
     search = false,
     searchPlaceholder,
     emptyText,
@@ -258,9 +193,6 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     renderItem,
   } = props
   const testId = props[`data-testid`]
-
-  const byValue = new Map(items.map((item) => [item.value, item]))
-  const options = pickerItemOptions(items)
 
   const selection =
     props.mode === `multi`
@@ -289,14 +221,20 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     >
       <Combobox
         {...selection}
-        options={options}
-        // The primitive's own selection language: highlight, never circles.
-        selectionStyle="highlight"
+        options={items}
         searchable={search}
         placeholder={searchPlaceholder}
         emptyText={emptyText}
         mobileTitle={mobileTitle ?? `Options`}
-        renderTrigger={() => trigger}
+        triggerVariant={triggerVariant}
+        triggerLabel={triggerLabel}
+        renderTrigger={
+          trigger === undefined
+            ? undefined
+            : typeof trigger === `function`
+              ? trigger
+              : () => trigger
+        }
         query={query}
         onQueryChange={onQueryChange}
         shouldFilter={shouldFilter}
@@ -312,59 +250,10 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
         disabled={disabled}
         surfaceClassName={className}
         data-testid={testId}
-        renderOption={(option, state) => {
-          const item = byValue.get(option.value)
-          if (!item) return null
-          return renderItem ? (
-            renderItem(item, state)
-          ) : (
-            <PickerItemBody item={item} />
-          )
-        }}
+        renderOption={(item, state) =>
+          renderItem ? renderItem(item, state) : <PickerItemBody item={item} />
+        }
       />
     </span>
   )
-}
-
-/** A picker row as the `PickerOption` every `Combobox` arm speaks. The row's
- *  colour is NOT part of it: the body is drawn by `PickerItemBody`, so the
- *  dot-or-tinted-glyph decision stays in exactly one place. */
-function pickerItemOptions<T extends string>(
-  items: readonly PickerItem<T>[]
-): PickerOption<T>[] {
-  return items.map((item) => ({
-    value: item.value,
-    label: item.label,
-    keywords: pickerItemKeywords(item),
-    disabled: item.disabled,
-    checked: item.checked,
-  }))
-}
-
-/**
- * The picker's rows as the MENU arm speaks them (`ComboboxMenuItems`,
- * EXP-957): spread the result into it.
- *
- * A Radix submenu is a shell the primitive does not own — a popover cannot
- * nest inside one without stacking a second portal and focus trap — but
- * EXP-1021 still wants ONE set of rows, so the typed pickers' items are
- * bridged here instead of being rebuilt by hand at every context menu. Only
- * the SURFACE differs: the menu keeps its own selection glyph (EXP-957), the
- * row body is the primitive's.
- */
-export function pickerMenuRows<T extends string>(items: readonly PickerItem<T>[]) {
-  const byValue = new Map(items.map((item) => [item.value, item]))
-  return {
-    options: pickerItemOptions(items),
-    renderOption: (option: PickerOption<T>) => {
-      const item = byValue.get(option.value)
-      return item ? <PickerItemBody item={item} /> : null
-    },
-  }
-}
-
-/** The keywords a row matches on: the explicit ones, else a string label. */
-export function pickerItemKeywords(item: PickerItem<string>): string[] {
-  if (item.keywords && item.keywords.length > 0) return item.keywords
-  return typeof item.label === `string` ? [item.label] : []
 }

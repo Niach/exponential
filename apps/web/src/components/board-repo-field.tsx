@@ -3,6 +3,7 @@ import { Github, Lock, Plus } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import {
+  BranchPicker,
   Input,
   Label,
   GLASS_PICKER_ROW,
@@ -14,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@exp/ui"
-import { BranchCombobox } from "@/components/branch-combobox"
 import {
   GithubRepoPicker,
   type PickerRepo,
@@ -244,13 +244,17 @@ export function BoardRepoField({
               />
             </div>
           ) : (
-            <BranchCombobox
-              repositoryId={selectedRepo.id}
+            <BranchPicker
+              triggerVariant="row"
+              label="Branch"
               value={branch ?? repoDefault}
-              repoDefault={repoDefault}
+              defaultBranch={repoDefault}
+              loadBranches={() =>
+                trpc.repositories.listBranches
+                  .query({ repositoryId: selectedRepo.id })
+                  .then((result) => result.branches)
+              }
               disabled={disabled}
-              ariaLabel="Branch"
-              rowLabel="Branch"
               onPick={onBranchChange}
             />
           ))}

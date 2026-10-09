@@ -33,10 +33,18 @@ const editor = vi.hoisted(() => ({
   create: vi.fn(),
   discard: vi.fn(async () => true),
   leave: vi.fn(async () => true),
+  ensureDraft: vi.fn(async () => `d1`),
+  beginUpload: vi.fn(),
+  endUpload: vi.fn(),
+  addFile: vi.fn(),
   /** EXP-1231: the options the page handed the controller (its callbacks). */
   options: null as null | { onConsumedElsewhere?: (consumed: unknown) => void },
 }))
 const toastMessage = vi.hoisted(() => vi.fn())
+const filesView = vi.hoisted(() => ({
+  onAttach: null as null | ((files: File[]) => Promise<void> | void),
+}))
+const uploads = vi.hoisted(() => ({ uploadDraftAttachment: vi.fn() }))
 
 vi.mock(`@exp/ui`, async (importOriginal) => {
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -101,15 +109,15 @@ vi.mock(`@/components/issue-editor/markdown-editor`, () => ({
   MarkdownEditor: () => null,
 }))
 vi.mock(`@/components/issue-files-section`, () => ({
-  FilesSectionView: () => null,
+  FilesSectionView: (props: { onAttach: typeof filesView.onAttach }) => {
+    filesView.onAttach = props.onAttach
+    return null
+  },
 }))
 vi.mock(`@/components/issue-properties-panel`, () => ({
   IssuePropertiesPanel: () => null,
 }))
-vi.mock(`@/lib/storage/issue-image-upload`, () => ({
-  uploadDraftFile: vi.fn(),
-  uploadDraftImageFile: vi.fn(),
-}))
+vi.mock(`@/lib/storage/issue-image-upload`, () => uploads)
 vi.mock(`@/lib/storage/media-upload`, () => ({
   mediaPlayabilityHint: () => null,
   prepareMediaUpload: vi.fn(),
@@ -195,62 +203,58 @@ describe(`IssueDraftPage consumed elsewhere`, () => {
   })
 })
 
-describe(`IssueDraftPage discard`, () => {
-  it(`confirms first when the draft has content`, async () => {
+// EXP-1247: Back + Create only, ×4 — the `×` and its confirm are gone;
+// discarding is the leave dialog's answer.
+describe(`IssueDraftPage chrome`, () => {
+  it(`has no discard button on desktop`, () => {
     renderPage()
-    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
-    const confirm = await screen.findByTestId(`issue-draft-discard-confirm`)
-    expect(confirm.textContent).toContain(ISSUE_DRAFT_COPY.discardConfirm.title)
-    expect(editor.discard).not.toHaveBeenCalled()
+    expect(screen.getByTestId(`issue-draft-create`)).toBeTruthy()
+    expect(screen.queryByTestId(`issue-draft-discard`)).toBeNull()
+  })
 
-    fireEvent.click(
-      screen.getByRole(`button`, { name: ISSUE_DRAFT_COPY.discardConfirm.confirm })
+  it(`has no discard button on phones`, () => {
+    mobileState.mobile = true
+    renderPage()
+    expect(screen.getByTestId(`issue-draft-create`)).toBeTruthy()
+    expect(screen.queryByTestId(`issue-draft-discard`)).toBeNull()
+  })
+})
+
+// EXP-1247: the Files paperclip is a FILE path — an image picked there is a
+// Files row (`asFile`), never inlined into the description.
+describe(`IssueDraftPage files`, () => {
+  it(`uploads every paperclip pick as a file, images included`, async () => {
+    uploads.uploadDraftAttachment.mockReset()
+    uploads.uploadDraftAttachment.mockImplementation(
+      async (_id: string, file: File) => ({
+        id: `att-${file.name}`,
+        filename: file.name,
+        contentType: file.type,
+        sizeBytes: 1,
+        url: `/api/attachments/att-${file.name}`,
+        width: null,
+        height: null,
+        asFile: true,
+      })
     )
-    await waitFor(() => expect(navigate).toHaveBeenCalled())
-    expect(editor.discard).toHaveBeenCalledTimes(1)
-    // The page's own exit never meets the leave dialog.
-    expect(navigate.mock.calls[0][0]).toMatchObject({ ignoreBlocker: true })
-  })
-
-  it(`cancel keeps the draft`, async () => {
+    editor.addFile.mockReset()
     renderPage()
-    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
-    await screen.findByTestId(`issue-draft-discard-confirm`)
-    fireEvent.click(screen.getByRole(`button`, { name: `Cancel` }))
-    await waitFor(() =>
-      expect(screen.queryByTestId(`issue-draft-discard-confirm`)).toBeNull()
-    )
-    expect(editor.discard).not.toHaveBeenCalled()
-    expect(navigate).not.toHaveBeenCalled()
-  })
-
-  it(`opens the confirm with focus on Cancel, never on Discard`, async () => {
-    renderPage()
-    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
-    const confirm = await screen.findByTestId(`issue-draft-discard-confirm`)
-    expect(confirm.getAttribute(`role`)).toBe(`alertdialog`)
-    await waitFor(() =>
-      expect(document.activeElement?.textContent).toBe(`Cancel`)
-    )
-  })
-
-  it(`never leaves while a Create is in flight (the discard refused)`, async () => {
-    editor.hasContent = false
-    editor.discard.mockImplementation(async () => false)
-    renderPage()
-    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
-    await waitFor(() => expect(editor.discard).toHaveBeenCalledTimes(1))
-    await act(async () => {})
-    expect(navigate).not.toHaveBeenCalled()
-  })
-
-  it(`discards at once without content`, async () => {
-    editor.hasContent = false
-    renderPage()
-    fireEvent.click(screen.getByTestId(`issue-draft-discard`))
-    await waitFor(() => expect(navigate).toHaveBeenCalled())
-    expect(editor.discard).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId(`issue-draft-discard-confirm`)).toBeNull()
+    const png = new File([`x`], `mock.png`, { type: `image/png` })
+    const pdf = new File([`x`], `notes.pdf`, { type: `application/pdf` })
+    await act(async () => {
+      await filesView.onAttach?.([png, pdf])
+    })
+    expect(uploads.uploadDraftAttachment).toHaveBeenCalledWith(`d1`, png, {
+      asFile: true,
+    })
+    expect(uploads.uploadDraftAttachment).toHaveBeenCalledWith(`d1`, pdf, {
+      asFile: true,
+    })
+    expect(editor.addFile).toHaveBeenCalledTimes(2)
+    expect(editor.addFile.mock.calls[0][0]).toMatchObject({
+      filename: `mock.png`,
+      asFile: true,
+    })
   })
 })
 
@@ -397,7 +401,6 @@ describe(`IssueDraftPage leaving`, () => {
     })
     expect(blockerState.reset).toHaveBeenCalledTimes(1)
     expect(blockerState.proceed).not.toHaveBeenCalled()
-    expect(screen.queryByTestId(`issue-draft-discard-confirm`)).toBeNull()
   })
 
   it(`Create files it and replaces the draft entry with the HELD destination`, async () => {

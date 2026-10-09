@@ -41,8 +41,8 @@ import {
   Input,
   Label,
   ListRow,
+  Meter,
   Pill,
-  Progress,
   SETTINGS_LIST_CLASS,
   SegmentedControl,
   Select,
@@ -457,7 +457,7 @@ function PreviewingStep({ job, onCancelled }: { job: ImportJob; onCancelled: () 
           Fetching teams, statuses, labels, members, issues and comments.
           {done > 0 ? ` ${done.toLocaleString()} so far.` : ``}
         </p>
-        <Progress value={null} />
+        <Meter value={null} />
         <div className="flex justify-end">
           <CancelButton job={job} onCancelled={onCancelled} />
         </div>
@@ -1283,7 +1283,7 @@ function RunningStep({ job, onCancelled }: { job: ImportJob; onCancelled: () => 
             </div>
           )}
         </div>
-        <Progress value={progress?.phase === `issues` ? percent : null} />
+        <Meter value={progress?.phase === `issues` ? percent : null} />
         <p className="text-xs text-muted-foreground">
           You can leave this page; the import continues on the server.
         </p>

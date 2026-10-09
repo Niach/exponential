@@ -289,6 +289,33 @@ describe(`useIssueDraftEditor leaving`, () => {
     expect(mocks.draftDelete).not.toHaveBeenCalled()
   })
 
+  // EXP-1247: a reopened draft lists Files rows only — pasted images and
+  // clips belong to the description; an image uploaded `asFile` is a file.
+  it(`lists only Files rows of a reopened draft`, async () => {
+    const row = (id: string, contentType: string, asFile = false) => ({
+      id,
+      filename: id,
+      contentType,
+      sizeBytes: 3,
+      url: `/api/attachments/${id}`,
+      asFile,
+    })
+    mocks.listAttachments.mockResolvedValue([
+      row(`inline-png`, `image/png`),
+      row(`clip`, `video/mp4`),
+      row(`mock-png`, `image/png`, true),
+      row(`notes`, `application/pdf`),
+    ])
+    const { result } = renderHook(() =>
+      useIssueDraftEditor(options({ draft: existingDraft({ title: `x` }) }))
+    )
+    await settle()
+    expect(result.current.files.map((file) => file.id)).toEqual([
+      `mock-png`,
+      `notes`,
+    ])
+  })
+
   it(`does not rewrite an untouched reopened draft in a solo team`, async () => {
     const { result, unmount } = renderHook(() =>
       useIssueDraftEditor(

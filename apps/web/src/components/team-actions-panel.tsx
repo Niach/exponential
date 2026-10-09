@@ -6,15 +6,10 @@ import type { SyncedAction, Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
 import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
 import { parseActionTriggers, triggerBadges } from "@/lib/action-triggers"
-import { Ellipsis, Pencil, Trash2 } from "lucide-react"
 import {
   conceptIcon,
   Button,
   Pill,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   EmptyCta,
   GlassSectionHeader,
   ListRow,
@@ -23,7 +18,9 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Menu,
   getActionIcon,
+  type MenuEntry,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useSteerConfig } from "@/components/agent-session"
@@ -41,9 +38,10 @@ import {
   useFaceSwipe,
 } from "@/components/mobile-face-tabs"
 import {
-  PinToggleMenuItem,
+  pinLabel,
   usePinToggleVisible,
 } from "@/components/pin-toggle-button"
+import { usePinToggle } from "@/hooks/use-pins"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
 // in EXP-574: ONE list of actions (SLOP-2 — an action carries its triggers,
@@ -58,6 +56,11 @@ import {
 const ActionCreateIcon = conceptIcon(`action-create`)
 // EXP-615: running is a play icon button on every client — no text label.
 const ActionRunIcon = conceptIcon(`action-run`)
+const UiMoreIcon = conceptIcon(`ui-more`)
+const UiPinIcon = conceptIcon(`ui-pin`)
+const UiUnpinIcon = conceptIcon(`ui-unpin`)
+const UiEditIcon = conceptIcon(`ui-edit`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 /** Which surface this panel renders. `tabs` is the mobile Actions page (the
  * list and the suggestions behind a tab strip); `actions` the desktop one. */
@@ -85,38 +88,50 @@ export function ActionMenu({
   onDelete: () => void
 }) {
   const pinVisible = usePinToggleVisible()
+  const pin = usePinToggle(action.teamId, `action`, action.id)
   if (!pinVisible && !isOwner) return null
+  const entries: MenuEntry[] = [
+    ...(pinVisible
+      ? [
+          {
+            kind: `item` as const,
+            id: `pin`,
+            label: pinLabel(pin.pinned),
+            icon: pin.pinned ? UiUnpinIcon : UiPinIcon,
+            onSelect: pin.toggle,
+          },
+        ]
+      : []),
+    ...(isOwner
+      ? [
+          { kind: `item` as const, id: `edit`, label: `Edit`, icon: UiEditIcon, onSelect: onEdit },
+          {
+            kind: `item` as const,
+            id: `delete`,
+            label: `Delete`,
+            icon: UiDeleteIcon,
+            destructive: true,
+            onSelect: onDelete,
+          },
+        ]
+      : []),
+  ]
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Menu
+      align="end"
+      aria-label={`${action.name} actions`}
+      title={action.name}
+      entries={entries}
+      trigger={
         <Button
           variant="ghost"
           size="icon-sm"
           aria-label={`Action menu for ${action.name}`}
         >
-          <Ellipsis />
+          <UiMoreIcon />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <PinToggleMenuItem
-          teamId={action.teamId}
-          kind="action"
-          targetId={action.id}
-        />
-        {isOwner && (
-          <>
-            <DropdownMenuItem onClick={onEdit}>
-              <Pencil className="h-4 w-4" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      }
+    />
   )
 }
 

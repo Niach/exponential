@@ -7,6 +7,11 @@
 // from `sm` up all four are the identical centered glass panel and DESKTOP
 // PRESENTATION IS UNCHANGED by anything here.
 //
+// Since the UI cleanup batch the two sheet arms render THROUGH `SheetContent`
+// below `sm` (dialog.tsx), so the classes below are the fallback for the
+// first paint and static markup; the sheet's own chrome is the one phone
+// sheet.
+//
 // `sheet` is the default (EXP-687 flipped it from the EXP-255 full-screen
 // page): content-fitted up to 90dvh, matching the native "fitted" detent.
 // `sheet-full` is the fixed 94dvh detent EXP-616 introduced for the tall

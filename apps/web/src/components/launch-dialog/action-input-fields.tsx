@@ -2,15 +2,14 @@ import { useEffect, useMemo, useRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
 import {
-  Combobox,
   IconPicker,
   Label,
   GlassGroup,
   Picker,
+  RepositoryPicker,
   PickerTrigger,
   boardPickerItems,
   type PickerItem,
-  type PickerOption,
   BoardGlyph,
 } from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
@@ -27,7 +26,7 @@ import type { ActionRepoOption } from "@/components/action-prompt-form"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
 // free-text kinds — the composer's own text is the run's instructions):
-// repo → a `Combobox` row over the team's connected repos, board → the same
+// repo → a `Picker` row over the team's connected repos, board → the same
 // picker over the synced boards, pr (EXP-259) → the same picker over the
 // team's OPEN issue-linked pull requests (deduped by prUrl — a batch PR shows
 // once, its value is the representative issue's id), icon (EXP-273) → the
@@ -35,16 +34,8 @@ import type { ActionRepoOption } from "@/components/action-prompt-form"
 // shell as a flat Record<key, string> — repo/board/pr store the picked id and
 // icon stores the registry NAME, blank = unset (dropped from the payload by
 // buildInputsPayload); EXP-941 retired the `none` sentinel these two pickers
-// used for "unset" — the `Combobox` reports `null` and the mapping happens
+// used for "unset" — the picker's none row reports it and the mapping happens
 // here.
-
-// An empty string is no usable option identity; the unset optional repo
-// rides this sentinel inside the dialog only.
-const NO_REPO = `none`
-// The same for an optional board input: the picker API has no `noneLabel`, so
-// the clearing row is an ordinary row with a sentinel value, mapped back to
-// `""` here.
-const NO_BOARD = `none`
 
 export function ActionInputFields({
   defs,
@@ -74,24 +65,19 @@ export function ActionInputFields({
           // their label above, where a long placeholder needs the width.
           return (
             <GlassGroup key={def.key}>
-              <Combobox
+              <RepositoryPicker
                 triggerVariant="row"
-                searchable={false}
                 mobileTitle={label}
-                value={values[def.key] || (def.required ? null : NO_REPO)}
-                onChange={(value) => {
-                  if (value !== null) {
-                    onChange(def.key, value === NO_REPO ? `` : value)
-                  }
-                }}
-                triggerLabel="Select a repository"
-                options={[
-                  ...(def.required ? [] : [{ value: NO_REPO, label: `None` }]),
-                  ...repos.map((repo) => ({
-                    value: repo.id,
-                    label: repo.fullName,
-                  })),
-                ]}
+                value={values[def.key] || null}
+                onChange={(value) => onChange(def.key, value)}
+                {...(def.required
+                  ? {}
+                  : { noneLabel: `None`, onNone: () => onChange(def.key, ``) })}
+                triggerLabel={def.required ? `Select a repository` : `None`}
+                repositories={repos.map((repo) => ({
+                  id: repo.id,
+                  fullName: repo.fullName,
+                }))}
               />
             </GlassGroup>
           )
@@ -213,7 +199,7 @@ function PrInputField({
   onChange: (issueId: string) => void
 }) {
   const pulls = useOpenPrOptions(teamId)
-  const options = useMemo<PickerOption[]>(
+  const options = useMemo<PickerItem[]>(
     () =>
       pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
     [pulls]
@@ -221,16 +207,19 @@ function PrInputField({
   usePrInputSeed(pulls, seedIssueId, onChange)
 
   return (
-    <Combobox
-      options={options}
+    <Picker
+      mode="single"
+      search
+      items={options}
       value={value === `` ? null : value}
-      onChange={(issueId) => onChange(issueId ?? ``)}
+      onChange={onChange}
       noneLabel={required ? undefined : `None`}
+      onNone={() => onChange(``)}
       triggerVariant="field"
       triggerLabel="Select a pull request…"
       width="lg"
       mobileTitle="Select a pull request"
-      placeholder="Select a pull request..."
+      searchPlaceholder="Select a pull request..."
       emptyText="No open pull requests."
     />
   )
@@ -242,10 +231,9 @@ function PrInputField({
 // EXP-1030: the rows are THE board picker's (`boardPickerItems`, EXP-1021) —
 // every board draws its icon in its colour, here and on the trigger. The
 // shell is the `Picker` primitive rather than the typed `BoardPicker`
-// component for one reason: an OPTIONAL board input has to be clearable, and
-// no typed picker forwards a `None` row (`Combobox`'s `noneLabel` has no
-// counterpart on the picker API). The extra row is the only difference — the
-// board rows themselves come from the shared builder.
+// component for one reason: an OPTIONAL board input has to be clearable,
+// which is the primitive's `noneLabel` row. The board rows themselves come
+// from the shared builder.
 function BoardInputField({
   teamId,
   value,
@@ -272,13 +260,7 @@ function BoardInputField({
       ),
     [boardRows]
   )
-  const items = useMemo<PickerItem[]>(
-    () => [
-      ...(required ? [] : [{ value: NO_BOARD, label: `None` }]),
-      ...boardPickerItems(boards),
-    ],
-    [boards, required]
-  )
+  const items = useMemo<PickerItem[]>(() => boardPickerItems(boards), [boards])
   const picked = boards.find((board) => board.id === value)
 
   return (
@@ -287,8 +269,9 @@ function BoardInputField({
       items={items}
       // Unset reads as the `None` row while there is one — the same shape the
       // repo input above uses.
-      value={value === `` ? (required ? null : NO_BOARD) : value}
-      onChange={(boardId) => onChange(boardId === NO_BOARD ? `` : boardId)}
+      value={value === `` ? null : value}
+      onChange={onChange}
+      {...(required ? {} : { noneLabel: `None`, onNone: () => onChange(``) })}
       search
       width="sm"
       mobileTitle="Select a board"
