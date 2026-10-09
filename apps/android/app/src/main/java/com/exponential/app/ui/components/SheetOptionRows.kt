@@ -40,7 +40,7 @@ import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.AppSwitchColors
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
@@ -332,25 +332,29 @@ internal fun SwitchRow(
  * outlined capsule with a 16dp knob rattling inside it — on the app's dark
  * glass that reads as "broken", not as "off". Off is the shared active fill
  * with a white knob and NO border; on is the primary track with a
- * primary-foreground knob. Every `Switch` in the app takes these.
+ * primary-foreground knob. Every `Switch` in the app takes these. The
+ * palette is the SDK drawn switch's ([AppSwitchColors], SLOP-18 / VAPP-89),
+ * mapped onto M3's slots; the M3 geometry stays.
  */
 @Composable
-fun glassSwitchColors(): SwitchColors = SwitchDefaults.colors(
-    checkedThumbColor = DesignTokens.Palette.PrimaryForeground,
-    checkedTrackColor = DesignTokens.Palette.Primary,
-    checkedBorderColor = Color.Transparent,
-    checkedIconColor = Color.Transparent,
-    uncheckedThumbColor = Color.White,
-    uncheckedTrackColor = GlassTokens.RowFillActive,
-    uncheckedBorderColor = Color.Transparent,
-    uncheckedIconColor = Color.Transparent,
-    disabledCheckedThumbColor = DesignTokens.Palette.PrimaryForeground.copy(alpha = TextEmphasis.Secondary),
-    disabledCheckedTrackColor = DesignTokens.Palette.Primary.copy(alpha = TextEmphasis.Tertiary),
-    disabledCheckedBorderColor = Color.Transparent,
-    disabledUncheckedThumbColor = Color.White.copy(alpha = TextEmphasis.Tertiary),
-    disabledUncheckedTrackColor = GlassTokens.RowFill,
-    disabledUncheckedBorderColor = Color.Transparent,
-)
+fun glassSwitchColors(): SwitchColors = AppSwitchColors.let { c ->
+    SwitchDefaults.colors(
+        checkedThumbColor = c.thumbOn,
+        checkedTrackColor = c.trackOn,
+        checkedBorderColor = Color.Transparent,
+        checkedIconColor = Color.Transparent,
+        uncheckedThumbColor = c.thumb,
+        uncheckedTrackColor = c.trackOff,
+        uncheckedBorderColor = Color.Transparent,
+        uncheckedIconColor = Color.Transparent,
+        disabledCheckedThumbColor = c.thumbOnDisabled,
+        disabledCheckedTrackColor = c.trackOnDisabled,
+        disabledCheckedBorderColor = Color.Transparent,
+        disabledUncheckedThumbColor = c.thumbDisabled,
+        disabledUncheckedTrackColor = c.trackOffDisabled,
+        disabledUncheckedBorderColor = Color.Transparent,
+    )
+}
 
 /**
  * A blank 24dp thumb slot. M3 shrinks an unchecked thumb to 16dp unless the

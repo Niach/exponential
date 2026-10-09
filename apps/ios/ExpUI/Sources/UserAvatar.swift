@@ -1,5 +1,6 @@
 import ExpCore
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 /// Circular member avatar. Mirrors `TeamAvatar` but is user-based and round:
 /// renders `user.image` when set (Google-login photos), falling back to an
@@ -38,11 +39,13 @@ public struct UserAvatar: View {
         self.size = size
     }
 
+    /// SLOP-18 / VAPP-88: the drawing is the SDK's `AvatarView`, fed ExpUI's
+    /// own hue (`avatarHueIndex`) and initials so no avatar changes colour.
     public var body: some View {
-        Group {
-            if let urlString = image,
-               !urlString.isEmpty,
-               let url = URL(string: urlString) {
+        if let urlString = image,
+           !urlString.isEmpty,
+           let url = URL(string: urlString) {
+            AvatarView(name: initials, size: size) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case let .success(image):
@@ -51,26 +54,37 @@ public struct UserAvatar: View {
                         initialsChip
                     }
                 }
-            } else {
-                initialsChip
             }
+        } else {
+            initialsChip
         }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
     }
 
+    // The glyph has to scale with the avatar. A fixed .caption is wider than
+    // the 16pt chip avatars on the issue detail, so SwiftUI truncated two
+    // initials to a lone "…" — visible in the App Store screenshots
+    // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
     private var initialsChip: some View {
-        let hue = DesignTokens.Avatar.hues[avatarHueIndex(hueKey)]
-        // The glyph has to scale with the avatar. A fixed .caption is wider than
-        // the 16pt chip avatars on the issue detail, so SwiftUI truncated two
-        // initials to a lone "…" — visible in the App Store screenshots
-        // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
-        return Text(initials)
-            .font(.system(size: size * 0.42, weight: .medium))
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .foregroundStyle(hue)
-            .frame(width: size, height: size)
-            .background(hue.opacity(0.2))
+        AvatarView(name: initials, size: size, fill: Self.fill(hueKey), ink: Self.ink(hueKey), fontSize: size * UserAvatarTokens.initialsScale, initials: initials, minimumScaleFactor: UserAvatarTokens.minimumScaleFactor)
     }
+
+    /// The initials' colour: the avatar hue picked off the key.
+    static func ink(_ hueKey: String?) -> Color {
+        DesignTokens.Avatar.hues[avatarHueIndex(hueKey)]
+    }
+
+    /// The chip's fill: the hue at 20 %.
+    static func fill(_ hueKey: String?) -> Color {
+        ink(hueKey).opacity(UserAvatarTokens.fillOpacity)
+    }
+}
+
+/// The pinned fallback-chip numbers of `UserAvatar`.
+public enum UserAvatarTokens {
+    /// The initials' size as a share of the diameter.
+    public static let initialsScale: CGFloat = 0.42
+    /// How far two initials shrink before they truncate.
+    public static let minimumScaleFactor: CGFloat = 0.6
+    /// The hue's alpha in the chip fill.
+    public static let fillOpacity: Double = 0.2
 }

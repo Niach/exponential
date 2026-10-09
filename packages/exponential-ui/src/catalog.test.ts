@@ -18,6 +18,7 @@ import {
 import { basicMap } from "./basic-map"
 import { ICON_NAMES, LITE_COMPONENTS, MACRO_COMPONENTS, NATIVE_COMPONENTS, SPECIMEN_IDS } from "./catalog.generated"
 import { validateProps } from "./validate"
+import { CORE_FUNCTIONS } from "./expr"
 import vendoredBasic from "../vendor/a2ui/v0_9/basic_catalog.json" with { type: "json" }
 
 const components = Object.entries(coreCatalog.components)
@@ -45,15 +46,28 @@ describe(`components`, () => {
       `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`,
       `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Markdown`, `Composer`, `TreeGuides`, `Chart`,
     ]
-    for (const name of expected) expect(coreCatalog.components[name], name).toBeDefined()
-    expect(componentNames()).toHaveLength(expected.length)
+    // Round 1 (docs/round-1-contract.md §3): the renderer-hardening additions.
+    const round1 = [
+      `ScrollArea`, `Sidebar`, `AppBar`, `CodeBlock`, `Kbd`, `Label`, `Breadcrumb`, `TabBar`, `Stepper`, `AlertDialog`,
+      `HoverCard`, `ContextMenu`, `Toast`, `Sparkline`, `Form`, `NumberField`, `Rating`, `ChipInput`, `DateRangePicker`,
+      `TimePicker`, `FileUpload`,
+    ]
+    // Round 2 (docs/round-2-contract.md §1).
+    const round2 = [`Resizable`]
+    for (const name of [...expected, ...round1, ...round2]) expect(coreCatalog.components[name], name).toBeDefined()
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length)
   })
 
   test(`kinds follow the issue's table`, () => {
     const kind = (name: string) => coreCatalog.components[name].kind
     for (const native of [`Box`, `List`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `Carousel`, `Tabs`, `ToggleGroup`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `DropdownMenu`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Markdown`, `Composer`, `TreeGuides`, `Chart`])
       expect(kind(native), native).toBe(`native`)
-    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Table`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`])
+    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`])
+      expect(kind(macro), macro).toBe(`macro`)
+    // Round 1: natives only where a renderer must own behaviour, macros elsewhere.
+    for (const native of [`Table`, `Form`, `NumberField`, `ChipInput`, `DateRangePicker`, `TimePicker`, `FileUpload`, `CodeBlock`, `ContextMenu`, `Toast`])
+      expect(kind(native), native).toBe(`native`)
+    for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `TabBar`, `Stepper`, `AlertDialog`, `HoverCard`, `Sparkline`, `Rating`])
       expect(kind(macro), macro).toBe(`macro`)
     expect(([...NATIVE_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `native`).map(([n]) => n).sort())
     expect(([...MACRO_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `macro`).map(([n]) => n).sort())
@@ -78,7 +92,7 @@ describe(`components`, () => {
     expect(lite).toEqual([...LITE_COMPONENTS] as string[])
     for (const [name, def] of components) {
       if (def.hidden) continue
-      const excluded = def.group === `overlay` || def.group === `media` || name === `Chart`
+      const excluded = def.group === `overlay` || def.group === `media` || name === `Chart` || name === `Sparkline`
       if (name === `Icon` || name === `Avatar`) continue // the two media natives every list needs
       expect(lite.includes(name), name).toBe(!excluded)
     }
@@ -93,10 +107,12 @@ describe(`components`, () => {
       for (const [prop, schema] of Object.entries(def.props)) {
         expect(schema.description.length, `${name}.${prop}`).toBeGreaterThan(5)
         if (schema.type === `enum` && !schema.values) expect(coreCatalog.enums[schema.enum!], `${name}.${prop} enum`).toBeDefined()
-        if (schema.type === `object`) expect(coreCatalog.defs[schema.shape!], `${name}.${prop} shape`).toBeDefined()
-        if (schema.type === `array` && schema.items?.type === `object`) expect(coreCatalog.defs[schema.items.shape!], `${name}.${prop} items`).toBeDefined()
+        if (schema.type === `object` && schema.shape) expect(coreCatalog.defs[schema.shape], `${name}.${prop} shape`).toBeDefined()
+        if (schema.type === `array` && schema.items?.type === `object` && schema.items.shape) expect(coreCatalog.defs[schema.items.shape], `${name}.${prop} items`).toBeDefined()
+        // Round 1: a responsive prop is an enum, number or boolean (a value per breakpoint).
+        if (schema.responsive) expect([`enum`, `number`, `boolean`], `${name}.${prop} responsive`).toContain(schema.type)
       }
-      if (def.slots) for (const slot of def.slots) expect(slot).toMatch(/^[a-z]+$/)
+      if (def.slots) for (const slot of def.slots) expect(slot).toMatch(/^([a-z]+|\*)$/)
     }
     for (const [name, def] of Object.entries(coreCatalog.defs)) {
       for (const [prop, schema] of Object.entries(def.properties)) expect(schema.description.length, `${name}.${prop}`).toBeGreaterThan(5)
@@ -120,7 +136,9 @@ describe(`components`, () => {
 
 describe(`tokens and icons`, () => {
   test(`the token groups the issue names, every name unique`, () => {
-    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`])
+    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`, `breakpoint`, `ease`, `density`, `blur`])
+    expect(TOKEN_GROUPS.breakpoint).toEqual([`sm`, `md`, `lg`, `xl`])
+    for (const n of [6, 7, 8]) expect(TOKEN_GROUPS.color).toContain(`chart${n}`)
     for (const [group, names] of Object.entries(TOKEN_GROUPS)) {
       expect(names.length, group).toBeGreaterThan(0)
       expect(new Set(names).size, group).toBe(names.length)
@@ -148,7 +166,35 @@ describe(`basic map`, () => {
     const iconEnum = basic.components.Icon.allOf[2].properties!.name!.oneOf[0].enum
     expect(Object.keys(basicMap.icons).sort()).toEqual([...iconEnum].sort())
     expect(Object.keys(basicMap.functions).sort()).toEqual(Object.keys(basic.functions).sort())
-    expect([...coreCatalog.functions.names].sort()).toEqual(Object.keys(basic.functions).sort())
+    // Round 1: the basic catalog's 14 functions, then the core ones (functions.core), in that order.
+    const core = Object.keys(coreCatalog.functions.core)
+    expect([...coreCatalog.functions.names]).toEqual([...Object.keys(basic.functions), ...core])
+    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`])
     for (const rule of Object.values(basicMap.components)) expect(coreCatalog.components[rule.to], rule.to).toBeDefined()
+  })
+})
+
+describe(`round 1 catalog tables`, () => {
+  test(`every built-in icon is an icons.json name and names a real component`, () => {
+    const icons = new Set(ICON_NAMES as readonly string[])
+    for (const [slot, icon] of Object.entries(coreCatalog.builtinIcons)) {
+      if (slot.startsWith(`$`)) continue
+      expect(icons.has(icon), `${slot} → ${icon}`).toBe(true)
+      expect(coreCatalog.components[slot.split(`.`)[0]], slot).toBeDefined()
+    }
+  })
+
+  test(`every core function has a spec and the evaluator implements every value function`, () => {
+    for (const [name, spec] of Object.entries(coreCatalog.functions.core)) {
+      expect(spec.description.endsWith(`.`), name).toBe(true)
+      if (name !== `set`) expect(CORE_FUNCTIONS[name], name).toBeDefined()
+    }
+    expect(Object.keys(CORE_FUNCTIONS).sort()).toEqual(Object.keys(coreCatalog.functions.core).filter((n) => n !== `set`).sort())
+  })
+
+  test(`responsive props exist where the contract says (Stack, Grid, Drawer)`, () => {
+    expect(coreCatalog.components.Stack.props.direction.responsive).toBe(true)
+    expect(coreCatalog.components.Grid.props.columns.responsive).toBe(true)
+    expect(coreCatalog.components.Drawer.props.side.responsive).toBe(true)
   })
 })

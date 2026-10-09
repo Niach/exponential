@@ -1,5 +1,5 @@
 /**
- * The canonical glass control set (EXP-698) — the REAL `@exp/ui` component
+ * The Exponential app's specialised controls (EXP-698, VAPP-93) — the REAL `@exp/ui` component
  * wherever one owns the form (an ISLAND, EXP-887), and HTML/CSS driven by
  * `@exp/design-tokens` for the compositions that have no single owner.
  *
@@ -31,8 +31,14 @@
  * shadow root and painted by the package's own compiled stylesheet
  * (`@exp/ui/island`). A lookalike could disagree with the product silently;
  * the component cannot disagree with itself. What stays hand-written is the
- * COMPOSITIONS — the app shell, a comment card, the token swatches — plus the
- * two Radix portals that render nothing at rest (`PORTAL_ONLY_IDS`).
+ * COMPOSITIONS — the app shell, a comment card, the token swatches.
+ *
+ * VAPP-93 split the page: every GENERIC control (buttons, fields, rows, bands,
+ * pills, dialogs, sheets, meters, rings, empty states, …) moved to
+ * ui.exponential.at, where the Exponential UI SDK renders it live beside four
+ * platform shots, and its per-platform table moved with it
+ * (`apps/ui-site/src/data/app-parity.ts`). What stays here is the app
+ * extension: the Exponential app's own specialised components.
  *
  * `components.test.tsx` gates the parts that rot: every named file exists,
  * every platform is accounted for, the web/packages-ui split matches the
@@ -46,7 +52,6 @@ import { designTokens } from "@exp/design-tokens"
 // (`conceptIcon`) but not the table, and this entry documents the table; the
 // package rides in with `@exp/ui`, which owns the generated file shown here.
 import { SEMANTIC_ICONS } from "@exp/icons"
-import { contract } from "@exp/domain-contract"
 import { parseDiff } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import {
@@ -58,50 +63,25 @@ import {
   cn,
   AgentPicker,
   AgentPickerTabs,
-  Alert,
-  AlertDescription,
-  AlertTitle,
   AttachmentThumb,
   AuthFormShell,
-  Badge,
   BoardGlyph,
   Button,
-  Calendar,
   ChangesFileSheet,
   ClaudeIcon,
   CodexIcon,
-  Checkbox,
-  Combobox,
-  ComboboxList,
   ColorPicker,
   ColorSwatchGrid,
-  Composer,
-  ComposerSubmit,
-  ComposerTool,
-  ContextRing,
-  ProgressRing,
   CursorIcon,
-  DatePicker,
-  DisclosureHeader,
   EditedFilesCard,
   EmojiPicker,
-  EmptyCta,
   ExponentialLogo,
   FAB_CHROME_CLASS,
   FabButton,
   FileDiffCard,
   FileDiffTree,
-  GlassCard,
   GlassGroup,
-  GlassInputRow,
-  GlassRow,
-  GlassSectionHeader,
-  GlassTabsRow,
-  GlassToggleRow,
-  EmptyState,
-  EntityChip,
   EntityPreviewCard,
-  CHIP_GLYPH_CLASS,
   entityChipGlyph,
   ICON_DISC_TONES,
   IconDisc,
@@ -114,30 +94,17 @@ import {
   Label,
   LiveDot,
   ListRow,
-  ListEmpty,
-  Meter,
-  SegmentedBar,
   MobileWorkCapsule,
   OpenAiIcon,
   PasswordInput,
   Pill,
   PrGithubButton,
-  PropertyRow,
   PreviewMedia,
   RichTab,
   ResizeHandle,
-  SearchField,
-  SegmentedControl,
   SessionInlineResultTile,
   SessionResultsView,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  Separator,
-  Skeleton,
   StatusGlyph,
-  Switch,
-  TabsTrigger,
   TeamAvatar,
   Textarea,
   TypeaheadMenu,
@@ -153,18 +120,12 @@ import {
   conceptIcon,
   indexEmojiData,
   type EmojiDataset,
-  type PickerOption,
   type SessionResultEntry,
   type SessionResultGroup,
   type StatusGlyphProps,
-  TREE_BASE,
-  TREE_INDENT,
-  TreeGuides,
-  treeGuides,
 } from "@exp/ui"
 
 import { tokenSlug } from "./component-styles.ts"
-import { PromptSpecimen, promptSpecimenCopy } from "./entries/dialog-shared.tsx"
 import {
   escapeHtml,
   svgBell,
@@ -274,8 +235,8 @@ interface ComponentSpecBase {
  *             once the web symbol lives in `packages/ui`
  *   `render`  hand-written HTML using only `.cmp-*` classes, for the
  *             COMPOSITIONS no single component owns (the app shell, a comment
- *             card, the token swatches) and for the two Radix surfaces that
- *             render nothing at rest (see `PORTAL_ONLY_IDS`)
+ *             card, the token swatches) and for any Radix surface that
+ *             renders nothing at rest (see `PORTAL_ONLY_IDS`)
  */
 export type ComponentSpec = ComponentSpecBase &
   (
@@ -290,15 +251,17 @@ export function isIsland(
 }
 
 /**
- * The two entries whose web symbol DOES live in `packages/ui` and still keep
- * a hand-written demo: a closed Radix portal renders nothing at all to static
- * markup, so an island of any of them would be an empty box. Anything else
+ * The entries whose web symbol DOES live in `packages/ui` and still keep a
+ * hand-written demo, because a closed Radix portal renders nothing at all to
+ * static markup and an island of one would be an empty box. Anything else
  * under `packages/ui/` must be an island — `components.test.tsx` gates both
  * directions, and exempts only these and the Style entries, which document a
- * VALUE rather than a control. (The menu left this list with EXP-1074: its
- * `menu` entry draws the real row recipe at rest through `MenuSpecimen`.)
+ * VALUE rather than a control. EMPTY since VAPP-93: its last two members
+ * (`sheet`, `dialog`) were generic and moved to ui.exponential.at, where the
+ * SDK renders them live; the list stays so a future portal-only entry has to
+ * be named here rather than slip through.
  */
-export const PORTAL_ONLY_IDS: readonly string[] = [`sheet`, `dialog`]
+export const PORTAL_ONLY_IDS: readonly string[] = []
 
 const { glass, radius, size, motion } = designTokens
 
@@ -312,58 +275,15 @@ const { glass, radius, size, motion } = designTokens
 const noop = (): void => {}
 
 const PlusGlyph = conceptIcon(`ui-add`)
-const SendGlyph = conceptIcon(`ui-send`)
 const PlayGlyph = conceptIcon(`action-run`)
 const MoreGlyph = conceptIcon(`ui-more`)
-const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
-const CloseGlyph = conceptIcon(`ui-close`)
-const BoldGlyph = conceptIcon(`editor-bold`)
-const WarningGlyph = conceptIcon(`ui-warning`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
-const EditorImageGlyph = conceptIcon(`editor-image`)
-const AttachGlyph = conceptIcon(`ui-attach`)
-const IssueRefGlyph = conceptIcon(`editor-issue-ref`)
-const EmojiGlyph = conceptIcon(`editor-emoji`)
 const PropertiesGlyph = conceptIcon(`ui-properties`)
 const CommentGlyph = conceptIcon(`notification-issue-comment`)
-const DraftsGlyph = conceptIcon(`nav-drafts`)
-const LabelsGlyph = conceptIcon(`settings-labels`)
-const DueDateGlyph = conceptIcon(`ui-due-date`)
-const PriorityHighGlyph = conceptIcon(`priority-high`)
-const PinGlyph = conceptIcon(`ui-pin`)
-const ToolGlyph = conceptIcon(`coding-tool`)
-const ActionCreateGlyph = conceptIcon(`action-create`)
 
 /* A neutral stand-in for a picked screenshot: the island loads no network
    image, so the thumb's crop and hairline read against a flat data-URI tile. */
-/* The two option shapes the app really hands a picker (EXP-941): a person,
-   whose email is the SEARCH text and not the label, and a label, whose colour
-   is a dot. `value` is the identity — two boards may share a name — so a
-   duplicate label is never a bug. */
-const ASSIGNEE_OPTIONS: PickerOption[] = [
-  { value: `mina`, label: `Mina Kay`, keywords: [`Mina Kay`, `mina@example.com`], hint: `you` },
-  { value: `jonas`, label: `Jonas Stern`, keywords: [`Jonas Stern`, `jonas@example.com`] },
-  { value: `sam`, label: `Sam Lee`, keywords: [`Sam Lee`, `sam@example.com`] },
-]
-
-const LABEL_OPTIONS: PickerOption[] = [
-  { value: `bug`, label: `bug`, dot: `#ef4444` },
-  { value: `mobile`, label: `mobile`, dot: `#3b82f6` },
-  { value: `design`, label: `design`, dot: `#a855f7` },
-  { value: `docs`, label: `docs`, dot: `#22c55e` },
-]
-
-/* The same labels mid bulk-edit (EXP-957): `checked` overrides membership in
-   `value` for the glyph, so "design" reads as on-some without being picked. */
-const BULK_LABEL_OPTIONS: PickerOption[] = LABEL_OPTIONS.map((option) =>
-  option.value === `design` ? { ...option, checked: `indeterminate` } : option
-)
-
-/* Local midnight, the way `parseDateValue` reads the wire format — `new
-   Date("2026-03-08")` alone is UTC and renders the 7th west of Greenwich. */
-const DUE_DATE_FIXTURE = new Date(`2026-03-08T00:00:00`)
-
 /* The whole registry, in the generator's own order: concept id beside the
    Lucide glyph it resolves to. Read from the map rather than transcribed —
    a hand-written table is exactly the drift this entry exists to catch. */
@@ -650,17 +570,13 @@ function na(note: string): ComponentStatus {
   return { state: `n/a`, note }
 }
 
-const WEB_GLASS_ROWS = `packages/ui/src/glass-rows.tsx`
-const WEB_PROPERTY_ROW = `packages/ui/src/property-row.tsx`
-const IOS_META_ROW = `apps/ios/ExpUI/Sources/GlassMetaRow.swift`
 const DESKTOP_SURFACE = `apps/desktop/crates/ui/src/surface.rs`
 const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
-const IOS_THEME = `apps/ios/ExpUI/Sources/GlassTheme.swift`
-const IOS_CONTROLS = `apps/ios/ExpUI/Sources/GlassControls.swift`
-const IOS_OPTION_ROWS = `apps/ios/ExpUI/Sources/GlassOptionRows.swift`
-const IOS_SEGMENTED = `apps/ios/ExpUI/Sources/GlassSegmentedControl.swift`
+// VAPP-90 converged the IDE's generic controls into the Exponential UI gpui
+// painter crate (`exponential-ui-gpui/src/controls/*`); the rows below name
+// them there.
+const DESKTOP_GPUI_PILLS = `apps/desktop/crates/exponential-ui-gpui/src/controls/pills.rs`
 const ANDROID_GLASS = `apps/android/app/src/main/java/com/exponential/app/ui/theme/Glass.kt`
-const ANDROID_SHEET_ROWS = `apps/android/app/src/main/java/com/exponential/app/ui/components/SheetOptionRows.kt`
 const ANDROID_COMPONENTS = `apps/android/app/src/main/java/com/exponential/app/ui/components`
 
 const HEADER_EXCEPTION = `Emoji picker category headers stay uppercase on purpose (shared exception).`
@@ -810,535 +726,6 @@ const SESSION_RESULT_GROUPS_FIXTURE: SessionResultGroup[] = [
 
 export const COMPONENTS: readonly ComponentSpec[] = [
   {
-    id: `section-header`,
-    title: `Group band`,
-    kind: `Lists & rows`,
-    blurb: `EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.`,
-    status: {
-      web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
-      desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
-      ios: ok(`GlassSectionBand`, IOS_THEME, HEADER_EXCEPTION),
-      android: ok(
-        `Modifier.glassSectionBand()`,
-        ANDROID_GLASS,
-        `SectionHeader (Scaffolding.kt) wraps it. ${HEADER_EXCEPTION}`
-      ),
-    },
-    island: () => (
-      <div className="grid gap-4">
-        <div>
-          <GlassSectionHeader
-            label="Boards"
-            trailing={
-              <Pill mode="action" leading={<PlusGlyph />}>
-                New
-              </Pill>
-            }
-          />
-          <ListRow interactive>
-            <span className="min-w-0 flex-1 truncate">Mobile app</span>
-            <span className="text-xs text-muted-foreground">24 issues</span>
-          </ListRow>
-          <ListRow interactive>
-            <span className="min-w-0 flex-1 truncate">Website</span>
-            <span className="text-xs text-muted-foreground">9 issues</span>
-          </ListRow>
-        </div>
-        <GlassSectionHeader label="Danger zone" />
-      </div>
-    ),
-  },
-  {
-    id: `disclosure-header`,
-    title: `Disclosure header`,
-    kind: `Lists & rows`,
-    blurb: `EXP-962: the fold toggle INSIDE a row, and the whole of it is one line of bare text — a 12px chevron pointing right folded and down open, the label muted and brightening under the pointer, \`aria-expanded\` stating the fold, the entire line the target. The steer feed's tool groups, its Exponential calls, its subagent lanes and its long bodies, the workflow card's agents and the issue group's own header each drew this by hand before it was one component. \`chevron="trailing"\` parks the glyph at the far edge instead, for a row whose siblings carry none and must not indent out of line with them. It is NOT the group band above: that is a filled strip heading a LIST. And it may not contain another button — a fold's own action renders beside it, because a button inside a button is invalid markup.`,
-    status: {
-      web: ok(`DisclosureHeader`, `packages/ui/src/disclosure-header.tsx`),
-      desktop: ok(
-        `controls::disclosure_header`,
-        DESKTOP_CONTROLS,
-        `EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it`
-      ),
-      ios: leftover(
-        `ToolGroupRow / ExpToolGroupRow / SubagentGroupRow`,
-        `apps/ios/Exponential/UI/Session/AgentSessionView.swift`,
-        `three private structs repeat the 11pt chevron row, each with its own @State expanded`
-      ),
-      android: leftover(
-        `ToolGroupRow / ExpToolGroupRow / SubagentGroupRow`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
-        `the same three private composables, each rebuilding the chevron row`
-      ),
-    },
-    island: () => (
-      <div className="grid gap-4 text-xs">
-        <DisclosureHeader open={false} onToggle={noop}>
-          <ToolGlyph className="size-3 shrink-0" />
-          <span className="min-w-0 truncate">Ran 3 commands · edited 2 files</span>
-        </DisclosureHeader>
-        <div>
-          <DisclosureHeader open onToggle={noop}>
-            <ToolGlyph className="size-3 shrink-0" />
-            <span className="min-w-0 truncate">Ran 3 commands · edited 2 files</span>
-          </DisclosureHeader>
-          <div className="mt-1 pl-5 font-mono text-muted-foreground">bun run test:shots</div>
-        </div>
-        {/* The trailing arm: the label keeps the row's own left edge. */}
-        <DisclosureHeader open={false} onToggle={noop} chevron="trailing">
-          <span className="min-w-0 truncate">Output · 128 lines</span>
-        </DisclosureHeader>
-      </div>
-    ),
-  },
-  {
-    id: `group`,
-    title: `Group container`,
-    kind: `Lists & rows`,
-    blurb: `EXP-994: THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form.`,
-    status: {
-      web: ok(`GlassGroup`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_group / glass_group_rows`, DESKTOP_SURFACE),
-      ios: ok(`GlassSection`, IOS_THEME),
-      android: ok(`Modifier.glassGroup()`, ANDROID_GLASS, `OptionGroup in ui/components/SheetOptionRows.kt is the list wrapper around it.`),
-    },
-    island: () => (
-      <div className="grid gap-4">
-        <GlassGroup>
-          <Combobox
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle="Repository"
-            value="exp"
-            onChange={noop}
-            options={[{ value: `exp`, label: `niach/exponential` }]}
-          />
-          <GlassInputRow id="demo-group-slug" label="Slug" defaultValue="mobile-app" />
-          <GlassToggleRow
-            id="demo-group-archived"
-            label="Archived"
-            checked={false}
-            onCheckedChange={noop}
-          />
-        </GlassGroup>
-        {/* The bare form, inside the menu surface an overlay already draws. */}
-        <div className={cn(MENU_SURFACE_CLASS, `w-[20rem] p-0`)}>
-          <GlassGroup bare>
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Effort"
-              value="cli-default"
-              onChange={noop}
-              options={[{ value: `cli-default`, label: `CLI default` }]}
-            />
-            <GlassToggleRow
-              id="demo-group-bare-ultracode"
-              label="Ultracode"
-              checked={false}
-              onCheckedChange={noop}
-            />
-          </GlassGroup>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: `property-row`,
-    title: `Property row`,
-    kind: `Lists & rows`,
-    blurb: `EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, the WHOLE row the target, no chevron. Rows stack inside a \`GlassGroup\`. A set-valued property (Labels) shows the picks joined by ", " in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads "None".`,
-    status: {
-      web: ok(`PropertyRow`, WEB_PROPERTY_ROW),
-      desktop: na(`Desktop shows the properties inline as header chips; no sheet rows.`),
-      ios: ok(`GlassMetaRow`, IOS_META_ROW),
-      android: ok(`MetaRow`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <GlassGroup>
-        <PropertyRow
-          label="Status"
-          value={
-            <>
-              <StatusGlyph icon="progress-2-4" colorClass="text-yellow-500" className="size-3.5" />
-              In Progress
-            </>
-          }
-        />
-        <PropertyRow
-          label="Priority"
-          value={
-            <>
-              <PriorityHighGlyph className="size-3.5 text-orange-500" />
-              High
-            </>
-          }
-        />
-        <PropertyRow
-          label="Assignee"
-          value={
-            <>
-              <UserAvatar size={16} user={{ id: `mina`, name: `Mina Kay`, image: null }} />
-              <span className="max-w-[8rem] truncate">Mina Kay</span>
-            </>
-          }
-        />
-        <PropertyRow
-          label="Labels"
-          value={
-            <>
-              <LabelsGlyph className="size-3.5" />
-              <span className="max-w-[8rem] truncate">bug, mobile</span>
-            </>
-          }
-        />
-        <PropertyRow
-          label="Due date"
-          value={
-            <>
-              <DueDateGlyph className="size-3.5" />
-              Mar 8
-            </>
-          }
-        />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `row`,
-    title: `Glass row`,
-    kind: `Lists & rows`,
-    blurb: `The GAPPED card item: radius 10, row fill, its own hairline border, padding 12. EXP-818/1076 keep it for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a \`GlassSectionHeader\` band over \`SETTINGS_LIST_CLASS\` + the flat list row below.`,
-    status: {
-      web: ok(`GlassRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_row_card`, DESKTOP_SURFACE),
-      ios: ok(`GlassRow`, IOS_THEME),
-      android: ok(`Modifier.glassRow()`, ANDROID_GLASS),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <GlassRow interactive>
-          <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
-          <Pill>in review</Pill>
-        </GlassRow>
-        <GlassRow interactive>
-          <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
-          <Pill>backlog</Pill>
-        </GlassRow>
-      </div>
-    ),
-  },
-  {
-    id: `list-row`,
-    title: `List row`,
-    kind: `Lists & rows`,
-    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: \`compact\` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and \`SidebarMenuButton density="compact"\` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.`,
-    status: {
-      web: ok(`ListRow`, WEB_GLASS_ROWS),
-      desktop: ok(
-        `surface::flat_row / flat_row_compact`,
-        DESKTOP_SURFACE,
-        `EXP-963: flat_row_compact is the 28px density the rail's entries run at`
-      ),
-      ios: ok(`FlatRow / .flatRow()`, IOS_THEME),
-      android: ok(`Modifier.flatRow()`, ANDROID_GLASS),
-    },
-    leftovers: [
-      { file: `apps/web/src/components/team/board-switcher-sheet.tsx`, note: `PLAIN_ROW re-derives the mobile picker row` },
-    ],
-    island: () => (
-      <div className="grid gap-4">
-        <div>
-          <GlassSectionHeader label="Running" />
-          <ListRow interactive active>
-            <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
-            <span className="text-xs text-muted-foreground">macbook</span>
-          </ListRow>
-          <ListRow interactive>
-            <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
-            <span className="text-xs text-muted-foreground">server</span>
-          </ListRow>
-        </div>
-        {/* The sidebar's rung: 28px, one line, the same type. */}
-        <div>
-          <GlassSectionHeader label="Pinned" />
-          <ListRow density="compact" interactive>
-            <PinGlyph className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
-          </ListRow>
-          <ListRow density="compact" interactive>
-            <PinGlyph className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
-          </ListRow>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: `tree-guides`,
-    title: `Tree guides`,
-    kind: `Lists & rows`,
-    blurb: `EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own, and a folded subtree draws nothing at all. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.`,
-    status: {
-      web: ok(
-        `TreeGuides / treeGuides`,
-        `packages/ui/src/tree-guides-view.tsx`,
-        `the pure rule is tree-guides.ts; drawn as one absolutely positioned SVG inside the row`
-      ),
-      desktop: ok(
-        `Guides / guides_for`,
-        `apps/desktop/crates/domain/src/tree_guides.rs`,
-        `domain::tree_guides; the painter is crates/ui/src/tree_guides.rs`
-      ),
-      ios: ok(
-        `TreeGuides / TreeGuidesOverlay`,
-        `apps/ios/ExpCore/Sources/Domain/TreeGuides.swift`,
-        `the overlay is ExpUI/Sources/TreeGuidesOverlay.swift`
-      ),
-      android: ok(
-        `TreeGuides / TreeGuidesOverlay`,
-        `apps/android/app/src/main/java/com/exponential/app/domain/TreeGuides.kt`,
-        `the overlay is ui/components/TreeGuidesOverlay.kt`
-      ),
-    },
-    island: () => {
-      // root ▸ a ▸ (a1, a2) ▸ b — every case in five rows: an elbow, a tee,
-      // a pass-through and a last child.
-      const rows = [
-        { depth: 0, label: `EXP-923 · Running runs move back to the sidebar` },
-        { depth: 1, label: `EXP-965 · Tree connector lines` },
-        { depth: 2, label: `EXP-973 · Split button on every menu item` },
-        { depth: 2, label: `APP-14 · Fix the merge queue` },
-        { depth: 1, label: `APP-15 · Ship the usage sheet` },
-      ]
-      const guides = treeGuides(rows.map((row) => row.depth))
-      return (
-        <div className="w-96">
-          <GlassSectionHeader label="Running" />
-          {rows.map((row, index) => (
-            <ListRow
-              key={row.label}
-              interactive
-              className="relative h-8 gap-1.5 py-0 pr-2 text-sm"
-              style={{ paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px` }}
-            >
-              <TreeGuides guide={guides[index]} />
-              <AgentBrandMark agent={index % 2 === 0 ? `claude` : `codex`} />
-              <span className="min-w-0 flex-1 truncate">{row.label}</span>
-            </ListRow>
-          ))}
-        </div>
-      )
-    },
-  },
-  {
-    id: `row-shell`,
-    title: `Row shell`,
-    kind: `Lists & rows`,
-    blurb: `The rhythm every grouped row inherits: padding 12/16, gap 12, 14px text. The shell never draws a stroke — the group's hairlines do.`,
-    status: {
-      web: ok(`GlassInputRow / GlassToggleRow / Combobox triggerVariant="row"`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_row_shell`, DESKTOP_SURFACE),
-      ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
-      android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <GlassGroup>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Agent"
-          value="claude"
-          onChange={noop}
-          options={[{ value: `claude`, label: `claude` }]}
-        />
-        <GlassInputRow id="demo-shell-prefix" label="Branch prefix" defaultValue="exp/" />
-        <GlassToggleRow
-          id="demo-shell-plan"
-          label="Plan first"
-          description="Ask before it writes"
-          checked
-          onCheckedChange={noop}
-        />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `picker-row`,
-    title: `Picker row`,
-    kind: `Lists & rows`,
-    blurb: `Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target, never just the value.`,
-    status: {
-      web: ok(
-        `Combobox triggerVariant="row"`,
-        `packages/ui/src/combobox.tsx`,
-        `EXP-958: the row IS the picker — its own Select and sheet are gone`
-      ),
-      desktop: ok(`surface::glass_picker_row`, DESKTOP_SURFACE),
-      ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
-      android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <GlassGroup>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Status"
-          value="in_review"
-          onChange={noop}
-          options={[{ value: `in_review`, label: `In review` }]}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Assignee"
-          value="danny"
-          onChange={noop}
-          options={[{ value: `danny`, label: `Danny` }]}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Due date"
-          value={null}
-          onChange={noop}
-          options={[]}
-          triggerLabel="No date"
-        />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `input-row`,
-    title: `Input row`,
-    kind: `Lists & rows`,
-    blurb: `A bare right-aligned field at 70% foreground inside the shell — no box, no border. The row is the field's chrome.`,
-    status: {
-      web: ok(`GlassInputRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_input_row`, DESKTOP_SURFACE),
-      ios: na(`Form text rows use the system field inside GlassSection`),
-      android: ok(`GlassTextField(bordered = false)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
-    },
-    island: () => (
-      <GlassGroup>
-        <GlassInputRow id="demo-input-name" label="Name" defaultValue="Mobile app" />
-        <GlassInputRow id="demo-input-prefix" label="Prefix" defaultValue="APP" />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `toggle-row`,
-    title: `Toggle row`,
-    kind: `Lists & rows`,
-    blurb: `Label, an optional 12px description at 50%, and a 36×20 switch: on is the primary track with a primary-foreground thumb, off the active fill.`,
-    status: {
-      web: ok(`GlassToggleRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_toggle_row`, DESKTOP_SURFACE),
-      ios: ok(`GlassToggleStyle`, IOS_CONTROLS),
-      android: ok(`SwitchRow`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <GlassGroup>
-        <GlassToggleRow
-          id="demo-toggle-merge-ends"
-          label="End runs on merge"
-          description="A merged pull request stops its run"
-          checked
-          onCheckedChange={noop}
-        />
-        <GlassToggleRow
-          id="demo-toggle-widget"
-          label="Widget"
-          checked={false}
-          onCheckedChange={noop}
-        />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `tabs-row`,
-    title: `Embedded tabs row`,
-    kind: `Lists & rows`,
-    blurb: `The segmented control as the FIRST row of a group: padding 8, full width, no fill and no stroke of its own.`,
-    status: {
-      web: ok(`GlassTabsRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::glass_tabs_row`, DESKTOP_SURFACE),
-      ios: ok(`GlassSegmentedControl(style: .embedded)`, IOS_SEGMENTED),
-      android: ok(`GlassSegmentedControl(embedded = true)`, `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`),
-    },
-    island: () => (
-      <GlassGroup>
-        <GlassTabsRow value="open" onValueChange={noop}>
-          <TabsTrigger value="open">Open</TabsTrigger>
-          <TabsTrigger value="merged">Merged</TabsTrigger>
-          <TabsTrigger value="all">All</TabsTrigger>
-        </GlassTabsRow>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="APP-14"
-          value="two"
-          onChange={noop}
-          options={[{ value: `two`, label: `2 files` }]}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="APP-21"
-          value="seven"
-          onChange={noop}
-          options={[{ value: `seven`, label: `7 files` }]}
-        />
-      </GlassGroup>
-    ),
-  },
-  {
-    id: `segmented`,
-    title: `Segmented control`,
-    kind: `Inputs & pickers`,
-    blurb: `The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry — EXP-941 made that second form a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.`,
-    status: {
-      web: ok(
-        `SegmentedControl`,
-        `packages/ui/src/segmented-control.tsx`,
-        `the SEGMENTED_* class constants stay in tabs.tsx byte-identical; this renders the strip from an option array`
-      ),
-      desktop: ok(`controls::segmented`, DESKTOP_CONTROLS),
-      ios: ok(`GlassSegmentedControl`, IOS_SEGMENTED),
-      android: ok(`GlassSegmentedControl`, `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`),
-    },
-    island: () => (
-      <div className="grid gap-4">
-        <SegmentedControl
-          value="issues"
-          onValueChange={noop}
-          options={[
-            { value: `issues`, label: `Issues` },
-            { value: `actions`, label: `Actions` },
-            { value: `automations`, label: `Automations` },
-          ]}
-        />
-        {/* `embedded` is the SAME control as a glass group's first row — see
-            embedded tabs row, which is this arm inside its group. */}
-        <GlassGroup>
-          <SegmentedControl
-            embedded
-            value="open"
-            onValueChange={noop}
-            options={[
-              { value: `open`, label: `Open` },
-              { value: `merged`, label: `Merged` },
-            ]}
-          />
-          <GlassRow interactive>
-            <span className="min-w-0 flex-1 truncate">EXP-941 · Styleguide foundation</span>
-            <Pill>in review</Pill>
-          </GlassRow>
-        </GlassGroup>
-      </div>
-    ),
-  },
-  {
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
@@ -1454,65 +841,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `icon-button`,
-    title: `Primary icon button`,
-    kind: `Buttons & chips`,
-    blurb: `A 32px circle of card fill under a card stroke, glyph 16px at 70% foreground; hover fills to active and the glyph goes full strength. The SHAPE is the meaning (EXP-771, narrowed by EXP-862): a circle marks the PRIMARY action and nothing else wears one. That is play / start, send, the rail's New issue and Search, a mobile FAB, and the "+" that adds. Every other icon-only control is the ghost icon button. The remaining exception is a picker TRIGGER, which is a rounded square: see icon picker.`,
-    status: {
-      web: ok(`buttonVariants variant="glass" size="icon-sm"`, `packages/ui/src/button.tsx`),
-      desktop: ok(`controls::glass_icon_button`, DESKTOP_CONTROLS),
-      ios: ok(`CircleIconButton`, IOS_CONTROLS),
-      android: ok(`CircleIconButton`, `${ANDROID_COMPONENTS}/CircleIconButton.kt`),
-    },
-    island: () => (
-      <div className="flex items-center gap-2">
-        <Button variant="glass" size="icon-sm" aria-label="Start coding">
-          <PlayGlyph />
-        </Button>
-        <Button variant="glass" size="icon-sm" aria-label="Send">
-          <SendGlyph />
-        </Button>
-        <Button variant="glass" size="icon-sm" aria-label="New issue">
-          <PlusGlyph />
-        </Button>
-      </div>
-    ),
-  },
-  {
-    id: `ghost-icon-button`,
-    title: `Ghost icon button`,
-    kind: `Buttons & chips`,
-    blurb: `The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength; a toggle that is ON says so with aria-pressed and keeps that wash (the editor rail's marks, EXP-960). Everything that is not the primary action wears this one: the "…" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.`,
-    status: {
-      web: ok(`buttonVariants variant="ghost" size="icon-sm"`, `packages/ui/src/button.tsx`),
-      desktop: ok(`controls::ghost_icon_button`, DESKTOP_CONTROLS),
-      ios: ok(`GhostIconButton`, IOS_CONTROLS),
-      android: ok(
-        `CircleIconButton(borderless = true)`,
-        `${ANDROID_COMPONENTS}/CircleIconButton.kt`,
-        `one composable, two shapes: borderless drops the circle and the stroke and keeps the hover fill`
-      ),
-    },
-    island: () => (
-      // The last one is a TOGGLE held down: `aria-pressed` is the pressed
-      // state (EXP-960), the hover wash kept on — the editor rail's marks.
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon-sm" aria-label="More">
-          <MoreGlyph />
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Fold">
-          <ChevronDownGlyph />
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Close">
-          <CloseGlyph />
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed>
-          <BoldGlyph />
-        </Button>
-      </div>
-    ),
-  },
-  {
     id: `fab-button`,
     title: `Floating circle`,
     kind: `Buttons & chips`,
@@ -1605,165 +933,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
-    id: `button-primary`,
-    title: `Primary submit`,
-    kind: `Buttons & chips`,
-    blurb: `Full width, padding 14/16, radius 10, solid primary. Disabled drops to card fill with a card stroke and 50% foreground. EXP-1176: ONE shape on every client — the specimen is the web's own Button, a radius-10 rectangle like the mobile sheet submit and desktop web_md. A text button is never a capsule; the capsule is the pill.`,
-    status: {
-      web: ok(
-        `Button (variant default)`,
-        `packages/ui/src/button.tsx`,
-        `the same radius-10 rectangle on every client since EXP-1176; the mobile sheet submit is the full-width form of it`
-      ),
-      desktop: ok(`surface::glass_pill_button_primary`, DESKTOP_SURFACE),
-      ios: ok(`GlassSubmitButton`, IOS_CONTROLS),
-      android: ok(`GlassSubmitButton`, `${ANDROID_COMPONENTS}/GlassSubmitButton.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <Button className="w-full">Create issue</Button>
-        <Button className="w-full" disabled>
-          Create issue
-        </Button>
-      </div>
-    ),
-  },
-  {
-    id: `text-button`,
-    title: `Text button`,
-    kind: `Buttons & chips`,
-    blurb: `EXP-962: a control made of WORDS — \`size="inline"\`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: \`text\` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, "Back to the current step"); \`link\` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's "Continues in a newer run", a stack band's \`↓ #APP-14\`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.`,
-    status: {
-      web: ok(
-        `Button variant="text" / variant="link", size="inline"`,
-        `packages/ui/src/button.tsx`
-      ),
-      desktop: ok(
-        `controls::text_button (TextButtonVariant::Text)`,
-        DESKTOP_CONTROLS,
-        `EXP-963: the output card's and the body's Show more, the edited-files footer ride it`
-      ),
-      ios: leftover(
-        `Button("Show more").buttonStyle(.plain)`,
-        `apps/ios/Exponential/UI/Session/AgentSessionView.swift`,
-        `inlined twice with its own caption2 font and tertiary opacity; no shared text button exists`
-      ),
-      android: leftover(
-        `ShowMoreToggle`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
-        `a private clickable Text on the session screen; nothing else may reach it`
-      ),
-    },
-    island: () => (
-      // The band they live in: a muted 11px caption line under a feed row.
-      <div className="flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
-        <Button variant="text" size="inline">
-          Show more
-        </Button>
-        <Button variant="link" size="inline">
-          Continues in a newer run · started 2h ago
-        </Button>
-        <Button variant="link" size="inline" className="font-mono">
-          ↓ #APP-14
-        </Button>
-      </div>
-    ),
-  },
-  {
-    id: `pill`,
-    title: `Pill`,
-    kind: `Buttons & chips`,
-    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row. A bare COUNT is none of the six: a number with no word beside it is the 16px \`Badge\` below.`,
-    status: {
-      web: ok(`Pill`, `packages/ui/src/pill.tsx`),
-      desktop: ok(`surface::glass_pill`, DESKTOP_SURFACE),
-      ios: ok(`GlassPill`, `apps/ios/ExpUI/Sources/GlassPill.swift`),
-      android: ok(`GlassPill`, `${ANDROID_COMPONENTS}/GlassPill.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Pill size="md" mode="action" leading={<PlusGlyph />}>
-            New
-          </Pill>
-          <Pill size="md" mode="select" selected>
-            All
-          </Pill>
-          <Pill size="md" mode="select">
-            Mine
-          </Pill>
-          <Pill size="md" mode="readonly">
-            in review
-          </Pill>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Pill size="sm" mode="action" leading={<PlusGlyph />}>
-            New
-          </Pill>
-          <Pill size="sm" mode="select" selected>
-            Open
-          </Pill>
-          <Pill size="sm" mode="select">
-            Merged
-          </Pill>
-          <Pill size="sm" mode="readonly">
-            Owner
-          </Pill>
-          <Pill size="sm" mode="readonly" leading={<MergeGlyph />}>
-            APP-14
-          </Pill>
-          <Pill size="sm" mode="readonly" dot="var(--color-emerald-500)">
-            running
-          </Pill>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Pill size="md" mode="action" primary>
-            Create issue
-          </Pill>
-          <Pill size="sm" mode="action" primary leading={<PlayGlyph />}>
-            Watch
-          </Pill>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: `badge`,
-    title: `Count badge`,
-    kind: `Buttons & chips`,
-    blurb: `EXP-962: the smallest chip there is — a 16px capsule carrying a NUMBER and nothing else, 10px semibold and tabular so a count can climb without the box twitching. \`muted\` is a count you parked (the rail's drafts), \`primary\` one that wants you (unread). Zero renders NOTHING, because a badge is a signal and an empty signal is noise, and past \`max\` it reads \`99+\`. PLACEMENT stays at the call site — a row's trailing edge, a nav glyph's corner — so the badge owns only its shape. A \`Pill size="sm"\` is 24 tall and carries a word; this carries a quantity.`,
-    status: {
-      web: ok(`Badge`, `packages/ui/src/badge.tsx`),
-      desktop: ok(
-        `surface::count_badge`,
-        DESKTOP_SURFACE,
-        `EXP-963: RailBadge::Count hangs it on the rail's Drafts entry`
-      ),
-      ios: leftover(
-        `GlassSegmentedControl`,
-        IOS_SEGMENTED,
-        `the one count capsule is inlined in a segment; the tab bar's unread mark is a FloatingBarBadgeDot`
-      ),
-      android: leftover(
-        `GlassSegmentedControl`,
-        `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`,
-        `the same inline capsule (BadgeFill) inside a segment, reachable by nothing else`
-      ),
-    },
-    island: () => (
-      <div className="flex items-center gap-5">
-        <Badge count={3} />
-        <Badge count={12} tone="primary" />
-        <Badge count={412} />
-        {/* The corner arm: the badge keeps its shape, the call site the spot. */}
-        <span className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground">
-          <DraftsGlyph className="size-4" />
-          <Badge count={2} tone="primary" className="absolute -right-0.5 -top-0.5" />
-        </span>
-      </div>
-    ),
-  },
-  {
     id: `issue-chip`,
     title: `Issue chip`,
     kind: `Buttons & chips`,
@@ -1800,47 +969,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           status={BACKLOG_GLYPH}
           size="sm"
           onClick={noop}
-        />
-      </div>
-    ),
-  },
-  {
-    id: `entity-chip`,
-    title: `Entity chip`,
-    kind: `Buttons & chips`,
-    blurb: `The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a run transcript draws ONE chip per entity it touched — board, action, comment, run, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (\`entityRefIcon\`) and its name; a LIST answer folds into one chip that counts its members in the product noun (\`3 issues\`, \`1 run\`) and never navigates — its card lists them. Label, detail and grouping are the contract's (\`@exp/domain-contract/entity-preview\`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.`,
-    status: {
-      web: ok(`EntityChip`, `packages/ui/src/entity-chip.tsx`, `The app's components/entity-preview/ resolves the row, the target and the hover card per kind.`),
-      desktop: ok(`entity_chip`, `apps/desktop/crates/ui/src/entity_chip.rs`),
-      ios: ok(`EntityChip`, `apps/ios/ExpUI/Sources/EntityChip.swift`),
-      android: ok(`EntityChip`, `${ANDROID_COMPONENTS}/EntityChip.kt`),
-    },
-    island: () => (
-      <div className="flex flex-wrap items-center gap-2.5">
-        <EntityChip
-          icon={<StatusGlyph {...BACKLOG_GLYPH} className={CHIP_GLYPH_CLASS} />}
-          label="EXP-920"
-          detail="Refine MCP custom UI"
-          onClick={noop}
-        />
-        <EntityChip
-          icon={entityChipGlyph({ kind: `board`, id: `b-1` })}
-          label="Web"
-          onClick={noop}
-        />
-        <EntityChip
-          icon={entityChipGlyph({ kind: `comment`, id: `c-1` })}
-          label="Reviewed the flicker fix: the debounce is fine…"
-          onClick={noop}
-        />
-        <EntityChip
-          icon={entityChipGlyph({ kind: `list`, id: `issue` })}
-          label="3 issues"
-        />
-        <EntityChip
-          icon={entityChipGlyph({ kind: `session`, id: `s-1` })}
-          label="Fix the flicker"
-          muted
         />
       </div>
     ),
@@ -1892,30 +1020,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
-    id: `avatar`,
-    title: `Avatar`,
-    kind: `Buttons & chips`,
-    blurb: `Picture first: a circle filled edge to edge by the person's image. Without one the initials sit on THEIR hue — one of eight token colours picked by fnv1a32(utf8(userId)) % 8 — as a 20% fill under the glyph at full strength, no stroke. The hash is byte-identical on all four clients, so one person is one colour everywhere; a subject with no id at all (a bot, an unresolved reporter) keeps the muted fallback.`,
-    status: {
-      web: ok(`UserAvatar`, `packages/ui/src/user-avatar.tsx`, `AvatarFallback (./avatar.tsx) paints the hue; UserAvatar is the composition every site renders.`),
-      desktop: ok(`user_avatar::avatar_element`, `apps/desktop/crates/ui/src/user_avatar.rs`),
-      ios: ok(`UserAvatar`, `apps/ios/ExpUI/Sources/UserAvatar.swift`),
-      android: ok(`UserAvatar`, `${ANDROID_COMPONENTS}/Avatars.kt`),
-    },
-    island: () => (
-      <div className="flex items-center gap-2.5">
-        {/* No id at all — the muted fallback a bot or an unresolved reporter
-            keeps. A real photo cannot appear here: `AvatarImage` only paints
-            once the browser has DECODED the image, so it renders nothing at
-            all statically. */}
-        <UserAvatar user={{ name: `Exponential` }} size={32} />
-        <UserAvatar user={{ id: `user-mk`, name: `Mina Kay` }} size={32} />
-        <UserAvatar user={{ id: `user-js`, name: `Jonas Stern` }} size={32} />
-        <UserAvatar user={{ id: `user-sl`, email: `sam.lee@example.com` }} size={32} />
-      </div>
-    ),
-  },
-  {
     id: `icon-disc`,
     title: `Icon disc`,
     kind: `Buttons & chips`,
@@ -1938,56 +1042,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         {ICON_DISC_TONES.map((tone) => (
           <IconDisc key={tone} icon={DISC_GLYPH[tone]} tone={tone} />
         ))}
-      </div>
-    ),
-  },
-  {
-    id: `text-field`,
-    title: `Text field`,
-    kind: `Inputs & pickers`,
-    blurb: `36 tall, padding 0/12, radius 12, card fill under a card stroke; focus swaps the stroke to active — no ring. Placeholder at 50%.`,
-    status: {
-      web: ok(`Input`, `packages/ui/src/input.tsx`),
-      desktop: ok(
-        `controls::glass_input`,
-        DESKTOP_CONTROLS,
-        `focus swaps the stroke to strokeActive, no ring (EXP-720); the corner is radius.lg (EXP-963)`
-      ),
-      ios: ok(`GlassTextField`, IOS_CONTROLS),
-      android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <Input defaultValue="Fix the merge queue" />
-        <Input placeholder="Search issues" />
-      </div>
-    ),
-  },
-  {
-    id: `textarea`,
-    title: `Text area`,
-    kind: `Inputs & pickers`,
-    blurb: `The field's own recipe, grown: radius 12, card fill under a card stroke, focus swaps the stroke to active — no ring. Padding 8/12, three rows tall, and it GROWS with content; the drag handle is off everywhere. Inside a group it goes borderless, because the row is already the chrome.`,
-    status: {
-      web: ok(`Textarea`, `packages/ui/src/textarea.tsx`),
-      desktop: ok(`controls::web_textarea`, DESKTOP_CONTROLS),
-      ios: ok(`GlassTextField(lines:)`, IOS_CONTROLS),
-      android: ok(`GlassTextField(minLines/maxLines)`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <Textarea rows={3} defaultValue="Rebase onto origin/master and force-push, then merge." />
-        <Textarea rows={3} placeholder="Describe the issue" />
-        <GlassGroup>
-          <GlassInputRow id="demo-textarea-title" label="Title" defaultValue="Fix the merge queue" />
-          <div className="px-4 py-3">
-            <Textarea
-              rows={3}
-              placeholder="Description"
-              className="rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:border-0"
-            />
-          </div>
-        </GlassGroup>
       </div>
     ),
   },
@@ -2054,46 +1108,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `</div>`,
         `</div>`,
       ].join(``),
-  },
-  {
-    id: `glass-card`,
-    title: `Glass card`,
-    kind: `Surfaces`,
-    blurb: `The ONE translucent card, and only its box: radius XL, the card hairline, the glass card fill. Everything a card owns on its own stays at the call site, because those genuinely differ — its padding, a blur, a shadow, and the divide-y + overflow hidden that turns the same box into a GROUP of rows. EXP-903: five surfaces painted it by copy-paste (the comment row, the agent AskCard, the usage card, the mobile issue properties sheet and the repo picker, which had drifted to the MD corner and the bare hairline). The shadcn Card derives its recipe from the same constant, so the two cannot disagree; a group of list ROWS is the group container instead, on the row fill with no outer stroke.`,
-    status: {
-      web: ok(
-        `GlassCard / GLASS_CARD_CLASS`,
-        `packages/ui/src/glass-card.tsx`,
-        `Card (./card.tsx) derives its own recipe from the same constant.`
-      ),
-      desktop: ok(`surface::glass_card`, DESKTOP_SURFACE),
-      ios: ok(`GlassCard`, IOS_THEME),
-      android: ok(`Modifier.glassCard()`, ANDROID_GLASS),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <GlassCard className="p-3">
-          <div className="text-sm font-medium">Pull request opened</div>
-          <div className="text-xs text-muted-foreground">exp/EXP-903 → master</div>
-        </GlassCard>
-        {/* The same box as a GROUP: the dividers and the overflow rule are the
-            call site's, which is the whole point of the primitive. */}
-        <GlassCard className="divide-y divide-glass-stroke overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 text-sm">
-            <span className="text-muted-foreground">Status</span>
-            <span>In progress</span>
-          </div>
-          <div className="flex items-center justify-between px-4 py-3 text-sm">
-            <span className="text-muted-foreground">Assignee</span>
-            <span>Mina Kay</span>
-          </div>
-          <div className="flex items-center justify-between px-4 py-3 text-sm">
-            <span className="text-muted-foreground">Board</span>
-            <span>Mobile app</span>
-          </div>
-        </GlassCard>
-      </div>
-    ),
   },
   {
     id: `file-diff-card`,
@@ -2266,114 +1280,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `sheet`,
-    title: `Sheet shell`,
-    kind: `Surfaces`,
-    blurb: `Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16. Dismissal is the grabber drag or the backdrop — the header's trailing slot holds an optional ACTION, never a Cancel — and the bottom carries exactly one primary.`,
-    status: {
-      web: ok(`SheetContent side="bottom"`, `packages/ui/src/sheet.tsx`),
-      desktop: na(`dialogs are OS windows`),
-      ios: ok(`GlassSheetChrome + GlassSheetTokens`, `apps/ios/ExpUI/Sources/GlassSheet.swift`),
-      android: ok(`GlassSheet + GlassSheetDefaults`, `${ANDROID_COMPONENTS}/GlassSheet.kt`),
-    },
-    render: () =>
-      [
-        `<div class="cmp-sheet">`,
-        `<div class="grabber"></div>`,
-        `<div class="header"><span class="title">New issue</span><span class="trailing">${pill(`Clear all`)}</span></div>`,
-        `<div class="content">`,
-        group(pickerRow(`Board`, `Mobile app`), pickerRow(`Status`, `Backlog`)),
-        `<button class="cmp-button-primary" type="button">Create</button>`,
-        `</div>`,
-        `</div>`,
-      ].join(``),
-  },
-  {
-    id: `composer`,
-    title: `Composer`,
-    kind: `Surfaces`,
-    blurb: `ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.`,
-    status: {
-      web: ok(`Composer / ComposerTool / ComposerSubmit`, `packages/ui/src/composer.tsx`),
-      desktop: ok(`composer::glass_composer`, `apps/desktop/crates/ui/src/composer.rs`),
-      ios: ok(`GlassComposer`, `apps/ios/ExpUI/Sources/GlassComposer.swift`),
-      android: ok(`GlassComposer`, `${ANDROID_COMPONENTS}/GlassComposer.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        {/* The comment card: the pending strip, the mention field undressed to
-            the card's chrome, four tools and the round send. */}
-        <Composer
-          strip={
-            <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
-              <AttachmentThumb
-                src={THUMB_FIXTURE_SRC}
-                removeLabel="Remove image"
-                onRemove={noop}
-              />
-            </div>
-          }
-          tools={
-            <>
-              <ComposerTool aria-label="Add image" title="Add image">
-                <EditorImageGlyph />
-              </ComposerTool>
-              <ComposerTool aria-label="Attach files" title="Attach files">
-                <AttachGlyph />
-              </ComposerTool>
-              <ComposerTool aria-label="Insert issue reference" title="Insert issue reference">
-                <IssueRefGlyph />
-              </ComposerTool>
-              <ComposerTool aria-label="Insert emoji" title="Insert emoji">
-                <EmojiGlyph />
-              </ComposerTool>
-            </>
-          }
-          submit={<ComposerSubmit aria-label="Send comment" />}
-        >
-          <Textarea
-            rows={2}
-            placeholder="Leave a comment"
-            className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
-          />
-        </Composer>
-        {/* EXP-877: the steer card — one row, the send glyph bottom-aligned
-            beside the field so it stays put while the field grows. */}
-        <Composer
-          inline
-          tools={
-            <ComposerTool aria-label="Attach files" title="Attach files">
-              <PlusGlyph />
-            </ComposerTool>
-          }
-          submit={<ComposerSubmit />}
-        >
-          <Textarea
-            rows={1}
-            placeholder="Steer the run"
-            className="max-h-32 min-h-9 w-full border-none bg-transparent px-3 py-2 shadow-none focus-visible:border-transparent"
-          />
-        </Composer>
-        {/* The reply arm floats over a feed, so the fill is opaque. */}
-        <Composer
-          opaque
-          tools={
-            <ComposerTool aria-label="Attach files" title="Attach files">
-              <AttachGlyph />
-            </ComposerTool>
-          }
-          submit={<ComposerSubmit />}
-        >
-          <Textarea
-            rows={1}
-            placeholder="Reply"
-            className="min-h-9 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
-          />
-        </Composer>
-      </div>
-    ),
-  },
-  {
     id: `markdown`,
     title: `Markdown blocks`,
     kind: `Surfaces`,
@@ -2452,68 +1358,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `meter`,
-    title: `Meter`,
-    kind: `Feedback`,
-    blurb: `The ONE bar every usage surface draws — the rate-limit windows, the run's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before EXP-909 there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.`,
-    status: {
-      web: ok(`Meter`, `packages/ui/src/meter.tsx`),
-      desktop: ok(`usage_bar::meter`, `apps/desktop/crates/ui/src/usage_bar.rs`),
-      ios: ok(`AgentUsageTrack`, `apps/ios/ExpUI/Sources/UsageTrack.swift`),
-      android: ok(
-        `UsageTrack`,
-        `${ANDROID_COMPONENTS}/UsageTrack.kt`
-      ),
-    },
-    island: () => (
-      <div className="grid w-[260px] gap-3">
-        <Meter value={9} />
-        <Meter value={67} />
-        <Meter value={81} tone="warning" />
-        <Meter value={100} tone="danger" />
-        <Meter value={73} tone="normal" className="h-1" />
-      </div>
-    ),
-  },
-  {
-    id: `segmented-bar`,
-    title: `Segmented bar`,
-    kind: `Feedback`,
-    blurb: `EXP-1051: the context window's breakdown — the Meter's track, filled left to right by one slice per layer the run's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.`,
-    status: {
-      web: ok(`SegmentedBar`, `packages/ui/src/segmented-bar.tsx`),
-      desktop: ok(`render_context_window`, `apps/desktop/crates/ui/src/usage_sheet.rs`),
-      ios: ok(`SegmentedTrack`, `apps/ios/ExpUI/Sources/SegmentedTrack.swift`),
-      android: ok(
-        `SegmentedTrack`,
-        `${ANDROID_COMPONENTS}/SegmentedTrack.kt`
-      ),
-    },
-    island: () => (
-      <div className="grid w-[260px] gap-3">
-        <SegmentedBar
-          segments={[
-            { key: `base`, tone: `neutral`, percent: 10.5 },
-            { key: `tools`, tone: `green`, percent: 1.2 },
-            { key: `playbook`, tone: `yellow`, percent: 0.75 },
-            { key: `team`, tone: `violet`, percent: 0.4 },
-            { key: `project`, tone: `orange`, percent: 4.9 },
-            { key: `task`, tone: `pink`, percent: 0.3 },
-            { key: `conversation`, tone: `blue`, percent: 14.45 },
-          ]}
-          ticks={[50, 75, 95]}
-        />
-        <SegmentedBar
-          segments={[
-            { key: `base`, tone: `neutral`, percent: 12 },
-            { key: `conversation`, tone: `blue`, percent: 70 },
-          ]}
-          ticks={[50, 75, 95]}
-        />
-      </div>
-    ),
-  },
-  {
     id: `usage-bar`,
     title: `Usage windows`,
     kind: `Feedback`,
@@ -2563,25 +1407,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="line"><span class="label">Fable</span><span class="track"><span class="fill"></span></span><span class="amount">100%</span></div>`,
         `</div>`,
       ].join(``),
-  },
-  {
-    id: `divider`,
-    title: `Hairline divider`,
-    kind: `Surfaces`,
-    blurb: `One pixel of the row stroke. The only rule allowed inside a group, and the only one anywhere in the glass set.`,
-    status: {
-      web: ok(`Separator`, `packages/ui/src/separator.tsx`, `Inside a group the same hairline comes from GlassGroup's divide-y, not from a Separator element.`),
-      desktop: ok(`surface::glass_row_divider`, DESKTOP_SURFACE),
-      ios: ok(`GlassDivider`, IOS_THEME),
-      android: ok(`GroupDivider`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <div className="grid justify-items-start gap-3">
-        <Pill>above</Pill>
-        <Separator className="bg-glass-stroke" />
-        <Pill>below</Pill>
-      </div>
-    ),
   },
   {
     id: `tokens-fills`,
@@ -2843,87 +1668,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `checkbox`,
-    title: `Checkbox`,
-    kind: `Inputs & pickers`,
-    blurb: `A 16px rounded square that holds a TABLE's selection — the bulk-select column of an issue list and nothing else. It is deliberately NOT the multi-select affordance in a picker: every option row on all four clients marks itself with the leading circle pair (ui-selected / ui-unselected), so a checkbox inside a picker would make web the only client drawing selection twice. Checked takes the primary fill under the primary foreground; indeterminate is the same box with a minus.`,
-    status: {
-      web: ok(`Checkbox`, `packages/ui/src/checkbox.tsx`),
-      desktop: ok(
-        `controls::checkbox`,
-        DESKTOP_CONTROLS,
-        `glass box (row fill, strong stroke, radius SM), primary when checked, ui-check / ui-minus; bulk-select + checklist rows`
-      ),
-      ios: na(`no checkbox exists: a multi-select row draws the ui-selected / ui-unselected circle pair`),
-      android: na(`same as iOS — the sheet's option rows carry the circle glyph pair, never a box`),
-    },
-    island: () => (
-      <div className="flex items-center gap-4">
-        <Checkbox checked aria-label="Selected" />
-        <Checkbox checked="indeterminate" aria-label="Partially selected" />
-        <Checkbox aria-label="Not selected" />
-        <Checkbox disabled aria-label="Disabled" />
-      </div>
-    ),
-  },
-  {
-    id: `switch`,
-    title: `Switch`,
-    kind: `Inputs & pickers`,
-    blurb: `The 36×20 capsule that flips a setting the moment it is pressed — there is no Save beside one. Off is the active fill under the foreground knob, on the primary fill under the primary-foreground knob, and the travel is one fast duration. It almost always rides a toggle ROW, which owns the label and the description; this is the bare control.`,
-    status: {
-      web: ok(`Switch`, `packages/ui/src/switch.tsx`),
-      desktop: ok(
-        `controls::web_switch`,
-        DESKTOP_CONTROLS,
-        `a lint (only_controls_constructs_switches) refuses Switch::new anywhere else`
-      ),
-      ios: ok(
-        `GlassToggleStyle`,
-        IOS_CONTROLS,
-        `applied app-wide as .toggleStyle(.glass), so call sites keep the stock Toggle`
-      ),
-      android: ok(
-        `glassSwitchColors()`,
-        ANDROID_SHEET_ROWS,
-        `the tokens for the stock M3 Switch; there is no GlassSwitch composable`
-      ),
-    },
-    island: () => (
-      <div className="flex items-center gap-4">
-        <Switch defaultChecked aria-label="On" />
-        <Switch aria-label="Off" />
-        <Switch disabled aria-label="Disabled" />
-      </div>
-    ),
-  },
-  {
-    id: `select`,
-    title: `Select`,
-    kind: `Inputs & pickers`,
-    blurb: `The closed single-select: a field-height trigger of card fill under a card hairline, the value left and a chevron right, focus swapping the stroke to active. Only the PLACEHOLDER arm can be photographed — SelectValue resolves against items that live inside the portalled list, so a valued trigger renders empty until the browser opens it (see @exp/ui's island limits). On the natives there is no free-standing select at all: the closed trigger is always a picker ROW opening a sheet.`,
-    status: {
-      web: ok(`Select / SelectTrigger`, `packages/ui/src/select.tsx`),
-      desktop: ok(`surface::glass_picker_select`, DESKTOP_SURFACE),
-      ios: na(`no free-standing select: the closed single-select is a GlassPickerRow opening a sheet (see picker row)`),
-      android: na(`same as iOS — PickerRow (SheetOptionRows.kt) is the closed arm, and the sheet is the list`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <Select>
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Pick a status" />
-          </SelectTrigger>
-        </Select>
-        <Select>
-          <SelectTrigger size="sm" className="w-[220px]">
-            <SelectValue placeholder="Pick a board" />
-          </SelectTrigger>
-        </Select>
-      </div>
-    ),
-  },
-  {
     id: `color-picker`,
     title: `Colour picker`,
     kind: `Inputs & pickers`,
@@ -2961,24 +1705,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
-    id: `label`,
-    title: `Field label`,
-    kind: `Inputs & pickers`,
-    blurb: `The 14px medium line that names a field, tied to it by htmlFor so the label is part of the hit box, and dimmed with the field when it is disabled. It exists on the WEB only: every native lays a field out as a ROW that already carries its name on the left, so a label above the control there would say the same thing twice.`,
-    status: {
-      web: ok(`Label`, `packages/ui/src/label.tsx`),
-      desktop: na(`a field's name is the glass row's own leading text — see input row`),
-      ios: na(`same — the name is the row title inside GlassTextField / GlassPickerRow`),
-      android: na(`same — TextFieldRow / PickerRow carry the label themselves`),
-    },
-    island: () => (
-      <div className="grid gap-2">
-        <Label htmlFor="demo-label-title">Title</Label>
-        <Input id="demo-label-title" defaultValue="Fix the merge queue" />
-      </div>
-    ),
-  },
-  {
     id: `team-avatar`,
     title: `Team avatar`,
     kind: `Buttons & chips`,
@@ -3009,8 +1735,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the glyph is status-glyph.tsx; LIVE_DOT_TONE is locked against the app's SESSION_DOT_CLASS`
       ),
       desktop: ok(
-        `surface::live_dot`,
-        DESKTOP_SURFACE,
+        `controls::pills::live_dot`,
+        DESKTOP_GPUI_PILLS,
         `ping = an animated halo, twice the disc, 60% to 0 over 1s on the decelerate curve; the run list pings on agent_busy only`
       ),
       ios: ok(
@@ -3040,195 +1766,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           <StatusGlyph {...DONE_GLYPH} className="size-4" />
           <StatusGlyph icon="circle" colorHex="#a855f7" className="size-4" />
         </div>
-      </div>
-    ),
-  },
-  {
-    id: `empty-state`,
-    title: `Empty state`,
-    kind: `Feedback`,
-    blurb: `What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results". Its in-list sibling is \`ListEmpty\` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong. The third of them is \`EmptyCta\` (EXP-962, next entry): the dashed box that STARTS the list, where the empty state itself is the button.`,
-    status: {
-      web: ok(`EmptyState`, `packages/ui/src/empty-state.tsx`),
-      desktop: ok(`controls::empty_state`, DESKTOP_CONTROLS),
-      ios: leftover(
-        `InboxView.emptyState`,
-        `apps/ios/Exponential/UI/Inbox/InboxView.swift`,
-        `every screen rolls its own private empty state (inbox, reviews, actions, my issues); there is no shared symbol`
-      ),
-      android: leftover(
-        `EmptyState`,
-        `${ANDROID_COMPONENTS}/Scaffolding.kt`,
-        `a bare 28dp tinted glyph instead of the 48 disc, and its parameters are message/detail rather than title/description`
-      ),
-    },
-    island: () => (
-      <EmptyState
-        icon={conceptIcon(`nav-inbox`)}
-        title="Inbox zero"
-        description="Notifications land here when someone mentions you or an agent finishes a run."
-      >
-        <Pill size="sm" mode="action">
-          Notification settings
-        </Pill>
-      </EmptyState>
-    ),
-  },
-  {
-    id: `empty-cta`,
-    title: `Empty call to action`,
-    kind: `Feedback`,
-    blurb: `EXP-962: the third empty, and the only one that is a BUTTON. A dashed, full-width box standing exactly where the first row will go — a 16px glyph, one title line, one muted sentence under it, the row wash and full-strength text on hover. Dashed because it is a placeholder for the row it invites; clickable because the shortest path to that row is the box itself. \`EmptyState\` teaches a PAGE with nothing on it, \`ListEmpty\` reports a list that filtered down to nothing, and this one STARTS a list: the actions panel's "describe one" nudge is the call site it was cut from.`,
-    status: {
-      web: ok(
-        `EmptyCta`,
-        `packages/ui/src/empty-state.tsx`,
-        `EmptyState and ListEmpty are the other two, in the same file`
-      ),
-      desktop: ok(
-        `ActionsView::render_nudge`,
-        `apps/desktop/crates/ui/src/actions_view.rs`,
-        `the same dashed strip under the actions list, opening the creator run`
-      ),
-      ios: na(
-        `the creator run needs a device: ActionsListView.emptyState is a read-only page empty instead`
-      ),
-      android: na(
-        `same: ActionsScreen's ActionsEmptyState reads, it does not invite — creation lives on web or desktop`
-      ),
-    },
-    island: () => (
-      <div className="w-80">
-        <EmptyCta
-          icon={ActionCreateGlyph}
-          title="No custom actions yet"
-          description="Describe one and your agent will build it."
-          onClick={noop}
-        />
-      </div>
-    ),
-  },
-  {
-    id: `skeleton`,
-    title: `Skeleton`,
-    kind: `Feedback`,
-    blurb: `A pulsing block standing in for text that is still loading, at the SHAPE of what will arrive — a row's worth of bars, never a spinner in a list. It is a web and desktop affordance only: both natives answer a pending screen with a centred spinner, because a phone list is short enough that a skeleton flashes before it reads.`,
-    status: {
-      web: ok(`Skeleton`, `packages/ui/src/skeleton.tsx`),
-      desktop: ok(
-        `controls::skeleton`,
-        DESKTOP_CONTROLS,
-        `radius MD on the theme skeleton fill, breathing 100% to 50% over the web 2s pulse on the standard curve`
-      ),
-      ios: na(`no skeleton or shimmer anywhere: a loading screen is a centred spinner`),
-      android: na(`same — LoadingState (Scaffolding.kt) centres a spinner instead`),
-    },
-    island: () => (
-      <div className="grid gap-2">
-        <Skeleton className="h-4 w-48" />
-        <Skeleton className="h-4 w-32" />
-      </div>
-    ),
-  },
-  {
-    id: `dialog`,
-    title: `Dialog`,
-    kind: `Surfaces`,
-    blurb: `The centred modal: a radius-16 card on the OPAQUE card fill under a card hairline, a semibold title, one line of body, and a footer whose LAST button is the primary. Cancel is borderless — two boxed buttons side by side ask the reader to choose between two equals. On a phone the same component drops to the bottom sheet arm. A confirm or a choice is never this shell: it is the Prompt (EXP-1215). Hand-written here because a closed Radix portal renders nothing at all statically (PORTAL_ONLY_IDS).`,
-    status: {
-      web: ok(
-        `Dialog / DialogContent`,
-        `packages/ui/src/dialog.tsx`,
-        `a confirm or a choice is the Prompt entry (EXP-1215), never this shell`
-      ),
-      desktop: ok(
-        `native_dialog::DialogShell`,
-        `apps/desktop/crates/ui/src/native_dialog.rs`,
-        `EXP-284: every IDE dialog is a real OS window, not an in-window overlay`
-      ),
-      ios: na(`no shared shell: a confirm is GlassAlert (the Prompt entry), a content dialog is the sheet`),
-      android: na(`same: a confirm is GlassAlert (the Prompt entry), a content dialog is GlassSheet`),
-    },
-    render: () =>
-      [
-        `<div class="cmp-dialog">`,
-        `<div class="title">Rename board</div>`,
-        `<div class="text">The identifier prefix stays; only the name changes.</div>`,
-        `<div class="footer">`,
-        `<button class="cmp-pill borderless" type="button" data-size="md" data-mode="action"><span class="label">Cancel</span></button>`,
-        pill(`Save`, { size: `md`, primary: true }),
-        `</div>`,
-        `</div>`,
-      ].join(``),
-  },
-  {
-    id: `prompt`,
-    title: `Prompt`,
-    kind: `Surfaces`,
-    blurb: `THE confirm and choice prompt (EXP-1215): every "Delete X?", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture \`prompts.json\` (web mirror \`apps/web/src/lib/prompts.ts\`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people), never a restatement of the buttons; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px \`md\` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS \`GlassAlertLayout.stacked\`); never a two-row hybrid. Roles: \`cancel\` = the plain pill that only dismisses; \`primary\` = the safe/expected answer, the accent pill at the trailing edge; \`default\` = a plain pill that does something; \`destructive\` = the answer of a plain "Delete X?" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); \`quietDestructive\` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE asks in native alert windows with the same words, roles and focus (EXP-1230, \`AlertSpec::from_prompt\`).`,
-    status: {
-      web: ok(`Prompt / PromptLayout`, `packages/ui/src/prompt.tsx`),
-      desktop: ok(
-        `native_dialog::AlertSpec::from_prompt`,
-        `apps/desktop/crates/ui/src/native_dialog.rs`,
-        `EXP-1230: the fixture's words, roles and focus (domain prompts.rs) in a native alert window`
-      ),
-      ios: ok(`GlassAlert`, `apps/ios/ExpUI/Sources/GlassAlert.swift`),
-      android: ok(`GlassAlert`, `apps/android/app/src/main/java/com/exponential/app/ui/components/GlassAlert.kt`),
-    },
-    // The wording is the contract's (`prompts.json`), as in the app.
-    island: () => (
-      <div className="grid gap-6">
-        <PromptSpecimen
-          caption="A plain destructive confirm: Cancel takes focus, no primary"
-          {...promptSpecimenCopy(`stop-run`)}
-        />
-        <PromptSpecimen
-          caption="With a body: a fact the title cannot carry"
-          {...promptSpecimenCopy(`delete-issue`, { identifier: `EXP-42` })}
-        />
-        <PromptSpecimen
-          caption="A safe primary"
-          {...promptSpecimenCopy(`move-issue`, {
-            identifier: `EXP-42`,
-            board: `Mobile app`,
-          })}
-        />
-        <PromptSpecimen
-          caption="A busy answer: the pill's spinner, the label unchanged, the row locked"
-          disabled
-          {...promptSpecimenCopy(`merge-issue-pr`, { number: 812 }, {
-            busy: `merge`,
-          })}
-        />
-        <PromptSpecimen
-          caption="A safe primary and a quiet destructive answer"
-          title="Save this issue as a draft?"
-          actions={[
-            { label: `Discard`, role: `quietDestructive` },
-            { label: `Create issue` },
-            { label: `Save draft`, role: `primary` },
-          ]}
-        />
-        <PromptSpecimen
-          caption="On a phone the row cannot fit, so it stacks: natural-width pills, trailing-aligned, the default first, Cancel last, a quiet destructive answer last of all"
-          className="max-w-[342px]"
-          stacked
-          title="Save this issue as a draft?"
-          actions={[
-            { label: `Discard`, role: `quietDestructive` },
-            { label: `Create issue` },
-            { label: `Save draft`, role: `primary` },
-          ]}
-        />
-        <PromptSpecimen
-          caption="With a content slot: the field takes focus, Delete stays disabled until the name matches"
-          {...promptSpecimenCopy(`delete-team`, { name: `Mobile app` }, {
-            disabled: `delete`,
-          })}
-        >
-          <Input placeholder="Mobile app" />
-        </PromptSpecimen>
       </div>
     ),
   },
@@ -3368,192 +1905,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
-    id: `combobox`,
-    title: `Combobox`,
-    kind: `Inputs & pickers`,
-    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all. EXP-1021 added selectionStyle: the circle pair above is the glyph arm, still what every Combobox call site draws, while the Picker primitive built on these surfaces passes highlight and marks a multi pick by the row's own wash. The four triggers moved to picker/picker-trigger.tsx so both arms draw ONE set.`,
-    status: {
-      web: ok(
-        `Combobox / ComboboxList / ComboboxMenuItems`,
-        `packages/ui/src/combobox.tsx`,
-        `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
-      ),
-      desktop: ok(
-        `picker::Picker`,
-        `apps/desktop/crates/ui/src/picker/mod.rs`,
-        `EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities`
-      ),
-      ios: leftover(
-        `GlassPickerSheet`,
-        `apps/ios/ExpUI/Sources/GlassSheet.swift`,
-        `EXP-1021 built the generic picker (GlassPicker, its own entry); this keeps the picks outside the ten typed subjects`
-      ),
-      android: leftover(
-        `GlassSheetRow`,
-        `${ANDROID_COMPONENTS}/GlassSheet.kt`,
-        `EXP-1021 built the generic picker (Picker, its own entry); this row is what the sheets outside the ten assemble`
-      ),
-    },
-    island: () => (
-      <div className="grid gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="w-[13rem]">
-            <Combobox
-              mobileTitle="Assignee"
-              triggerVariant="field"
-              options={ASSIGNEE_OPTIONS}
-              value="jonas"
-              onChange={noop}
-              noneLabel="Unassign"
-            />
-          </div>
-          <Combobox
-            mobileTitle="Labels"
-            triggerLabel="Labels"
-            multiple
-            options={LABEL_OPTIONS}
-            value={[]}
-            onChange={noop}
-          />
-        </div>
-        {/* EXP-958: the row trigger inside a glass group, and the inline
-            word inside the composer's muted sentence — one with a choice,
-            one collapsed to plain text because there is nothing to choose. */}
-        <div className="w-[20rem]">
-          <GlassGroup>
-            <Combobox
-              triggerVariant="row"
-              searchable={false}
-              mobileTitle="Runs on"
-              options={[
-                { value: `macbook`, label: `MacBook Pro` },
-                { value: `homeserver`, label: `homeserver` },
-              ]}
-              value="macbook"
-              onChange={noop}
-            />
-          </GlassGroup>
-        </div>
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <Combobox
-            triggerVariant="inline"
-            searchable={false}
-            mobileTitle="Device"
-            width="sm"
-            options={[
-              { value: `macbook`, label: `MacBook Pro` },
-              { value: `homeserver`, label: `homeserver` },
-            ]}
-            value="macbook"
-            onChange={noop}
-          />
-          <Combobox
-            triggerVariant="inline"
-            searchable={false}
-            mobileTitle="Model"
-            options={[{ value: `default`, label: `CLI default` }]}
-            value="default"
-            onChange={noop}
-          />
-        </p>
-        {/* The bare bodies. `cmdk` only hides its empty row once its client
-            effects have registered the items, so the static specimen hides it
-            the way the running list does. */}
-        <div className="flex flex-wrap items-start gap-3 [&_[cmdk-empty]]:hidden">
-          <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-            <ComboboxList
-              options={ASSIGNEE_OPTIONS}
-              value="jonas"
-              onChange={noop}
-              noneLabel="Unassign"
-              placeholder="Search people"
-            />
-          </div>
-          {/* A bulk edit: "design" sits on SOME of the edited issues. */}
-          <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-            <ComboboxList
-              multiple
-              options={BULK_LABEL_OPTIONS}
-              value={[`bug`, `mobile`]}
-              onChange={noop}
-              max={3}
-              placeholder="Search labels"
-            />
-          </div>
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: `search-field`,
-    title: `Search field`,
-    kind: `Inputs & pickers`,
-    blurb: `The ONE "filter this list" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Changes file tree's filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.`,
-    status: {
-      web: ok(`SearchField`, `packages/ui/src/search-field.tsx`),
-      desktop: ok(
-        `controls::search_field`,
-        DESKTOP_CONTROLS,
-        `EXP-963: SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it`
-      ),
-      ios: ok(`GlassSheetSearchField`, IOS_CONTROLS),
-      android: ok(`GlassSheetSearchField`, `${ANDROID_COMPONENTS}/GlassSheet.kt`),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <SearchField value="" onValueChange={noop} placeholder="Search issues" />
-        <SearchField value="merge queue" onValueChange={noop} placeholder="Search issues" />
-        <SearchField
-          size="sm"
-          value="file-diff"
-          onValueChange={noop}
-          placeholder={contract.diffUi.filterPlaceholder}
-          aria-label={contract.diffUi.filterPlaceholder}
-        />
-      </div>
-    ),
-  },
-  {
-    id: `date-picker`,
-    title: `Date picker`,
-    kind: `Inputs & pickers`,
-    blurb: `The ONE date picker. Popover + Calendar was inlined three times — the properties panel, the editor chips, the mobile tray — and each copy converted between a Date and the wire's YYYY-MM-DD its own way, two of them through new Date(value), which the spec parses as UTC and which therefore shows the PREVIOUS day west of Greenwich. This one speaks the wire format on both sides and converts in exactly one place. A due date is a DATE, never an instant (REV2-49), so there is no time arm; the trigger is a Pill showing the short form, and Clear is a row under the grid rather than a second control beside it.`,
-    status: {
-      web: ok(
-        `DatePicker`,
-        `packages/ui/src/date-picker.tsx`,
-        `parseDateValue / formatDateLabel are the only place the wire date becomes a Date`
-      ),
-      desktop: ok(`pickers::due_date_popover`, `apps/desktop/crates/ui/src/pickers.rs`),
-      ios: ok(
-        `DueDateSheet`,
-        `apps/ios/Exponential/UI/Issue/Sheets/DueDateSheet.swift`,
-        `CreateIssueView keeps a second unfoldable form, UI/Issue/DueDatePicker.swift`
-      ),
-      android: ok(
-        `DueDateSheet`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/issue/DueDateSheet.kt`,
-        `the grid itself is IssueDatePickerDialog.kt`
-      ),
-    },
-    island: () => (
-      <div className="grid gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <DatePicker value="2026-03-08" onChange={noop} />
-          <DatePicker value={null} onChange={noop} />
-        </div>
-        {/* The grid the trigger opens — a closed portal renders nothing. */}
-        <div className="w-fit overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-          <Calendar
-            mode="single"
-            selected={DUE_DATE_FIXTURE}
-            defaultMonth={DUE_DATE_FIXTURE}
-          />
-        </div>
-      </div>
-    ),
-  },
-  {
     id: `typeahead`,
     title: `Typeahead menu`,
     kind: `Inputs & pickers`,
@@ -3603,42 +1954,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             </TypeaheadRow>
           </TypeaheadMenu>
         </div>
-      </div>
-    ),
-  },
-  {
-    id: `alert`,
-    title: `Alert`,
-    kind: `Feedback`,
-    blurb: `The inline banner: a message that belongs to the page it interrupts, not a toast that flies past and not a dialog that blocks. Two variants only — the neutral card fill for a notice, and the destructive tint for a failure — and the leading glyph earns its own column only when one is passed. The admin console carried two byte-identical copies of the destructive recipe before this existed.`,
-    status: {
-      web: ok(`Alert / AlertTitle / AlertDescription`, `packages/ui/src/alert.tsx`),
-      desktop: ok(
-        `controls::alert / alert_title`,
-        DESKTOP_CONTROLS,
-        `default and destructive on the glass tokens, a glyph column only when one is passed; the repository dialog banner is one`
-      ),
-      ios: na(`no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red`),
-      android: leftover(
-        `GlassNotice`,
-        `${ANDROID_COMPONENTS}/GlassNotice.kt`,
-        `the boxed inline message, but with no title slot and no destructive variant — callers pass the red themselves`
-      ),
-    },
-    island: () => (
-      <div className="grid gap-3">
-        <Alert>
-          <WarningGlyph aria-hidden />
-          <AlertTitle>This device is offline</AlertTitle>
-          <AlertDescription>
-            Sessions started here will queue until it reconnects.
-          </AlertDescription>
-        </Alert>
-        <Alert variant="destructive">
-          <AlertDescription>
-            Could not load teams. Check the connection and try again.
-          </AlertDescription>
-        </Alert>
       </div>
     ),
   },
@@ -4111,92 +2426,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
-    id: `context-ring`,
-    title: `Context ring`,
-    kind: `Feedback`,
-    blurb: `EXP-877: how full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A run nothing has measured renders NOTHING unless \`showEmpty\` says the run has other usage worth opening.`,
-    status: {
-      web: ok(
-        `ContextRing`,
-        `packages/ui/src/context-ring.tsx`,
-        `ringGeometry + RING_TONE_CLASS ship with it; the app's lib/context-ring.ts derives percent and tone`
-      ),
-      desktop: ok(
-        `usage_sheet::context_ring`,
-        `apps/desktop/crates/ui/src/usage_sheet.rs`,
-        `mounted by steer_viewer::render_context_ring; the percentage comes from usage_bar::context_percent`
-      ),
-      ios: ok(`ContextRing`, `apps/ios/ExpUI/Sources/ContextRing.swift`),
-      android: ok(`ContextRing`, `${ANDROID_COMPONENTS}/ContextRing.kt`),
-    },
-    island: () => (
-      <div className="flex items-center gap-3">
-        <ContextRing percent={null} showEmpty />
-        <ContextRing percent={30} />
-        <ContextRing percent={80} tone="warning" />
-        <ContextRing percent={97} tone="danger" />
-      </div>
-    ),
-  },
-  {
-    id: `progress-ring`,
-    title: `Sub-issue progress ring`,
-    kind: `Feedback`,
-    blurb: `EXP-1097: the completion ring that leads the issue detail's Sub-issues band — done of total as an arc over a 20% track, the SAME 16-unit box, 2-unit stroke and track as the context ring (\`ringGeometry\`), drawn at 14px and painted in the team's COMPLETED status colour. The band reads ring · "Sub-issues" · \`done/total\` · \`+\` over flat rows (\`lib/issue-relations-view.ts\`, fixture-locked ×4).`,
-    status: {
-      web: ok(
-        `ProgressRing`,
-        `packages/ui/src/progress-ring.tsx`,
-        `the Sub-issues band in components/issue-relations-card.tsx mounts it`
-      ),
-      desktop: ok(
-        `issue_relations::render_sub_issues`,
-        `apps/desktop/crates/ui/src/issue_relations.rs`,
-        `EXP-1097: a ProgressCircle on the context ring's geometry, the COMPLETED status colour`
-      ),
-      ios: ok(
-        `ProgressRing`,
-        `apps/ios/ExpUI/Sources/ProgressRing.swift`,
-        `EXP-1097: IssueSubIssuesSection (IssueRelationRows.swift) leads its band with it`
-      ),
-      android: ok(
-        `SubIssueProgressRing`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/issue/RelationsSection.kt`,
-        `EXP-1097: SubIssuesSection leads its band with it`
-      ),
-    },
-    island: () => (
-      <div className="grid w-80 gap-3">
-        <div className="flex items-center gap-3">
-          <ProgressRing done={0} total={3} colorClass="text-blue-500" />
-          <ProgressRing done={2} total={5} colorClass="text-blue-500" />
-          <ProgressRing done={4} total={5} colorClass="text-blue-500" />
-          <ProgressRing done={5} total={5} colorClass="text-blue-500" />
-        </div>
-        <div className="flex flex-col">
-          <GlassSectionHeader
-            label="Sub-issues"
-            leading={<ProgressRing done={1} total={2} colorClass="text-blue-500" />}
-            className="mb-0.5"
-            trailing={
-              <span className="font-mono text-xs tabular-nums text-muted-foreground">1/2</span>
-            }
-          />
-          <ListRow interactive density="compact" className="h-8 rounded-md px-3">
-            <StatusGlyph {...DONE_GLYPH} className="size-3.5 shrink-0" />
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">EXP-1131</span>
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground/60">Sub-issues section</span>
-          </ListRow>
-          <ListRow interactive density="compact" className="h-8 rounded-md px-3">
-            <StatusGlyph {...BACKLOG_GLYPH} className="size-3.5 shrink-0" />
-            <span className="shrink-0 font-mono text-xs text-muted-foreground">EXP-1135</span>
-            <span className="min-w-0 flex-1 truncate text-sm">Styleguide entry</span>
-          </ListRow>
-        </div>
-      </div>
-    ),
-  },
-  {
     id: `account-picker`,
     title: `Account picker`,
     kind: `Inputs & pickers`,
@@ -4426,35 +2655,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           onPick={noop}
           autoFocusSearch={false}
         />
-      </div>
-    ),
-  },
-  {
-    id: `list-empty`,
-    title: `In-list empty line`,
-    kind: `Feedback`,
-    blurb: `The compact sibling of the empty state: one muted centred line INSIDE a list that filtered down to nothing, exactly the line \`CommandEmpty\` draws, for the lists that have no Command around them. It is deliberately not the teaching block — a search that matched nothing needs a different QUERY, not a next step, and a 48px icon disc under a search field reads as a page having gone wrong.`,
-    status: {
-      web: ok(`ListEmpty`, `packages/ui/src/empty-state.tsx`, `EmptyState in the same file is the page-sized one`),
-      desktop: ok(
-        `pickers::empty_picker_row`,
-        `apps/desktop/crates/ui/src/pickers.rs`,
-        `the CommandEmpty row every picker shares; controls::empty_state is the page-sized counterpart`
-      ),
-      ios: leftover(
-        `Text("No emoji found")`,
-        `apps/ios/Exponential/UI/Markdown/EmojiPickerSheet.swift`,
-        `every list inlines its own Text: there is no shared line, and DeviceLogins.emptyLine is a private third copy`
-      ),
-      android: leftover(
-        `ChangesEmptyRow`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/ChangesFace.kt`,
-        `private to one face; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized`
-      ),
-    },
-    island: () => (
-      <div className="w-72 overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-        <ListEmpty>No emoji found</ListEmpty>
       </div>
     ),
   },

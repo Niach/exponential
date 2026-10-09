@@ -1,12 +1,15 @@
-// VAPP-87: Tabs, ToggleGroup, Accordion — Radix behaviour, recipe paint.
+// VAPP-87 + round 1: Tabs, ToggleGroup, Accordion — Radix behaviour (roving
+// tab stop, arrows wrap, Home/End: a11y.json), recipe paint, a bound
+// `value` written through (multiple = comma-joined when it came as a
+// string, an array when it came as one).
 
-import { useEffect, useState } from "react"
+import { useBoundState } from "./bound"
 import { Accordion as AccordionPrimitive, Tabs as TabsPrimitive, ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
-import { CHROME, IconGlyph } from "../icons"
+import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
-import { arr, bool, num, str, useParts } from "./shared"
+import { arr, bool, BuiltinIcon, num, str, useParts } from "./shared"
 
 interface Tab {
   label: string
@@ -15,13 +18,12 @@ interface Tab {
   count?: number
 }
 
-export function TabsNative({ node, props, rootProps, emit }: NativeProps) {
+export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const tabs = arr<Tab>(props.tabs)
   const external = str(props.value) || tabs[0]?.value || ``
-  const [value, setValue] = useState(external)
-  useEffect(() => setValue(external), [external])
+  const [value, setValue] = useBoundState(node, scope, `value`, external)
   const fill = bool(props.fill)
   return (
     <TabsPrimitive.Root
@@ -32,28 +34,34 @@ export function TabsNative({ node, props, rootProps, emit }: NativeProps) {
         void emit(`change`, { value: next })
       }}
       orientation="horizontal"
+      activationMode="automatic"
       dir={ctx.direction}
     >
-      <TabsPrimitive.List {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined}>
-        {tabs.map((tab) => {
+      <TabsPrimitive.List {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined} loop>
+        {tabs.map((tab, i) => {
           const selected = tab.value === value
           return (
-            <TabsPrimitive.Trigger key={tab.value} value={tab.value} {...(part(`tab`, selected && `selected`) as Record<string, string>)}>
+            <TabsPrimitive.Trigger key={tab.value} value={tab.value} {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}>
               <span className="xui-Tabs-tab-body">
                 {tab.icon ? <IconGlyph icons={ctx.host.icons} name={tab.icon} className="xui-icon" width={16} height={16} /> : null}
                 <span>{str(tab.label)}</span>
-                {tab.count !== undefined ? <span data-count="">{num(tab.count)}</span> : null}
+                {tab.count !== undefined ? <span data-count="">{ctx.formatter.number(num(tab.count))}</span> : null}
               </span>
               <span {...(part(`indicator`, selected && `selected`) as Record<string, string>)} aria-hidden="true" />
             </TabsPrimitive.Trigger>
           )
         })}
       </TabsPrimitive.List>
-      {tabs.map((tab, i) => (
-        <TabsPrimitive.Content key={tab.value} value={tab.value} {...(part(`content`) as Record<string, string>)}>
-          {node.children[i] ? <NodeView node={node.children[i]} /> : null}
-        </TabsPrimitive.Content>
-      ))}
+      {tabs.map((tab, i) => {
+        // Only the ACTIVE panel is placed (`<id>.content`); the others are hidden.
+        const attrs = part(`content`) as Record<string, string>
+        if (tab.value !== value) delete attrs[`data-xui-id`]
+        return (
+          <TabsPrimitive.Content key={tab.value} value={tab.value} {...attrs}>
+            {node.children[i] ? <NodeView node={node.children[i]} /> : null}
+          </TabsPrimitive.Content>
+        )
+      })}
     </TabsPrimitive.Root>
   )
 }
@@ -65,19 +73,21 @@ interface Item {
   disabled?: boolean
 }
 
-export function ToggleGroupNative({ node, props, rootProps, emit }: NativeProps) {
+const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isArray(raw) ? next : next.join(`,`))
+
+export function ToggleGroupNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = arr<Item>(props.items)
   const multiple = props.type === `multiple`
   const externalRaw = props.value
   const external = multiple ? (Array.isArray(externalRaw) ? externalRaw.map(String) : externalRaw ? String(externalRaw).split(`,`) : []) : str(externalRaw)
-  const [value, setValue] = useState<string | string[]>(external)
-  useEffect(() => setValue(external), [JSON.stringify(external)])
+  const [value, setBound] = useBoundState<string | string[]>(node, scope, `value`, external)
+  const setValue = (next: string | string[]) => setBound(Array.isArray(next) ? (joinLike(externalRaw, next) as string[]) : next)
   const body = items.map((item) => {
-    const selected = multiple ? (value as string[]).includes(item.value) : value === item.value
+    const selected = multiple ? asArray(value).includes(item.value) : value === item.value
     return (
-      <ToggleGroupPrimitive.Item key={item.value} value={item.value} disabled={bool(item.disabled)} {...(part(`item`, selected && `selected`, bool(item.disabled) && `disabled`) as Record<string, string>)} aria-label={item.icon && !item.label ? item.label : undefined}>
+      <ToggleGroupPrimitive.Item key={item.value} value={item.value} disabled={bool(item.disabled)} {...(part(`item`, selected && `selected`, bool(item.disabled) && `disabled`) as Record<string, string>)}>
         {item.icon ? <IconGlyph icons={ctx.host.icons} name={item.icon} className="xui-icon" width={16} height={16} /> : null}
         {item.label ? <span>{str(item.label)}</span> : null}
       </ToggleGroupPrimitive.Item>
@@ -88,10 +98,11 @@ export function ToggleGroupNative({ node, props, rootProps, emit }: NativeProps)
       <ToggleGroupPrimitive.Root
         {...(rootProps as Record<string, unknown>)}
         type="multiple"
-        value={value as string[]}
+        value={Array.isArray(value) ? value : asArray(value)}
+        loop
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: next })
+          void emit(`change`, { value: joinLike(externalRaw, next) })
         }}
         dir={ctx.direction}
       >
@@ -104,6 +115,7 @@ export function ToggleGroupNative({ node, props, rootProps, emit }: NativeProps)
       {...(rootProps as Record<string, unknown>)}
       type="single"
       value={value as string}
+      loop
       onValueChange={(next: string) => {
         if (!next) return
         setValue(next)
@@ -122,31 +134,32 @@ interface AccordionItem {
   count?: number
 }
 
-export function AccordionNative({ node, props, rootProps, emit }: NativeProps) {
+export function AccordionNative({ node, props, rootProps, emit, scope }: NativeProps) {
+  const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = arr<AccordionItem>(props.items)
   const multiple = props.type === `multiple`
   const raw = props.value
   const external = multiple ? (Array.isArray(raw) ? raw.map(String) : raw ? String(raw).split(`,`) : []) : str(raw)
-  const [value, setValue] = useState<string | string[]>(external)
-  useEffect(() => setValue(external), [JSON.stringify(external)])
-  const Chevron = CHROME.chevronDown
+  const [value, setBound] = useBoundState<string | string[]>(node, scope, `value`, external)
+  const setValue = (next: string | string[]) => setBound(Array.isArray(next) ? (joinLike(raw, next) as string[]) : next)
   const body = items.map((item, i) => {
-    const open = multiple ? (value as string[]).includes(item.value) : value === item.value
+    const open = multiple ? asArray(value).includes(item.value) : value === item.value
     return (
-      <AccordionPrimitive.Item key={item.value} value={item.value} {...(part(`item`, open && `open`) as Record<string, string>)}>
+      <AccordionPrimitive.Item key={item.value} value={item.value} {...(part.at(`item`, i, open && `open`) as Record<string, string>)}>
         <AccordionPrimitive.Header asChild>
           <div style={{ display: `flex` }}>
-            <AccordionPrimitive.Trigger {...(part(`trigger`, open && `open`) as Record<string, string>)}>
-              <span>
+            <AccordionPrimitive.Trigger {...(part.at(`trigger`, i, open && `open`) as Record<string, string>)}>
+              <span className="xui-accordion-title">
                 {str(item.title)}
-                {item.count !== undefined ? ` · ${num(item.count)}` : ``}
+                {/* Round 2 §7: the count is its own muted part after the title. */}
+                {item.count !== undefined ? <span {...(part.at(`count`, i) as Record<string, string>)}>{ctx.formatter.number(num(item.count))}</span> : null}
               </span>
-              <Chevron aria-hidden="true" width={16} height={16} />
+              <BuiltinIcon slot="Accordion.trigger" size={16} />
             </AccordionPrimitive.Trigger>
           </div>
         </AccordionPrimitive.Header>
-        <AccordionPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)}>{node.children[i] ? <NodeView node={node.children[i]} /> : null}</AccordionPrimitive.Content>
+        <AccordionPrimitive.Content {...(part.at(`content`, i, open && `open`) as Record<string, string>)}>{node.children[i] ? <NodeView node={node.children[i]} /> : null}</AccordionPrimitive.Content>
       </AccordionPrimitive.Item>
     )
   })
@@ -155,10 +168,11 @@ export function AccordionNative({ node, props, rootProps, emit }: NativeProps) {
       <AccordionPrimitive.Root
         {...(rootProps as Record<string, unknown>)}
         type="multiple"
-        value={value as string[]}
+        value={asArray(value)}
+        dir={ctx.direction}
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: next })
+          void emit(`change`, { value: joinLike(raw, next) })
         }}
       >
         {body}
@@ -170,6 +184,7 @@ export function AccordionNative({ node, props, rootProps, emit }: NativeProps) {
       {...(rootProps as Record<string, unknown>)}
       type="single"
       collapsible
+      dir={ctx.direction}
       value={value as string}
       onValueChange={(next: string) => {
         setValue(next)
@@ -180,3 +195,5 @@ export function AccordionNative({ node, props, rootProps, emit }: NativeProps) {
     </AccordionPrimitive.Root>
   )
 }
+
+const asArray = (v: string | string[]): string[] => (Array.isArray(v) ? v : v ? v.split(`,`) : [])

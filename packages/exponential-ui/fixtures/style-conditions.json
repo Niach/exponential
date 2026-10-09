@@ -1,0 +1,336 @@
+{
+  "$comment": "Round 1 (docs/round-1-contract.md §2): the STYLE CONDITION contract. Inputs hand-written (name, style, contexts); `expected` is filled by scripts/generate.ts from src/style.ts resolveConditions: the base keys, then every matching @media block in SOURCE order, then :hover, :focus-visible, :pressed (pressed wins). Sizes are the SURFACE box; min-* = size >= N, max-* = size < N; a $breakpoint token resolves through the context's breakpoints (the file's when absent; an unknown token never matches); orientation portrait = height >= width (landscape when the height is unknown). Token VALUES pass through untouched (the theme resolves them after). Every renderer replays it.",
+  "breakpoints": {
+    "sm": 640,
+    "md": 768,
+    "lg": 1024,
+    "xl": 1280
+  },
+  "cases": [
+    {
+      "name": "min-width in px and as a breakpoint token",
+      "style": {
+        "gap": 4,
+        "@media (min-width: 600px)": {
+          "gap": 8
+        },
+        "@media (min-width: $breakpoint.lg)": {
+          "gap": 16
+        }
+      },
+      "contexts": [
+        {
+          "label": "phone",
+          "width": 320
+        },
+        {
+          "label": "exactly 600",
+          "width": 600
+        },
+        {
+          "label": "lg",
+          "width": 1024
+        },
+        {
+          "label": "xl",
+          "width": 1440
+        }
+      ],
+      "expected": [
+        {
+          "gap": 4
+        },
+        {
+          "gap": 8
+        },
+        {
+          "gap": 16
+        },
+        {
+          "gap": 16
+        }
+      ]
+    },
+    {
+      "name": "max-width is strict, so min-width N and max-width N never overlap",
+      "style": {
+        "display": "flex",
+        "@media (max-width: $breakpoint.md)": {
+          "display": "none"
+        },
+        "@media (min-width: $breakpoint.md)": {
+          "gap": 12
+        }
+      },
+      "contexts": [
+        {
+          "label": "767",
+          "width": 767
+        },
+        {
+          "label": "768",
+          "width": 768
+        }
+      ],
+      "expected": [
+        {
+          "display": "none"
+        },
+        {
+          "display": "flex",
+          "gap": 12
+        }
+      ]
+    },
+    {
+      "name": "blocks apply in source order: the later one wins",
+      "style": {
+        "padding": 0,
+        "@media (min-width: 400px)": {
+          "padding": 8
+        },
+        "@media (max-width: 1000px)": {
+          "padding": 4
+        }
+      },
+      "contexts": [
+        {
+          "label": "both match",
+          "width": 500
+        },
+        {
+          "label": "only min-width",
+          "width": 1200
+        },
+        {
+          "label": "only max-width",
+          "width": 300
+        }
+      ],
+      "expected": [
+        {
+          "padding": 4
+        },
+        {
+          "padding": 8
+        },
+        {
+          "padding": 4
+        }
+      ]
+    },
+    {
+      "name": "height and orientation",
+      "style": {
+        "flexDirection": "row",
+        "@media (min-height: 500px)": {
+          "gap": 12
+        },
+        "@media (max-height: 500px)": {
+          "gap": 4
+        },
+        "@media (orientation: portrait)": {
+          "flexDirection": "column"
+        }
+      },
+      "contexts": [
+        {
+          "label": "portrait phone",
+          "width": 400,
+          "height": 800
+        },
+        {
+          "label": "landscape phone",
+          "width": 800,
+          "height": 400
+        },
+        {
+          "label": "square",
+          "width": 500,
+          "height": 500
+        },
+        {
+          "label": "height unknown",
+          "width": 800
+        }
+      ],
+      "expected": [
+        {
+          "flexDirection": "column",
+          "gap": 12
+        },
+        {
+          "flexDirection": "row",
+          "gap": 4
+        },
+        {
+          "flexDirection": "column",
+          "gap": 12
+        },
+        {
+          "flexDirection": "row"
+        }
+      ]
+    },
+    {
+      "name": "hover capability and reduced motion",
+      "style": {
+        "transition": "$motion.fast",
+        "@media (hover: hover)": {
+          "cursor": "pointer"
+        },
+        "@media (hover: none)": {
+          "minHeight": 44
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          "transform": "scale(1)"
+        },
+        "@media (prefers-reduced-motion: no-preference)": {
+          "transform": "scale(1.02)"
+        }
+      },
+      "contexts": [
+        {
+          "label": "mouse",
+          "width": 1024,
+          "hover": true
+        },
+        {
+          "label": "touch",
+          "width": 390,
+          "hover": false
+        },
+        {
+          "label": "mouse, reduced motion",
+          "width": 1024,
+          "hover": true,
+          "reducedMotion": true
+        }
+      ],
+      "expected": [
+        {
+          "transition": "$motion.fast",
+          "cursor": "pointer",
+          "transform": "scale(1.02)"
+        },
+        {
+          "transition": "$motion.fast",
+          "minHeight": 44,
+          "transform": "scale(1.02)"
+        },
+        {
+          "transition": "$motion.fast",
+          "cursor": "pointer",
+          "transform": "scale(1)"
+        }
+      ]
+    },
+    {
+      "name": "states apply after every media block; pressed wins",
+      "style": {
+        "opacity": 1,
+        "@media (min-width: 600px)": {
+          "opacity": 0.9
+        },
+        ":pressed": {
+          "opacity": 0.6
+        },
+        ":hover": {
+          "opacity": 0.8,
+          "backgroundColor": "$color.accent"
+        },
+        ":focus-visible": {
+          "borderColor": "$color.ring"
+        }
+      },
+      "contexts": [
+        {
+          "label": "idle wide",
+          "width": 700
+        },
+        {
+          "label": "hover",
+          "width": 700,
+          "states": [
+            "hover"
+          ]
+        },
+        {
+          "label": "hover + pressed",
+          "width": 700,
+          "states": [
+            "hover",
+            "pressed"
+          ]
+        },
+        {
+          "label": "keyboard focus, narrow",
+          "width": 300,
+          "states": [
+            "focus-visible"
+          ]
+        }
+      ],
+      "expected": [
+        {
+          "opacity": 0.9
+        },
+        {
+          "opacity": 0.8,
+          "backgroundColor": "$color.accent"
+        },
+        {
+          "opacity": 0.6,
+          "backgroundColor": "$color.accent"
+        },
+        {
+          "opacity": 1,
+          "borderColor": "$color.ring"
+        }
+      ]
+    },
+    {
+      "name": "the theme's breakpoints decide; an unknown token never matches",
+      "style": {
+        "gap": 4,
+        "@media (min-width: $breakpoint.md)": {
+          "gap": 8
+        },
+        "@media (min-width: $breakpoint.huge)": {
+          "gap": 99
+        }
+      },
+      "contexts": [
+        {
+          "label": "700 with the default md (768)",
+          "width": 700
+        },
+        {
+          "label": "700 with a theme whose md is 600",
+          "width": 700,
+          "breakpoints": {
+            "sm": 480,
+            "md": 600,
+            "lg": 900,
+            "xl": 1200
+          }
+        },
+        {
+          "label": "5000",
+          "width": 5000
+        }
+      ],
+      "expected": [
+        {
+          "gap": 4
+        },
+        {
+          "gap": 8
+        },
+        {
+          "gap": 8
+        }
+      ]
+    }
+  ]
+}

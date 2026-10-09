@@ -425,7 +425,7 @@ fn extension_natives_arrive_as_extension_leaves_the_host_paints() {
     let out = surface.layout(&mut measure);
     let nodes = surface.nodes();
     let spark = nodes.iter().find(|n| n.component == "Extension").expect("an Extension leaf");
-    assert_eq!(spark.extension_kind.as_deref(), Some("Sparkline"));
+    assert_eq!(spark.extension_kind.as_deref(), Some("TrendLine"));
     assert_eq!(spark.catalog_id.as_deref(), Some("https://ui.exponential.at/catalogs/example/v1"));
     assert!(out.frames.iter().any(|f| f.index == spark.index));
     assert!(nodes.iter().all(|n| n.component != "StatCard"), "the extension macro expanded");

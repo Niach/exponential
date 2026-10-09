@@ -9,33 +9,105 @@ bindings), so an embedder never builds Rust.
 
 - `Surface(surfaceId, catalogId, themeId?, mode)` once; A2UI messages in as
   JSON (`apply`), or `setNested` / `setComponents` / `setData`.
-- `nodes()` once per `structureVersion`; `visuals()` / `visual(index)` for
-  the resolved looks; `layout(measurer)` returns one flat frame list, the
-  overlay `layers` (frames in surface coordinates, `placement` for anchored
-  ones, `position` = `centered` or an edge) and the windowed `lists`.
+- `nodes()` once (every slot; removed ones as tombstones so
+  `nodes()[i].index == i`), then patch with `FfiLayout.delta`: fetch
+  `added` + `changed` through `nodesAt(indices)`, drop `removed`;
+  `renumbered` = fetch everything. Indices are STABLE slots; paint order is
+  the order of `frames`, not the index order.
+- `visuals()` / `visual(index)` for the resolved looks (per-side borders,
+  corner radii, gradients, transforms, transitions as ms + cubic bezier,
+  text decoration/transform/style, letter spacing, visibility, pointer
+  events, cursor, chart colours).
+- `layout(measurer)` returns one flat frame list, the overlay `layers`
+  (class `overlay|toast`, `modal`, `dismissible`, frames in surface
+  coordinates, `placement` for anchored ones), the windowed `lists`, the
+  scroll containers (`scrolls`: clamped offsets + content sizes; frames are
+  UNSCROLLED), the open `toasts` (the host times them →
+  `dismissToast(id)`), `direction` and `breakpoint`.
 - `Measurer` (foreign trait, implemented by the host): `measureIntrinsics`
-  and `measureHeights`, each a BATCH; at most three crossings per pass
-  (`FfiLayout.upcalls`). `layoutFixed(sizesJson, wrap)` is the geometry-test
-  measure for suites.
+  (min/max content width, height, the first `baseline`) and
+  `measureHeights`, each a BATCH; at most three crossings per pass
+  (`FfiLayout.upcalls`). **Upcalls run without the surface locked**: a
+  measurer may call `nodes()` / `visual()`; passes are serialized and a
+  `layout` re-entered from inside its own measurer returns the previous
+  result with `reentrant = true` instead of deadlocking; a measurer that
+  THROWS ends that pass (the error reaches the caller) and the next
+  `layout` starts clean. Snapshots taken mid-pass (`nodes()`) never rebuild
+  under it: a tree change lands on the next pass. `layoutFixed(sizesJson,
+  wrap)` is the geometry-test measure for suites.
+- Settings: `setSettings(FfiSettings)` / `settings()` or one at a time:
+  `setLocale`, `setStringsJson`, `setModeSetting(light|dark|system,
+  systemDark)`, `setDensity`, `setContrast(normal|high|system,
+  systemHigh)`, `setFontScale`, `setInsets(top, right, bottom, left)`,
+  `setPointer(hover, reducedMotion)`; `effectiveThemeJson()` (density +
+  contrast applied), `stringsJson()`.
 - `event(index, name, payloadJson)` → `[FfiEvent {kind, json}]` with
-  `action | openUrl | dataChanged | input | relayout`; `setOpen`,
-  `scroll`, `setStates`, `setPressed`, `setTheme*`, `setMode`,
+  `action | openUrl | functionCall | dataChanged | input | focus | announce |
+  copy | pickFiles | relayout | hoverTimer` (`functionCall` = `{componentId,
+  name, args}`, a host function for the registry + `decideFunction` gate); `setOpen`, `scroll`, `scrollTo`, `setStates`
+  (`hover`, `pressed`, `focus`, `focus-visible`, …), `setPressed`,
+  `submitForm`, `dismissToast`, `commandJson` (`focus`, `announce`,
+  `scrollIntoView`), `takeEvents` (events raised outside a call: a hover
+  opening a tooltip, a hover-close timer, a live region), `hoverTimeout(owner)`
+  (with `FfiSettings.hoverCloseMs > 0` — natives: 150 — leaving a hover
+  card's trigger and content raises `hoverTimer {owner, delay_ms}`; call
+  this when it fires: it closes unless the trigger or content is hovered
+  again; with 0 it closes at once and the host delays the un-hover),
+  `setTheme*`, `setMode`,
   `registerExtension`.
+- `Theme` (VAPP-88): a RESOLVED theme as an object (`Theme.builtin(id)`,
+  `Theme.load(json, parents?)`), shared by surfaces (`Surface.withTheme`,
+  `setTheme`, `theme()`, `mode()`) and queried by painters per part
+  without re-parsing JSON: `resolvePart(owner, part, ownerPropsJson,
+  states, mode)` → `{visual, styleJson}` (the owner's recipe props are
+  derived like the core does), `color(name, mode)`, `spacing`, `radius`,
+  `control`, `typeSize`, `lineHeight`, `opacity`, `fontFamily(kind)`,
+  `fontsJson`, `controlGeometry`. `FfiNode` carries `partStates` (the
+  core's `selected` / `open` / `checked`) and `macroName`.
 - Free functions for suites and hosts: `reduceSurfaceJson`,
   `reduceNestedJson`, `extensionErrors`, `loadThemeJson`, `themeIssuesJson`,
   `builtinThemeJson`, `resolveRecipeJson`, `controlGeometryJson`,
-  `placeOverlay`, `jsonEqual` / `jsonDiff`, `benchTreeJson`.
+  `placeOverlay`, `jsonEqual` / `jsonDiff`, `benchTreeJson`; round 1: the
+  BIND pass (`bindTreeJson`, `runActionJson`, `resolveDynamicJson`) so a
+  native never re-implements it, `tokenizeCodeJson`, `chartExtentJson`,
+  `niceTicksJson`, `weekStart`, `textDirection`, `stringTableJson`,
+  `formatString`, `resolveConditionsJson`, `componentA11yJson`,
+  `validateStyleJson`.
+
+## Round 2 (`docs/round-2-contract.md`)
+
+| API | what |
+|---|---|
+| `HostFormatter` (foreign trait) + `Surface.setFormatter(f?)` | `number(value, decimals?, grouping)`, `currency(value, code, decimals?, grouping)`, `percent(value, decimals?)`, `date(epochMs, dateOnly, format?, style?, time)`, `relativeTime(value, unit)`, `plural(value) → zero\|one\|two\|few\|many\|other`, `bytes(value, unit)` (`byte\|kilobyte\|megabyte\|gigabyte`, short unit name). The core parses and decides, the host localizes (in its own zone: `FfiSettings.timeZone` is the host's, kept for `settings()`; the core has no zone database and takes the zone only through this formatter or a `HostZone`). Called with the surface locked: never call the surface from it. `null` = the English fallback (UTC) |
+| `HostZone` (foreign trait) + `Surface.setFallbackZone(z?)` | `offsetMinutes(epochMs)`: the English fallback in the platform zone (replaces a host formatter) |
+| `setClock(nowMs?)`, `tick()`, `usesClock()` | relative times; tick at least once a minute while `usesClock()` |
+| `bindRowSlotJson(slot, rowsProp, rows, index, data, options?, formatter?)`, `bindSectionHeaderJson(slot, section, index, data, options?, formatter?)` | `options` = `{scope?, strings?, now?}`; `formatter` = the surface's (`null` = English); returns `null` = not visible |
+| `scrollToIndex(id, index, align?)`, `commandJson({"scrollToIndex": …})`, `setSurfaceScroll(x, y)` | `scrollSurface {x, y}` event = scroll the host viewport, then report it |
+| `FfiVisual` | `direction`, `backdropBlur`, `animationJson` (sample with `animationFrameJson(name, timingJson, elapsedMs, reducedMotion)`), `sticky` |
+| `FfiLayout.sticky`, `FfiList.horizontal` | sticky paint offsets `{index, dx, dy}`; lists windowed on x |
+| Resizable | `event(handle, "drag", {phase, delta})`, `event(handle, "key", {key})`; `resizableJson({op, …})` for previews (`drag`/`extents` take `handleExtent` = `$control.hairline`) |
+| `FfiTextStyle` (VAPP-100) | `letterSpacing` (px, font scale applied), `textTransform` (`uppercase\|lowercase\|capitalize`), `fontStyle` (`italic`); null = none. Measure and paint with them |
+| `FfiLeaf` (VAPP-100) | `ownerComponent` = the native or macro owning a part leaf (`Tabs`, `Stepper`); `text` shows a number or boolean as its display string (`412`) |
+| `Surface.effectiveTheme()` (VAPP-100) | the `Theme` the core resolves against (extends + density + contrast); resolve sub-parts and read tokens from it, again after a settings change |
+| `setHovered(ids)`, `setHover(id, on)`, `FfiNode.hovered` + `interactionStates` (VAPP-100) | the pointer's hover like `setPressed`: recipes' `hover` and `:hover` styles resolve through it; the node records carry the host-set states |
+| `FfiNode.hoverStyled` (VAPP-100) | the node restyles under the pointer: a `:hover` style block, or a recipe rule on `state: hover` its props match (effective theme). Track a mouse over these nodes (as over pressables, triggers, fields) and report `setHover`; re-read after a theme switch |
+| `markDirty(index)` after a load (VAPP-100) | a Markdown whose picture loaded is measured again; an Image's box never changes (its ratio decides) |
+| helpers | `formatCallJson(call, formatter?, now?, offsetMinutes?)`, `displayStringJson`, `parseDateValueJson`, `formatPatternJson(pattern, fields, names?)`, `relativeTimeUnitJson`, `listJson({op, …})` (`window`, `scrollTo`, `scrollToItem`, `sections`, `sticky {…, gap?, rowOffsets?}`, `keys`, `rowKeys`) |
 
 ## Build
 
 ```bash
-bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh       # xcframework + bindings/swift
-bash apps/desktop/crates/exponential-ui-ffi/build-android.sh   # jniLibs (.so) + bindings/kotlin
+bash apps/desktop/crates/exponential-ui-ffi/generate-bindings.sh  # bindings/swift + bindings/kotlin from the host library (.dylib/.so)
+bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh          # xcframework + bindings/swift
+bash apps/desktop/crates/exponential-ui-ffi/build-android.sh      # jniLibs (.so) + bindings/kotlin
 bash apps/desktop/crates/exponential-ui-ffi/run-binding-tests.sh [swift|kotlin|all]
 ```
 
 Device builds use the workspace's `mobile` profile (release + LTO + one
-codegen unit + stripped). The generated binding sources under `bindings/`
+codegen unit + stripped); the xcframework also carries the host's macOS
+slice so the Swift package tests and macOS embedders link it, and
+`build-ios.sh` copies the artefact and the Swift binding into
+`packages/exponential-ui-swift` (the painter package). The generated binding sources under `bindings/`
 are COMMITTED (the contract, reviewable without a toolchain); `out/` holds
 the artefacts and is ignored. The suites under `tests/swift` and
 `tests/kotlin` replay every shared fixture through the bindings against the

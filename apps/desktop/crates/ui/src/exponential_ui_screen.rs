@@ -17,22 +17,27 @@
 //! the IDE's own), `EXP_DEV_EXPONENTIAL_UI_BENCH=<n>` (the core's synthetic
 //! n-node bench tree instead of the fixture — the 200-node budget check),
 //! `EXP_DEV_EXPONENTIAL_UI_POSTS=<n>` (rows for the fixture's `/posts` List;
-//! past 24 it windows. The web reference seeds none, so the default is none),
+//! past 50 it windows against the pane. The web reference seeds none, so the
+//! default is none),
 //! `EXP_DEV_EXPONENTIAL_UI_SCROLL=<px>` (pre-scroll the pane once the content
-//! is laid out, so a capture photographs a lower section of the sink).
+//! is laid out, so a capture photographs a lower section of the sink),
+//! `EXP_DEV_EXPONENTIAL_UI_LOCALE=<bcp47>` (`ar` / `he` paint the sink RTL),
+//! `EXP_DEV_EXPONENTIAL_UI_DENSITY=compact|comfortable`,
+//! `EXP_DEV_EXPONENTIAL_UI_CONTRAST=high`, `EXP_DEV_EXPONENTIAL_UI_REDUCED_MOTION=1`
+//! and `EXP_DEV_EXPONENTIAL_UI_MODE=system` (follows the window appearance).
 //! `EXP_UI_TRACE=1` makes the painter print one line per layout pass.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use exponential_ui::surface::PlacedNode;
-use exponential_ui::theme::Mode;
+use exponential_ui::surface::{ContrastSetting, PlacedNode, SurfaceSettings};
+use exponential_ui::theme::{Density, Mode, ModeSetting};
 use exponential_ui::types::NestedNode;
-use exponential_ui_gpui::host::{ActionEvent, HostPlugin, InputEvent, InputKind};
+use exponential_ui_gpui::host::{ActionEvent, HostPlugin, InputEvent, InputKind, UploadEvent};
 use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{
-    canvas, div, prelude::FluentBuilder as _, px, App, AppContext as _, Context, Entity,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Context, Entity,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
 };
@@ -108,8 +113,29 @@ impl HostPlugin for DevHost {
         .detach();
     }
 
+    fn announce(&self, text: &str, live: &str, _cx: &mut App) {
+        log::info!("[exponential-ui kitchen sink] announce ({live}): {text}");
+    }
+
+    fn on_upload(&self, event: &UploadEvent, cx: &mut App) {
+        let line = format!("upload {} file(s) ← {}", event.paths.len(), event.component_id);
+        log::info!("[exponential-ui kitchen sink] {line} {:?}", event.paths);
+        self.actions.borrow_mut().push(line);
+        self.notify(cx);
+    }
+
     fn on_unknown(&self, node: &PlacedNode) {
         log::warn!("[exponential-ui kitchen sink] unknown component {} ({})", node.component, node.id);
+    }
+
+    /// Round 2 `scrollToIndex` on a list windowed against the pane: the
+    /// pane scrolls (the surface fills it from its top-left).
+    fn scroll_surface(&self, x: f32, y: f32, cx: &mut App) {
+        let Some(screen) = self.screen.borrow().clone() else { return };
+        let _ = screen.update(cx, |this, cx| {
+            this.scroll.set_offset(gpui::point(px(-x), px(-y)));
+            cx.notify();
+        });
     }
 }
 
@@ -122,6 +148,44 @@ fn parse_mode(spec: Option<&str>) -> Mode {
         Some("light") => Mode::Light,
         _ => Mode::Dark,
     }
+}
+
+/// The kitchen-sink fixture. Its root pins `direction: ltr`; an RTL locale
+/// drops the pin so the locale decides (the core's rule).
+fn kitchen_sink_tree(locale: Option<&str>) -> NestedNode {
+    let mut raw: serde_json::Value = serde_json::from_str(KITCHEN_SINK_JSON).expect("the kitchen-sink fixture parses");
+    if locale.is_some_and(|l| exponential_ui::locale::text_direction(l) == "rtl") {
+        if let Some(style) = raw.get_mut("style").and_then(serde_json::Value::as_object_mut) {
+            style.remove("direction");
+        }
+    }
+    serde_json::from_value(raw).expect("the kitchen-sink fixture parses")
+}
+
+/// The surface settings the DEV env asks for (`None` = the defaults).
+fn parse_settings(mode: Mode) -> Option<SurfaceSettings> {
+    let locale = env_trimmed("EXP_DEV_EXPONENTIAL_UI_LOCALE");
+    let density = env_trimmed("EXP_DEV_EXPONENTIAL_UI_DENSITY").and_then(|d| Density::parse(&d));
+    let high = env_trimmed("EXP_DEV_EXPONENTIAL_UI_CONTRAST").as_deref() == Some("high");
+    let reduced = env_trimmed("EXP_DEV_EXPONENTIAL_UI_REDUCED_MOTION").is_some_and(|v| v != "0");
+    let system = env_trimmed("EXP_DEV_EXPONENTIAL_UI_MODE").as_deref() == Some("system");
+    if locale.is_none() && density.is_none() && !high && !reduced && !system {
+        return None;
+    }
+    Some(SurfaceSettings {
+        locale: locale.unwrap_or_else(|| "en-US".into()),
+        mode: if system {
+            ModeSetting::System
+        } else if mode == Mode::Light {
+            ModeSetting::Light
+        } else {
+            ModeSetting::Dark
+        },
+        density: density.unwrap_or_default(),
+        contrast: if high { ContrastSetting::High } else { ContrastSetting::Normal },
+        reduced_motion: reduced,
+        ..SurfaceSettings::default()
+    })
 }
 
 fn parse_theme(spec: Option<&str>) -> &'static str {
@@ -148,9 +212,6 @@ pub struct ExponentialUiKitchenSink {
     theme_id: &'static str,
     mode: Mode,
     bench: Option<usize>,
-    /// The scroller's last known height, handed to the painter for windowed
-    /// lists (one frame of lag, like the surface width probe).
-    viewport_h: f32,
     /// `EXP_DEV_EXPONENTIAL_UI_SCROLL`, applied once the pane can scroll.
     pending_scroll: Option<f32>,
 }
@@ -178,11 +239,12 @@ impl ExponentialUiKitchenSink {
             theme: exponential_ui::themes::builtin_theme(theme_id),
             mode,
             host: host.clone(),
+            settings: parse_settings(mode),
             ..SurfaceViewOptions::default()
         };
         let tree: NestedNode = match bench {
             Some(n) => exponential_ui::bench::bench_tree(n),
-            None => serde_json::from_str(KITCHEN_SINK_JSON).expect("the kitchen-sink fixture parses"),
+            None => kitchen_sink_tree(env_trimmed("EXP_DEV_EXPONENTIAL_UI_LOCALE").as_deref()),
         };
         let view = cx.new(|cx| {
             let mut view = SurfaceView::new(options, window, cx);
@@ -204,7 +266,6 @@ impl ExponentialUiKitchenSink {
             theme_id,
             mode,
             bench,
-            viewport_h: 0.,
             pending_scroll,
         }
     }
@@ -239,13 +300,6 @@ impl ExponentialUiKitchenSink {
         self.mode = mode;
         self.view.update(cx, |view, cx| view.set_mode(mode, cx));
         cx.notify();
-    }
-
-    fn set_viewport_h(&mut self, h: f32, cx: &mut Context<Self>) {
-        if h > 0. && (h - self.viewport_h).abs() > 0.5 {
-            self.viewport_h = h;
-            self.view.update(cx, |view, cx| view.set_viewport_height(h, cx));
-        }
     }
 
     fn caption(&self, cx: &App) -> String {
@@ -307,7 +361,6 @@ impl Render for ExponentialUiKitchenSink {
             (true, false) => format!("host: {echo}"),
             (false, false) => format!("{actions} · host: {echo}"),
         });
-        let this = cx.entity().downgrade();
         let _ = Screen::ExponentialUiKitchenSink;
         gpui_component::v_flex()
             .id("exponential-ui-kitchen-sink")
@@ -352,27 +405,137 @@ impl Render for ExponentialUiKitchenSink {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .child(
-                        canvas(
-                            move |bounds, _, cx| {
-                                let h = bounds.size.height / px(1.);
-                                if let Some(this) = this.upgrade() {
-                                    this.update(cx, |this, cx| this.set_viewport_h(h, cx));
-                                }
-                            },
-                            |_, _, _, _| {},
-                        )
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full(),
-                    )
+                    // The painter lays out at the pane's width from the first
+                    // frame and reads the pane's clip itself (windowed lists,
+                    // Dialogs centred in what is visible).
                     .child(crate::scroll_pane::v_scroll_pane(
                         "exponential-ui-kitchen-sink-scroll",
                         &self.scroll,
                         div().w_full().child(self.view.clone()),
                     )),
             )
+    }
+}
+
+/// VAPP-93: the site's specimens (`packages/exponential-ui/fixtures/specimens.json`):
+/// one surface per core component plus the home demo, each painted alone by
+/// [`ExponentialUiSpecimen`] for the ui.exponential.at desktop shots.
+const SPECIMENS_JSON: &str =
+    include_str!("../../../../../packages/exponential-ui/fixtures/specimens.json");
+
+/// The specimens fixture's entries, `(id, node)`, parsed once.
+fn specimens() -> &'static [(String, Value)] {
+    static SPECIMENS: std::sync::OnceLock<Vec<(String, Value)>> = std::sync::OnceLock::new();
+    SPECIMENS.get_or_init(|| {
+        let doc: Value = serde_json::from_str(SPECIMENS_JSON).expect("the specimens fixture parses");
+        doc.get("specimens")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        let id = row.get("id")?.as_str()?.to_string();
+                        Some((id, row.get("node")?.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// Whether `id` names an entry of the specimens fixture (an
+/// `EXP_DEV_SCREEN` value that opens [`Screen::ExponentialUiSpecimen`]).
+pub(crate) fn is_specimen_id(id: &str) -> bool {
+    specimens().iter().any(|(entry, _)| entry == id)
+}
+
+/// The specimen's host: icons by concept like the kitchen sink, actions only
+/// logged (a specimen is a still photograph).
+struct SpecimenHost;
+
+impl HostPlugin for SpecimenHost {
+    fn icon(&self, name: &str) -> Option<SharedString> {
+        crate::icons::registry::concept_by_name(name)
+            .or_else(|| crate::icons::registry::icon_by_name(name))
+            .map(|icon| icon.path())
+    }
+
+    fn on_action(&self, event: &ActionEvent, _cx: &mut App) {
+        log::info!("[exponential-ui specimen] action {} ← {}", event.name, event.component_id);
+    }
+
+    fn on_input(&self, _event: &InputEvent, _cx: &mut App) {}
+
+    fn on_unknown(&self, node: &PlacedNode) {
+        log::warn!("[exponential-ui specimen] unknown component {} ({})", node.component, node.id);
+    }
+}
+
+/// VAPP-93 (DEV-ONLY): ONE specimen of `fixtures/specimens.json` painted by
+/// the gpui painter with no switcher chrome — just the specimen column at
+/// the top-left of the content area (`EXP_DEV_SCREEN=<specimen id>`). Theme
+/// and mode follow the kitchen sink's env overrides (default exponential,
+/// dark).
+pub struct ExponentialUiSpecimen {
+    id: String,
+    view: Entity<SurfaceView>,
+    scroll: ScrollHandle,
+}
+
+impl ExponentialUiSpecimen {
+    pub fn new(id: &str, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let theme_id = parse_theme(env_trimmed("EXP_DEV_EXPONENTIAL_UI_THEME").as_deref());
+        let mode = parse_mode(env_trimmed("EXP_DEV_EXPONENTIAL_UI_MODE").as_deref());
+        let options = SurfaceViewOptions {
+            surface_id: id.to_string(),
+            theme: exponential_ui::themes::builtin_theme(theme_id),
+            mode,
+            host: Rc::new(SpecimenHost),
+            ..SurfaceViewOptions::default()
+        };
+        let node = specimens().iter().find(|(entry, _)| entry == id).map(|(_, node)| node.clone());
+        let tree: Option<NestedNode> = node.and_then(|node| match serde_json::from_value(node) {
+            Ok(tree) => Some(tree),
+            Err(err) => {
+                log::warn!("[exponential-ui specimen] {id} does not parse: {err}");
+                None
+            }
+        });
+        let view = cx.new(|cx| {
+            let mut view = SurfaceView::new(options, window, cx);
+            if let Some(tree) = tree {
+                let outcome = view.set_nested(tree, cx);
+                for issue in &outcome.issues {
+                    log::warn!("[exponential-ui specimen] {}: {}", issue.id, issue.message);
+                }
+            }
+            view
+        });
+        cx.observe(&view, |_, _, cx| cx.notify()).detach();
+        Self { id: id.to_string(), view, scroll: ScrollHandle::new() }
+    }
+
+    /// The specimen id this screen paints.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+}
+
+impl Render for ExponentialUiSpecimen {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // The painter lays out at the pane's width from the first frame and
+        // reads the pane's clip itself (round 1: no viewport probe).
+        div()
+            .id("exponential-ui-specimen")
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(crate::scroll_pane::v_scroll_pane(
+                "exponential-ui-specimen-scroll",
+                &self.scroll,
+                div().w_full().child(self.view.clone()),
+            ))
     }
 }
 
@@ -388,12 +551,45 @@ mod tests {
     }
 
     #[test]
+    fn every_specimen_parses_as_a_nested_node() {
+        // Every visible core component (82 since round 2: Resizable joined) + the home demo.
+        assert_eq!(specimens().len(), 83);
+        for (id, node) in specimens() {
+            let tree: Result<NestedNode, _> = serde_json::from_value(node.clone());
+            assert!(tree.is_ok(), "{id}: {:?}", tree.err());
+        }
+        assert!(is_specimen_id("exponential-ui-button"));
+        assert!(is_specimen_id("exponential-ui-demo"));
+        assert!(!is_specimen_id("exponential-ui-kitchen-sink"));
+    }
+
+    #[test]
     fn env_picks_theme_and_mode_with_defaults() {
         assert_eq!(parse_theme(None), "exponential");
         assert_eq!(parse_theme(Some("playful")), "playful");
         assert_eq!(parse_theme(Some("nope")), "exponential");
         assert_eq!(parse_mode(Some("light")), Mode::Light);
         assert_eq!(parse_mode(None), Mode::Dark);
+    }
+
+    #[test]
+    fn an_rtl_locale_unpins_the_kitchen_sinks_direction() {
+        let pinned = |t: &NestedNode| serde_json::to_value(t).unwrap()["style"].get("direction").cloned();
+        assert_eq!(pinned(&kitchen_sink_tree(None)), Some(serde_json::json!("ltr")));
+        assert_eq!(pinned(&kitchen_sink_tree(Some("de-DE"))), Some(serde_json::json!("ltr")));
+        assert_eq!(pinned(&kitchen_sink_tree(Some("ar"))), None);
+    }
+
+    #[test]
+    fn no_settings_env_means_the_core_defaults() {
+        if std::env::var_os("EXP_DEV_EXPONENTIAL_UI_LOCALE").is_none()
+            && std::env::var_os("EXP_DEV_EXPONENTIAL_UI_DENSITY").is_none()
+            && std::env::var_os("EXP_DEV_EXPONENTIAL_UI_CONTRAST").is_none()
+            && std::env::var_os("EXP_DEV_EXPONENTIAL_UI_REDUCED_MOTION").is_none()
+            && std::env::var_os("EXP_DEV_EXPONENTIAL_UI_MODE").is_none()
+        {
+            assert!(parse_settings(Mode::Dark).is_none());
+        }
     }
 
     #[test]

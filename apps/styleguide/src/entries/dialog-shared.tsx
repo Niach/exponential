@@ -1,12 +1,9 @@
 import type { ComponentProps, ReactNode } from "react"
-import prompts from "@exp/domain-contract/fixtures/prompts.json"
 import {
   cn,
   conceptIcon,
   Dialog,
   PromptLayout,
-  type PromptAction,
-  type PromptActionRole,
 } from "@exp/ui"
 
 /**
@@ -83,41 +80,4 @@ export function PromptSpecimen({
       </DialogSpecimen>
     </Dialog>
   )
-}
-
-type PromptEntry = {
-  title?: string
-  titleOne?: string
-  body?: string
-  bodyOne?: string
-  actions: { id: string; label: string; role: string }[]
-}
-
-/**
- * EXP-1215: a contract prompt's text for a specimen, straight off
- * `prompts.json` (the app reads it through `apps/web/src/lib/prompts.ts`):
- * the plain `title`/`body` (or their `One` variants) with `{params}` filled,
- * and the actions in display order. `busy`/`disabled` name an action id.
- */
-export function promptSpecimenCopy(
-  id: keyof typeof prompts.prompts,
-  params: Record<string, string | number> = {},
-  { busy, disabled }: { busy?: string; disabled?: string } = {}
-): { title: string; body?: string; actions: PromptAction[] } {
-  const entry = prompts.prompts[id] as PromptEntry
-  const fill = (text: string | undefined) =>
-    text?.replace(/\{(\w+)\}/g, (match, name: string) =>
-      name in params ? String(params[name]) : match
-    )
-  const body = fill(entry.body ?? entry.bodyOne)
-  return {
-    title: fill(entry.title ?? entry.titleOne) ?? ``,
-    ...(body ? { body } : {}),
-    actions: entry.actions.map((action) => ({
-      label: action.label,
-      role: action.role as PromptActionRole,
-      busy: action.id === busy,
-      disabled: action.id === disabled,
-    })),
-  }
 }

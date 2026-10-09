@@ -1,30 +1,25 @@
 //! Style RESOLUTION for layout: a node's style object (token references
 //! already resolved by the theme, conditions still nested) → the flat map for
-//! this pass (`@media (min-width)` against the SURFACE width, `:pressed`
-//! against the node's press state) → logical properties made physical from
-//! the surface direction → a taffy `Style` plus the painted [`Visual`].
+//! this pass (`conditions::resolve_conditions`: media against the SURFACE
+//! box, the state keys against the node's states) → logical properties made
+//! physical from the surface direction → a taffy `Style` plus the painted
+//! [`Visual`].
 //!
 //! Rules from the VAPP-4 spike that every painter relies on: border-box, flex
-//! row default, `min-width: auto`, `overflow: hidden` = clip, `borderWidth` is
-//! the one visual key with layout effect, absolute nodes paint last among
-//! their siblings (no z-index).
+//! row default, `min-width: auto`, `overflow: hidden` = clip, the border
+//! widths (`borderWidth` and the four sides) are the visual keys with layout
+//! effect, absolute nodes paint last among their siblings (no z-index).
+//! Round 1 adds the per-side and per-corner keys, gradients, paint-only
+//! transforms, transitions (resolved durations + easings), text styling,
+//! `overflowX/Y`, `visibility`, `pointerEvents`, `userSelect`, `cursor`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use taffy::prelude::*;
-use taffy::style::{
-    AlignContent, AlignItems, BoxSizing, Direction, Display, FlexDirection, FlexWrap,
-    LengthPercentage, LengthPercentageAuto, Overflow, Position, TextAlign,
-};
+use taffy::style::{AlignContent, AlignItems, BoxSizing, Direction, Display, FlexDirection, FlexWrap, LengthPercentage, LengthPercentageAuto, Overflow, Position, TextAlign};
 
+pub use crate::conditions::{is_condition_key, resolve_conditions, ConditionContext};
 use crate::tracks;
-
-/// What the client knows when it flattens a style object.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StyleContext {
-    pub surface_width: f32,
-    pub pressed: bool,
-}
 
 /// One shadow layer, resolved.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -36,20 +31,71 @@ pub struct ShadowLayer {
     pub color: String,
 }
 
+/// One gradient stop: a resolved colour at 0..1.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct GradientStop {
+    pub color: String,
+    pub offset: f32,
+}
+
+/// A linear gradient painted OVER `background_color` (CSS angle: 0 = up,
+/// 90 = right).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct Gradient {
+    pub angle: f32,
+    pub stops: Vec<GradientStop>,
+}
+
+/// One paint-only transform function, in source order (applied around the
+/// box's centre, like CSS `transform-origin: center`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum TransformOp {
+    Translate { x: f32, y: f32 },
+    Scale { factor: f32 },
+    Rotate { degrees: f32 },
+}
+
+/// The motion a node's colour/opacity/transform/size changes animate with:
+/// the resolved `$motion.*` duration (0 under reduced motion) and the
+/// `$ease.*` cubic bezier (CSS `ease` when unset).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Transition {
+    pub duration_ms: f32,
+    pub easing: [f32; 4],
+}
+
+/// CSS `ease`, the easing of a `transition` without `transitionEasing`.
+pub const DEFAULT_EASING: [f32; 4] = [0.25, 0.1, 0.25, 1.0];
+
 /// Painted properties, RESOLVED (hex colours, px numbers, shadow layers,
 /// family names). Painters never read the theme; they paint this.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Visual {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_gradient: Option<Gradient>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// The uniform border width (`borderWidth`); per-side widths are in
+    /// `border_widths` when any side differs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_width: Option<f32>,
+    /// `[top, right, bottom, left]` when a per-side width is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_widths: Option<[f32; 4]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_color: Option<String>,
+    /// `solid | dashed | dotted` (solid when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_style: Option<String>,
+    /// The uniform radius in px (a `%` resolves against the laid-out box).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub border_radius: Option<f32>,
+    /// `[topLeft, topRight, bottomRight, bottomLeft]` when a corner is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radii: Option<[f32; 4]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub opacity: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,14 +108,31 @@ pub struct Visual {
     pub line_height: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub font_family: Option<String>,
+    /// PHYSICAL: `left | right | center | justify` (start/end resolved by
+    /// the surface direction).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_align: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub letter_spacing: Option<f32>,
+    /// `none | underline | line-through`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_decoration: Option<String>,
+    /// `none | uppercase | lowercase | capitalize`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_transform: Option<String>,
+    /// `normal | italic`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_style: Option<String>,
     /// The recipe's padding on a MEASURED leaf (a Button's label inset): the
     /// painter draws it, the measurer includes it; taffy never sees it.
+    /// The averages of the two sides; `padding` has each side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub padding_horizontal: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub padding_vertical: Option<f32>,
+    /// A leaf's padding `[top, right, bottom, left]` (logical keys resolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<[f32; 4]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gap: Option<f32>,
     /// `native: true` on the part's recipe: the painter may use the platform's
@@ -80,57 +143,64 @@ pub struct Visual {
     pub overflow_hidden: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub overflow_scroll: bool,
+    /// Per axis: `visible | hidden | clip | scroll | auto` (overflow merged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overflow_x: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overflow_y: Option<String>,
+    /// Paint-only transform functions in source order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<Vec<TransformOp>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<Transition>,
+    /// `visibility: hidden`: the box stays, nothing paints, out of the a11y tree.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub visibility_hidden: bool,
+    /// `pointerEvents: none`: presses pass through.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pointer_events_none: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_select: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    /// A Chart's series (or slice) colours, resolved for the mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series_colors: Option<Vec<String>>,
+    /// Round 2: a LEAF's resolved direction (`ltr | rtl`): the bidi
+    /// paragraph direction its text is shaped with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<String>,
+    /// Round 2: `backdropBlur` in px (`$blur.*` resolved): blur what is
+    /// behind the box through its translucent background. No platform blur
+    /// = paint the background alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop_blur: Option<f32>,
+    /// Round 2: the keyframe animation with its resolved timing; a painter
+    /// keeps the time the node entered the tree and paints
+    /// [`crate::animation::frame_with_timing`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<VisualAnimation>,
+    /// Round 2: `position: sticky` (the pinned offsets are
+    /// `LayoutOutput::sticky`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sticky: bool,
 }
 
-fn media_min_width(key: &str) -> Option<f32> {
-    let inner = key.strip_prefix("@media")?.trim();
-    let inner = inner.strip_prefix('(')?.strip_suffix(')')?;
-    let (name, value) = inner.split_once(':')?;
-    if name.trim() != "min-width" {
-        return None;
-    }
-    let v = value.trim();
-    v.strip_suffix("px").unwrap_or(v).trim().parse::<f32>().ok()
+/// A node's animation (`animation` + `animationDuration`, resolved).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualAnimation {
+    pub name: String,
+    pub timing: crate::animation::AnimationTiming,
+    /// Reduced motion: paint the rest frame, no band.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reduced: bool,
 }
 
-/// Is `key` a condition block rather than a property?
-pub fn is_condition_key(key: &str) -> bool {
-    key.starts_with('@') || key.starts_with(':')
-}
-
-/// Flatten conditions into one map: base → matching media queries in
-/// ascending `min-width` → `:pressed`.
-pub fn resolve_conditions(style: &Map<String, Value>, ctx: StyleContext) -> Map<String, Value> {
-    let mut out = Map::new();
-    for (k, v) in style {
-        if !is_condition_key(k) {
-            out.insert(k.clone(), v.clone());
-        }
-    }
-    let mut media: Vec<(f32, &Map<String, Value>)> = style
-        .iter()
-        .filter_map(|(k, v)| Some((media_min_width(k)?, v.as_object()?)))
-        .filter(|(min, _)| ctx.surface_width >= *min)
-        .collect();
-    media.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    for (_, overrides) in media {
-        for (k, v) in overrides {
-            out.insert(k.clone(), v.clone());
-        }
-    }
-    if ctx.pressed {
-        if let Some(p) = style.get(":pressed").and_then(Value::as_object) {
-            for (k, v) in p {
-                out.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    out
-}
-
-/// Logical inline properties → physical sides for the surface direction.
-/// taffy 0.12 has only physical rects. A logical key wins over the physical
-/// one it maps to (it states the direction-aware intent).
+/// Logical properties → physical sides for the surface direction. taffy has
+/// only physical rects. A logical key wins over the physical one it maps to
+/// (it states the direction-aware intent). `insetBlockStart/End` are
+/// `top`/`bottom`; `textAlign: start|end` becomes `left|right`.
 pub fn resolve_logical(style: &mut Map<String, Value>, direction: Direction) {
     let (start, end) = match direction {
         Direction::Rtl => ("Right", "Left"),
@@ -144,11 +214,27 @@ pub fn resolve_logical(style: &mut Map<String, Value>, direction: Direction) {
         ("insetInlineStart", ""),
         ("insetInlineEnd", ""),
     ] {
-        if let Some(v) = style.remove(logical) {
+        if let Some(v) = style.shift_remove(logical) {
             let side = if logical.ends_with("Start") { start } else { end };
             let physical = if prefix.is_empty() { side.to_lowercase() } else { format!("{prefix}{side}") };
             style.insert(physical, v);
         }
+    }
+    if let Some(v) = style.shift_remove("insetBlockStart") {
+        style.insert("top".into(), v);
+    }
+    if let Some(v) = style.shift_remove("insetBlockEnd") {
+        style.insert("bottom".into(), v);
+    }
+    let rtl = matches!(direction, Direction::Rtl);
+    match style.get("textAlign").and_then(Value::as_str) {
+        Some("start") => {
+            style.insert("textAlign".into(), Value::String(if rtl { "right" } else { "left" }.into()));
+        }
+        Some("end") => {
+            style.insert("textAlign".into(), Value::String(if rtl { "left" } else { "right" }.into()));
+        }
+        _ => {}
     }
 }
 
@@ -200,6 +286,11 @@ pub fn px(v: &Value) -> Option<f32> {
     v.as_str().and_then(px_of)
 }
 
+/// A `"N%"` length as a fraction (0.5 for `50%`).
+pub fn percent_value(v: &Value) -> Option<f32> {
+    v.as_str().and_then(percent_of)
+}
+
 fn rect_lp(r: &Map<String, Value>, all: &str, horizontal: &str, vertical: &str, sides: [&str; 4]) -> Rect<LengthPercentage> {
     let mut out: Rect<LengthPercentage> = Rect::zero();
     if let Some(v) = r.get(all).and_then(lp) {
@@ -229,14 +320,7 @@ fn rect_lp(r: &Map<String, Value>, all: &str, horizontal: &str, vertical: &str, 
     out
 }
 
-fn rect_lpa(
-    r: &Map<String, Value>,
-    all: &str,
-    horizontal: &str,
-    vertical: &str,
-    sides: [&str; 4],
-    default: LengthPercentageAuto,
-) -> Rect<LengthPercentageAuto> {
+fn rect_lpa(r: &Map<String, Value>, all: &str, horizontal: &str, vertical: &str, sides: [&str; 4], default: LengthPercentageAuto) -> Rect<LengthPercentageAuto> {
     let mut out = Rect { left: default, right: default, top: default, bottom: default };
     if let Some(v) = r.get(all).and_then(lpa) {
         out = Rect { left: v, right: v, top: v, bottom: v };
@@ -265,6 +349,51 @@ fn rect_lpa(
     out
 }
 
+/// The px sides `[top, right, bottom, left]` of a padding-like key family
+/// (`padding`, `paddingHorizontal`, `paddingVertical`, the four sides; the
+/// logical keys are already physical here). `None` when no key is set.
+pub fn sides_px(r: &Map<String, Value>, all: &str, horizontal: &str, vertical: &str, sides: [&str; 4]) -> Option<[f32; 4]> {
+    let keys = [all, horizontal, vertical, sides[0], sides[1], sides[2], sides[3]];
+    if !keys.iter().any(|k| r.contains_key(*k)) {
+        return None;
+    }
+    let mut out = [0.0f32; 4];
+    if let Some(v) = r.get(all).and_then(px) {
+        out = [v; 4];
+    }
+    if let Some(v) = r.get(horizontal).and_then(px) {
+        out[1] = v;
+        out[3] = v;
+    }
+    if let Some(v) = r.get(vertical).and_then(px) {
+        out[0] = v;
+        out[2] = v;
+    }
+    for (i, k) in sides.iter().enumerate() {
+        if let Some(v) = r.get(*k).and_then(px) {
+            out[i] = v;
+        }
+    }
+    Some(out)
+}
+
+/// The border widths `[top, right, bottom, left]` (`borderWidth` then the
+/// sides); `None` when no width key is set.
+pub fn border_sides(r: &Map<String, Value>) -> Option<[f32; 4]> {
+    let sides = ["borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth"];
+    if !r.contains_key("borderWidth") && !sides.iter().any(|k| r.contains_key(*k)) {
+        return None;
+    }
+    let all = r.get("borderWidth").and_then(num).unwrap_or(0.0);
+    let mut out = [all; 4];
+    for (i, k) in sides.iter().enumerate() {
+        if let Some(v) = r.get(*k).and_then(num) {
+            out[i] = v;
+        }
+    }
+    Some(out)
+}
+
 fn align_items(s: &str) -> Option<AlignItems> {
     Some(match s {
         "flex-start" | "start" => AlignItems::FLEX_START,
@@ -287,6 +416,26 @@ fn align_content(s: &str) -> Option<AlignContent> {
         "space-evenly" => AlignContent::SPACE_EVENLY,
         _ => return None,
     })
+}
+
+fn overflow_of(s: &str) -> Result<Overflow, String> {
+    Ok(match s {
+        "visible" => Overflow::Visible,
+        "hidden" | "clip" => Overflow::Clip,
+        "scroll" | "auto" => Overflow::Scroll,
+        other => return Err(format!("unsupported overflow {other:?}")),
+    })
+}
+
+/// The overflow of one axis: the axis key over `overflow`.
+pub fn axis_overflow<'a>(r: &'a Map<String, Value>, axis: &str) -> Option<&'a str> {
+    r.get(axis).or_else(|| r.get("overflow")).and_then(Value::as_str)
+}
+
+/// Is the flat style a scroll container on either axis?
+pub fn is_scroll_container(r: &Map<String, Value>) -> (bool, bool) {
+    let scrolls = |v: Option<&str>| matches!(v, Some("scroll") | Some("auto"));
+    (scrolls(axis_overflow(r, "overflowX")), scrolls(axis_overflow(r, "overflowY")))
 }
 
 /// How a node's padding and border reach taffy.
@@ -329,17 +478,14 @@ pub fn to_taffy(r: &Map<String, Value>, direction: Direction, kind: BoxKind) -> 
     s.position = match str_of("position") {
         None | Some("relative") => Position::Relative,
         Some("absolute") => Position::Absolute,
+        // Round 2: sticky = relative in layout; the surface pins it by its
+        // insets inside the nearest scroller (`LayoutOutput::sticky`).
+        Some("sticky") => Position::Relative,
         Some(other) => return Err(format!("unsupported position {other:?}")),
     };
-    if let Some(o) = str_of("overflow") {
-        let ov = match o {
-            "visible" => Overflow::Visible,
-            "hidden" | "clip" => Overflow::Clip,
-            "scroll" | "auto" => Overflow::Scroll,
-            other => return Err(format!("unsupported overflow {other:?}")),
-        };
-        s.overflow = taffy::geometry::Point { x: ov, y: ov };
-    }
+    let ox = axis_overflow(r, "overflowX").map(overflow_of).transpose()?;
+    let oy = axis_overflow(r, "overflowY").map(overflow_of).transpose()?;
+    s.overflow = taffy::geometry::Point { x: ox.unwrap_or(Overflow::Visible), y: oy.unwrap_or(Overflow::Visible) };
     if let Some(v) = str_of("justifyContent") {
         s.justify_content = Some(align_content(v).ok_or(format!("justifyContent {v:?}"))?);
     }
@@ -395,19 +541,14 @@ pub fn to_taffy(r: &Map<String, Value>, direction: Direction, kind: BoxKind) -> 
             Some(a.trim().parse::<f32>().ok()? / b.trim().parse::<f32>().ok()?)
         });
     }
-    s.inset = rect_lpa(r, "inset", "insetHorizontal", "insetVertical", ["top", "right", "bottom", "left"], LengthPercentageAuto::auto());
-    s.margin = rect_lpa(
-        r,
-        "margin",
-        "marginHorizontal",
-        "marginVertical",
-        ["marginTop", "marginRight", "marginBottom", "marginLeft"],
-        LengthPercentageAuto::ZERO,
-    );
+    if str_of("position") != Some("sticky") {
+        s.inset = rect_lpa(r, "inset", "insetHorizontal", "insetVertical", ["top", "right", "bottom", "left"], LengthPercentageAuto::auto());
+    }
+    s.margin = rect_lpa(r, "margin", "marginHorizontal", "marginVertical", ["marginTop", "marginRight", "marginBottom", "marginLeft"], LengthPercentageAuto::ZERO);
     if kind == BoxKind::Container {
         s.padding = rect_lp(r, "padding", "paddingHorizontal", "paddingVertical", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]);
-        if let Some(b) = r.get("borderWidth").and_then(num) {
-            s.border = Rect { left: length(b), right: length(b), top: length(b), bottom: length(b) };
+        if let Some([t, rr, b, l]) = border_sides(r) {
+            s.border = Rect { left: length(l), right: length(rr), top: length(t), bottom: length(b) };
         }
     }
     if let Some(v) = str_of("gridTemplateColumns") {
@@ -453,20 +594,87 @@ fn shadow_layers(v: &Value) -> Option<Vec<ShadowLayer>> {
     )
 }
 
+fn gradient(v: &Value) -> Option<Gradient> {
+    let o = v.as_object()?;
+    let stops = o
+        .get("stops")?
+        .as_array()?
+        .iter()
+        .filter_map(|s| Some(GradientStop { color: s.get("color")?.as_str()?.to_string(), offset: s.get("offset").and_then(num).unwrap_or(0.0) }))
+        .collect::<Vec<_>>();
+    (stops.len() >= 2).then(|| Gradient { angle: o.get("angle").and_then(num).unwrap_or(180.0), stops })
+}
+
+/// `translate(Xpx, Ypx) scale(N) rotate(Ndeg)` → the ops in order.
+pub fn parse_transform(s: &str) -> Option<Vec<TransformOp>> {
+    if !crate::style_check::is_transform(s) {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut rest = s;
+    while let Some(close) = rest.find(')') {
+        let (piece, after) = rest.split_at(close + 1);
+        if let Some(args) = piece.strip_prefix("translate(").and_then(|r| r.strip_suffix(')')) {
+            let (x, y) = args.split_once(", ")?;
+            out.push(TransformOp::Translate { x: x.strip_suffix("px")?.parse().ok()?, y: y.strip_suffix("px")?.parse().ok()? });
+        } else if let Some(n) = piece.strip_prefix("scale(").and_then(|r| r.strip_suffix(')')) {
+            out.push(TransformOp::Scale { factor: n.parse().ok()? });
+        } else if let Some(n) = piece.strip_prefix("rotate(").and_then(|r| r.strip_suffix(')')) {
+            out.push(TransformOp::Rotate { degrees: n.strip_suffix("deg")?.parse().ok()? });
+        }
+        rest = after.strip_prefix(' ').unwrap_or(after);
+    }
+    Some(out)
+}
+
+fn easing(v: &Value) -> Option<[f32; 4]> {
+    let a = v.as_array()?;
+    if a.len() != 4 {
+        return None;
+    }
+    Some([num(&a[0])?, num(&a[1])?, num(&a[2])?, num(&a[3])?])
+}
+
+/// Average of two sides (what a measurer that adds `2 × padding` needs).
+fn avg(a: f32, b: f32) -> f32 {
+    (a + b) / 2.0
+}
+
 /// The painted subset of a resolved flat map. For a [`BoxKind::Leaf`] the
 /// recipe's padding/gap ride along for the painter and the measurer.
+/// `%` radii are left out here (the surface resolves them against the box).
 pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
     let str_of = |k: &str| r.get(k).and_then(Value::as_str).map(str::to_string);
-    let overflow = r.get("overflow").and_then(Value::as_str);
     let leaf = kind == BoxKind::Leaf;
-    let pad_h = r.get("paddingHorizontal").or_else(|| r.get("padding")).and_then(px);
-    let pad_v = r.get("paddingVertical").or_else(|| r.get("padding")).and_then(px);
+    let pads = if leaf { sides_px(r, "padding", "paddingHorizontal", "paddingVertical", ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]) } else { None };
+    let borders = border_sides(r);
+    let uniform_border = borders.filter(|b| b.iter().all(|w| (w - b[0]).abs() < 0.001)).map(|b| b[0]);
+    let corners = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"];
+    let radius = r.get("borderRadius").and_then(px);
+    let corner_radii = corners.iter().any(|k| r.get(*k).and_then(px).is_some()).then(|| {
+        let base = radius.unwrap_or(0.0);
+        let mut out = [base; 4];
+        for (i, k) in corners.iter().enumerate() {
+            if let Some(v) = r.get(*k).and_then(px) {
+                out[i] = v;
+            }
+        }
+        out
+    });
+    let ox = axis_overflow(r, "overflowX").map(str::to_string);
+    let oy = axis_overflow(r, "overflowY").map(str::to_string);
+    let any = |v: &Option<String>, set: &[&str]| v.as_deref().is_some_and(|x| set.contains(&x));
+    let transition = r.get("transition").and_then(num).map(|ms| Transition { duration_ms: ms, easing: r.get("transitionEasing").and_then(easing).unwrap_or(DEFAULT_EASING) });
     Visual {
         background_color: str_of("backgroundColor"),
+        background_gradient: r.get("backgroundGradient").and_then(gradient),
         color: str_of("color"),
-        border_width: r.get("borderWidth").and_then(num),
+        border_width: uniform_border.or_else(|| r.get("borderWidth").and_then(num)),
+        border_widths: borders.filter(|_| uniform_border.is_none()),
         border_color: str_of("borderColor"),
-        border_radius: r.get("borderRadius").and_then(px),
+        border_style: str_of("borderStyle"),
+        border_radius: radius,
+        corner_radii,
         opacity: r.get("opacity").and_then(num),
         box_shadow: r.get("boxShadow").and_then(shadow_layers),
         font_size: r.get("fontSize").and_then(px),
@@ -474,20 +682,40 @@ pub fn visual(r: &Map<String, Value>, kind: BoxKind) -> Visual {
         line_height: r.get("lineHeight").and_then(px),
         font_family: str_of("fontFamily"),
         text_align: str_of("textAlign"),
-        padding_horizontal: if leaf { pad_h } else { None },
-        padding_vertical: if leaf { pad_v } else { None },
+        letter_spacing: r.get("letterSpacing").and_then(px),
+        text_decoration: str_of("textDecoration"),
+        text_transform: str_of("textTransform"),
+        font_style: str_of("fontStyle"),
+        padding_horizontal: pads.map(|p| avg(p[1], p[3])),
+        padding_vertical: pads.map(|p| avg(p[0], p[2])),
+        padding: pads,
         gap: if leaf { r.get("gap").and_then(px) } else { None },
         native: r.get("native").and_then(Value::as_bool).unwrap_or(false),
-        overflow_hidden: matches!(overflow, Some("hidden") | Some("clip")),
-        overflow_scroll: matches!(overflow, Some("scroll") | Some("auto")),
+        overflow_hidden: any(&ox, &["hidden", "clip"]) || any(&oy, &["hidden", "clip"]),
+        overflow_scroll: any(&ox, &["scroll", "auto"]) || any(&oy, &["scroll", "auto"]),
+        overflow_x: ox,
+        overflow_y: oy,
+        transform: r.get("transform").and_then(Value::as_str).and_then(parse_transform),
+        transition,
+        visibility_hidden: r.get("visibility").and_then(Value::as_str) == Some("hidden"),
+        pointer_events_none: r.get("pointerEvents").and_then(Value::as_str) == Some("none"),
+        user_select: str_of("userSelect"),
+        cursor: str_of("cursor"),
+        series_colors: None,
+        direction: None,
+        backdrop_blur: r.get("backdropBlur").and_then(px),
+        animation: None,
+        sticky: r.get("position").and_then(Value::as_str) == Some("sticky"),
     }
 }
 
-/// The surface direction is read from the ROOT node's resolved style only.
-pub fn direction_of(r: &Map<String, Value>) -> Direction {
+/// A resolved style's own `direction` (inherited down the tree by the
+/// surface; the root's, else the locale's, is the surface direction).
+pub fn direction_of(r: &Map<String, Value>) -> Option<Direction> {
     match r.get("direction").and_then(Value::as_str) {
-        Some("rtl") => Direction::Rtl,
-        _ => Direction::Ltr,
+        Some("rtl") => Some(Direction::Rtl),
+        Some("ltr") => Some(Direction::Ltr),
+        _ => None,
     }
 }
 
@@ -496,37 +724,72 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn ctx(width: f32, states: &[&str]) -> ConditionContext {
+        ConditionContext { width, states: states.iter().map(|s| s.to_string()).collect(), breakpoints: crate::conditions::default_breakpoints(), ..Default::default() }
+    }
+
     #[test]
-    fn media_and_pressed_flatten_in_order() {
+    fn media_and_states_flatten_in_source_order() {
         let style = json!({"gap": 4, "@media (min-width: 600px)": {"gap": 8}, "@media (min-width: 900px)": {"gap": 12}, ":pressed": {"opacity": 0.6}});
         let m = style.as_object().unwrap();
-        let narrow = resolve_conditions(m, StyleContext { surface_width: 390.0, pressed: false });
-        assert_eq!(narrow.get("gap"), Some(&json!(4)));
-        let wide = resolve_conditions(m, StyleContext { surface_width: 900.0, pressed: true });
+        assert_eq!(resolve_conditions(m, &ctx(390.0, &[])).get("gap"), Some(&json!(4)));
+        let wide = resolve_conditions(m, &ctx(900.0, &["pressed"]));
         assert_eq!(wide.get("gap"), Some(&json!(12)));
         assert_eq!(wide.get("opacity"), Some(&json!(0.6)));
     }
 
     #[test]
     fn logical_properties_follow_the_direction() {
-        let mut m = json!({"marginInlineStart": 8, "insetInlineEnd": 4, "paddingInlineEnd": 2}).as_object().unwrap().clone();
+        let mut m = json!({"marginInlineStart": 8, "insetInlineEnd": 4, "paddingInlineEnd": 2, "insetBlockEnd": 3, "textAlign": "start"}).as_object().unwrap().clone();
         resolve_logical(&mut m, Direction::Rtl);
         assert_eq!(m.get("marginRight"), Some(&json!(8)));
         assert_eq!(m.get("left"), Some(&json!(4)));
         assert_eq!(m.get("paddingLeft"), Some(&json!(2)));
+        assert_eq!(m.get("bottom"), Some(&json!(3)));
+        assert_eq!(m.get("textAlign"), Some(&json!("right")));
         assert!(m.get("marginInlineStart").is_none());
     }
 
     #[test]
-    fn leaf_padding_stays_out_of_taffy() {
-        let m = json!({"paddingHorizontal": 16, "height": 36, "borderWidth": 1}).as_object().unwrap().clone();
+    fn leaf_padding_stays_out_of_taffy_with_every_side() {
+        let m = json!({"paddingHorizontal": 16, "paddingTop": 2, "paddingLeft": 10, "height": 36, "borderWidth": 1}).as_object().unwrap().clone();
         let leaf = to_taffy(&m, Direction::Ltr, BoxKind::Leaf).unwrap();
         assert_eq!(leaf.padding, Rect::zero());
         assert_eq!(leaf.border, Rect::zero());
         let container = to_taffy(&m, Direction::Ltr, BoxKind::Container).unwrap();
-        assert_eq!(container.padding.left, length(16.0));
+        assert_eq!(container.padding.left, length(10.0));
+        assert_eq!(container.padding.right, length(16.0));
         let v = visual(&m, BoxKind::Leaf);
-        assert_eq!(v.padding_horizontal, Some(16.0));
+        assert_eq!(v.padding, Some([2.0, 16.0, 0.0, 10.0]));
+        assert_eq!(v.padding_horizontal, Some(13.0));
+        assert_eq!(v.padding_vertical, Some(1.0));
         assert_eq!(v.border_width, Some(1.0));
+    }
+
+    #[test]
+    fn per_side_borders_reach_taffy_and_the_visual() {
+        let m = json!({"borderWidth": 1, "borderBottomWidth": 3, "borderStyle": "dashed", "borderRadius": 8, "borderTopLeftRadius": 2}).as_object().unwrap().clone();
+        let s = to_taffy(&m, Direction::Ltr, BoxKind::Container).unwrap();
+        assert_eq!(s.border.bottom, length(3.0));
+        assert_eq!(s.border.top, length(1.0));
+        let v = visual(&m, BoxKind::Container);
+        assert_eq!(v.border_widths, Some([1.0, 1.0, 3.0, 1.0]));
+        assert_eq!(v.border_width, Some(1.0));
+        assert_eq!(v.border_style.as_deref(), Some("dashed"));
+        assert_eq!(v.corner_radii, Some([2.0, 8.0, 8.0, 8.0]));
+    }
+
+    #[test]
+    fn overflow_per_axis_and_paint_only_keys() {
+        let m = json!({"overflowX": "scroll", "overflow": "hidden", "transform": "translate(4px, -2px) rotate(90deg)", "transition": 150, "transitionEasing": [0.2, 0, 0, 1], "visibility": "hidden", "pointerEvents": "none", "backgroundGradient": {"angle": 90, "stops": [{"color": "#ff0000", "offset": 0}, {"color": "#0000ff", "offset": 1}]}}).as_object().unwrap().clone();
+        let s = to_taffy(&m, Direction::Ltr, BoxKind::Container).unwrap();
+        assert_eq!(s.overflow.x, Overflow::Scroll);
+        assert_eq!(s.overflow.y, Overflow::Clip);
+        assert_eq!(is_scroll_container(&m), (true, false));
+        let v = visual(&m, BoxKind::Container);
+        assert_eq!(v.transform, Some(vec![TransformOp::Translate { x: 4.0, y: -2.0 }, TransformOp::Rotate { degrees: 90.0 }]));
+        assert_eq!(v.transition, Some(Transition { duration_ms: 150.0, easing: [0.2, 0.0, 0.0, 1.0] }));
+        assert!(v.visibility_hidden && v.pointer_events_none);
+        assert_eq!(v.background_gradient.as_ref().unwrap().stops.len(), 2);
     }
 }

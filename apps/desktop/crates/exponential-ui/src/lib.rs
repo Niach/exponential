@@ -8,11 +8,32 @@
 //! natives passed through as `Extension` nodes), the **theme** resolves every
 //! `$token` reference and per-part recipe into concrete visuals, **taffy**
 //! lays the tree out against the surface width with a batched two-phase text
-//! measurement that crosses the FFI at most three times per pass, **overlay
-//! layers** (Dialog, Drawer, Popover, Tooltip, DropdownMenu) get their own
-//! roots placed against the viewport or an anchor frame, and windowed `List`s
-//! lay out only the visible rows. The painter receives flat `PlacedNode`s with
-//! RESOLVED visuals and paints; it never reads the catalog or the theme.
+//! measurement that crosses the FFI at most three times per pass (sizes AND
+//! first baselines), **overlay layers** (dialogs, drawers, popovers,
+//! tooltips, menus and submenus, the Select / picker popups, the toast band)
+//! get their own roots placed against the viewport, an anchor or a point,
+//! and windowed `List`s / `Table`s lay out only the visible rows. Nodes live
+//! in stable slots reconciled by id, so a data write, a tab switch or a
+//! scroll touches only what changed (`NodeDelta`). The painter receives flat
+//! `PlacedNode`s with RESOLVED visuals and paints; it never reads the
+//! catalog or the theme.
+//!
+//! Round 1 (`packages/exponential-ui/docs/round-1-contract.md`): bound macro
+//! inputs evaluate at bind time (`data::bind_tree`, `data::run_action`),
+//! style conditions (`conditions`), the new style keys, responsive props,
+//! the locale / strings / code / chart / a11y contracts (`locale`,
+//! `strings`, `code`, `chart`, `a11y`), surface settings (mode incl.
+//! `system`, density, contrast, font scale, safe-area insets).
+//!
+//! Round 2 (`docs/round-2-contract.md`): templates LIFTED out of the tree
+//! (`ReduceResult::templates`), `#<index>` keys and accumulated instance
+//! suffixes, a host [`format::Formatter`] (default: the English fallback),
+//! display strings, per-node direction and physical text alignment
+//! (`direction`), keyframe animations (`animation`), the Resizable
+//! arithmetic (`resizable`) and native, one-axis windowing with sections,
+//! sticky headers, unbounded lists and `scrollToIndex` (`list`),
+//! `position: sticky`, `backdropBlur` and the shared layout numbers
+//! (`layout`).
 //!
 //! The TypeScript reference implementation lives in `packages/exponential-ui`
 //! (`@exponential-at/ui`); both replay the same fixtures byte for byte, and
@@ -25,22 +46,35 @@
 
 pub mod generated;
 
+pub mod a11y;
+pub mod animation;
 pub mod basic_map;
 pub mod bench;
 pub mod catalog;
+pub mod chart;
+pub mod code;
+pub mod conditions;
 pub mod data;
+pub mod direction;
+pub mod engine;
 pub mod expr;
 pub mod extension;
+pub mod format;
 pub mod geometry;
+pub mod host;
 pub mod json;
+pub mod layout;
 pub mod layout_tree;
 pub mod list;
+pub mod locale;
 pub mod macros;
 pub mod measure;
 pub mod overlay;
 pub mod recipes;
 pub mod reducer;
+pub mod resizable;
 pub mod style;
+pub mod strings;
 pub mod style_check;
 pub mod surface;
 pub mod theme;

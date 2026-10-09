@@ -30,3 +30,4 @@ exponential-ui = { path = "../exponential-ui", version = "0.1.0" }
 uniffi = { version = "0.31" }
 serde = "1"
 serde_json = "1"
+indexmap = "2"

@@ -2950,6 +2950,7 @@ dependencies = [
  "serde",
  "serde_json",
  "taffy",
+ "url",
 ]
 
 [[package]]
@@ -2957,6 +2958,7 @@ name = "exponential-ui-ffi"
 version = "0.1.0"
 dependencies = [
  "exponential-ui",
+ "indexmap 2.14.0",
  "serde",
  "serde_json",
  "uniffi",
@@ -2967,10 +2969,21 @@ name = "exponential-ui-gpui"
 version = "0.1.0"
 dependencies = [
  "exponential-ui",
+ "flume 0.11.1",
+ "futures-util",
  "gpui",
  "gpui-component",
+ "gpui-component-assets",
+ "gpui_platform",
+ "gpui_wgpu",
+ "indexmap 2.14.0",
+ "reqwest",
  "serde",
  "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "unicode-bidi",
+ "unicode-linebreak",
 ]
 
 [[package]]

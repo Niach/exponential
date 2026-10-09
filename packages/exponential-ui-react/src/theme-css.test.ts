@@ -80,7 +80,7 @@ describe(`values and selectors`, () => {
 })
 
 describe(`nodeSheet`, () => {
-  it(`one rule per styled node, container queries ascending, :pressed → :active`, () => {
+  it(`per node: base rule, @media blocks in SOURCE order as container queries, then the states`, () => {
     const css = nodeSheet(
       {
         id: `root`,
@@ -92,7 +92,7 @@ describe(`nodeSheet`, () => {
       `s1`
     )
     expect(css).toBe(
-      `@layer xui-node{.xui-s-s1 .xui-n-root{display:grid;gap:var(--xui-spacing-md)}.xui-s-s1 .xui-n-b{flex-shrink:0}@container xui (min-width: 600px){.xui-s-s1 .xui-n-root{grid-template-columns:1fr 2fr}}@container xui (min-width: 900px){.xui-s-s1 .xui-n-root{gap:24px}}.xui-s-s1 .xui-n-b:active,.xui-s-s1 .xui-n-b[data-xs~="pressed"]{opacity:0.6}}`
+      `@layer xui-node{.xui-s-s1 .xui-n-root{display:grid;gap:var(--xui-spacing-md)}@container xui (width >= 900px){.xui-s-s1 .xui-n-root{gap:24px}}@container xui (width >= 600px){.xui-s-s1 .xui-n-root{grid-template-columns:1fr 2fr}}.xui-s-s1 .xui-n-b{flex-shrink:0}.xui-s-s1 .xui-n-b:active,.xui-s-s1 .xui-n-b[data-xs~="pressed"]{opacity:0.6}}`
     )
   })
 })

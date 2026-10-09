@@ -29,7 +29,7 @@ describe(`catalog prompt`, () => {
         continue
       }
       expect(full).toContain(`\n${name}: ${def.description}`)
-      for (const prop of Object.keys(def.props)) expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~]*: `))
+      for (const prop of Object.keys(def.props)) expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
     }
     expect(full).toContain(`Functions (client-side`)
   })
@@ -48,5 +48,23 @@ describe(`catalog prompt`, () => {
     expect(prompt).toContain(`Extension ${ext.id} (${ext.name}):`)
     expect(prompt).toContain(`\nStatCard: `)
     expect(prompt).toContain(`trend: up|down|flat`)
+  })
+})
+
+describe(`round 1: the prompt teaches responsive authoring`, () => {
+  const full = catalogPrompt()
+
+  test(`media conditions, states, breakpoint tokens and responsive props are taught`, () => {
+    for (const needle of [`@media (min-width: $breakpoint.md)`, `max-width`, `orientation: portrait|landscape`, `hover: hover|none`, `prefers-reduced-motion: reduce`, `":hover"`, `":focus-visible"`, `":pressed"`, `display: "none"`, `{base, sm?, md?, lg?, xl?}`, `visible`])
+      expect(full, needle).toContain(needle)
+    expect(full).toMatch(/\n  direction\^: /)
+    expect(full).toMatch(/\n  columns\^: /)
+  })
+
+  test(`common props are described once, other props keep their description`, () => {
+    expect(full).toContain(`Common props (no description below): name (form key)`)
+    expect(full).toMatch(/\n  name\*: string\n/)
+    expect(full).toContain(`  language: plain|json|`)
+    expect(full).toContain(` — The syntax colouring.`)
   })
 })

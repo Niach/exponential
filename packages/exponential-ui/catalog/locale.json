@@ -1,0 +1,48 @@
+{
+  "$comment": "Round 1 (docs/round-1-contract.md §4): the LOCALE contract. A surface carries one BCP 47 `locale` (SurfaceSettings.locale, default `en-US`); it drives the basic catalog's formatNumber/formatCurrency/formatDate/pluralize, NumberField's display, the calendar's month and weekday names and the default week start, and the text direction. Platforms format with their own ICU (Intl, Foundation, java.text, icu4x); what must not differ is decided HERE so every renderer agrees: `weekStart` = CLDR supplemental weekData `firstDay` by REGION (0 = Sunday … 6 = Saturday; a region not listed = `default`); a locale without a region takes `likelyRegion[language]` (CLDR likelySubtags: every rtl language and the most spoken ~90; else `default`); `languageAliases` = deprecated codes normalised FIRST (Java/Android still emit `iw`, `ji`, `in`); `rtl` = the languages whose text direction is right-to-left (the surface root gets `direction: rtl` unless the author set one); `rtlMirroredIcons` = the DIRECTIONAL glyphs (icons.json names, semantic and Lucide) a painter MIRRORS under rtl: scaleX(-1) as the OUTERMOST transform of the glyph, after the node's own `transform` (CSS `transform: scaleX(-1) <own>`), so a back arrow, a prev/next or breadcrumb chevron and a submenu indicator point the reading direction; media transport glyphs and everything else are never mirrored. Round 2: formatting goes through a host-supplied Formatter (SurfaceSettings.locale + timeZone; TS = Intl, Rust = a Formatter trait with the `englishFallback` below, FFI = a foreign Formatter). src/locale.ts + src/format.ts are the reference; generated into every target as constants. Append-only.",
+  "default": "en-US",
+  "weekStart": {
+    "default": 1,
+    "regions": {
+      "0": ["AG", "AS", "BD", "BR", "BS", "BT", "BW", "BZ", "CA", "CN", "CO", "DM", "DO", "ET", "GT", "GU", "HK", "HN", "ID", "IL", "IN", "JM", "JP", "KE", "KH", "KR", "LA", "MH", "MM", "MO", "MT", "MX", "MZ", "NI", "NP", "PA", "PE", "PH", "PK", "PR", "PT", "PY", "SA", "SG", "SV", "TH", "TT", "TW", "UM", "US", "VE", "VI", "WS", "YE", "ZA", "ZW"],
+      "5": ["MV"],
+      "6": ["AE", "AF", "BH", "DJ", "DZ", "EG", "IQ", "IR", "JO", "KW", "LY", "OM", "QA", "SD", "SY"]
+    }
+  },
+  "likelyRegion": {
+    "af": "ZA", "am": "ET", "ar": "EG", "az": "AZ", "be": "BY", "bg": "BG", "bn": "BD", "bs": "BA", "ca": "ES", "ckb": "IQ", "cs": "CZ", "cy": "GB",
+    "da": "DK", "de": "DE", "dv": "MV", "el": "GR", "en": "US", "es": "ES", "et": "EE", "eu": "ES", "fa": "IR", "fi": "FI", "fil": "PH", "fr": "FR",
+    "ga": "IE", "gl": "ES", "gu": "IN", "ha": "NG", "he": "IL", "hi": "IN", "hr": "HR", "hu": "HU", "hy": "AM", "id": "ID", "ig": "NG", "is": "IS",
+    "it": "IT", "ja": "JP", "jv": "ID", "ka": "GE", "kk": "KZ", "km": "KH", "kn": "IN", "ko": "KR", "ku": "TR", "ky": "KG", "lo": "LA", "lt": "LT",
+    "lv": "LV", "mk": "MK", "ml": "IN", "mn": "MN", "mr": "IN", "ms": "MY", "mt": "MT", "my": "MM", "nb": "NO", "ne": "NP", "nl": "NL", "nn": "NO",
+    "no": "NO", "or": "IN", "pa": "IN", "pl": "PL", "ps": "AF", "pt": "BR", "ro": "RO", "ru": "RU", "sd": "PK", "si": "LK", "sk": "SK", "sl": "SI",
+    "so": "SO", "sq": "AL", "sr": "RS", "sv": "SE", "sw": "TZ", "ta": "IN", "te": "IN", "th": "TH", "tl": "PH", "tr": "TR", "ug": "CN", "uk": "UA",
+    "ur": "PK", "uz": "UZ", "vi": "VN", "yi": "001", "yo": "NG", "zh": "CN", "zu": "ZA"
+  },
+  "languageAliases": { "in": "id", "iw": "he", "ji": "yi", "jw": "jv", "mo": "ro", "tl": "fil" },
+  "rtl": ["ar", "ckb", "dv", "fa", "he", "ps", "sd", "ug", "ur", "yi"],
+  "rtlMirroredIcons": ["ui-back", "ui-chevron-left", "ui-chevron-right", "ui-arrow-right", "ui-send", "ui-undo", "ui-external-link", "arrow-left", "arrow-right", "chevron-left", "chevron-right", "send", "undo-2", "external-link"],
+  "englishFallback": {
+    "$comment": "Round 2 (docs/round-2-contract.md §3): the data of the ENGLISH fallback Formatter (src/format.ts englishFormatter; the Rust core's fallback reads the same): what a renderer without a platform ICU prints, equal to Intl en-US (ICU 74+) for every case of fixtures/format.json. `currencyPrefix` = the en-US prefix per ISO 4217 code (a code not listed prints `unknownCurrency`: `<CODE>` + U+00A0); `currencyDigits` = the minor digits where they are not 2; `relative` = the numeric:auto phrases of a unit at -1/0/+1 and the unit names (singular, plural); `datePatterns` = the TR35 pattern per `style`, `timePattern` = what `time: true` adds, joined by `dateTimeJoin[style]`. Instants show in the surface zone: the fallback takes the zone as a UTC offset per instant from the host (fixtures: `offsetMinutes`).",
+    "months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    "monthsShort": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    "weekdays": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    "weekdaysShort": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    "dayPeriods": ["AM", "PM"],
+    "currencyPrefix": {
+      "USD": "$", "EUR": "€", "GBP": "£", "JPY": "¥", "CNY": "CN¥", "INR": "₹", "KRW": "₩", "CAD": "CA$", "AUD": "A$", "MXN": "MX$",
+      "BRL": "R$", "ILS": "₪", "NZD": "NZ$", "HKD": "HK$", "TWD": "NT$", "VND": "₫", "PHP": "₱", "XAF": "FCFA\u00a0", "XOF": "F\u202fCFA\u00a0"
+    },
+    "currencyDigits": { "JPY": 0, "KRW": 0, "VND": 0, "CLP": 0, "ISK": 0, "UGX": 0, "PYG": 0, "XAF": 0, "XOF": 0, "BHD": 3, "IQD": 3, "JOD": 3, "KWD": 3, "OMR": 3, "TND": 3 },
+    "relative": {
+      "units": { "second": ["second", "seconds"], "minute": ["minute", "minutes"], "hour": ["hour", "hours"], "day": ["day", "days"], "week": ["week", "weeks"], "month": ["month", "months"], "year": ["year", "years"] },
+      "auto": { "second": { "0": "now" }, "day": { "-1": "yesterday", "1": "tomorrow" }, "week": { "-1": "last week", "1": "next week" }, "month": { "-1": "last month", "1": "next month" }, "year": { "-1": "last year", "1": "next year" } },
+      "past": "{value} {unit} ago",
+      "future": "in {value} {unit}"
+    },
+    "unknownCurrency": "{code}\u00a0",
+    "datePatterns": { "short": "M/d/yy", "medium": "MMM d, y", "long": "MMMM d, y", "full": "EEEE, MMMM d, y" },
+    "timePattern": "h:mm a",
+    "dateTimeJoin": { "short": "{date}, {time}", "medium": "{date}, {time}", "long": "{date} at {time}", "full": "{date} at {time}" }
+  }
+}

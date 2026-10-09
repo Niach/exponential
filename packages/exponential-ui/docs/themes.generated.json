@@ -658,6 +658,60 @@
             "dark": "#7dd3fc"
           }
         }
+      },
+      {
+        "name": "chart6",
+        "ref": "$color.chart6",
+        "values": {
+          "neutral": {
+            "light": "#7c3aed",
+            "dark": "#a78bfa"
+          },
+          "exponential": {
+            "light": "#7c3aed",
+            "dark": "#a78bfa"
+          },
+          "playful": {
+            "light": "#a855f7",
+            "dark": "#d8b4fe"
+          }
+        }
+      },
+      {
+        "name": "chart7",
+        "ref": "$color.chart7",
+        "values": {
+          "neutral": {
+            "light": "#db2777",
+            "dark": "#f472b6"
+          },
+          "exponential": {
+            "light": "#db2777",
+            "dark": "#f472b6"
+          },
+          "playful": {
+            "light": "#ec4899",
+            "dark": "#f9a8d4"
+          }
+        }
+      },
+      {
+        "name": "chart8",
+        "ref": "$color.chart8",
+        "values": {
+          "neutral": {
+            "light": "#0891b2",
+            "dark": "#22d3ee"
+          },
+          "exponential": {
+            "light": "#0891b2",
+            "dark": "#22d3ee"
+          },
+          "playful": {
+            "light": "#22c55e",
+            "dark": "#86efac"
+          }
+        }
       }
     ],
     "spacing": [
@@ -1221,6 +1275,33 @@
           "exponential": 1,
           "playful": 1
         }
+      },
+      {
+        "name": "appBar",
+        "ref": "$control.appBar",
+        "values": {
+          "neutral": 56,
+          "exponential": 48,
+          "playful": 56
+        }
+      },
+      {
+        "name": "tabBar",
+        "ref": "$control.tabBar",
+        "values": {
+          "neutral": 56,
+          "exponential": 56,
+          "playful": 56
+        }
+      },
+      {
+        "name": "toast",
+        "ref": "$control.toast",
+        "values": {
+          "neutral": 64,
+          "exponential": 56,
+          "playful": 64
+        }
       }
     ],
     "shadow": [
@@ -1467,6 +1548,86 @@
             ]
           }
         }
+      },
+      {
+        "name": "xl",
+        "ref": "$shadow.xl",
+        "values": {
+          "neutral": {
+            "light": [
+              {
+                "x": 0,
+                "y": 20,
+                "blur": 25,
+                "spread": -5,
+                "color": "#0000001a"
+              },
+              {
+                "x": 0,
+                "y": 8,
+                "blur": 10,
+                "spread": -6,
+                "color": "#0000001a"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 20,
+                "blur": 25,
+                "spread": -5,
+                "color": "#00000080"
+              },
+              {
+                "x": 0,
+                "y": 8,
+                "blur": 10,
+                "spread": -6,
+                "color": "#00000080"
+              }
+            ]
+          },
+          "exponential": {
+            "light": [
+              {
+                "x": 0,
+                "y": 20,
+                "blur": 48,
+                "spread": -12,
+                "color": "#00000014"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 20,
+                "blur": 48,
+                "spread": -12,
+                "color": "#00000066"
+              }
+            ]
+          },
+          "playful": {
+            "light": [
+              {
+                "x": 0,
+                "y": 24,
+                "blur": 48,
+                "spread": -8,
+                "color": "#7c3aed40"
+              }
+            ],
+            "dark": [
+              {
+                "x": 0,
+                "y": 24,
+                "blur": 48,
+                "spread": -8,
+                "color": "#00000080"
+              }
+            ]
+          }
+        }
       }
     ],
     "opacity": [
@@ -1573,6 +1734,176 @@
           "playful": 360
         }
       }
+    ],
+    "breakpoint": [
+      {
+        "name": "sm",
+        "ref": "$breakpoint.sm",
+        "values": {
+          "neutral": 640,
+          "exponential": 640,
+          "playful": 640
+        }
+      },
+      {
+        "name": "md",
+        "ref": "$breakpoint.md",
+        "values": {
+          "neutral": 768,
+          "exponential": 768,
+          "playful": 768
+        }
+      },
+      {
+        "name": "lg",
+        "ref": "$breakpoint.lg",
+        "values": {
+          "neutral": 1024,
+          "exponential": 1024,
+          "playful": 1024
+        }
+      },
+      {
+        "name": "xl",
+        "ref": "$breakpoint.xl",
+        "values": {
+          "neutral": 1280,
+          "exponential": 1280,
+          "playful": 1280
+        }
+      }
+    ],
+    "ease": [
+      {
+        "name": "standard",
+        "ref": "$ease.standard",
+        "values": {
+          "neutral": [
+            0.2,
+            0,
+            0,
+            1
+          ],
+          "exponential": [
+            0.2,
+            0,
+            0,
+            1
+          ],
+          "playful": [
+            0.34,
+            1.56,
+            0.64,
+            1
+          ]
+        }
+      },
+      {
+        "name": "decelerate",
+        "ref": "$ease.decelerate",
+        "values": {
+          "neutral": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "exponential": [
+            0,
+            0,
+            0.2,
+            1
+          ],
+          "playful": [
+            0,
+            0,
+            0.2,
+            1
+          ]
+        }
+      },
+      {
+        "name": "accelerate",
+        "ref": "$ease.accelerate",
+        "values": {
+          "neutral": [
+            0.3,
+            0,
+            1,
+            1
+          ],
+          "exponential": [
+            0.3,
+            0,
+            1,
+            1
+          ],
+          "playful": [
+            0.3,
+            0,
+            1,
+            1
+          ]
+        }
+      }
+    ],
+    "density": [
+      {
+        "name": "compact",
+        "ref": "$density.compact",
+        "values": {
+          "neutral": 0.875,
+          "exponential": 0.875,
+          "playful": 0.9
+        }
+      },
+      {
+        "name": "comfortable",
+        "ref": "$density.comfortable",
+        "values": {
+          "neutral": 1.125,
+          "exponential": 1.125,
+          "playful": 1.2
+        }
+      }
+    ],
+    "blur": [
+      {
+        "name": "sm",
+        "ref": "$blur.sm",
+        "values": {
+          "neutral": 4,
+          "exponential": 4,
+          "playful": 4
+        }
+      },
+      {
+        "name": "md",
+        "ref": "$blur.md",
+        "values": {
+          "neutral": 12,
+          "exponential": 12,
+          "playful": 12
+        }
+      },
+      {
+        "name": "lg",
+        "ref": "$blur.lg",
+        "values": {
+          "neutral": 16,
+          "exponential": 16,
+          "playful": 16
+        }
+      },
+      {
+        "name": "xl",
+        "ref": "$blur.xl",
+        "values": {
+          "neutral": 24,
+          "exponential": 24,
+          "playful": 24
+        }
+      }
     ]
   },
   "states": [
@@ -1582,14 +1913,21 @@
     "disabled",
     "checked",
     "open",
-    "selected"
+    "selected",
+    "invalid",
+    "dragover"
   ],
   "keys": [
     "backgroundColor",
     "color",
     "borderColor",
     "borderWidth",
+    "borderTopWidth",
+    "borderRightWidth",
+    "borderBottomWidth",
+    "borderLeftWidth",
     "borderRadius",
+    "borderStyle",
     "padding",
     "paddingHorizontal",
     "paddingVertical",
@@ -1602,8 +1940,17 @@
     "fontWeight",
     "lineHeight",
     "fontFamily",
+    "letterSpacing",
+    "textDecoration",
+    "textTransform",
+    "fontStyle",
     "boxShadow",
     "opacity",
+    "transition",
+    "transitionEasing",
+    "transform",
+    "backdropBlur",
+    "animation",
     "native"
   ],
   "components": [
@@ -1658,12 +2005,60 @@
       "kind": "native",
       "parts": [
         "root",
-        "divider"
+        "divider",
+        "section"
       ],
       "props": [
         "direction",
-        "divided"
+        "divided",
+        "stickyHeaders"
       ]
+    },
+    {
+      "name": "Resizable",
+      "kind": "native",
+      "parts": [
+        "root",
+        "panel",
+        "handle",
+        "grip"
+      ],
+      "props": [
+        "direction",
+        "handle"
+      ]
+    },
+    {
+      "name": "ScrollArea",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
+    },
+    {
+      "name": "Sidebar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "sidebar",
+        "main"
+      ],
+      "props": [
+        "side"
+      ]
+    },
+    {
+      "name": "AppBar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "back",
+        "body",
+        "title",
+        "subtitle"
+      ],
+      "props": []
     },
     {
       "name": "Band",
@@ -1737,10 +2132,53 @@
       "props": []
     },
     {
+      "name": "CodeBlock",
+      "kind": "native",
+      "parts": [
+        "root",
+        "header",
+        "title",
+        "copy",
+        "gutter",
+        "line",
+        "lineNumber",
+        "token",
+        "body",
+        "code"
+      ],
+      "props": [
+        "lineNumbers",
+        "wrap",
+        "kind"
+      ]
+    },
+    {
+      "name": "Kbd",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "label"
+      ],
+      "props": []
+    },
+    {
+      "name": "Label",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "text",
+        "mark"
+      ],
+      "props": [
+        "required"
+      ]
+    },
+    {
       "name": "Image",
       "kind": "native",
       "parts": [
-        "root"
+        "root",
+        "fallback"
       ],
       "props": [
         "fit"
@@ -1797,7 +2235,10 @@
       "parts": [
         "root",
         "page",
-        "indicator"
+        "indicator",
+        "controls",
+        "previous",
+        "next"
       ],
       "props": [
         "loop",
@@ -1839,7 +2280,8 @@
         "root",
         "item",
         "trigger",
-        "content"
+        "content",
+        "count"
       ],
       "props": [
         "type"
@@ -1850,9 +2292,15 @@
       "kind": "macro",
       "parts": [
         "root",
+        "trigger",
+        "chevron",
+        "title",
+        "count",
         "body"
       ],
-      "props": []
+      "props": [
+        "open"
+      ]
     },
     {
       "name": "Pagination",
@@ -1875,6 +2323,51 @@
       "props": [
         "size",
         "selected"
+      ]
+    },
+    {
+      "name": "Breadcrumb",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "item",
+        "separator",
+        "link",
+        "current"
+      ],
+      "props": [
+        "current"
+      ]
+    },
+    {
+      "name": "TabBar",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "item",
+        "icon",
+        "label"
+      ],
+      "props": [
+        "selected"
+      ]
+    },
+    {
+      "name": "Stepper",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "step",
+        "marker",
+        "check",
+        "number",
+        "body",
+        "label",
+        "description"
+      ],
+      "props": [
+        "orientation",
+        "status"
       ]
     },
     {
@@ -1904,7 +2397,8 @@
         "footer"
       ],
       "props": [
-        "side"
+        "side",
+        "dismissible"
       ]
     },
     {
@@ -1916,6 +2410,19 @@
       "props": []
     },
     {
+      "name": "AlertDialog",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "footer",
+        "cancel",
+        "confirm"
+      ],
+      "props": [
+        "destructive"
+      ]
+    },
+    {
       "name": "Popover",
       "kind": "native",
       "parts": [
@@ -1923,15 +2430,25 @@
         "arrow"
       ],
       "props": [
-        "side"
+        "side",
+        "openOn"
       ]
+    },
+    {
+      "name": "HoverCard",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "Tooltip",
       "kind": "native",
       "parts": [
         "content",
-        "arrow"
+        "arrow",
+        "anchor"
       ],
       "props": [
         "side"
@@ -1945,9 +2462,41 @@
         "content",
         "item",
         "separator",
-        "label"
+        "label",
+        "shortcut",
+        "check",
+        "submenuIndicator"
       ],
       "props": []
+    },
+    {
+      "name": "ContextMenu",
+      "kind": "native",
+      "parts": [
+        "content",
+        "item",
+        "separator",
+        "label",
+        "shortcut",
+        "check",
+        "submenuIndicator"
+      ],
+      "props": []
+    },
+    {
+      "name": "Toast",
+      "kind": "native",
+      "parts": [
+        "root",
+        "icon",
+        "title",
+        "description",
+        "action",
+        "close"
+      ],
+      "props": [
+        "type"
+      ]
     },
     {
       "name": "Badge",
@@ -2065,29 +2614,51 @@
     },
     {
       "name": "Table",
-      "kind": "macro",
+      "kind": "native",
       "parts": [
         "root",
-        "grid",
+        "caption",
         "header",
+        "headerCell",
+        "sortIcon",
         "row",
         "cell",
-        "caption"
+        "checkbox",
+        "empty",
+        "body"
       ],
-      "props": []
+      "props": [
+        "selectable",
+        "striped",
+        "density",
+        "stickyHeader",
+        "align"
+      ]
     },
     {
       "name": "Chart",
       "kind": "native",
       "parts": [
         "root",
+        "title",
         "axis",
         "grid",
         "legend",
-        "tooltip"
+        "tooltip",
+        "valueLabel"
       ],
       "props": [
         "kind"
+      ]
+    },
+    {
+      "name": "Sparkline",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "tone"
       ]
     },
     {
@@ -2131,6 +2702,18 @@
       ]
     },
     {
+      "name": "Form",
+      "kind": "native",
+      "parts": [
+        "root",
+        "summary"
+      ],
+      "props": [
+        "disabled",
+        "busy"
+      ]
+    },
+    {
       "name": "Input",
       "kind": "native",
       "parts": [
@@ -2162,6 +2745,24 @@
       ]
     },
     {
+      "name": "NumberField",
+      "kind": "native",
+      "parts": [
+        "root",
+        "label",
+        "field",
+        "decrement",
+        "increment",
+        "unit",
+        "description",
+        "error",
+        "input"
+      ],
+      "props": [
+        "disabled"
+      ]
+    },
+    {
       "name": "Checkbox",
       "kind": "native",
       "parts": [
@@ -2183,7 +2784,8 @@
         "root",
         "item",
         "dot",
-        "label"
+        "label",
+        "items"
       ],
       "props": [
         "orientation"
@@ -2197,7 +2799,8 @@
         "track",
         "thumb",
         "label",
-        "description"
+        "description",
+        "body"
       ],
       "props": [
         "checked",
@@ -2213,9 +2816,24 @@
         "range",
         "thumb",
         "label",
-        "value"
+        "value",
+        "header"
       ],
       "props": []
+    },
+    {
+      "name": "Rating",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "star",
+        "icon"
+      ],
+      "props": [
+        "size",
+        "readOnly",
+        "filled"
+      ]
     },
     {
       "name": "Select",
@@ -2226,12 +2844,33 @@
         "trigger",
         "placeholder",
         "content",
+        "search",
         "item",
-        "check"
+        "check",
+        "empty"
       ],
       "props": [
         "multiple",
         "searchable",
+        "disabled"
+      ]
+    },
+    {
+      "name": "ChipInput",
+      "kind": "native",
+      "parts": [
+        "root",
+        "label",
+        "field",
+        "chip",
+        "chipLabel",
+        "remove",
+        "placeholder",
+        "description",
+        "error",
+        "input"
+      ],
+      "props": [
         "disabled"
       ]
     },
@@ -2246,6 +2885,58 @@
         "day"
       ],
       "props": []
+    },
+    {
+      "name": "DateRangePicker",
+      "kind": "native",
+      "parts": [
+        "root",
+        "label",
+        "trigger",
+        "calendar",
+        "day",
+        "range"
+      ],
+      "props": []
+    },
+    {
+      "name": "TimePicker",
+      "kind": "native",
+      "parts": [
+        "root",
+        "label",
+        "trigger",
+        "placeholder",
+        "list",
+        "item"
+      ],
+      "props": [
+        "disabled"
+      ]
+    },
+    {
+      "name": "FileUpload",
+      "kind": "native",
+      "parts": [
+        "root",
+        "label",
+        "dropzone",
+        "icon",
+        "hint",
+        "file",
+        "fileName",
+        "fileMeta",
+        "remove",
+        "description",
+        "error",
+        "title",
+        "browse",
+        "fileIcon"
+      ],
+      "props": [
+        "multiple",
+        "disabled"
+      ]
     },
     {
       "name": "Composer",

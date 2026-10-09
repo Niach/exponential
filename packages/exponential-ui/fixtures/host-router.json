@@ -1,0 +1,918 @@
+{
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops.",
+  "packages": {
+    "acme.devices": {
+      "id": "acme.devices",
+      "name": "Devices",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "list": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "title"
+              ]
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": {
+                "path": "/title"
+              }
+            }
+          ],
+          "data": {
+            "title": "Devices",
+            "filter": "all"
+          },
+          "bindings": [
+            {
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "harness.toast"
+      ]
+    },
+    "broken": {
+      "id": "broken",
+      "name": "",
+      "version": "1",
+      "catalogId": "https://other.example/v9",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "a",
+              "component": "Text"
+            },
+            {
+              "id": "a",
+              "component": "Text"
+            },
+            {
+              "component": "Text"
+            }
+          ],
+          "bindings": [
+            {
+              "path": "no-slash",
+              "source": "nope"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "",
+        3
+      ]
+    }
+  },
+  "flows": [
+    {
+      "name": "the A2UI lifecycle",
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "path": "/user/name",
+              "value": "Ada"
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s1",
+              "path": "/user/name",
+              "value": "Ada"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "path": "/user/name"
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s1",
+              "path": "/user/name"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "value": {
+                "a": 1
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s1",
+              "path": "",
+              "value": {
+                "a": 1
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "path": "/",
+              "value": {
+                "b": 2
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "data",
+              "surfaceId": "s1",
+              "path": "",
+              "value": {
+                "b": 2
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "deleteSurface": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "delete",
+              "surfaceId": "s1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "deleteSurface": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "s1",
+                  "message": "no surface s1; send createSurface first"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "createSurface keeps theme and sendDataModel",
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s2",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "theme": {
+                "primaryColor": "#ff0000"
+              },
+              "sendDataModel": true
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s2",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "theme": {
+                "primaryColor": "#ff0000"
+              },
+              "sendDataModel": true
+            }
+          ]
+        },
+        {
+          "message": {
+            "createSurface": {
+              "surfaceId": "s3",
+              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json",
+              "sendDataModel": false
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s3",
+              "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "errors",
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "ghost",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "ghost",
+                  "message": "no surface ghost; send createSurface first"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "ghost",
+              "value": 1
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "ghost",
+                  "message": "no surface ghost; send createSurface first"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v2"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "UNSUPPORTED_CATALOG",
+                  "surfaceId": "s1",
+                  "message": "catalog https://ui.exponential.at/catalogs/core/v2 is not supported"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.8",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "unsupported version v0.8"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9"
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            "deleteSurface": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "beginRendering": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "expected exactly one of createSurface, updateComponents, updateDataModel, deleteSurface, applyTemplate, bindDataModel"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "createSurface.surfaceId is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": [
+            1,
+            2
+          ],
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "",
+                  "message": "a message is a JSON object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "updateComponents.components is required"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "path": 3
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "updateDataModel.path is a string"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "extension catalogs negotiate",
+      "extensionIds": [
+        "https://acme.example/catalog/v1"
+      ],
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "x",
+              "catalogId": "https://acme.example/catalog/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "x",
+              "catalogId": "https://acme.example/catalog/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "y",
+              "catalogId": "https://other.example/catalog/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "UNSUPPORTED_CATALOG",
+                  "surfaceId": "y",
+                  "message": "catalog https://other.example/catalog/v1 is not supported"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bindDataModel",
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "s1",
+              "path": "/devices",
+              "source": "exp:devices?team=t1"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "s1",
+              "path": "/devices",
+              "source": "exp:devices?team=t1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "s1",
+              "path": "/x",
+              "source": "not a source"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s1",
+                  "message": "bindDataModel needs a path and a scheme:name source"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "nope",
+              "path": "/x",
+              "source": "exp:devices"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "SURFACE_NOT_FOUND",
+                  "surfaceId": "nope",
+                  "message": "no surface nope; send createSurface first"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "applyTemplate",
+      "packages": [
+        "acme.devices",
+        "broken"
+      ],
+      "installIssues": {
+        "acme.devices": [],
+        "broken": [
+          {
+            "path": "/name",
+            "message": "name is a required string"
+          },
+          {
+            "path": "/catalogId",
+            "message": "unsupported catalog https://other.example/v9"
+          },
+          {
+            "path": "/templates/t/components/1/id",
+            "message": "duplicate id a"
+          },
+          {
+            "path": "/templates/t/components/2",
+            "message": "a component needs an id and a component"
+          },
+          {
+            "path": "/templates/t/components",
+            "message": "no component has the id root"
+          },
+          {
+            "path": "/templates/t/bindings/0/path",
+            "message": "path is a JSON pointer"
+          },
+          {
+            "path": "/templates/t/bindings/0/source",
+            "message": "source is a scheme:name URI"
+          },
+          {
+            "path": "/functions",
+            "message": "functions is a list of names or prefix* patterns"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "d1",
+              "templateId": "list",
+              "data": {
+                "filter": "online"
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "d1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "d1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Column",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "path": "/title"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "data",
+              "surfaceId": "d1",
+              "path": "",
+              "value": {
+                "title": "Devices",
+                "filter": "online"
+              }
+            },
+            {
+              "op": "bind",
+              "surfaceId": "d1",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "d2",
+              "templateId": "list",
+              "packageId": "acme.devices"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "d2",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "d2",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Column",
+                  "children": [
+                    "title"
+                  ]
+                },
+                {
+                  "id": "title",
+                  "component": "Text",
+                  "text": {
+                    "path": "/title"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "data",
+              "surfaceId": "d2",
+              "path": "",
+              "value": {
+                "title": "Devices",
+                "filter": "all"
+              }
+            },
+            {
+              "op": "bind",
+              "surfaceId": "d2",
+              "path": "/devices",
+              "source": "exp:devices"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "d3",
+              "templateId": "missing"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "TEMPLATE_NOT_FOUND",
+                  "surfaceId": "d3",
+                  "message": "no installed package has the template missing"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "d4",
+              "templateId": "t",
+              "packageId": "broken"
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "v0.9",
+                "error": {
+                  "code": "TEMPLATE_NOT_FOUND",
+                  "surfaceId": "d4",
+                  "message": "no installed package has the template t"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "validation": [
+    {
+      "package": "acme.devices",
+      "expected": []
+    },
+    {
+      "package": "broken",
+      "expected": [
+        {
+          "path": "/name",
+          "message": "name is a required string"
+        },
+        {
+          "path": "/catalogId",
+          "message": "unsupported catalog https://other.example/v9"
+        },
+        {
+          "path": "/templates/t/components/1/id",
+          "message": "duplicate id a"
+        },
+        {
+          "path": "/templates/t/components/2",
+          "message": "a component needs an id and a component"
+        },
+        {
+          "path": "/templates/t/components",
+          "message": "no component has the id root"
+        },
+        {
+          "path": "/templates/t/bindings/0/path",
+          "message": "path is a JSON pointer"
+        },
+        {
+          "path": "/templates/t/bindings/0/source",
+          "message": "source is a scheme:name URI"
+        },
+        {
+          "path": "/functions",
+          "message": "functions is a list of names or prefix* patterns"
+        }
+      ]
+    }
+  ]
+}

@@ -118,7 +118,7 @@ mod tests {
     fn define_extension_refuses_a_core_name_a_missing_macro_template_a_wrong_base_and_a_bad_id() {
         let ex = example();
         let mut shadow = ex.clone();
-        shadow.components.insert("Button".into(), ex.components["Sparkline"].clone());
+        shadow.components.insert("Button".into(), ex.components["TrendLine"].clone());
         assert!(validate_extension(&shadow).contains(&"Button: shadows a core component".to_string()));
         let mut no_template = ex.clone();
         no_template.macros = Some(Default::default());

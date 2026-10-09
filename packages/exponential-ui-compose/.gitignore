@@ -1,0 +1,11 @@
+# Gradle + Android Studio
+.gradle/
+build/
+*/build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+# The native library is built by apps/desktop/crates/exponential-ui-ffi/build-android.sh
+# into that crate's out/jniLibs (ignored there); the AAR bundles it at build time.
+example/screenshots/

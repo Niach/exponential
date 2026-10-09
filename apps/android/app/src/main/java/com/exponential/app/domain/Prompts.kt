@@ -421,6 +421,22 @@ object Prompts {
         fun prompt(server: String) = spec.render("title", "body", "server" to server)
     }
 
+    /** VAPP-91: a host asking before a surface acts as the person. Deny takes
+     *  focus and Enter; Allow is the explicit `default` answer. */
+    object ExponentialUiConsent {
+        val spec = Spec(
+            "exponential-ui-consent",
+            mapOf(
+                "title" to "Allow this surface to run {tool}?",
+                "body" to "It acts as you, with your access to this team.",
+            ),
+            listOf("tool"),
+            listOf(Action("deny", "Deny", Role.Cancel), Action("allow", "Allow", Role.Default)),
+            focus = "deny",
+        )
+        fun prompt(tool: String) = spec.render("title", "body", "tool" to tool)
+    }
+
     /** Every entry, keyed by its fixture id (the lock test walks it). Lazy:
      *  a nested object's first access initialises this one first. */
     val all: Map<String, Spec> by lazy {
@@ -430,6 +446,7 @@ object Prompts {
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec,
+            ExponentialUiConsent.spec,
         ).associateBy { it.id }
     }
 }

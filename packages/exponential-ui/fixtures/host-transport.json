@@ -1,0 +1,590 @@
+{
+  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential-at/ui generate` from the TS reference (src/host/decoders.ts). Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end().",
+  "jsonl": [
+    {
+      "name": "one message per line",
+      "chunks": [
+        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "a line split across chunks",
+      "chunks": [
+        "{\"version\": \"v0.9",
+        "\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"ver",
+        "sion\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "CRLF and blank lines",
+      "chunks": [
+        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\r\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "no trailing newline",
+      "chunks": [
+        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "a bad line is an issue, never fatal",
+      "chunks": [
+        "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\nnot json\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": [
+          {
+            "at": 2,
+            "message": "line 2 is not JSON"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unicode across chunk edges",
+      "chunks": [
+        "{\"version\":\"v0.9\",\"updateDataModel\":{\"surfaceId\":\"s1\",\"path\":\"/t\",\"value\":\"Grüße 👋\"}}\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "updateDataModel": {
+              "surfaceId": "s1",
+              "path": "/t",
+              "value": "Grüße 👋"
+            }
+          }
+        ],
+        "issues": []
+      }
+    }
+  ],
+  "sse": [
+    {
+      "name": "one message per event",
+      "chunks": [
+        "data: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n",
+        "data: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "comments, retry and id fields are ignored",
+      "chunks": [
+        ": keep-alive\n\nretry: 1000\nid: 7\ndata: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "multi-line data is JSONL",
+      "chunks": [
+        "data: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\ndata: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "an a2ui-named event counts, another name is dropped",
+      "chunks": [
+        "event: a2ui\ndata: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n\nevent: ping\ndata: {\"ping\":1}\n\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "CRLF lines and a split field",
+      "chunks": [
+        "da",
+        "ta: {\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\r\n\r\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "a bad event is an issue",
+      "chunks": [
+        "data: nope\n\ndata: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n\n"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": [
+          {
+            "at": 1,
+            "message": "event 1 is not JSON"
+          }
+        ]
+      }
+    },
+    {
+      "name": "end() flushes the last event",
+      "chunks": [
+        "data: {\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}"
+      ],
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    }
+  ],
+  "mcp": [
+    {
+      "name": "a resource with JSONL text",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Here is your form"
+          },
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "a2ui://s1",
+              "mimeType": "application/json+a2ui",
+              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}\n"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "the alternate mime type and a JSON array",
+      "result": {
+        "content": [
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "a2ui://s1",
+              "mimeType": "application/a2ui+json",
+              "text": "[{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}},{\"version\": \"v0.9\", \"updateComponents\": {\"surfaceId\": \"s1\", \"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hi\"}]}}]"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          {
+            "version": "v0.9",
+            "updateComponents": {
+              "surfaceId": "s1",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "Hi"
+                }
+              ]
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "other mime types are ignored",
+      "result": {
+        "content": [
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "x",
+              "mimeType": "application/json",
+              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "messages": [],
+        "issues": []
+      }
+    },
+    {
+      "name": "structuredContent.a2ui",
+      "result": {
+        "structuredContent": {
+          "a2ui": [
+            {
+              "version": "v0.9",
+              "createSurface": {
+                "surfaceId": "s2",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            }
+          ]
+        },
+        "content": []
+      },
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s2",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          }
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "a broken resource line",
+      "result": {
+        "content": [
+          {
+            "type": "resource",
+            "resource": {
+              "uri": "a2ui://s1",
+              "mimeType": "application/json+a2ui",
+              "text": "{\"version\": \"v0.9\", \"createSurface\": {\"surfaceId\": \"s1\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v1\"}}\n{oops\n"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "messages": [
+          {
+            "version": "v0.9",
+            "createSurface": {
+              "surfaceId": "s1",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          }
+        ],
+        "issues": [
+          {
+            "at": 1,
+            "message": "content[0]: line 2 is not JSON"
+          }
+        ]
+      }
+    }
+  ],
+  "mcpAction": [
+    {
+      "name": "an action goes back as tools/call a2ui_event",
+      "message": {
+        "version": "v0.9",
+        "action": {
+          "name": "save",
+          "surfaceId": "s1",
+          "sourceComponentId": "btn",
+          "timestamp": "2026-10-08T12:00:00.000Z",
+          "context": {
+            "id": "d1"
+          }
+        }
+      },
+      "expected": {
+        "method": "tools/call",
+        "params": {
+          "name": "a2ui_event",
+          "arguments": {
+            "message": {
+              "version": "v0.9",
+              "action": {
+                "name": "save",
+                "surfaceId": "s1",
+                "sourceComponentId": "btn",
+                "timestamp": "2026-10-08T12:00:00.000Z",
+                "context": {
+                  "id": "d1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a custom action tool",
+      "tool": "vapp_event",
+      "message": {
+        "version": "v0.9",
+        "error": {
+          "code": "FUNCTION_DENIED",
+          "surfaceId": "s1",
+          "message": "harness.mcp was not allowed"
+        }
+      },
+      "expected": {
+        "method": "tools/call",
+        "params": {
+          "name": "vapp_event",
+          "arguments": {
+            "message": {
+              "version": "v0.9",
+              "error": {
+                "code": "FUNCTION_DENIED",
+                "surfaceId": "s1",
+                "message": "harness.mcp was not allowed"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

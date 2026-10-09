@@ -1,0 +1,47 @@
+{
+  "id": "https://example.com/catalogs/metrics/v1",
+  "name": "Metrics",
+  "extends": "https://ui.exponential.at/catalogs/core/v1",
+  "components": {
+    "TrendLine": {
+      "kind": "native",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "A tiny line chart of recent values.",
+      "props": {
+        "values": { "type": "array", "items": { "type": "number" }, "required": true, "bindable": true, "description": "The values, oldest first." },
+        "height": { "type": "number", "default": 48, "description": "The chart height in points." }
+      },
+      "example": { "values": [3, 5, 4, 8, 6, 9] }
+    },
+    "Metric": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "A card with a label, a big value and, when given, a trend line of its history.",
+      "props": {
+        "label": { "type": "string", "required": true, "description": "What the number is." },
+        "value": { "type": "string", "required": true, "bindable": true, "description": "The formatted number." },
+        "history": { "type": "array", "items": { "type": "number" }, "description": "Recent values for the trend line." }
+      },
+      "example": { "label": "Open issues", "value": "42", "history": [30, 34, 39, 42] }
+    }
+  },
+  "macros": {
+    "Metric": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Card",
+        "props": { "padded": true },
+        "children": [
+          { "part": "label", "component": "Text", "props": { "text": "{props.label}", "variant": "muted" } },
+          { "part": "value", "component": "Text", "props": { "text": "{props.value}", "variant": "title" } },
+          { "part": "spark", "component": "TrendLine", "$if": "props.history", "props": { "values": "{props.history}" } }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@exp/site-shell",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The shell every public Exponential site shares (exponential.at, ui.exponential.at): header and footer bars, the docs layout, the brand mark, the GitHub stars button, the base styles, and the prerender + SEO engine. Shared components, not copies.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./prerender": "./src/prerender.tsx",
+    "./seo": "./src/seo.ts",
+    "./styles/*": "./styles/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./src"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "dependencies": {
+    "lucide-react": "^0.544.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.7.2"
+  }
+}

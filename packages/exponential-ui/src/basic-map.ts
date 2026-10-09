@@ -4,7 +4,7 @@
 // per name, in the words of the table.
 
 import basicMapJson from "../catalog/basic-map.json" with { type: "json" }
-import type { Action, FlatComponent } from "./types"
+import type { Action, ChildTemplate, FlatComponent } from "./types"
 
 interface PropRule {
   from?: string
@@ -35,7 +35,7 @@ export interface MappedComponent {
   component: string
   props: Record<string, unknown>
   childrenIds: string[]
-  template?: { component: string; path: string }
+  template?: ChildTemplate
   slots: Record<string, string>
   on?: Record<string, Action>
   style?: Record<string, unknown>
@@ -171,7 +171,7 @@ export function mapBasicComponent(
     const children = flat.children
     if (Array.isArray(children)) out.childrenIds = children
     else if (children && typeof children === `object`)
-      out.template = { component: children.componentId, path: children.path }
+      out.template = { component: children.componentId, path: children.path, ...(typeof children.key === `string` ? { key: children.key } : {}) }
   } else if (rule.children === `child` && typeof flat.child === `string`) {
     out.childrenIds = [flat.child]
   }

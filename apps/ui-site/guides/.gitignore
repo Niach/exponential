@@ -1,0 +1,10 @@
+# Build output when a guide is run in place (check.ts builds temp copies).
+node_modules/
+dist/
+target/
+.build/
+.gradle/
+.kotlin/
+build/
+local.properties
+*.tsbuildinfo

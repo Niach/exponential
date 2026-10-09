@@ -2,9 +2,8 @@
   "$comment": "EXP-1029 contract — THE styleguide section index, read by the web styleguide (sections/index.ts) and the IDE styleguide (apps/desktop/crates/ui/src/styleguide). Four ordered sections; every entry id names one placeholder file (entries/<id>.tsx, styleguide/entries/<id>.rs) pre-registered here so a leaf only fills its file and never edits this index. EXP-1019 moves the EXISTING entries into the four sections.",
   "sections": [
     { "id": "style", "order": 1, "title": "1 Style", "blurb": "The values the controls are made of: colour, shape, type, motion and the icon registry.", "entries": [] },
-    { "id": "general", "order": 2, "title": "2 General components", "blurb": "The glass control set every screen is built from.", "entries": [
-      "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository", "scope-picker",
-      "menu",
+    { "id": "general", "order": 2, "title": "2 General components", "blurb": "The Exponential app's own controls. The generic set (buttons, fields, rows, pills, dialogs, meters) lives on ui.exponential.at/components and renders through the SDK.", "entries": [
+      "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository", "scope-picker",
       "toast",
       "jump-to-bottom"
     ] },
@@ -16,7 +15,6 @@
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
   "owners": {
-    "picker": "EXP-1021",
     "picker-board": "EXP-1021",
     "picker-issue": "EXP-1021",
     "picker-action": "EXP-1021",
@@ -30,7 +28,6 @@
     "picker-mcp": "EXP-792",
     "picker-repository": "SLOP-7",
     "scope-picker": "FEED-76",
-    "menu": "EXP-1074",
     "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",

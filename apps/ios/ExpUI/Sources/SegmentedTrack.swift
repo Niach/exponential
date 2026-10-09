@@ -1,5 +1,6 @@
 import ExpCore
 import SwiftUI
+internal import ExponentialUIPrimitives
 
 // EXP-1051: the STACKED meter — `AgentUsageTrack`'s rail, filled by several
 // layers instead of one. It draws the context-window bar: the layers the
@@ -30,35 +31,19 @@ public struct SegmentedTrack: View {
         self.height = height
     }
 
+    /// SLOP-18 / VAPP-88: the SDK's `MeterTrack` (stacked rectangles clipped
+    /// to the capsule, the track IS the `free` row) with the tick marks.
     public var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                // The track IS the `free` row: it is never a slice.
-                Capsule()
-                    .fill(GlassTokens.strokeStrong)
-                HStack(spacing: 0) {
-                    ForEach(slices) { slice in
-                        Rectangle()
-                            .fill(Self.tone(slice.tone))
-                            .frame(width: width(slice.percent, in: geo.size.width))
-                    }
-                    Spacer(minLength: 0)
-                }
-                ForEach(ticks, id: \.self) { tick in
-                    Rectangle()
-                        .fill(Color.black.opacity(0.45))
-                        .frame(width: 1)
-                        .offset(x: width(Double(tick), in: geo.size.width))
-                }
-            }
-            .clipShape(Capsule())
-        }
-        .frame(height: height)
-        .accessibilityHidden(true)
-    }
-
-    private func width(_ percent: Double, in total: CGFloat) -> CGFloat {
-        total * CGFloat(min(max(percent, 0), 100)) / 100
+        MeterTrack(
+            segments: slices.enumerated().map { index, slice in
+                MeterSegment(id: index, fraction: slice.percent / 100, color: Self.tone(slice.tone))
+            },
+            height: height,
+            track: GlassTokens.strokeStrong,
+            ticks: ticks.map { Double($0) / 100 },
+            tickColor: Color.black.opacity(0.45),
+            tickWidth: 1
+        )
     }
 
     /// A contract tone (`neutral`, `track`, or one of the avatar hues) as a

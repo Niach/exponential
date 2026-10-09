@@ -1,0 +1,32 @@
+{
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
+  "id": "brand",
+  "name": "Brand",
+  "extends": "neutral",
+  "modes": {
+    "light": {
+      "color": { "primary": "#4f46e5", "primaryForeground": "#ffffff", "ring": "#6366f1" }
+    },
+    "dark": {
+      "color": { "primary": "#818cf8", "primaryForeground": "#1e1b4b", "ring": "#818cf8" }
+    }
+  },
+  "tokens": {
+    "radius": { "md": 10, "lg": 14 },
+    "type": { "family": { "sans": "Inter" } }
+  },
+  "fonts": {
+    "Inter": { "fallback": "ui-sans-serif, system-ui", "weights": [400, 500, 600, 700], "source": "host" }
+  },
+  "recipes": {
+    "Button": {
+      "root": [
+        { "style": { "borderRadius": "$radius.full" } },
+        { "when": { "variant": "outline", "state": "hover" }, "style": { "backgroundColor": "$color.accent" } }
+      ]
+    },
+    "Card": {
+      "root": [{ "style": { "borderWidth": 0, "boxShadow": "$shadow.md" } }]
+    }
+  }
+}

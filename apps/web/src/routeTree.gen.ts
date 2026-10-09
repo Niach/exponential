@@ -32,6 +32,7 @@ import { Route as ApiContactRouteImport } from './routes/api/contact'
 import { Route as ApiAuthConfigRouteImport } from './routes/api/auth-config'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedExponentialUiKitchenSinkRouteImport } from './routes/_authenticated/exponential-ui-kitchen-sink'
+import { Route as AuthenticatedExponentialUiDevicesRouteImport } from './routes/_authenticated/exponential-ui-devices'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
@@ -240,6 +241,12 @@ const AuthenticatedExponentialUiKitchenSinkRoute =
   AuthenticatedExponentialUiKitchenSinkRouteImport.update({
     id: '/exponential-ui-kitchen-sink',
     path: '/exponential-ui-kitchen-sink',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedExponentialUiDevicesRoute =
+  AuthenticatedExponentialUiDevicesRouteImport.update({
+    id: '/exponential-ui-devices',
+    path: '/exponential-ui-devices',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
@@ -760,6 +767,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/exponential-ui-devices': typeof AuthenticatedExponentialUiDevicesRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
@@ -876,6 +884,7 @@ export interface FileRoutesByTo {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/exponential-ui-devices': typeof AuthenticatedExponentialUiDevicesRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
@@ -995,6 +1004,7 @@ export interface FileRoutesById {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/_authenticated/exponential-ui-devices': typeof AuthenticatedExponentialUiDevicesRoute
   '/_authenticated/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/api/auth-config': typeof ApiAuthConfigRoute
@@ -1115,6 +1125,7 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/exponential-ui-devices'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/api/auth-config'
@@ -1231,6 +1242,7 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/exponential-ui-devices'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/api/auth-config'
@@ -1349,6 +1361,7 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/_authenticated/exponential-ui-devices'
     | '/_authenticated/exponential-ui-kitchen-sink'
     | '/_authenticated/onboarding'
     | '/api/auth-config'
@@ -1693,6 +1706,13 @@ declare module '@tanstack/react-router' {
       path: '/exponential-ui-kitchen-sink'
       fullPath: '/exponential-ui-kitchen-sink'
       preLoaderRoute: typeof AuthenticatedExponentialUiKitchenSinkRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/exponential-ui-devices': {
+      id: '/_authenticated/exponential-ui-devices'
+      path: '/exponential-ui-devices'
+      fullPath: '/exponential-ui-devices'
+      preLoaderRoute: typeof AuthenticatedExponentialUiDevicesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/.well-known/oauth-protected-resource': {
@@ -2386,6 +2406,7 @@ const AuthenticatedAdminRouteRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRouteRoute: typeof AuthenticatedAdminRouteRouteWithChildren
+  AuthenticatedExponentialUiDevicesRoute: typeof AuthenticatedExponentialUiDevicesRoute
   AuthenticatedExponentialUiKitchenSinkRoute: typeof AuthenticatedExponentialUiKitchenSinkRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
@@ -2393,6 +2414,8 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRouteRoute: AuthenticatedAdminRouteRouteWithChildren,
+  AuthenticatedExponentialUiDevicesRoute:
+    AuthenticatedExponentialUiDevicesRoute,
   AuthenticatedExponentialUiKitchenSinkRoute:
     AuthenticatedExponentialUiKitchenSinkRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,

@@ -11,6 +11,12 @@ let packageSettings = PackageSettings(
     // dynamic framework: one shared copy linked by both.
     productTypes: [
         "GRDB": .framework,
+        // SLOP-18 / VAPP-88: the Exponential UI SDK's pure-SwiftUI primitives
+        // (pill, segmented control, field chrome, drawn switch, avatar, meter,
+        // ring). ExpUI builds its glass views on them and ExpUITests reads
+        // their style structs, so vend ONE dynamic copy rather than a static
+        // library linked into both.
+        "ExponentialUIPrimitives": .framework,
     ]
 )
 #endif
@@ -28,5 +34,10 @@ let package = Package(
         // so declare the source package explicitly now that markdown-ui is gone.
         .package(url: "https://github.com/swiftlang/swift-cmark", from: "0.7.1"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "11.0.0"),
+        // The Exponential UI SDK (packages/exponential-ui-swift), a LOCAL path
+        // package: only its `ExponentialUIPrimitives` product is used, which
+        // needs no Rust toolchain (the painter's binary target is declared
+        // only when its xcframework exists).
+        .package(path: "../../../packages/exponential-ui-swift"),
     ]
 )

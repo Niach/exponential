@@ -19,6 +19,19 @@ pub struct ActionEvent {
     pub payload: Option<serde_json::Value>,
 }
 
+/// An `on.<event> = {functionCall: {call, args}}` naming a HOST function
+/// (not one of the catalog's built-ins): the host gates it through its
+/// function policy and runs its registered handler
+/// ([`crate::runtime::ExponentialHost::call_function`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionCallEvent {
+    pub surface_id: String,
+    pub component_id: String,
+    pub name: String,
+    /// The call's args, resolved against the data model and scope.
+    pub args: serde_json::Value,
+}
+
 /// A host-owned text edit: `Change` while typing (debounced), `Commit` on
 /// blur / Enter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +66,18 @@ pub trait HostPlugin: 'static {
     /// A server event fired (forward it to the producer).
     fn on_action(&self, _event: &ActionEvent, _cx: &mut gpui::App) {}
 
+    /// A host function call (`functionCall` to a non-built-in name). The
+    /// default ignores it; [`crate::runtime::host_plugin`] routes it through
+    /// an [`crate::runtime::ExponentialHost`] (policy gate, consent, handler).
+    fn on_function_call(&self, _event: &FunctionCallEvent, _cx: &mut gpui::App) {}
+
+    /// Map an `Image`/`Video`/`Avatar` `src` to the request the image loader
+    /// makes (absolute url + headers, e.g. auth for `/api/attachments`).
+    /// `None` = the default: `resolve_url(src)` with no headers.
+    fn media_request(&self, _src: &str) -> Option<exponential_ui::host::MediaRequest> {
+        None
+    }
+
     /// A host-owned text edit: `Change` debounced 150 ms with a monotonically
     /// increasing revision, `Commit` on blur / Enter.
     fn on_input(&self, _event: &InputEvent, _cx: &mut gpui::App) {}
@@ -76,6 +101,29 @@ pub trait HostPlugin: 'static {
         family.to_string().into()
     }
 
+    /// Speak `text` through the platform screen reader (`live` = `polite`
+    /// or `assertive`): Form errors, CodeBlock `copied`, `announce`
+    /// commands, live regions. The painter also exposes the latest
+    /// announcement as a `status` node; gpui has no live-region API.
+    fn announce(&self, _text: &str, _live: &str, _cx: &mut gpui::App) {}
+
+    /// Round 2 §5: scroll the host's scroller (the one showing the WHOLE
+    /// surface) so the surface's `(x, y)` sits at its top-left — a
+    /// `scrollToIndex` on a list that windows against the host viewport.
+    /// The host then reports its offset back through the visible region.
+    fn scroll_surface(&self, _x: f32, _y: f32, _cx: &mut gpui::App) {}
+
+    /// Open a file picker for a FileUpload. Return `true` when the host
+    /// handles it (and later calls `SurfaceView::files_picked`); `false` =
+    /// the painter opens the platform picker itself.
+    fn pick_files(&self, _request: &FilePickRequest, _cx: &mut gpui::App) -> bool {
+        false
+    }
+
+    /// Picked or dropped files reached a FileUpload: read and upload the
+    /// bytes (the surface's `upload` event carries only name/size/type).
+    fn on_upload(&self, _event: &UploadEvent, _cx: &mut gpui::App) {}
+
     /// A richer markdown renderer for `Markdown` leaves; `None` = the
     /// built-in block painter (whose height the measurer predicts exactly).
     fn markdown(
@@ -88,6 +136,28 @@ pub trait HostPlugin: 'static {
     ) -> Option<gpui::AnyElement> {
         None
     }
+}
+
+/// A FileUpload's request for the platform file picker.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilePickRequest {
+    pub surface_id: String,
+    pub component_id: String,
+    /// The `accept` filter (`image/*,.pdf`), when set.
+    pub accept: Option<String>,
+    pub multiple: bool,
+}
+
+/// Files the user picked or dropped on a FileUpload: the paths (the BYTES
+/// stay with the host, never in an event) and the metadata the surface's
+/// `upload {files}` event carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UploadEvent {
+    pub surface_id: String,
+    pub component_id: String,
+    /// The field's `name`.
+    pub name: String,
+    pub paths: Vec<std::path::PathBuf>,
 }
 
 /// The silent default host.

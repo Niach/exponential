@@ -34,7 +34,10 @@
         "chart2": "#009689",
         "chart3": "#104e64",
         "chart4": "#ffb900",
-        "chart5": "#fe9a00"
+        "chart5": "#fe9a00",
+        "chart6": "#7c3aed",
+        "chart7": "#db2777",
+        "chart8": "#0891b2"
       },
       "shadow": {
         "none": [],
@@ -78,6 +81,22 @@
             "spread": -4,
             "color": "#0000001a"
           }
+        ],
+        "xl": [
+          {
+            "x": 0,
+            "y": 20,
+            "blur": 25,
+            "spread": -5,
+            "color": "#0000001a"
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "blur": 10,
+            "spread": -6,
+            "color": "#0000001a"
+          }
         ]
       }
     },
@@ -112,7 +131,10 @@
         "chart2": "#00bc7d",
         "chart3": "#fe9a00",
         "chart4": "#ad46ff",
-        "chart5": "#ff2056"
+        "chart5": "#ff2056",
+        "chart6": "#a78bfa",
+        "chart7": "#f472b6",
+        "chart8": "#22d3ee"
       },
       "shadow": {
         "none": [],
@@ -156,7 +178,47 @@
             "spread": -4,
             "color": "#00000066"
           }
+        ],
+        "xl": [
+          {
+            "x": 0,
+            "y": 20,
+            "blur": 25,
+            "spread": -5,
+            "color": "#00000080"
+          },
+          {
+            "x": 0,
+            "y": 8,
+            "blur": 10,
+            "spread": -6,
+            "color": "#00000080"
+          }
         ]
+      }
+    }
+  },
+  "contrast": {
+    "light": {
+      "color": {
+        "foreground": "#000000",
+        "mutedForeground": "#404040",
+        "border": "#737373",
+        "input": "#737373",
+        "ring": "#000000",
+        "cardForeground": "#000000",
+        "popoverForeground": "#000000"
+      }
+    },
+    "dark": {
+      "color": {
+        "foreground": "#ffffff",
+        "mutedForeground": "#d4d4d4",
+        "border": "#a3a3a3",
+        "input": "#a3a3a3",
+        "ring": "#ffffff",
+        "cardForeground": "#ffffff",
+        "popoverForeground": "#ffffff"
       }
     }
   },
@@ -236,7 +298,10 @@
       "iconSm": 16,
       "iconMd": 20,
       "iconLg": 24,
-      "hairline": 1
+      "hairline": 1,
+      "appBar": 56,
+      "tabBar": 56,
+      "toast": 64
     },
     "opacity": {
       "primary": 1,
@@ -254,6 +319,42 @@
       "fast": 120,
       "standard": 180,
       "slow": 280
+    },
+    "breakpoint": {
+      "sm": 640,
+      "md": 768,
+      "lg": 1024,
+      "xl": 1280
+    },
+    "ease": {
+      "standard": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "decelerate": [
+        0,
+        0,
+        0.2,
+        1
+      ],
+      "accelerate": [
+        0.3,
+        0,
+        1,
+        1
+      ]
+    },
+    "density": {
+      "compact": 0.875,
+      "comfortable": 1.125
+    },
+    "blur": {
+      "sm": 4,
+      "md": 12,
+      "lg": 16,
+      "xl": 24
     }
   },
   "fonts": {
@@ -629,6 +730,12 @@
       "root": [
         {
           "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "style": {
             "height": "$control.buttonMd",
             "paddingHorizontal": "$spacing.lg",
             "gap": "$spacing.sm",
@@ -845,6 +952,12 @@
       "root": [
         {
           "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "style": {
             "height": "$control.toggle",
             "paddingHorizontal": "$spacing.md",
             "gap": "$spacing.sm",
@@ -1034,6 +1147,12 @@
       "tab": [
         {
           "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "style": {
             "height": "$control.buttonSm",
             "paddingHorizontal": "$spacing.md",
             "borderRadius": "$radius.sm",
@@ -1122,6 +1241,14 @@
             "paddingVertical": "$spacing.md",
             "fontSize": "$type.size.sm",
             "color": "$color.foreground"
+          }
+        }
+      ],
+      "count": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "fontWeight": "$type.weight.regular"
           }
         }
       ]
@@ -1301,6 +1428,50 @@
       ]
     },
     "DropdownMenu": {
+      "trigger": [
+        {
+          "style": {
+            "height": "$control.buttonMd",
+            "paddingHorizontal": "$spacing.md",
+            "gap": "$spacing.xs",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "fontFamily": "$type.family.sans",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "open"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        }
+      ],
       "content": [
         {
           "style": {
@@ -1368,6 +1539,34 @@
             "fontSize": "$type.size.sm",
             "fontWeight": "$type.weight.medium",
             "color": "$color.foreground"
+          }
+        }
+      ],
+      "shortcut": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground",
+            "letterSpacing": 1
+          }
+        }
+      ],
+      "check": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "submenuIndicator": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
+            "color": "$color.mutedForeground"
           }
         }
       ]
@@ -1552,6 +1751,14 @@
           "style": {
             "opacity": "$opacity.disabled"
           }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
         }
       ],
       "label": [
@@ -1623,6 +1830,14 @@
           },
           "style": {
             "opacity": "$opacity.disabled"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
           }
         }
       ],
@@ -1799,6 +2014,12 @@
       "track": [
         {
           "style": {
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "style": {
             "width": 32,
             "height": "$control.switch",
             "borderRadius": "$radius.full",
@@ -1833,6 +2054,12 @@
         }
       ],
       "thumb": [
+        {
+          "style": {
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
         {
           "style": {
             "width": 16,
@@ -1961,6 +2188,14 @@
           "style": {
             "opacity": "$opacity.disabled"
           }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
         }
       ],
       "label": [
@@ -2040,6 +2275,27 @@
             "color": "$color.foreground"
           }
         }
+      ],
+      "search": [
+        {
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.sm",
+            "fontSize": "$type.size.sm",
+            "color": "$color.foreground",
+            "borderBottomWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "empty": [
+        {
+          "style": {
+            "padding": "$spacing.sm",
+            "fontSize": "$type.size.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
       ]
     },
     "DatePicker": {
@@ -2073,6 +2329,14 @@
           },
           "style": {
             "opacity": "$opacity.disabled"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
           }
         }
       ],
@@ -2217,9 +2481,150 @@
             "backgroundColor": "$color.border"
           }
         }
+      ],
+      "section": [
+        {
+          "style": {
+            "height": "$control.rowCompact",
+            "paddingHorizontal": "$spacing.sm",
+            "backgroundColor": "$color.background",
+            "color": "$color.mutedForeground",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "Resizable": {
+      "handle": [
+        {
+          "style": {
+            "backgroundColor": "$color.border",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "pressed"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        }
+      ],
+      "grip": [
+        {
+          "style": {
+            "width": 6,
+            "height": 24,
+            "borderRadius": "$radius.full",
+            "backgroundColor": "$color.border",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.background"
+          }
+        },
+        {
+          "when": {
+            "direction": "vertical"
+          },
+          "style": {
+            "width": 24,
+            "height": 6
+          }
+        }
       ]
     },
     "Carousel": {
+      "root": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "controls": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "previous": [
+        {
+          "style": {
+            "width": 28,
+            "height": 28,
+            "borderRadius": "$radius.full",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "next": [
+        {
+          "style": {
+            "width": 28,
+            "height": 28,
+            "borderRadius": "$radius.full",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
       "indicator": [
         {
           "style": {
@@ -2235,6 +2640,26 @@
           },
           "style": {
             "backgroundColor": "$color.primary"
+          }
+        }
+      ]
+    },
+    "AudioPlayer": {
+      "controls": [
+        {
+          "style": {
+            "height": "$control.row"
+          }
+        }
+      ],
+      "track": [
+        {
+          "style": {
+            "fontFamily": "$type.family.sans",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
           }
         }
       ]
@@ -2286,6 +2711,26 @@
             "boxShadow": "$shadow.md",
             "padding": "$spacing.sm",
             "fontSize": "$type.size.xs"
+          }
+        }
+      ],
+      "title": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.semibold",
+            "color": "$color.foreground",
+            "fontFamily": "$type.family.sans"
+          }
+        }
+      ],
+      "valueLabel": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "color": "$color.foreground",
+            "fontFamily": "$type.family.sans"
           }
         }
       ]
@@ -2571,6 +3016,12 @@
     },
     "Pill": {
       "root": [
+        {
+          "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
         {
           "style": {
             "backgroundColor": "$color.background",
@@ -2895,6 +3346,12 @@
     "ListRow": {
       "root": [
         {
+          "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
           "when": {
             "state": "hover"
           },
@@ -2933,6 +3390,12 @@
     },
     "NavRow": {
       "root": [
+        {
+          "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
         {
           "when": {
             "state": "hover"
@@ -2999,20 +3462,132 @@
       ]
     },
     "Table": {
+      "root": [
+        {
+          "style": {
+            "fontFamily": "$type.family.sans",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "caption": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "color": "$color.mutedForeground",
+            "paddingVertical": "$spacing.sm"
+          }
+        }
+      ],
       "header": [
         {
           "style": {
+            "color": "$color.mutedForeground",
+            "borderBottomWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "stickyHeader": true
+          },
+          "style": {
+            "backgroundColor": "$color.background"
+          }
+        }
+      ],
+      "headerCell": [
+        {
+          "style": {
+            "height": "$control.row",
+            "paddingHorizontal": "$spacing.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "sortIcon": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
             "color": "$color.mutedForeground"
           }
         }
       ],
       "row": [
         {
+          "style": {
+            "borderBottomWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "striped": true
+          },
+          "style": {
+            "backgroundColor": "$color.muted"
+          }
+        },
+        {
           "when": {
             "state": "hover"
           },
           "style": {
             "backgroundColor": "$color.muted"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "cell": [
+        {
+          "style": {
+            "height": "$control.row",
+            "paddingHorizontal": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "density": "compact"
+          },
+          "style": {
+            "height": "$control.rowCompact"
+          }
+        }
+      ],
+      "checkbox": [
+        {
+          "style": {
+            "width": "$control.checkbox",
+            "height": "$control.checkbox"
+          }
+        }
+      ],
+      "empty": [
+        {
+          "style": {
+            "padding": "$spacing.xl",
+            "color": "$color.mutedForeground"
           }
         }
       ]
@@ -3031,6 +3606,1440 @@
       ]
     },
     "Box": {
+      "root": []
+    },
+    "ContextMenu": {
+      "content": [
+        {
+          "style": {
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.md",
+            "padding": "$spacing.xs"
+          }
+        }
+      ],
+      "item": [
+        {
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.sm",
+            "borderRadius": "$radius.sm",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.popoverForeground",
+            "gap": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "separator": [
+        {
+          "style": {
+            "height": "$control.hairline",
+            "backgroundColor": "$color.border"
+          }
+        }
+      ],
+      "label": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.sm",
+            "fontSize": "$type.size.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "shortcut": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground",
+            "letterSpacing": 1
+          }
+        }
+      ],
+      "check": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "submenuIndicator": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Toast": {
+      "root": [
+        {
+          "style": {
+            "minHeight": "$control.toast",
+            "padding": "$spacing.md",
+            "gap": "$spacing.sm",
+            "borderRadius": "$radius.lg",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "boxShadow": "$shadow.xl",
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.decelerate"
+          }
+        },
+        {
+          "when": {
+            "type": "error"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "style": {
+            "width": "$control.iconMd",
+            "height": "$control.iconMd",
+            "color": "$color.info"
+          }
+        },
+        {
+          "when": {
+            "type": "success"
+          },
+          "style": {
+            "color": "$color.success"
+          }
+        },
+        {
+          "when": {
+            "type": "warning"
+          },
+          "style": {
+            "color": "$color.warning"
+          }
+        },
+        {
+          "when": {
+            "type": "error"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ],
+      "title": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.semibold",
+            "fontFamily": "$type.family.sans"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "action": [
+        {
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.sm",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "fontSize": "$type.size.xs",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "close": [
+        {
+          "style": {
+            "width": "$control.buttonIcon",
+            "height": "$control.buttonIcon",
+            "borderRadius": "$radius.sm",
+            "color": "$color.mutedForeground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        }
+      ]
+    },
+    "CodeBlock": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.muted",
+            "color": "$color.foreground",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.sm"
+          }
+        }
+      ],
+      "header": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.md",
+            "paddingVertical": "$spacing.xs",
+            "gap": "$spacing.sm",
+            "borderBottomWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "title": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "color": "$color.mutedForeground",
+            "fontFamily": "$type.family.sans"
+          }
+        }
+      ],
+      "copy": [
+        {
+          "style": {
+            "width": "$control.buttonIcon",
+            "height": "$control.buttonIcon",
+            "borderRadius": "$radius.sm",
+            "color": "$color.mutedForeground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        }
+      ],
+      "gutter": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "line": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.md"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "lineNumber": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "opacity": "$opacity.secondary"
+          }
+        }
+      ],
+      "token": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "kind": "keyword"
+          },
+          "style": {
+            "color": "$color.chart6",
+            "fontWeight": "$type.weight.medium"
+          }
+        },
+        {
+          "when": {
+            "kind": "string"
+          },
+          "style": {
+            "color": "$color.success"
+          }
+        },
+        {
+          "when": {
+            "kind": "number"
+          },
+          "style": {
+            "color": "$color.warning"
+          }
+        },
+        {
+          "when": {
+            "kind": "comment"
+          },
+          "style": {
+            "color": "$color.mutedForeground",
+            "fontStyle": "italic"
+          }
+        },
+        {
+          "when": {
+            "kind": "type"
+          },
+          "style": {
+            "color": "$color.info"
+          }
+        },
+        {
+          "when": {
+            "kind": "function"
+          },
+          "style": {
+            "color": "$color.chart7"
+          }
+        },
+        {
+          "when": {
+            "kind": [
+              "property",
+              "attribute"
+            ]
+          },
+          "style": {
+            "color": "$color.chart8"
+          }
+        },
+        {
+          "when": {
+            "kind": "tag"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "kind": [
+              "operator",
+              "punctuation"
+            ]
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Form": {
+      "root": [
+        {
+          "style": {
+            "gap": "$spacing.lg"
+          }
+        },
+        {
+          "when": {
+            "disabled": true
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "summary": [
+        {
+          "style": {
+            "padding": "$spacing.md",
+            "gap": "$spacing.xs",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.destructive",
+            "color": "$color.destructive",
+            "fontSize": "$type.size.sm"
+          }
+        }
+      ]
+    },
+    "NumberField": {
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "field": [
+        {
+          "style": {
+            "height": "$control.input",
+            "paddingHorizontal": "$spacing.md",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontFamily": "$type.family.sans",
+            "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "decrement": [
+        {
+          "style": {
+            "width": "$control.buttonIcon",
+            "height": "$control.buttonIcon",
+            "borderRadius": "$radius.sm",
+            "color": "$color.mutedForeground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "increment": [
+        {
+          "style": {
+            "width": "$control.buttonIcon",
+            "height": "$control.buttonIcon",
+            "borderRadius": "$radius.sm",
+            "color": "$color.mutedForeground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "unit": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "ChipInput": {
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "field": [
+        {
+          "style": {
+            "paddingHorizontal": "$spacing.xs",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontFamily": "$type.family.sans",
+            "boxShadow": "$shadow.sm",
+            "minHeight": "$control.input",
+            "paddingVertical": "$spacing.xxs",
+            "gap": "$spacing.xs"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "chip": [
+        {
+          "style": {
+            "height": "$control.badge",
+            "paddingHorizontal": "$spacing.sm",
+            "gap": "$spacing.xxs",
+            "borderRadius": "$radius.full",
+            "backgroundColor": "$color.secondary",
+            "color": "$color.secondaryForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderWidth": "$border.thick",
+            "borderColor": "$color.ring"
+          }
+        }
+      ],
+      "chipLabel": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ],
+      "remove": [
+        {
+          "style": {
+            "width": "$control.iconSm",
+            "height": "$control.iconSm",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "DateRangePicker": {
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "trigger": [
+        {
+          "style": {
+            "height": "$control.input",
+            "paddingHorizontal": "$spacing.md",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontFamily": "$type.family.sans",
+            "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        }
+      ],
+      "calendar": [
+        {
+          "style": {
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.md",
+            "padding": "$spacing.md"
+          }
+        }
+      ],
+      "day": [
+        {
+          "style": {
+            "width": "$control.buttonSm",
+            "height": "$control.buttonSm",
+            "borderRadius": "$radius.md",
+            "fontSize": "$type.size.sm",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.primary",
+            "color": "$color.primaryForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "range": [
+        {
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        }
+      ]
+    },
+    "TimePicker": {
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "trigger": [
+        {
+          "style": {
+            "height": "$control.input",
+            "paddingHorizontal": "$spacing.md",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.input",
+            "backgroundColor": "$color.background",
+            "color": "$color.foreground",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontFamily": "$type.family.sans",
+            "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "placeholder": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "list": [
+        {
+          "style": {
+            "backgroundColor": "$color.popover",
+            "color": "$color.popoverForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "borderRadius": "$radius.md",
+            "boxShadow": "$shadow.md",
+            "padding": "$spacing.xs"
+          }
+        }
+      ],
+      "item": [
+        {
+          "style": {
+            "height": "$control.buttonSm",
+            "paddingHorizontal": "$spacing.sm",
+            "borderRadius": "$radius.sm",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.popoverForeground",
+            "gap": "$spacing.sm"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "selected"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ]
+    },
+    "FileUpload": {
+      "label": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "dropzone": [
+        {
+          "style": {
+            "padding": "$spacing.xl",
+            "gap": "$spacing.sm",
+            "borderRadius": "$radius.lg",
+            "borderWidth": "$border.hairline",
+            "borderStyle": "dashed",
+            "borderColor": "$color.input",
+            "backgroundColor": "#00000000",
+            "color": "$color.foreground",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.muted"
+          }
+        },
+        {
+          "when": {
+            "state": "dragover"
+          },
+          "style": {
+            "borderColor": "$color.ring",
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "borderColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "invalid"
+          },
+          "style": {
+            "borderColor": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "disabled": true
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "style": {
+            "width": "$control.iconLg",
+            "height": "$control.iconLg",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "hint": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "file": [
+        {
+          "style": {
+            "minHeight": "$control.row",
+            "paddingHorizontal": "$spacing.sm",
+            "gap": "$spacing.sm",
+            "borderRadius": "$radius.md",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "fileName": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "fileMeta": [
+        {
+          "style": {
+            "fontSize": "$type.size.xs",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "remove": [
+        {
+          "style": {
+            "width": "$control.buttonIcon",
+            "height": "$control.buttonIcon",
+            "borderRadius": "$radius.sm",
+            "color": "$color.mutedForeground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "error": [
+        {
+          "style": {
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "Image": {
+      "root": [
+        {
+          "style": {
+            "borderRadius": "$radius.none"
+          }
+        }
+      ],
+      "fallback": [
+        {
+          "style": {
+            "backgroundColor": "$color.muted",
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Kbd": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.muted",
+            "borderWidth": "$border.hairline",
+            "borderBottomWidth": "$border.thick",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "label": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "fontFamily": "$type.family.mono",
+            "fontSize": "$type.size.xs"
+          }
+        }
+      ]
+    },
+    "Label": {
+      "text": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        }
+      ],
+      "mark": [
+        {
+          "style": {
+            "color": "$color.destructive"
+          }
+        }
+      ]
+    },
+    "Breadcrumb": {
+      "separator": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "link": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "paddingHorizontal": "$spacing.none",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "color": "$color.foreground",
+            "textDecoration": "underline"
+          }
+        }
+      ],
+      "current": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        }
+      ]
+    },
+    "TabBar": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.background",
+            "borderTopWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "item": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "pressed"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "icon": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "color": "$color.primary"
+          }
+        }
+      ],
+      "label": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "selected": true
+          },
+          "style": {
+            "color": "$color.foreground",
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "AppBar": {
+      "root": [
+        {
+          "style": {
+            "backgroundColor": "$color.background",
+            "borderBottomWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        }
+      ],
+      "title": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        }
+      ]
+    },
+    "Sidebar": {
+      "sidebar": [
+        {
+          "style": {
+            "backgroundColor": "$color.muted",
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "side": "left"
+          },
+          "style": {
+            "borderRightWidth": "$border.hairline"
+          }
+        },
+        {
+          "when": {
+            "side": "right"
+          },
+          "style": {
+            "borderLeftWidth": "$border.hairline"
+          }
+        }
+      ]
+    },
+    "Collapsible": {
+      "trigger": [
+        {
+          "style": {
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "open": true
+          },
+          "style": {
+            "transform": "rotate(90deg)"
+          }
+        }
+      ],
+      "count": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Pagination": {
+      "label": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Stepper": {
+      "marker": [
+        {
+          "style": {
+            "backgroundColor": "$color.background",
+            "color": "$color.mutedForeground",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border",
+            "transition": "$motion.standard"
+          }
+        },
+        {
+          "when": {
+            "status": "current"
+          },
+          "style": {
+            "backgroundColor": "$color.primary",
+            "color": "$color.primaryForeground",
+            "borderColor": "$color.primary"
+          }
+        },
+        {
+          "when": {
+            "status": "done"
+          },
+          "style": {
+            "backgroundColor": "$color.primary",
+            "color": "$color.primaryForeground",
+            "borderColor": "$color.primary"
+          }
+        }
+      ],
+      "check": [
+        {
+          "style": {
+            "color": "$color.primaryForeground"
+          }
+        }
+      ],
+      "number": [
+        {
+          "style": {
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "status": "current"
+          },
+          "style": {
+            "color": "$color.primaryForeground"
+          }
+        }
+      ],
+      "label": [
+        {
+          "style": {
+            "color": "$color.foreground"
+          }
+        },
+        {
+          "when": {
+            "status": "upcoming"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "description": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ]
+    },
+    "Rating": {
+      "star": [
+        {
+          "style": {
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "transform": "scale(1.15)"
+          }
+        }
+      ],
+      "icon": [
+        {
+          "style": {
+            "color": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "filled": true
+          },
+          "style": {
+            "color": "$color.warning"
+          }
+        }
+      ]
+    },
+    "AlertDialog": {
+      "footer": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ]
+    },
+    "ScrollArea": {
       "root": []
     }
   }

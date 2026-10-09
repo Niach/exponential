@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@exp/site-shell": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exp/view-catalog": "workspace:*",
     "@remotion/cli": "4.0.484",

@@ -1,35 +1,23 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import at.exponential.ui.primitives.Segment
+import at.exponential.ui.primitives.SegmentedControl
+import at.exponential.ui.primitives.SegmentedStyle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -83,117 +71,66 @@ fun <T> GlassSegmentedControl(
     // [leadingIcon] it may be absent per segment. null = unchanged.
     leading: ((T) -> (@Composable () -> Unit)?)? = null,
 ) {
+    // SLOP-18 / VAPP-89: the strip is the SDK's `SegmentedControl`; this
+    // composable maps the glass chrome and the per-segment slots onto it.
+    // EXP-698: segments are SELECTABLE `Role.Tab`s (TalkBack reads "2 of 3,
+    // selected"), and a label never changes weight, only alpha.
     val capsule = GlassSegmentedControlDefaults.Shape
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (embedded) {
-                    Modifier
-                } else {
-                    Modifier
-                        .height(GlassSegmentedControlDefaults.Height)
-                        .clip(capsule)
-                        .background(GlassSegmentedControlDefaults.ContainerFill, capsule)
-                        .border(GlassTokens.Hairline, GlassSegmentedControlDefaults.Hairline, capsule)
-                        .padding(GlassSegmentedControlDefaults.ContainerPadding)
-                },
-            ),
-        horizontalArrangement = Arrangement.spacedBy(GlassSegmentedControlDefaults.SegmentSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        options.forEach { option ->
-            val active = option == selected
-            val tag = testTag?.invoke(option)
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .then(if (tag != null) Modifier.testTag(tag) else Modifier)
-                    .clip(capsule)
-                    .background(
-                        if (active) GlassSegmentedControlDefaults.ActiveFill else Color.Transparent,
-                        capsule,
-                    )
-                    // EXP-698: SELECTABLE, not merely clickable — the segment
-                    // is one of a set and says so (`Role.Tab` + a selected
-                    // state), which is both what TalkBack needs to announce
-                    // "2 of 3, selected" and what gives a capture suite a
-                    // segment it can address and assert on by role instead of
-                    // by a label that also matches rows elsewhere on the sheet.
-                    .selectable(
-                        selected = active,
-                        role = Role.Tab,
-                        onClick = { onSelect(option) },
-                    )
-                    // A STANDALONE strip has a fixed height, so its segments
-                    // fill it and pad nothing: 36 - 2x3 container inset - 2x6
-                    // segment padding left 18dp for a 20sp line and clipped
-                    // every label by ~2dp. An EMBEDDED strip has no height of
-                    // its own, so the padding is what gives it one.
-                    .then(
-                        if (embedded) {
-                            Modifier.padding(
-                                vertical = GlassSegmentedControlDefaults.SegmentVerticalPadding,
-                            )
-                        } else {
-                            Modifier.fillMaxHeight()
-                        },
-                    ),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val contentColor = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (active) 1f else TextEmphasis.Secondary,
-                )
-                if (leadingIcon != null) {
-                    CompositionLocalProvider(LocalContentColor provides contentColor) {
-                        leadingIcon(option)
+    val segments = options.map { option ->
+        val icon = leadingIcon
+        val lead = leading?.invoke(option)
+        val custom = labelContent?.invoke(option)
+        val trail = trailing?.invoke(option)
+        val count = badge(option)
+        Segment(
+            value = option,
+            label = label(option),
+            leading = if (icon != null || lead != null) {
+                { _: Color ->
+                    if (icon != null) {
+                        icon(option)
+                        Spacer(Modifier.width(6.dp))
                     }
-                    Spacer(Modifier.width(6.dp))
+                    lead?.invoke()
                 }
-                leading?.invoke(option)?.invoke()
-                val custom = labelContent?.invoke(option)
-                val spoken = description?.invoke(option)
-                if (custom != null) {
-                    val name = spoken ?: label(option)
-                    Row(
-                        modifier = Modifier.clearAndSetSemantics { contentDescription = name },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) { custom(contentColor) }
-                } else Text(
-                    label(option),
-                    style = textStyle ?: MaterialTheme.typography.labelLarge,
-                    // EXP-698: CONSTANT weight — only the alpha moves. A weight
-                    // swap re-measures the label, so the strip used to twitch
-                    // horizontally on every selection.
-                    fontWeight = GlassSegmentedControlDefaults.LabelWeight,
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = if (spoken != null) {
-                        Modifier.clearAndSetSemantics { contentDescription = spoken }
-                    } else {
-                        Modifier
-                    },
-                )
-                trailing?.invoke(option)?.invoke()
-                val count = badge(option)
-                if (count > 0) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        count.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = DesignTokens.Palette.PrimaryForeground,
-                        modifier = Modifier
-                            .clip(capsule)
-                            .background(BadgeFill, capsule)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
+            } else {
+                null
+            },
+            content = custom?.let { slot -> { color: Color -> slot(color) } },
+            trailing = if (trail != null || count > 0) {
+                { _: Color ->
+                    trail?.invoke()
+                    if (count > 0) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            count.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = DesignTokens.Palette.PrimaryForeground,
+                            modifier = Modifier
+                                .clip(capsule)
+                                .background(BadgeFill, capsule)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 }
-            }
-        }
+            } else {
+                null
+            },
+            contentDescription = description?.invoke(option),
+            testTag = testTag?.invoke(option),
+        )
     }
+    SegmentedControl(
+        segments = segments,
+        selection = selected,
+        onSelect = onSelect,
+        modifier = modifier,
+        style = GlassSegmentedControlDefaults.segmentedStyle(
+            embedded = embedded,
+            textStyle = textStyle ?: MaterialTheme.typography.labelLarge,
+        ),
+    )
 }
 
 /**
@@ -247,6 +184,32 @@ object GlassSegmentedControlDefaults {
      * SemiBold/Normal swap re-measures the text and shifted the strip.
      */
     val LabelWeight: FontWeight = FontWeight.Medium
+
+    /**
+     * The SDK style of the strip (VAPP-89): capsule track and segments, no
+     * segment padding (segments are equal-width and centre their content).
+     * A STANDALONE strip pins [Height] and its segments fill it (36 - 2x3
+     * inset; padding them too clipped every label by ~2dp); an [embedded]
+     * one has no track and takes its height from [SegmentVerticalPadding].
+     */
+    fun segmentedStyle(embedded: Boolean, textStyle: TextStyle): SegmentedStyle = SegmentedStyle(
+        height = Height,
+        trackFill = ContainerFill,
+        trackStroke = Hairline,
+        trackStrokeWidth = GlassTokens.Hairline,
+        segmentFill = ActiveFill,
+        label = DesignTokens.Palette.Foreground.copy(alpha = TextEmphasis.Secondary),
+        selectedLabel = DesignTokens.Palette.Foreground,
+        disabledLabel = DesignTokens.Palette.Foreground.copy(alpha = TextEmphasis.Quaternary),
+        inset = ContainerPadding,
+        horizontalPadding = 0.dp,
+        fontWeight = LabelWeight,
+        textStyle = textStyle,
+        capsule = true,
+        segmentVerticalPadding = if (embedded) SegmentVerticalPadding else null,
+        showsTrack = !embedded,
+        segmentSpacing = SegmentSpacing,
+    )
 
     /** Container and segments are both full capsules. */
     val Shape: RoundedCornerShape = RoundedCornerShape(percent = 50)

@@ -6,11 +6,14 @@
 //! (the spike's markdown estimate was 7 px short until it counted a gap per
 //! block). No HTML passthrough: tags are text.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::Range;
 use std::rc::Rc;
 
 use exponential_ui::theme::{Mode, ResolvedTheme};
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Font, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StrikethroughStyle, StyledText, TextRun, UnderlineStyle, Window,
+    div, prelude::*, px, AnyElement, App, Font, FontStyle, FontWeight, Hsla, InteractiveText, SharedString, StrikethroughStyle, StyledText, TextLayout, TextRun, UnderlineStyle, Window,
 };
 use serde_json::Map;
 
@@ -427,6 +430,17 @@ pub struct MdLayout {
     pub height: f32,
 }
 
+impl MdLayout {
+    /// The height shown under a `lines` clamp (`None` = all of it): the
+    /// first `n` body lines, like the web's `-webkit-line-clamp`.
+    pub fn clamped_height(&self, lines: Option<usize>, line_height: f32) -> f32 {
+        match lines {
+            Some(n) if n > 0 => self.height.min(n as f32 * line_height),
+            _ => self.height,
+        }
+    }
+}
+
 /// What the layout asks the text system: the height of `inlines` wrapped at
 /// `width` (`None` = one line per paragraph) and the width they take.
 pub trait MdText {
@@ -570,6 +584,87 @@ pub fn runs(inlines: &[Inline], family: &SharedString, mono: &SharedString, weig
 // Painting
 // ---------------------------------------------------------------------------
 
+/// The painted text units of every Markdown leaf (by node index), in
+/// document order: each unit's gpui text layout (hit-testing once painted)
+/// and its text. Selection and copy read it.
+pub type MdUnits = Rc<RefCell<HashMap<u32, Vec<(TextLayout, SharedString)>>>>;
+
+/// A text selection inside one Markdown leaf: `(unit, byte)` ends, in
+/// either order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MdSelection {
+    pub node: u32,
+    pub anchor: (usize, usize),
+    pub head: (usize, usize),
+}
+
+impl MdSelection {
+    /// `(start, end)` in document order.
+    pub fn ordered(&self) -> ((usize, usize), (usize, usize)) {
+        if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.anchor == self.head
+    }
+
+    /// The selected byte range of unit `u` whose text is `len` bytes long.
+    pub fn range_in(&self, u: usize, len: usize) -> Option<Range<usize>> {
+        let ((su, sb), (eu, eb)) = self.ordered();
+        if self.is_empty() || u < su || u > eu {
+            return None;
+        }
+        let start = if u == su { sb.min(len) } else { 0 };
+        let end = if u == eu { eb.min(len) } else { len };
+        (start < end).then_some(start..end)
+    }
+
+    /// The selected text (units joined by line feeds).
+    pub fn text(&self, units: &[(TextLayout, SharedString)]) -> String {
+        let mut out: Vec<&str> = Vec::new();
+        for (u, (_, text)) in units.iter().enumerate() {
+            if let Some(r) = self.range_in(u, text.len()) {
+                let (a, b) = (floor_char(text, r.start), floor_char(text, r.end));
+                out.push(&text[a..b]);
+            }
+        }
+        out.join("\n")
+    }
+}
+
+/// The nearest char boundary at or before `i`.
+fn floor_char(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Runs with `range` painted on the selection background (runs split at
+/// its ends).
+pub fn highlight(runs: Vec<TextRun>, range: Option<Range<usize>>, bg: Hsla) -> Vec<TextRun> {
+    let Some(range) = range else { return runs };
+    let mut out = Vec::with_capacity(runs.len() + 2);
+    let mut at = 0;
+    for run in runs {
+        let (start, end) = (at, at + run.len);
+        at = end;
+        let cuts = [start, range.start.clamp(start, end), range.end.clamp(start, end), end];
+        for w in cuts.windows(2) {
+            if w[1] > w[0] {
+                let selected = w[0] >= range.start && w[1] <= range.end;
+                out.push(TextRun { len: w[1] - w[0], background_color: if selected { Some(bg) } else { run.background_color }, ..run.clone() });
+            }
+        }
+    }
+    out
+}
+
 /// Everything the block painter needs besides the blocks.
 pub struct MdPaint {
     pub styles: MdStyles,
@@ -580,7 +675,14 @@ pub struct MdPaint {
     pub muted: Hsla,
     pub border: Hsla,
     pub code_block_bg: Option<Hsla>,
+    /// Right-to-left: list markers and the quote bar sit on the right.
+    pub rtl: bool,
     pub on_link: LinkHandler,
+    /// The leaf's node index, the unit registry, the selection to paint.
+    pub node: u32,
+    pub units: Option<MdUnits>,
+    pub selection: Option<MdSelection>,
+    pub selection_bg: Hsla,
 }
 
 /// What a markdown link press calls (the href).
@@ -599,6 +701,30 @@ impl MdPaint {
     }
 }
 
+/// A selectable text unit: registered in [`MdUnits`], the selection
+/// highlighted in its runs, link ranges pressable.
+fn unit_text(id: SharedString, text: SharedString, runs: Vec<TextRun>, links: Vec<(Range<usize>, String)>, p: &MdPaint) -> AnyElement {
+    let unit = p.units.as_ref().map(|u| u.borrow().get(&p.node).map_or(0, Vec::len)).unwrap_or(0);
+    let range = p.selection.filter(|s| s.node == p.node).and_then(|s| s.range_in(unit, text.len()));
+    let styled = StyledText::new(text.clone()).with_runs(highlight(runs, range, p.selection_bg));
+    if let Some(units) = &p.units {
+        units.borrow_mut().entry(p.node).or_default().push((styled.layout().clone(), text));
+    }
+    if links.is_empty() {
+        styled.into_any_element()
+    } else {
+        let on_link = p.on_link.clone();
+        let hrefs: Vec<String> = links.iter().map(|(_, h)| h.clone()).collect();
+        InteractiveText::new(id, styled)
+            .on_click(links.into_iter().map(|(r, _)| r).collect(), move |ix, window, cx| {
+                if let Some(h) = hrefs.get(ix) {
+                    on_link(h, window, cx)
+                }
+            })
+            .into_any_element()
+    }
+}
+
 fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &SharedString, p: &MdPaint, colors: RunColors) -> AnyElement {
     let (text, runs) = runs(inlines, family, &p.mono, spec.weight, colors);
     let links: Vec<(std::ops::Range<usize>, String)> = {
@@ -612,57 +738,59 @@ fn text_block(id: SharedString, inlines: &[Inline], spec: &TextSpec, family: &Sh
         }
         out
     };
-    let styled = StyledText::new(text).with_runs(runs);
-    let body: AnyElement = if links.is_empty() {
-        styled.into_any_element()
-    } else {
-        let on_link = p.on_link.clone();
-        let hrefs: Vec<String> = links.iter().map(|(_, h)| h.clone()).collect();
-        InteractiveText::new(id, styled)
-            .on_click(links.into_iter().map(|(r, _)| r).collect(), move |ix, window, cx| {
-                if let Some(h) = hrefs.get(ix) {
-                    on_link(h, window, cx)
-                }
-            })
-            .into_any_element()
-    };
+    let body = unit_text(id, text, runs, links, p);
     div().w_full().text_size(px(spec.size)).line_height(px(spec.line_height)).child(body).into_any_element()
+}
+
+/// The left edge of table column `c` of `cols` (mirrored in RTL: column 0
+/// at the right, like an HTML table under `dir=rtl`).
+pub fn table_cell_left(c: usize, cols: usize, col_w: f32, rtl: bool) -> f32 {
+    let visual = if rtl { cols.saturating_sub(1).saturating_sub(c) } else { c };
+    visual as f32 * col_w
 }
 
 /// Paint `blocks` laid out at `width` (`lay` from [`layout`] at that width).
 pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint) -> AnyElement {
     let s = &p.styles;
+    if let Some(units) = &p.units {
+        units.borrow_mut().insert(p.node, Vec::new());
+    }
     let mut root = div().relative().w(px(width)).h(px(lay.height));
     for (i, (b, bx)) in blocks.iter().zip(&lay.blocks).enumerate() {
         let bid: SharedString = format!("{id}.md{i}").into();
         let placed = div().absolute().left_0().top(px(bx.y)).w(px(width)).h(px(bx.height));
         let el: AnyElement = match &b.kind {
-            BlockKind::Paragraph => placed.child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
-            BlockKind::Heading(_) => placed.child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
+            BlockKind::Paragraph => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)).into_any_element(),
+            BlockKind::Heading(_) => placed.when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.heading, &p.heading_family, p, p.colors)).into_any_element(),
             BlockKind::ListItem { marker, task } => {
                 let marker = match task {
                     Some(true) => "☑".to_string(),
                     Some(false) => "☐".to_string(),
                     None => marker.clone(),
                 };
+                let (marker_x, body_x) = if p.rtl { (width - s.list_indent, 0.0) } else { (0.0, s.list_indent) };
                 placed
-                    .child(div().absolute().left_0().top_0().w(px(s.list_indent)).text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).child(SharedString::from(marker)))
-                    .child(div().absolute().left(px(s.list_indent)).top_0().w(px((width - s.list_indent).max(1.0))).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
+                    .child(div().absolute().left(px(marker_x)).top_0().w(px(s.list_indent)).text_size(px(s.body.size)).line_height(px(s.body.line_height)).text_color(p.colors.ink).when(p.rtl, |d| d.text_right()).child(SharedString::from(marker)))
+                    .child(div().absolute().left(px(body_x)).top_0().w(px((width - s.list_indent).max(1.0))).when(p.rtl, |d| d.text_right()).child(text_block(bid, &b.inlines, &s.body, &p.family, p, p.colors)))
                     .into_any_element()
             }
             BlockKind::Quote => placed
-                .child(div().absolute().left_0().top_0().h_full().w(px(s.quote_border)).bg(p.border))
+                .child(div().absolute().left(px(if p.rtl { width - s.quote_border } else { 0.0 })).top_0().h_full().w(px(s.quote_border)).bg(p.border))
                 .child(
                     div()
                         .absolute()
-                        .left(px(s.quote_border + s.quote_pad))
+                        .left(px(if p.rtl { 0.0 } else { s.quote_border + s.quote_pad }))
+                        .when(p.rtl, |d| d.text_right())
                         .top_0()
                         .w(px((width - s.quote_border - s.quote_pad).max(1.0)))
                         .child(text_block(bid, &b.inlines, &s.body, &p.family, p, RunColors { ink: p.muted, ..p.colors })),
                 )
                 .into_any_element(),
             BlockKind::CodeBlock => {
-                let text = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default();
+                let text: SharedString = b.inlines.first().map(|i| i.text.clone()).unwrap_or_default().into();
+                let font = Font { family: p.mono.clone(), features: Default::default(), fallbacks: None, weight: FontWeight(s.code.weight as f32), style: FontStyle::Normal };
+                let run = TextRun { len: text.len(), font, color: p.colors.ink, background_color: None, underline: None, strikethrough: None };
+                let runs = if text.is_empty() { Vec::new() } else { vec![run] };
                 placed
                     .rounded(px(6.0))
                     .when_some(p.code_block_bg, |d, bg| d.bg(bg))
@@ -672,12 +800,10 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                             .absolute()
                             .left(px(s.code_pad))
                             .top(px(s.code_pad))
-                            .font_family(p.mono.clone())
                             .text_size(px(s.code.size))
                             .line_height(px(s.code.line_height))
-                            .text_color(p.colors.ink)
                             .whitespace_nowrap()
-                            .children(text.split('\n').map(|l| div().h(px(s.code.line_height)).child(SharedString::from(l.to_string())))),
+                            .child(unit_text(bid, text, runs, Vec::new(), p)),
                     )
                     .into_any_element()
             }
@@ -693,21 +819,25 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
                         let cell = row.get(c).cloned().unwrap_or_default();
                         let weight = if r == 0 { s.body.weight.max(600) } else { s.body.weight };
                         let spec = TextSpec { weight, ..s.body.clone() };
+                        // RTL: column 0 sits at the right, the separator on
+                        // the cell's right side, the text right-aligned.
                         table = table.child(
                             div()
                                 .absolute()
-                                .left(px(c as f32 * col_w))
+                                .left(px(table_cell_left(c, cols, col_w, p.rtl)))
                                 .top(px(y))
                                 .w(px(col_w))
                                 .h(px(h))
                                 .when(r > 0, |d| d.border_t_1().border_color(p.border))
-                                .when(c > 0, |d| d.border_l_1().border_color(p.border))
+                                .when(c > 0 && !p.rtl, |d| d.border_l_1().border_color(p.border))
+                                .when(c > 0 && p.rtl, |d| d.border_r_1().border_color(p.border))
                                 .child(
                                     div()
                                         .absolute()
                                         .left(px(s.cell_pad_h))
                                         .top(px(s.cell_pad_v))
                                         .w(px((col_w - 2.0 * s.cell_pad_h).max(1.0)))
+                                        .when(p.rtl, |d| d.text_right())
                                         .child(text_block(format!("{bid}.{r}.{c}").into(), &cell, &spec, &p.family, p, p.colors)),
                                 ),
                         );
@@ -725,6 +855,13 @@ pub fn paint(id: &str, blocks: &[Block], lay: &MdLayout, width: f32, p: &MdPaint
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn table_columns_mirror_in_rtl() {
+        assert_eq!((0..3).map(|c| table_cell_left(c, 3, 100.0, false)).collect::<Vec<_>>(), [0.0, 100.0, 200.0]);
+        assert_eq!((0..3).map(|c| table_cell_left(c, 3, 100.0, true)).collect::<Vec<_>>(), [200.0, 100.0, 0.0], "column 0 = the right edge");
+        assert_eq!(table_cell_left(0, 1, 80.0, true), 0.0);
+    }
 
     /// 8 px per character, the core's fixed measure, wrapping greedily.
     struct Fixed;
@@ -750,6 +887,22 @@ mod tests {
 
     fn body() -> TextSpec {
         TextSpec { size: 14.0, line_height: 20.0, weight: 400, family: None }
+    }
+
+    #[test]
+    fn selections_cover_units_in_document_order() {
+        let sel = MdSelection { node: 1, anchor: (2, 3), head: (0, 4) };
+        assert_eq!(sel.ordered(), ((0, 4), (2, 3)));
+        assert_eq!(sel.range_in(0, 10), Some(4..10));
+        assert_eq!(sel.range_in(1, 6), Some(0..6));
+        assert_eq!(sel.range_in(2, 10), Some(0..3));
+        assert_eq!(sel.range_in(3, 10), None);
+        let empty = MdSelection { node: 1, anchor: (1, 2), head: (1, 2) };
+        assert!(empty.is_empty() && empty.range_in(1, 5).is_none());
+        let font = Font { family: "x".into(), features: Default::default(), fallbacks: None, weight: FontWeight::NORMAL, style: FontStyle::Normal };
+        let run = |len| TextRun { len, font: font.clone(), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+        let out = highlight(vec![run(4), run(6)], Some(2..7), gpui::red());
+        assert_eq!(out.iter().map(|r| (r.len, r.background_color.is_some())).collect::<Vec<_>>(), vec![(2, false), (2, true), (3, true), (3, false)]);
     }
 
     #[test]

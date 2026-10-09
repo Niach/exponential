@@ -4,24 +4,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import at.exponential.ui.primitives.AvatarView
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.ui.theme.DesignTokens
@@ -82,38 +77,20 @@ fun InitialsAvatar(
 ) {
     val initials = remember(nameOrEmail) { initialsFor(nameOrEmail) }
     val hue = remember(userId) { userId?.let { DesignTokens.Avatar.Hues[avatarHueIndex(it)] } }
-    val fill = hue?.copy(alpha = 0.2f) ?: GlassTokens.RowFillActive
-    val fg = hue ?: Color.White
-    val fontSize = (size.value * 0.42f).sp
-    Box(
-        modifier = modifier
-            .size(size)
-            .background(fill, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            initials,
-            color = fg,
-            fontSize = fontSize,
-            // Centering the Box centers the LINE box, not the glyph: with the
-            // ambient line height (much taller than this font size) plus the
-            // legacy font padding, the initials sat visibly below the circle's
-            // middle (EXP-393 — it shipped in the store screenshots). Trim the
-            // line box to the glyph and the two centres coincide.
-            lineHeight = fontSize,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            style = LocalTextStyle.current.merge(
-                TextStyle(
-                    platformStyle = PlatformTextStyle(includeFontPadding = false),
-                    lineHeightStyle = LineHeightStyle(
-                        alignment = LineHeightStyle.Alignment.Center,
-                        trim = LineHeightStyle.Trim.Both,
-                    ),
-                ),
-            ),
-        )
-    }
+    // SLOP-18 / VAPP-89: drawn by the SDK's `AvatarView`, with the app's own
+    // initials and FNV hue rule passed in. Its letters sit on a line box
+    // trimmed to the glyph (the EXP-393 centring fix, now shared).
+    AvatarView(
+        name = nameOrEmail.orEmpty(),
+        modifier = modifier,
+        size = size,
+        fill = hue?.copy(alpha = 0.2f) ?: GlassTokens.RowFillActive,
+        ink = hue ?: Color.White,
+        fontSize = (size.value * 0.42f).sp,
+        initials = initials,
+        textStyle = LocalTextStyle.current,
+        contentDescription = null,
+    )
 }
 
 /**
@@ -190,30 +167,34 @@ fun TeamAvatar(
 ) {
     val initial = (team?.name?.firstOrNull()?.toString() ?: "?").uppercase()
     val url = team?.iconUrl?.takeIf { it.isNotBlank() }
-    val shape = RoundedCornerShape(size / 4)
-    Box(
-        modifier = modifier
-            .size(size)
-            // EXP-698 r5: the FULL primary, on every client — a white square
-            // with a black initial. At 70% it read as a washed-out chip next
-            // to the round, fully saturated user avatars beside it.
-            .background(MaterialTheme.colorScheme.primary, shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (url != null) {
-            AsyncImage(
-                model = url,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(size)
-                    .clip(shape),
-            )
-        } else {
-            Text(
-                initial,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimary,
-            )
-        }
-    }
+    // EXP-698 r5: the FULL primary, on every client — a white square with a
+    // black initial. Drawn by the SDK's `AvatarView` as a rounded square
+    // (VAPP-89); the icon image is its picture.
+    AvatarView(
+        name = team?.name.orEmpty(),
+        modifier = modifier,
+        size = size,
+        fill = MaterialTheme.colorScheme.primary,
+        ink = MaterialTheme.colorScheme.onPrimary,
+        fontSize = MaterialTheme.typography.labelMedium.fontSize,
+        initials = initial,
+        cornerRadius = size / 4,
+        textStyle = MaterialTheme.typography.labelMedium,
+        contentDescription = null,
+        picture = url?.let {
+            {
+                Box(
+                    Modifier
+                        .size(size)
+                        .background(MaterialTheme.colorScheme.primary),
+                ) {
+                    AsyncImage(
+                        model = it,
+                        contentDescription = null,
+                        modifier = Modifier.size(size),
+                    )
+                }
+            }
+        },
+    )
 }

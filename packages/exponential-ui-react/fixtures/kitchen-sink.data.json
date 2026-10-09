@@ -1,0 +1,30 @@
+{
+  "$comment": "Round 1: the data model the kitchen sink (@exponential-at/ui fixtures/kitchen-sink.json) renders against in the React harness and the app's kitchen-sink view: the template list's posts and every bound macro / native input (Collapsible open, Pagination page, TabBar value, Progress value, the Table selection, the Form fields, the Toast).",
+  "draft": { "title": "" },
+  "posts": [
+    { "id": "p1", "title": "Show HN: a tiny CRDT", "score": 412 },
+    { "id": "p2", "title": "Rust 2026 roadmap", "score": 288 },
+    { "id": "p3", "title": "Why SQLite keeps winning", "score": 97 }
+  ],
+  "ui": {
+    "teamName": "Platform team",
+    "advancedOpen": false,
+    "confirmOpen": false,
+    "discardOpen": false,
+    "filtersOpen": false,
+    "page": 2,
+    "saving": false,
+    "selectedMembers": ["alice"],
+    "showDone": true,
+    "sidebarCollapsed": false,
+    "tab": "issues",
+    "toastOpen": false,
+    "upload": 64
+  },
+  "form": {
+    "seats": 5,
+    "rating": 4,
+    "labels": ["bug", "ui"],
+    "digestAt": "09:00"
+  }
+}
